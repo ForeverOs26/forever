@@ -1,0 +1,3 @@
+CREATE POLICY "Public read access for project-images" ON storage.objects FOR SELECT TO anon, authenticated USING (bucket_id = 'project-images');
+CREATE POLICY "Public read access for project-documents" ON storage.objects FOR SELECT TO anon, authenticated USING (bucket_id = 'project-documents');
+CREATE POLICY "Public read access for developer-logos" ON storage.objects FOR SELECT TO anon, authenticated USING (bucket_id = 'developer-logos');
