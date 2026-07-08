@@ -4,11 +4,11 @@
   "project_name": "Coralina",
   "project_slug": "coralina",
   "developer": "SOURCE_PENDING",
-  "project_type": "SOURCE_PENDING",
+  "project_type": "Residential",
   "country": "SOURCE_PENDING",
-  "province": "SOURCE_PENDING",
-  "location": "SOURCE_PENDING",
-  "source_version": "coralina-intake-2026-07-08-source-pending",
+  "province": "Phuket",
+  "location": "Kamala",
+  "source_version": "coralina-rc2-2-extraction-2026-07-08",
   "created_at": "2026-07-08",
   "readiness_policy": {
     "required": [
@@ -24,7 +24,7 @@
       "videos",
       "documents"
     ],
-    "ready_for_import_rule": "ready_for_import may be true only after required source folders contain supported source files and extracted/brochure.json or extracted/price-list.json exists. SOURCE_PENDING manifest values must be replaced with source-backed facts before real import."
+    "ready_for_import_rule": "ready_for_import may be true only after required source folders contain supported source files, mandatory extracted datasets exist and pass validation, and SOURCE_PENDING manifest values are replaced with source-backed facts before real import."
   },
   "assets": [
     {
@@ -34,7 +34,7 @@
       "supported_extensions": [".pdf", ".jpg", ".jpeg", ".png", ".webp"],
       "multiple_files": true,
       "required": true,
-      "status": "missing"
+      "status": "present"
     },
     {
       "asset_type": "price-list",
@@ -43,7 +43,7 @@
       "supported_extensions": [".pdf", ".xlsx", ".xls", ".csv", ".jpg", ".jpeg", ".png"],
       "multiple_files": true,
       "required": true,
-      "status": "missing"
+      "status": "present"
     },
     {
       "asset_type": "masterplan",
@@ -52,7 +52,7 @@
       "supported_extensions": [".pdf", ".jpg", ".jpeg", ".png", ".webp"],
       "multiple_files": true,
       "required": false,
-      "status": "missing"
+      "status": "present"
     },
     {
       "asset_type": "unit-plans",
@@ -61,7 +61,7 @@
       "supported_extensions": [".pdf", ".jpg", ".jpeg", ".png", ".webp"],
       "multiple_files": true,
       "required": false,
-      "status": "missing"
+      "status": "present"
     },
     {
       "asset_type": "images",
@@ -70,7 +70,7 @@
       "supported_extensions": [".jpg", ".jpeg", ".png", ".webp"],
       "multiple_files": true,
       "required": false,
-      "status": "missing"
+      "status": "present"
     },
     {
       "asset_type": "videos",
@@ -79,7 +79,7 @@
       "supported_extensions": [".mp4", ".mov", ".webm", ".url", ".txt"],
       "multiple_files": true,
       "required": false,
-      "status": "missing"
+      "status": "present"
     },
     {
       "asset_type": "documents",
@@ -88,7 +88,7 @@
       "supported_extensions": [".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png"],
       "multiple_files": true,
       "required": false,
-      "status": "missing"
+      "status": "present"
     }
   ]
 }

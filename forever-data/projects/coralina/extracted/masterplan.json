@@ -1,0 +1,150 @@
+{
+  "project_slug": "coralina",
+  "source_type": "masterplan",
+  "files": [
+    {
+      "source_file": "forever-data/projects/coralina/source/masterplan/4. Master Plan__Coralina Master Plan.pdf",
+      "file_name": "4. Master Plan__Coralina Master Plan.pdf",
+      "category": "masterplan",
+      "extension": ".pdf",
+      "bytes": 158719911
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/masterplan/4. Master Plan__JPG__20251009_Coralina_Master Plan-01.jpg",
+      "file_name": "4. Master Plan__JPG__20251009_Coralina_Master Plan-01.jpg",
+      "category": "masterplan",
+      "extension": ".jpg",
+      "bytes": 281185
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/masterplan/4. Master Plan__JPG__20251009_Coralina_Master Plan-02.jpg",
+      "file_name": "4. Master Plan__JPG__20251009_Coralina_Master Plan-02.jpg",
+      "category": "masterplan",
+      "extension": ".jpg",
+      "bytes": 900672
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/masterplan/4. Master Plan__JPG__20251009_Coralina_Master Plan-03.jpg",
+      "file_name": "4. Master Plan__JPG__20251009_Coralina_Master Plan-03.jpg",
+      "category": "masterplan",
+      "extension": ".jpg",
+      "bytes": 803503
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/masterplan/4. Master Plan__JPG__20251009_Coralina_Master Plan-04.jpg",
+      "file_name": "4. Master Plan__JPG__20251009_Coralina_Master Plan-04.jpg",
+      "category": "masterplan",
+      "extension": ".jpg",
+      "bytes": 803848
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/masterplan/4. Master Plan__JPG__20251009_Coralina_Master Plan-05.jpg",
+      "file_name": "4. Master Plan__JPG__20251009_Coralina_Master Plan-05.jpg",
+      "category": "masterplan",
+      "extension": ".jpg",
+      "bytes": 799805
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/masterplan/4. Master Plan__JPG__20251009_Coralina_Master Plan-06.jpg",
+      "file_name": "4. Master Plan__JPG__20251009_Coralina_Master Plan-06.jpg",
+      "category": "masterplan",
+      "extension": ".jpg",
+      "bytes": 802732
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/masterplan/4. Master Plan__JPG__20251009_Coralina_Master Plan-07.jpg",
+      "file_name": "4. Master Plan__JPG__20251009_Coralina_Master Plan-07.jpg",
+      "category": "masterplan",
+      "extension": ".jpg",
+      "bytes": 801146
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/masterplan/4. Master Plan__JPG__20251009_Coralina_Master Plan-08.jpg",
+      "file_name": "4. Master Plan__JPG__20251009_Coralina_Master Plan-08.jpg",
+      "category": "masterplan",
+      "extension": ".jpg",
+      "bytes": 801351
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/masterplan/4. Master Plan__JPG__20251009_Coralina_Master Plan-09.jpg",
+      "file_name": "4. Master Plan__JPG__20251009_Coralina_Master Plan-09.jpg",
+      "category": "masterplan",
+      "extension": ".jpg",
+      "bytes": 732625
+    }
+  ],
+  "extracted_fields": {
+    "plan_date": {
+      "value": "2025-10-09",
+      "source_file": "forever-data/projects/coralina/source/masterplan/4. Master Plan__JPG__20251009_Coralina_Master Plan-01.jpg",
+      "page_number": null,
+      "sheet_name": null,
+      "confidence": "medium"
+    },
+    "building_labels": [
+      {
+        "value": "A",
+        "source_file": "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf",
+        "page_number": 2,
+        "sheet_name": null,
+        "confidence": "medium"
+      },
+      {
+        "value": "B",
+        "source_file": "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf",
+        "page_number": 2,
+        "sheet_name": null,
+        "confidence": "medium"
+      },
+      {
+        "value": "C",
+        "source_file": "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf",
+        "page_number": 2,
+        "sheet_name": null,
+        "confidence": "medium"
+      },
+      {
+        "value": "D",
+        "source_file": "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf",
+        "page_number": 2,
+        "sheet_name": null,
+        "confidence": "medium"
+      },
+      {
+        "value": "E",
+        "source_file": "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf",
+        "page_number": 2,
+        "sheet_name": null,
+        "confidence": "medium"
+      },
+      {
+        "value": "F",
+        "source_file": "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf",
+        "page_number": 2,
+        "sheet_name": null,
+        "confidence": "medium"
+      },
+      {
+        "value": "G",
+        "source_file": "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf",
+        "page_number": 2,
+        "sheet_name": null,
+        "confidence": "medium"
+      },
+      {
+        "value": "H",
+        "source_file": "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf",
+        "page_number": 2,
+        "sheet_name": null,
+        "confidence": "medium"
+      }
+    ],
+    "notes": {
+      "value": "Masterplan PDF and JPG pages are classified; detailed plan geometry was not machine-readable without OCR/visual review.",
+      "source_file": null,
+      "page_number": null,
+      "sheet_name": null,
+      "confidence": "none"
+    }
+  }
+}
