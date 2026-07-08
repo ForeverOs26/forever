@@ -8,8 +8,8 @@ export function Footer() {
         <div className="md:col-span-2">
           <div className="font-serif text-2xl">Forever</div>
           <p className="mt-3 max-w-sm text-sm text-primary-foreground/70">
-            An independent property advisory for Phuket. We represent buyers only — every
-            project inspected, every promotion verified, every number checked.
+            An independent property advisory for Phuket. We help buyers reduce uncertainty
+            with verified project data, structured analysis, and private advisory support.
           </p>
         </div>
         <div>
@@ -18,7 +18,7 @@ export function Footer() {
           </div>
           <ul className="space-y-2 text-sm">
             <li><Link to="/projects" className="hover:text-accent">Projects</Link></li>
-            <li><Link to="/offers" className="hover:text-accent">Special Offers</Link></li>
+            <li><Link to="/offers" className="hover:text-accent">Verified Offers</Link></li>
             <li><Link to="/areas" className="hover:text-accent">Areas</Link></li>
             <li><Link to="/reviews" className="hover:text-accent">Reviews</Link></li>
           </ul>
@@ -35,7 +35,7 @@ export function Footer() {
       </Container>
       <div className="border-t border-primary-foreground/10">
         <Container className="flex flex-col justify-between gap-2 py-6 text-xs text-primary-foreground/60 sm:flex-row">
-          <div>© {new Date().getFullYear()} Forever Property Advisory. All rights reserved.</div>
+          <div>© {new Date().getFullYear()} Forever. Forever Advisory, Phuket, Thailand.</div>
           <div>Independent. Buyer-side. Phuket.</div>
         </Container>
       </div>

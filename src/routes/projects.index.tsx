@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { SiteShell } from "@/components/SiteShell";
 import { Section } from "@/components/layout/Section";
-import { ProjectCard } from "@/components/ProjectCard";
+import { PremiumProjectCard } from "@/components/PremiumProjectCard";
 import { projectListQuery } from "@/lib/project-service";
 
 export const Route = createFileRoute("/projects/")({
@@ -25,11 +25,11 @@ function ProjectsPage() {
       <Section
         eyebrow="Portfolio"
         title="Every Forever project"
-        description="From skyline residences to vineyard estates, each project is designed with a hundred-year view."
+        description="Explore verified Phuket projects reviewed through the Forever decision framework."
       >
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {projects.map((p) => (
-            <ProjectCard key={p.slug} project={p} />
+            <PremiumProjectCard key={p.slug} project={p} />
           ))}
         </div>
       </Section>

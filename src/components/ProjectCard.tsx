@@ -26,7 +26,7 @@ export function ProjectCard({ project }: { project: Project }) {
           </Badge>
           <div className="inline-flex items-center gap-1 rounded-full bg-background/95 px-2.5 py-1 text-[11px] font-medium text-foreground">
             <ShieldCheck className="h-3 w-3 text-accent" />
-            Trust {project.trustScore.toFixed(1)}
+            Forever Score {project.trustScore.toFixed(1)}
           </div>
         </div>
         <div className="absolute bottom-4 left-4 right-4 text-primary-foreground">
@@ -42,21 +42,21 @@ export function ProjectCard({ project }: { project: Project }) {
           <div className="flex items-start gap-2">
             <CalendarCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
             <div>
-              <dt className="text-muted-foreground">Last inspection</dt>
+              <dt className="text-muted-foreground">Forever Inspection</dt>
               <dd className="text-foreground">{project.lastInspection}</dd>
             </div>
           </div>
           <div className="flex items-start gap-2">
             <BadgeCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
             <div>
-              <dt className="text-muted-foreground">Verified price</dt>
+              <dt className="text-muted-foreground">Forever Verified Price</dt>
               <dd className="text-foreground">{project.verifiedPrice}</dd>
             </div>
           </div>
           <div className="flex items-start gap-2">
             <Tag className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
             <div>
-              <dt className="text-muted-foreground">Current promotion</dt>
+              <dt className="text-muted-foreground">Verified Offer</dt>
               <dd className="text-foreground">{project.promotion}</dd>
             </div>
           </div>

@@ -7,10 +7,10 @@ import { offers } from "@/lib/data";
 export const Route = createFileRoute("/offers")({
   head: () => ({
     meta: [
-      { title: "Special Offers — Forever" },
-      { name: "description", content: "Time-limited private client packages across current Forever projects." },
-      { property: "og:title", content: "Special Offers — Forever" },
-      { property: "og:description", content: "Time-limited packages on current Forever residences." },
+      { title: "Verified Offers — Forever" },
+      { name: "description", content: "Verified private client offers across current Forever projects." },
+      { property: "og:title", content: "Verified Offers — Forever" },
+      { property: "og:description", content: "Verified offers on current Forever projects." },
     ],
   }),
   component: OffersPage,
@@ -21,8 +21,8 @@ function OffersPage() {
     <SiteShell>
       <Section
         eyebrow="This Season"
-        title="Private client offers"
-        description="Curated incentives on select residences. Available by appointment through our advisors."
+        title="Verified client offers"
+        description="Curated incentives on select projects, checked by Forever and available by appointment through our advisors."
       >
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {offers.map((o) => (

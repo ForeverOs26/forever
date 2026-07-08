@@ -77,21 +77,22 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Forever — Enduring Residences" },
+      { title: "Forever — Phuket Property Advisory" },
       {
         name: "description",
         content:
-          "Forever is a private developer of enduring residences — homes designed to outlast trends, in the world's most considered neighborhoods.",
+          "Forever is an independent Phuket property advisory platform that helps buyers reduce uncertainty with verified project data, structured analysis, and private advisory support.",
       },
-      { name: "author", content: "Forever Estates" },
-      { property: "og:title", content: "Forever — Enduring Residences" },
+      { name: "author", content: "Forever" },
+      { property: "og:title", content: "Forever — Phuket Property Advisory" },
       {
         property: "og:description",
-        content: "Private residences and estates in the world's most considered neighborhoods.",
+        content:
+          "Independent Phuket property advisory powered by verified project data and structured analysis.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@ForeverEstates" },
+      { name: "twitter:site", content: "@ForeverProperty" },
     ],
     links: [
       {

@@ -9,6 +9,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DiscoveryCard } from "@/components/DiscoveryCard";
+import {
+  discoveryAreaOptions,
+  discoveryBeachOptions,
+  discoveryCompletionOptions,
+  discoverySortOptions,
+  discoveryTypeOptions,
+  filterDiscoveryProjects,
+  type DiscoveryAreaFilter,
+  type DiscoveryBeachFilter,
+  type DiscoveryCompletionFilter,
+  type DiscoverySortOption,
+  type DiscoveryTypeFilter,
+} from "@/features/discovery/discovery-filters";
 import { projectListQuery } from "@/lib/project-service";
 import { cn } from "@/lib/utils";
 
@@ -19,13 +32,13 @@ export const Route = createFileRoute("/discovery")({
       {
         name: "description",
         content:
-          "A guided advisory experience to help you find the right Phuket property with Forever Verified, Forever Analysis and Forever Verdict.",
+          "A guided advisory experience to help you find the right Phuket property with Forever Verified, Forever Intelligence and Forever Verdict.",
       },
       { property: "og:title", content: "Forever Discovery — Guided Property Advisory" },
       {
         property: "og:description",
         content:
-          "Explore independently reviewed Phuket properties. Forever Verified, Forever Analysis, Forever Trust.",
+          "Explore independently reviewed Phuket properties. Forever Verified, Forever Intelligence, Forever Score.",
       },
     ],
   }),
@@ -77,19 +90,18 @@ function getIntentReason(intent: IntentId | null): string {
 
 type IntentId = (typeof intents)[number]["id"];
 
-const areasList = ["All areas", "Surin Beach", "Kamala", "Layan", "Bang Tao", "Kata Noi", "Rawai"];
-const typesList = ["All types", "Villa", "Residence", "Condominium"];
-const completionList = ["Any", "Ready", "2026", "2027+"];
-const beachList = ["Any distance", "Beachfront", "Under 500 m", "Under 1 km", "Under 2 km"];
-
 function DiscoveryPage() {
   const { data: projects } = useSuspenseQuery(projectListQuery());
   const [intent, setIntent] = useState<IntentId | null>(null);
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<DiscoverySortOption>(discoverySortOptions[0]);
   const [budget, setBudget] = useState("");
-  const [area, setArea] = useState(areasList[0]);
-  const [type, setType] = useState(typesList[0]);
-  const [completion, setCompletion] = useState(completionList[0]);
-  const [beach, setBeach] = useState(beachList[0]);
+  const [area, setArea] = useState<DiscoveryAreaFilter>(discoveryAreaOptions[0]);
+  const [type, setType] = useState<DiscoveryTypeFilter>(discoveryTypeOptions[0]);
+  const [completion, setCompletion] = useState<DiscoveryCompletionFilter>(
+    discoveryCompletionOptions[0],
+  );
+  const [beach, setBeach] = useState<DiscoveryBeachFilter>(discoveryBeachOptions[0]);
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [compare, setCompare] = useState<string[]>([]);
   const [shortlist, setShortlist] = useState<string[]>([]);
@@ -108,31 +120,35 @@ function DiscoveryPage() {
   };
 
   const filtered = useMemo(() => {
-    return projects.filter((p) => {
-      if (area !== areasList[0] && p.location !== area) return false;
-      // verifiedOnly: all projects are verified in mock; keep as pass-through
-      if (verifiedOnly && p.trustScore < 8.8) return false;
-      return true;
+    return filterDiscoveryProjects(projects, {
+      search,
+      sortBy,
+      budget,
+      area,
+      propertyType: type,
+      completionStatus: completion,
+      beachDistance: beach,
+      verifiedOnly,
     });
-  }, [area, verifiedOnly]);
+  }, [area, beach, budget, completion, projects, search, sortBy, type, verifiedOnly]);
 
   return (
     <SiteShell>
       {/* 1. Hero */}
-      <section className="border-b border-border/60 bg-secondary/40">
-        <Container className="py-24 sm:py-32">
+      <section className="border-b border-border bg-muted/20">
+        <Container className="py-20 sm:py-28">
           <div className="mx-auto max-w-3xl text-center">
-            <div className="mb-6 text-[11px] font-medium uppercase tracking-[0.35em] text-accent">
+            <div className="mb-5 text-xs font-medium uppercase tracking-[0.2em] text-accent">
               Forever Discovery
             </div>
             <h1 className="font-serif text-4xl leading-[1.05] tracking-tight text-foreground sm:text-5xl md:text-6xl">
               Find the right property, not just another listing.
             </h1>
-            <p className="mx-auto mt-8 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+            <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
               Explore independently reviewed Phuket properties with Forever Verified,
-              Forever Analysis and Forever Trust.
+              Forever Intelligence and Forever Score.
             </p>
-            <div className="mt-10">
+            <div className="mt-8">
               <Button asChild size="lg">
                 <a href="#intent">
                   Start Discovery <ArrowRight className="h-4 w-4" />
@@ -146,7 +162,7 @@ function DiscoveryPage() {
       {/* 2. Buyer Intent */}
       <Section
         id="intent"
-        eyebrow="Step 1"
+        eyebrow="Discovery"
         title="What are you looking for?"
         description="Tell us how you plan to use the property. We will tune the discovery accordingly."
       >
@@ -160,19 +176,19 @@ function DiscoveryPage() {
                 type="button"
                 onClick={() => setIntent(it.id)}
                 className={cn(
-                  "group flex h-full flex-col items-start gap-5 rounded-3xl border p-8 text-left transition-all",
+                  "group flex h-full flex-col items-start gap-4 rounded-lg border p-5 text-left transition-all",
                   active
-                    ? "border-accent/60 bg-accent/[0.04] shadow-[0_20px_50px_-30px_rgba(199,154,69,0.4)]"
-                    : "border-border/60 bg-card hover:-translate-y-0.5 hover:border-accent/30",
+                    ? "border-primary/40 bg-primary/5 shadow-sm"
+                    : "border-border bg-background hover:-translate-y-0.5 hover:border-primary/30",
                 )}
                 aria-pressed={active}
               >
                 <div
                   className={cn(
-                    "flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors",
+                    "flex h-10 w-10 items-center justify-center rounded-lg border transition-colors",
                     active
-                      ? "border-accent/40 bg-accent/10 text-accent"
-                      : "border-border/60 bg-secondary text-foreground/70 group-hover:text-accent",
+                      ? "border-primary/30 bg-primary/10 text-primary"
+                      : "border-border bg-muted/30 text-foreground/70 group-hover:text-primary",
                   )}
                 >
                   <Icon className="h-5 w-5" strokeWidth={1.6} />
@@ -192,9 +208,19 @@ function DiscoveryPage() {
       </Section>
 
       {/* 3. Smart Filters */}
-      <Section eyebrow="Step 2" title="Refine your discovery" className="pt-0">
-        <div className="rounded-3xl border border-border/60 bg-card p-6 sm:p-8">
+      <Section eyebrow="Refine" title="Refine your discovery" className="pt-0">
+        <div className="rounded-lg border border-border bg-background p-5 shadow-sm sm:p-6">
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <Field label="Search">
+              <Input
+                placeholder="Project, area, developer or type"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </Field>
+            <Field label="Sort">
+              <Select value={sortBy} onChange={setSortBy} options={discoverySortOptions} />
+            </Field>
             <Field label="Budget">
               <Input
                 placeholder="e.g. ฿30M"
@@ -203,16 +229,20 @@ function DiscoveryPage() {
               />
             </Field>
             <Field label="Area">
-              <Select value={area} onChange={setArea} options={areasList} />
+              <Select value={area} onChange={setArea} options={discoveryAreaOptions} />
             </Field>
             <Field label="Property Type">
-              <Select value={type} onChange={setType} options={typesList} />
+              <Select value={type} onChange={setType} options={discoveryTypeOptions} />
             </Field>
             <Field label="Completion">
-              <Select value={completion} onChange={setCompletion} options={completionList} />
+              <Select
+                value={completion}
+                onChange={setCompletion}
+                options={discoveryCompletionOptions}
+              />
             </Field>
             <Field label="Beach Distance">
-              <Select value={beach} onChange={setBeach} options={beachList} />
+              <Select value={beach} onChange={setBeach} options={discoveryBeachOptions} />
             </Field>
             <label className="flex cursor-pointer items-center gap-3 self-end rounded-md border border-border/60 bg-secondary/40 px-4 py-2.5">
               <Checkbox
@@ -228,7 +258,7 @@ function DiscoveryPage() {
 
       {/* 4. Property Cards */}
       <Section
-        eyebrow="Step 3"
+        eyebrow="Selected projects"
         title="Projects Selected For Your Goals"
         description={getIntentReason(intent)}
         className="pt-0"
@@ -236,26 +266,31 @@ function DiscoveryPage() {
         {filtered.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((p, i) => (
-              <DiscoveryCard
-                key={p.slug}
-                project={p}
-                inCompare={compare.includes(p.slug)}
-                inShortlist={shortlist.includes(p.slug)}
-                recommended={i < 3}
-                onToggleCompare={toggleCompare}
-                onToggleShortlist={toggleShortlist}
-              />
-            ))}
-          </div>
+          <>
+            <div className="mb-5 text-sm text-muted-foreground">
+              Showing {filtered.length} projects
+            </div>
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {filtered.map((p, i) => (
+                <DiscoveryCard
+                  key={p.slug}
+                  project={p}
+                  inCompare={compare.includes(p.slug)}
+                  inShortlist={shortlist.includes(p.slug)}
+                  recommended={i < 3}
+                  onToggleCompare={toggleCompare}
+                  onToggleShortlist={toggleShortlist}
+                />
+              ))}
+            </div>
+          </>
         )}
 
         {shortlist.length > 0 && (
-          <div className="mt-16 rounded-3xl border border-border/60 bg-secondary/30 p-8">
+          <div className="mt-16 rounded-lg border border-border bg-muted/20 p-6 sm:p-8">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
-                <div className="text-[10px] font-medium uppercase tracking-[0.25em] text-accent">
+                <div className="text-[10px] font-medium uppercase tracking-[0.2em] text-accent">
                   My Shortlist
                 </div>
                 <h3 className="mt-2 font-serif text-2xl tracking-tight text-foreground">
@@ -271,7 +306,7 @@ function DiscoveryPage() {
                   Clear
                 </Button>
                 <Button asChild size="sm">
-                  <Link to="/contact">Request Advisor Review</Link>
+                  <Link to="/contact">Request Private Advisory</Link>
                 </Button>
               </div>
             </div>
@@ -282,7 +317,7 @@ function DiscoveryPage() {
                 return (
                   <span
                     key={slug}
-                    className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5 text-xs text-foreground"
+                    className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground"
                   >
                     {p.name}
                     <button
@@ -302,20 +337,20 @@ function DiscoveryPage() {
       </Section>
 
       {/* 8. Final CTA */}
-      <section className="border-t border-border/60 bg-secondary/40">
-        <Container className="py-24 sm:py-32">
+      <section className="border-t border-border bg-muted/20">
+        <Container className="py-20 sm:py-28">
           <div className="mx-auto max-w-2xl text-center">
-            <div className="mb-6 text-[11px] font-medium uppercase tracking-[0.3em] text-accent">
+            <div className="mb-5 text-xs font-medium uppercase tracking-[0.2em] text-accent">
               Private Advisory
             </div>
             <h2 className="font-serif text-3xl leading-tight tracking-tight text-foreground sm:text-4xl md:text-5xl">
               Still not sure which project fits you?
             </h2>
-            <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+            <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
               Forever can prepare a private shortlist based on your goals, budget and risk
               profile.
             </p>
-            <div className="mt-10">
+            <div className="mt-8">
               <Button asChild size="lg">
                 <Link to="/contact">
                   Request Private Advisory <ArrowRight className="h-4 w-4" />
@@ -329,9 +364,9 @@ function DiscoveryPage() {
       {/* 5. Sticky Compare Bar */}
       {compare.length > 0 && (
         <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
-          <div className="pointer-events-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-4 rounded-2xl border border-border/60 bg-background/95 px-5 py-4 shadow-[0_20px_50px_-20px_rgba(30,30,30,0.25)] backdrop-blur">
+          <div className="pointer-events-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-background/95 px-5 py-4 shadow-[0_20px_50px_-20px_rgba(30,30,30,0.25)] backdrop-blur">
             <div>
-              <div className="text-[10px] font-medium uppercase tracking-[0.25em] text-accent">
+              <div className="text-[10px] font-medium uppercase tracking-[0.2em] text-accent">
                 Evaluate up to 3 projects side by side
               </div>
               <div className="mt-1 text-sm text-foreground">
@@ -348,8 +383,8 @@ function DiscoveryPage() {
               <Button variant="ghost" size="sm" onClick={() => setCompare([])}>
                 Clear
               </Button>
-              <Button size="sm" disabled={compare.length < 2}>
-                Compare Selected
+              <Button size="sm" disabled>
+                Compare Preview
               </Button>
             </div>
           </div>
@@ -370,19 +405,19 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Select({
+function Select<T extends string>({
   value,
   onChange,
   options,
 }: {
-  value: string;
-  onChange: (v: string) => void;
-  options: string[];
+  value: T;
+  onChange: (v: T) => void;
+  options: readonly T[];
 }) {
   return (
     <select
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(e) => onChange(e.target.value as T)}
       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
       {options.map((o) => (
@@ -396,9 +431,9 @@ function Select({
 
 function EmptyState() {
   return (
-    <div className="rounded-3xl border border-dashed border-border bg-card px-8 py-20 text-center">
+    <div className="rounded-lg border border-dashed border-border bg-background px-8 py-20 text-center">
       <h3 className="font-serif text-2xl tracking-tight text-foreground">
-        No verified selections match your criteria.
+        No projects match these filters yet.
       </h3>
       <p className="mx-auto mt-4 max-w-md text-sm text-muted-foreground">
         Adjust your preferences or ask a Forever advisor to prepare a tailored review.

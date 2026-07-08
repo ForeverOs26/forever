@@ -169,7 +169,7 @@ export function ContactForm({
         </p>
       )}
       <Button type="submit" size="lg" className="justify-self-start" disabled={submitting}>
-        {submitting ? "Submitting..." : "Request a private consultation"}
+        {submitting ? "Submitting..." : "Request Private Advisory"}
       </Button>
     </form>
   );

@@ -8,7 +8,7 @@ const nav = [
   { to: "/", label: "Home" },
   { to: "/discovery", label: "Discovery" },
   { to: "/projects", label: "Projects" },
-  { to: "/offers", label: "Special Offers" },
+  { to: "/offers", label: "Verified Offers" },
   { to: "/reviews", label: "Reviews" },
   { to: "/areas", label: "Areas" },
   { to: "/about", label: "About" },
@@ -22,7 +22,7 @@ export function Header() {
         <Link to="/" className="flex items-center gap-2">
           <span className="font-serif text-2xl tracking-tight text-foreground">Forever</span>
           <span className="hidden text-[10px] font-medium uppercase tracking-[0.25em] text-muted-foreground sm:inline">
-            Estates
+            Advisory
           </span>
         </Link>
 
@@ -42,7 +42,7 @@ export function Header() {
 
         <div className="hidden md:block">
           <Button asChild size="sm">
-            <Link to="/contact">Book Property Tour</Link>
+            <Link to="/contact">Request Private Advisory</Link>
           </Button>
         </div>
 
@@ -74,7 +74,7 @@ export function Header() {
               onClick={() => setOpen(false)}
               className="mt-2 rounded-md bg-primary px-3 py-2 text-center text-sm font-medium text-primary-foreground"
             >
-              Book Property Tour
+              Request Private Advisory
             </Link>
           </Container>
         </div>

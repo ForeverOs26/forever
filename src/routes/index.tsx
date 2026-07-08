@@ -4,7 +4,7 @@ import { ArrowRight, Play, BadgeCheck, LineChart, LifeBuoy, Search } from "lucid
 import { SiteShell } from "@/components/SiteShell";
 import { Container } from "@/components/layout/Container";
 import { Section } from "@/components/layout/Section";
-import { ProjectCard } from "@/components/ProjectCard";
+import { PremiumProjectCard } from "@/components/PremiumProjectCard";
 import { OfferCard } from "@/components/OfferCard";
 import { ReviewCard } from "@/components/ReviewCard";
 import { AreaCard } from "@/components/AreaCard";
@@ -41,19 +41,19 @@ function HomePage() {
         <Container className="flex min-h-[92vh] flex-col justify-end pb-20 pt-40 sm:pb-28 sm:pt-48">
           <div className="max-w-3xl text-primary-foreground">
             <div className="mb-6 text-[11px] font-medium uppercase tracking-[0.35em] text-primary-foreground/80">
-              Independent Phuket Property Advisory
+              Forever Decision Platform
             </div>
             <h1 className="font-serif text-5xl leading-[1.02] tracking-tight sm:text-6xl md:text-7xl">
-              Find Your Perfect Property in Phuket
+              Make Confident Real Estate Decisions in Phuket
             </h1>
             <p className="mt-8 max-w-xl text-base leading-relaxed text-primary-foreground/85 sm:text-lg">
-              Personally inspected projects. Verified developer promotions.
-              Independent investment analysis. We represent you — never the developer.
+              Forever combines verified project data, Forever Passport records, and
+              Forever Intelligence so buyers can understand a property before they act.
             </p>
             <div className="mt-10 flex flex-wrap gap-3">
               <Button asChild size="lg">
                 <Link to="/contact">
-                  Book Property Tour <ArrowRight className="h-4 w-4" />
+                  Request Private Advisory <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
               <Button
@@ -73,30 +73,30 @@ function HomePage() {
 
       {/* 2. Featured Projects */}
       <Section
-        eyebrow="Featured Projects"
-        title="Personally inspected residences"
-        description="A shortlist of Phuket projects our advisors have walked, measured, and independently priced — with verified promotions where available."
+        eyebrow="Verified Projects"
+        title="Start with projects that have been reviewed"
+        description="A focused shortlist of Phuket projects with inspection signals, Forever Score context, and decision-ready project records."
       >
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {featured.slice(0, 3).map((p) => (
-            <ProjectCard key={p.slug} project={p} />
+            <PremiumProjectCard key={p.slug} project={p} />
           ))}
         </div>
         <div className="mt-10">
           <Button asChild variant="ghost">
             <Link to="/projects">
-              View all projects <ArrowRight className="h-4 w-4" />
+              View Verified Projects <ArrowRight className="h-4 w-4" />
             </Link>
           </Button>
         </div>
       </Section>
 
-      {/* 3. Special Offers */}
+      {/* 3. Verified Offers */}
       <Section
         className="bg-secondary/60"
-        eyebrow="Verified Promotions"
-        title="Current developer promotions"
-        description="Every promotion below has been verified against the signed reservation contract by a Forever advisor. No brochure-only claims."
+        eyebrow="Verified Offers"
+        title="Offers with clearer context"
+        description="Each Verified Offer is presented as decision support, not pressure. Forever checks the terms so buyers can evaluate them calmly."
       >
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {offers.map((o) => (
@@ -107,9 +107,9 @@ function HomePage() {
 
       {/* 4. Latest Project Reviews */}
       <Section
-        eyebrow="Owner Reviews"
-        title="From buyers we've advised"
-        description="Unedited reviews from owners we walked through inspection, negotiation, handover, and rental setup."
+        eyebrow="Buyer Confidence"
+        title="What clients value about clearer decisions"
+        description="Real feedback from buyers who wanted inspection support, negotiation clarity, handover guidance, and rental setup without sales pressure."
       >
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {reviews.slice(0, 3).map((r) => (
@@ -128,9 +128,9 @@ function HomePage() {
       {/* 5. Explore Areas */}
       <Section
         className="bg-secondary/60"
-        eyebrow="Explore Areas"
-        title="Where to buy in Phuket"
-        description="Each coast has its own rhythm. Start with a neighborhood, then find the residence."
+        eyebrow="Phuket Expertise"
+        title="Understand the location before the listing"
+        description="Each Phuket area has different lifestyle, access, rental, and resale dynamics. Forever helps buyers understand the context first."
       >
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {areas.slice(0, 6).map((a) => (
@@ -140,18 +140,18 @@ function HomePage() {
       </Section>
 
       {/* 6. Investment Guide */}
-      <Section eyebrow="Investment Guide" title="Buying property in Phuket, clearly explained">
+      <Section eyebrow="Decision Guide" title="Real estate decisions, clearly explained">
         <div className="grid gap-10 lg:grid-cols-12">
           <div className="lg:col-span-5">
             <p className="text-base text-muted-foreground sm:text-lg">
               A concise, jargon-free guide to ownership structures, freehold and
-              leasehold, taxes, rental yields, and the steps from reservation to
-              handover.
+              leasehold, taxes, rental yields, due diligence, and the questions to ask
+              before choosing a project.
             </p>
             <div className="mt-8">
               <Button asChild>
                 <Link to="/about">
-                  Read the guide <ArrowRight className="h-4 w-4" />
+                  Read the Decision Guide <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
             </div>
@@ -176,31 +176,31 @@ function HomePage() {
       {/* 7. Why Forever */}
       <Section
         className="bg-secondary/60"
-        eyebrow="Why Trust Forever"
-        title="An advisor, not an agent"
-        description="We represent buyers only. No developer commissions steer our shortlist, our promotions, or our advice."
+        eyebrow="Why Forever"
+        title="Trust is built from evidence"
+        description="Forever is designed to reduce uncertainty with structured project records, independent analysis, and buyer-side guidance."
       >
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {[
             {
               icon: Search,
-              title: "Personally Inspected Projects",
-              body: "Every project on our shortlist has been walked, measured, and photographed by a Forever advisor — no desk-only listings.",
+              title: "Verified Project Records",
+              body: "Each selected project is organized around inspection signals, pricing context, documents, and the evidence buyers need to review.",
             },
             {
               icon: BadgeCheck,
-              title: "Verified Developer Promotions",
-              body: "We check each promotion against the signed reservation contract before publishing. Brochure claims never make it through.",
+              title: "Forever Passport",
+              body: "The Forever Passport gives each project a clear official record with score, verdict, verification dates, buyer fit, and risks.",
             },
             {
               icon: LineChart,
-              title: "Independent Investment Analysis",
-              body: "Honest yield modeling, resale benchmarks, and area comparisons — commissioned for you, not the developer.",
+              title: "Forever Intelligence",
+              body: "Forever Intelligence turns structured project data into explainable scores, strengths, risks, and buyer-fit guidance.",
             },
             {
               icon: LifeBuoy,
-              title: "End-to-End Buyer Support",
-              body: "Legal, tax, handover snagging, rental management, and resale — one advisor, from first viewing onward.",
+              title: "Private Advisory",
+              body: "A Forever advisor can help interpret the evidence, compare options, and decide what deserves your attention next.",
             },
           ].map(({ icon: Icon, title, body }) => (
             <div
@@ -218,17 +218,17 @@ function HomePage() {
       </Section>
 
       {/* 8. Contact */}
-      <Section eyebrow="Contact" title="Book a private property tour">
+      <Section eyebrow="Contact" title="Request Private Advisory">
         <div className="grid gap-12 lg:grid-cols-12">
           <div className="lg:col-span-5">
             <p className="text-base text-muted-foreground sm:text-lg">
-              Tell us what you're looking for. We'll send back a shortlist within
-              two business days — no mailing lists, no follow-up chains.
+              Tell us what you are trying to decide. We will prepare a focused advisory
+              response based on your goals, budget, and risk profile.
             </p>
             <dl className="mt-10 space-y-6 text-sm">
               <div>
                 <dt className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Office</dt>
-                <dd className="mt-1 text-foreground">Cherngtalay, Phuket 83110, Thailand</dd>
+                <dd className="mt-1 text-foreground">Cherng Talay, Phuket 83110, Thailand</dd>
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Email</dt>

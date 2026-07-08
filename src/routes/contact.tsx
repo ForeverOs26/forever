@@ -34,15 +34,15 @@ function ContactPage() {
               <ul className="mt-6 space-y-4 text-sm">
                 <li className="flex items-start gap-3">
                   <MapPin className="mt-0.5 h-4 w-4 text-accent" />
-                  <span>18 Willow Court, Suite 400<br />Downtown Ridge</span>
+                  <span>Forever Advisory, Phuket, Thailand</span>
                 </li>
                 <li className="flex items-start gap-3">
                   <Phone className="mt-0.5 h-4 w-4 text-accent" />
-                  <span>+1 (555) 010-0400</span>
+                  <span>WhatsApp available on request</span>
                 </li>
                 <li className="flex items-start gap-3">
                   <Mail className="mt-0.5 h-4 w-4 text-accent" />
-                  <span>private@forever-estates.com</span>
+                  <span>advisors@forever.property</span>
                 </li>
               </ul>
               <div className="mt-6 border-t border-border/60 pt-6 text-xs text-muted-foreground">

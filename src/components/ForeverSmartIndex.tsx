@@ -18,8 +18,8 @@ interface ForeverSmartIndexProps {
 const metricDetails = [
   {
     key: "trust" as const,
-    label: "Forever Trust Score",
-    shortLabel: "Trust",
+    label: "Forever Score",
+    shortLabel: "Score",
     description:
       "Overall quality and reliability rating based on site inspections, developer history, construction progress, and legal review.",
     max: 10,
