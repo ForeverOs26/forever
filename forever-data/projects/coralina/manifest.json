@@ -1,7 +1,7 @@
 {
   "manifest_format": "forever_project_import_manifest",
   "manifest_version": "1.2",
-  "project_name": "Coralina",
+  "project_name": "CORALINA KAMALA",
   "project_slug": "coralina",
   "developer": "SOURCE_PENDING",
   "project_type": "Residential",
@@ -10,6 +10,66 @@
   "location": "Kamala",
   "source_version": "coralina-rc2-2-extraction-2026-07-08",
   "created_at": "2026-07-08",
+  "metadata_evidence": {
+    "project_identity": {
+      "value": "CORALINA KAMALA",
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "page_number": 12,
+      "confidence": "high"
+    },
+    "location": {
+      "primary_location": {
+        "value": "KAMALA",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 1,
+        "confidence": "high"
+      },
+      "province": {
+        "value": "PHUKET",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 4,
+        "confidence": "high"
+      },
+      "area_detail": {
+        "value": "Kamala Beach / walk to the beach 430 m.",
+        "source_file": "forever-data/projects/coralina/source/documents/9. Map__CORALINA Map 2.jpeg",
+        "page_number": null,
+        "confidence": "high"
+      }
+    },
+    "project_type": {
+      "value": "Residential",
+      "source_file": "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf",
+      "page_number": 2,
+      "confidence": "medium"
+    },
+    "developer_review": {
+      "value": "SOURCE_PENDING",
+      "evidence_reviewed": [
+        "forever-data/projects/coralina/source/documents/1. Company Profile__The Title Company Profile.pdf",
+        "forever-data/projects/coralina/source/documents/9. Map__CORALINA Map 1.jpeg",
+        "forever-data/projects/coralina/source/documents/9. Map__CORALINA Map 2.jpeg"
+      ],
+      "reason": "Local sources show The Title branding plus AssetWise and Rhom Bho Property company-profile branding, but no Coralina-specific statement naming the developer."
+    },
+    "country_review": {
+      "value": "SOURCE_PENDING",
+      "evidence_reviewed": [
+        "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "forever-data/projects/coralina/source/documents/9. Map__CORALINA Map 1.jpeg",
+        "forever-data/projects/coralina/source/documents/9. Map__CORALINA Map 2.jpeg"
+      ],
+      "reason": "Local Coralina location sources identify Kamala and Phuket but do not explicitly state the country."
+    },
+    "coordinates_review": {
+      "value": null,
+      "reason": "No latitude, longitude, GPS, or coordinate values were found in the local extracted JSON or reviewed map sources."
+    },
+    "construction_status_review": {
+      "value": null,
+      "reason": "No Coralina-specific construction status or completion date was found in the local extracted JSON or reviewed source pages."
+    }
+  },
   "readiness_policy": {
     "required": [
       "brochure",
