@@ -1,94 +1,121 @@
 {
-    "project_slug":  "coralina",
-    "generated_at":  "2026-07-08",
-    "ready_for_import":  false,
-    "status":  "classified_not_ready_for_import",
-    "summary":  "Coralina raw source materials have been classified into the official source folders. Real import remains blocked until extracted JSON files are created and SOURCE_PENDING manifest fields are replaced with source-backed facts.",
-    "folders_found":  [
-                          {
-                              "asset_type":  "brochure",
-                              "folder":  "source/brochure",
-                              "exists":  true,
-                              "status":  "present",
-                              "supported_file_count":  4
-                          },
-                          {
-                              "asset_type":  "price-list",
-                              "folder":  "source/price-list",
-                              "exists":  true,
-                              "status":  "present",
-                              "supported_file_count":  2
-                          },
-                          {
-                              "asset_type":  "masterplan",
-                              "folder":  "source/masterplan",
-                              "exists":  true,
-                              "status":  "present",
-                              "supported_file_count":  10
-                          },
-                          {
-                              "asset_type":  "unit-plans",
-                              "folder":  "source/unit-plans",
-                              "exists":  true,
-                              "status":  "present",
-                              "supported_file_count":  198
-                          },
-                          {
-                              "asset_type":  "images",
-                              "folder":  "source/images",
-                              "exists":  true,
-                              "status":  "present",
-                              "supported_file_count":  116
-                          },
-                          {
-                              "asset_type":  "videos",
-                              "folder":  "source/videos",
-                              "exists":  true,
-                              "status":  "present",
-                              "supported_file_count":  3
-                          },
-                          {
-                              "asset_type":  "documents",
-                              "folder":  "source/documents",
-                              "exists":  true,
-                              "status":  "present",
-                              "supported_file_count":  10
-                          }
-                      ],
-    "missing_required_folders":  [
-
-                                 ],
-    "missing_required_files":  [
-                                   "extracted/brochure.json",
-                                   "extracted/price-list.json"
-                               ],
-    "missing_recommended_files":  [
-
-                                  ],
-    "missing_optional_files":  [
-
-                               ],
-    "missing_material_types":  [
-
-                               ],
-    "source_file_count":  343,
-    "needs_review_file_count":  0,
-    "extracted_file_count":  0,
-    "validation_issues":  [
-                              {
-                                  "severity":  "error",
-                                  "code":  "import_status_not_ready",
-                                  "message":  "ready_for_import remains false until extraction and source-backed manifest completion are done."
-                              },
-                              {
-                                  "severity":  "error",
-                                  "code":  "manifest_contains_source_pending_values",
-                                  "message":  "Required manifest identity fields are placeholders and must be replaced only with source-backed Coralina facts before import."
-                              },
-                              {
-                                  "severity":  "error",
-                                  "code":  "extracted_json_missing",
-                                  "message":  "No extracted brochure or price-list JSON exists for Coralina."
-                              }
-                          ]
+  "project_slug": "coralina",
+  "generated_at": "2026-07-08",
+  "ready_for_import": false,
+  "status": "extracted_not_ready_for_import",
+  "summary": "Coralina source materials have been classified and structured extraction JSON files have been generated. Real import remains blocked because required manifest identity fields still include SOURCE_PENDING values that were not verified from extractable local source text.",
+  "folders_found": [
+    {
+      "asset_type": "brochure",
+      "folder": "source/brochure",
+      "exists": true,
+      "status": "present",
+      "supported_file_count": 4
+    },
+    {
+      "asset_type": "price-list",
+      "folder": "source/price-list",
+      "exists": true,
+      "status": "present",
+      "supported_file_count": 2
+    },
+    {
+      "asset_type": "masterplan",
+      "folder": "source/masterplan",
+      "exists": true,
+      "status": "present",
+      "supported_file_count": 10
+    },
+    {
+      "asset_type": "unit-plans",
+      "folder": "source/unit-plans",
+      "exists": true,
+      "status": "present",
+      "supported_file_count": 198
+    },
+    {
+      "asset_type": "images",
+      "folder": "source/images",
+      "exists": true,
+      "status": "present",
+      "supported_file_count": 116
+    },
+    {
+      "asset_type": "videos",
+      "folder": "source/videos",
+      "exists": true,
+      "status": "present",
+      "supported_file_count": 3
+    },
+    {
+      "asset_type": "documents",
+      "folder": "source/documents",
+      "exists": true,
+      "status": "present",
+      "supported_file_count": 10
+    }
+  ],
+  "extracted_datasets": [
+    {
+      "file": "extracted/brochure.json",
+      "exists": true,
+      "status": "present",
+      "records": null
+    },
+    {
+      "file": "extracted/price-list.json",
+      "exists": true,
+      "status": "present",
+      "records": 198
+    },
+    {
+      "file": "extracted/masterplan.json",
+      "exists": true,
+      "status": "present",
+      "records": 10
+    },
+    {
+      "file": "extracted/unit-plans.json",
+      "exists": true,
+      "status": "present",
+      "records": 198
+    },
+    {
+      "file": "extracted/images.json",
+      "exists": true,
+      "status": "present",
+      "records": 119
+    },
+    {
+      "file": "extracted/documents.json",
+      "exists": true,
+      "status": "present",
+      "records": 16
+    }
+  ],
+  "missing_required_folders": [],
+  "missing_required_files": [],
+  "missing_recommended_files": [],
+  "missing_optional_files": [],
+  "missing_material_types": [],
+  "source_file_count": 343,
+  "needs_review_file_count": 0,
+  "extracted_file_count": 6,
+  "validation_issues": [
+    {
+      "severity": "error",
+      "code": "import_status_not_ready",
+      "message": "ready_for_import remains false because not all required manifest identity fields are source-backed."
+    },
+    {
+      "severity": "error",
+      "code": "manifest_contains_source_pending_values",
+      "message": "developer and country remain SOURCE_PENDING. They must be replaced only with source-backed Coralina facts before import."
+    },
+    {
+      "severity": "warning",
+      "code": "company_profile_text_not_machine_readable",
+      "message": "The company profile PDF is classified, but the available local PDF text extractor did not expose readable developer text."
+    }
+  ]
 }

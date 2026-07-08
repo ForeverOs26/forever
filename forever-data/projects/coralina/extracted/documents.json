@@ -1,0 +1,151 @@
+{
+  "project_slug": "coralina",
+  "source_type": "documents",
+  "file_count": 16,
+  "files": [
+    {
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "file_name": "2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "category": "brochure",
+      "extension": ".pdf",
+      "bytes": 33571594,
+      "title": "2. E-Brochure__20251209 Coralina E-brochure",
+      "verification_status": "classified_source"
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__Coralina_E-Brochure in ARUB.pdf",
+      "file_name": "2. E-Brochure__Coralina_E-Brochure in ARUB.pdf",
+      "category": "brochure",
+      "extension": ".pdf",
+      "bytes": 33333212,
+      "title": "2. E-Brochure__Coralina_E-Brochure in ARUB",
+      "verification_status": "classified_source"
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__Coralina_E-Brochure in Chinese.pdf",
+      "file_name": "2. E-Brochure__Coralina_E-Brochure in Chinese.pdf",
+      "category": "brochure",
+      "extension": ".pdf",
+      "bytes": 27975765,
+      "title": "2. E-Brochure__Coralina_E-Brochure in Chinese",
+      "verification_status": "classified_source"
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__Coralina_E-Brochure in Russian.pdf",
+      "file_name": "2. E-Brochure__Coralina_E-Brochure in Russian.pdf",
+      "category": "brochure",
+      "extension": ".pdf",
+      "bytes": 27921043,
+      "title": "2. E-Brochure__Coralina_E-Brochure in Russian",
+      "verification_status": "classified_source"
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/price-list/CLK - Master Plan Price list V.2 - updated 03.07.26.pdf",
+      "file_name": "CLK - Master Plan Price list V.2 - updated 03.07.26.pdf",
+      "category": "price_list",
+      "extension": ".pdf",
+      "bytes": 1473700,
+      "title": "CLK - Master Plan Price list V.2 - updated 03.07.26",
+      "verification_status": "classified_source"
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/price-list/CLK - Price List V.2. - Updated 03.07.26.pdf",
+      "file_name": "CLK - Price List V.2. - Updated 03.07.26.pdf",
+      "category": "price_list",
+      "extension": ".pdf",
+      "bytes": 251842,
+      "title": "CLK - Price List V.2. - Updated 03.07.26",
+      "verification_status": "classified_source"
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/documents/1. Company Profile__The Title Company Profile.pdf",
+      "file_name": "1. Company Profile__The Title Company Profile.pdf",
+      "category": "company_profile",
+      "extension": ".pdf",
+      "bytes": 22981155,
+      "title": "1. Company Profile__The Title Company Profile",
+      "verification_status": "classified_source"
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf",
+      "file_name": "3. Facilities__Coralina Facilities.pdf",
+      "category": "facilities",
+      "extension": ".pdf",
+      "bytes": 15720161,
+      "title": "3. Facilities__Coralina Facilities",
+      "verification_status": "classified_source"
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/documents/7. Furniture Package__20251027_Coralina_Furniture Package Part1.pdf",
+      "file_name": "7. Furniture Package__20251027_Coralina_Furniture Package Part1.pdf",
+      "category": "furniture_package",
+      "extension": ".pdf",
+      "bytes": 1107741,
+      "title": "7. Furniture Package__20251027_Coralina_Furniture Package Part1",
+      "verification_status": "classified_source"
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/documents/7. Furniture Package__20251027_Coralina_Furniture Package Part2.pdf",
+      "file_name": "7. Furniture Package__20251027_Coralina_Furniture Package Part2.pdf",
+      "category": "furniture_package",
+      "extension": ".pdf",
+      "bytes": 1210992,
+      "title": "7. Furniture Package__20251027_Coralina_Furniture Package Part2",
+      "verification_status": "classified_source"
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/documents/7. Furniture Package__20251027_Coralina_Furniture Package Part3.pdf",
+      "file_name": "7. Furniture Package__20251027_Coralina_Furniture Package Part3.pdf",
+      "category": "furniture_package",
+      "extension": ".pdf",
+      "bytes": 1175772,
+      "title": "7. Furniture Package__20251027_Coralina_Furniture Package Part3",
+      "verification_status": "classified_source"
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/documents/7. Furniture Package__20251027_Coralina_Furniture Package Part4.pdf",
+      "file_name": "7. Furniture Package__20251027_Coralina_Furniture Package Part4.pdf",
+      "category": "furniture_package",
+      "extension": ".pdf",
+      "bytes": 996080,
+      "title": "7. Furniture Package__20251027_Coralina_Furniture Package Part4",
+      "verification_status": "classified_source"
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/documents/8. Living Service__THE ESQUIRE Living Services.pdf",
+      "file_name": "8. Living Service__THE ESQUIRE Living Services.pdf",
+      "category": "living_service",
+      "extension": ".pdf",
+      "bytes": 15555897,
+      "title": "8. Living Service__THE ESQUIRE Living Services",
+      "verification_status": "classified_source"
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/documents/9. Map__CORALINA Map 1.jpeg",
+      "file_name": "9. Map__CORALINA Map 1.jpeg",
+      "category": "map",
+      "extension": ".jpeg",
+      "bytes": 1846307,
+      "title": "9. Map__CORALINA Map 1",
+      "verification_status": "classified_source"
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/documents/9. Map__CORALINA Map 2.jpeg",
+      "file_name": "9. Map__CORALINA Map 2.jpeg",
+      "category": "map",
+      "extension": ".jpeg",
+      "bytes": 1401675,
+      "title": "9. Map__CORALINA Map 2",
+      "verification_status": "classified_source"
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/documents/9. Map__Coralina Map.pdf",
+      "file_name": "9. Map__Coralina Map.pdf",
+      "category": "map",
+      "extension": ".pdf",
+      "bytes": 392865,
+      "title": "9. Map__Coralina Map",
+      "verification_status": "classified_source"
+    }
+  ]
+}

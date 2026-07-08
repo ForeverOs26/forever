@@ -1,0 +1,468 @@
+{
+  "project": {
+    "name": {
+      "value": "CORALINA KAMALA",
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "page_number": 12,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    "project_area": {
+      "value": null,
+      "source_file": null,
+      "page_number": null,
+      "sheet_name": null,
+      "confidence": "none"
+    },
+    "total_units": {
+      "value": null,
+      "source_file": null,
+      "page_number": null,
+      "sheet_name": null,
+      "confidence": "none"
+    },
+    "buildings": {
+      "value": "Buildings A, B, C, D, E, F, G, H identified in facilities/project layout and price list",
+      "source_file": "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf",
+      "page_number": 2,
+      "sheet_name": null,
+      "confidence": "medium"
+    },
+    "storeys": {
+      "value": "2nd - 7th residential; parking/facilities building levels noted separately",
+      "source_file": "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf",
+      "page_number": 2,
+      "sheet_name": null,
+      "confidence": "medium"
+    },
+    "parking_spaces": {
+      "value": null,
+      "source_file": null,
+      "page_number": null,
+      "sheet_name": null,
+      "confidence": "none"
+    },
+    "pet_friendly": {
+      "value": "PET FRIENDLY A; PET FRIENDLY B; PET CLUB",
+      "source_file": "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf",
+      "page_number": 2,
+      "sheet_name": null,
+      "confidence": "high"
+    }
+  },
+  "developer": {
+    "value": null,
+    "source_file": null,
+    "page_number": null,
+    "sheet_name": null,
+    "confidence": "none"
+  },
+  "location": {
+    "primary_location": {
+      "value": "KAMALA",
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "page_number": 1,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    "province": {
+      "value": "PHUKET",
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "page_number": 4,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    "country": {
+      "value": null,
+      "source_file": null,
+      "page_number": null,
+      "sheet_name": null,
+      "confidence": "none"
+    },
+    "beach_distance": {
+      "value": "WALK TO THE BEACH 430 M. / 5 MINS",
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "page_number": 5,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    "nearby_destinations": [
+      {
+        "value": "Sunwing / Sunprime Kamala Beach 300 m.",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 5,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "Wattanapat Hospital 450 m.",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 5,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "Phuket FantaSea 500 m.",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 5,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "Big C 1.0 km.",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 5,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "McDonald?s 1.0 km.",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 5,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "Tops 1.1 km.",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 5,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "Cafe' del Mar 1.2 km.",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 5,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "Villa Market 1.2 km.",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 5,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "InterCon Hotel 1.4 km.",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 5,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "Hyatt Regency Phuket Resort 2.5 km.",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 5,
+        "sheet_name": null,
+        "confidence": "high"
+      }
+    ]
+  },
+  "project_type": {
+    "value": "Residential",
+    "source_file": "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf",
+    "page_number": 2,
+    "sheet_name": null,
+    "confidence": "medium"
+  },
+  "completion": {
+    "value": null,
+    "source_file": null,
+    "page_number": null,
+    "sheet_name": null,
+    "confidence": "none"
+  },
+  "ownership": {
+    "value": null,
+    "source_file": null,
+    "page_number": null,
+    "sheet_name": null,
+    "confidence": "none"
+  },
+  "facilities": {
+    "outdoor_zones_count": {
+      "value": "12 OUTDOOR FACILITIES",
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "page_number": 21,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    "indoor_facilities_count": {
+      "value": "10 INDOOR FACILITIES",
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "page_number": 21,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    "common_area": {
+      "value": "Totals Approximately 8,680 sq.m.; green area approximately 3,000 sq.m.; pool area approximately 2,700 sq.m.; common area in facilities approximately 2,700 sq.m.",
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "page_number": 20,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    "outdoor": [
+      {
+        "value": "PET CLUB",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "KIDS POOL & WATERSCAPE",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "WATERFALL & DRY FOUNTAIN PLAZA",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "SHALLOW POOL & SUNBATHING AREA",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "CORAL ISLAND",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "30 M. LAP POOL",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "POOL BAR",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "CO-LIVING SPACE",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "WHIRLPOOL (APPROX 250 M.)",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "ONZEN IN THE GARDEN (FOOT SPA & REFLEXOLOGY)",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "JACUZZI POD",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "HYDROTHERAPY",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      }
+    ],
+    "indoor": [
+      {
+        "value": "CO-WORKING SPACE",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "LIBRARY",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "CO-READING SPACE",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "PRIVATE MEETING SPACE",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "CO-KITCHEN SPACE",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "GAME ZONE / ARCADE",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "KID'S ZONE",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "LAUNDRY ROOM",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "FITNESS/YOGA ROOM",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      },
+      {
+        "value": "STEAM & SAUNA ROOM",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 21,
+        "sheet_name": null,
+        "confidence": "high"
+      }
+    ]
+  },
+  "unit_types": [
+    {
+      "value": "1 BEDROOM L",
+      "source_file": "forever-data/projects/coralina/source/price-list/CLK - Price List V.2. - Updated 03.07.26.pdf",
+      "page_number": null,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    {
+      "value": "1 BEDROOM M",
+      "source_file": "forever-data/projects/coralina/source/price-list/CLK - Price List V.2. - Updated 03.07.26.pdf",
+      "page_number": null,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    {
+      "value": "1 BEDROOM PLUS",
+      "source_file": "forever-data/projects/coralina/source/price-list/CLK - Price List V.2. - Updated 03.07.26.pdf",
+      "page_number": null,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    {
+      "value": "2 BEDROOM",
+      "source_file": "forever-data/projects/coralina/source/price-list/CLK - Price List V.2. - Updated 03.07.26.pdf",
+      "page_number": null,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    {
+      "value": "2 BEDROOM PLUS",
+      "source_file": "forever-data/projects/coralina/source/price-list/CLK - Price List V.2. - Updated 03.07.26.pdf",
+      "page_number": null,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    {
+      "value": "PH-2 BEDROOM PLUS",
+      "source_file": "forever-data/projects/coralina/source/price-list/CLK - Price List V.2. - Updated 03.07.26.pdf",
+      "page_number": null,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    {
+      "value": "PH-3 BEDROOM",
+      "source_file": "forever-data/projects/coralina/source/price-list/CLK - Price List V.2. - Updated 03.07.26.pdf",
+      "page_number": null,
+      "sheet_name": null,
+      "confidence": "high"
+    }
+  ],
+  "descriptions": [
+    {
+      "value": "BEAUTY OF THE OCEAN",
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "page_number": 1,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    {
+      "value": "CORALINA KAMALA BLENDS NATURE - WELLNESS - SERVICE - SMART TECH FOR A TRULY SUSTAINABLE LIFESTYLE.",
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "page_number": 12,
+      "sheet_name": null,
+      "confidence": "high"
+    }
+  ],
+  "facts": [
+    {
+      "value": "4 KEY PILLARS OF SUSTAINABLE DESIGN",
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "page_number": 12,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    {
+      "value": "2,900 SQ.M. GREEN SPACE : REDUCE HEAT & REFRESH AIR QUALITY",
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "page_number": 12,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    {
+      "value": "2,500 SQ.M. POOLS : LAP,LAGOON, KIDS POOL",
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "page_number": 12,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    {
+      "value": "PROJECT LAYOUT",
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "page_number": 19,
+      "sheet_name": null,
+      "confidence": "high"
+    },
+    {
+      "value": "FACILITIES",
+      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+      "page_number": 21,
+      "sheet_name": null,
+      "confidence": "high"
+    }
+  ]
+}

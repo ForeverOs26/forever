@@ -1,0 +1,2600 @@
+{
+  "project_slug": "coralina",
+  "source_type": "unit_plans",
+  "file_count": 198,
+  "files": [
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-02.jpg",
+      "file_name": "5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-02.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 213915,
+      "building": "A",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-02.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-03.jpg",
+      "file_name": "5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-03.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 343226,
+      "building": "A",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-03.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-04.jpg",
+      "file_name": "5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-04.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 511991,
+      "building": "A",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-04.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-05.jpg",
+      "file_name": "5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-05.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 551240,
+      "building": "A",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-05.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-06.jpg",
+      "file_name": "5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-06.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 539694,
+      "building": "A",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-06.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-07.jpg",
+      "file_name": "5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-07.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 540256,
+      "building": "A",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-07.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-08.jpg",
+      "file_name": "5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-08.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 539694,
+      "building": "A",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-08.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-09.jpg",
+      "file_name": "5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-09.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 539864,
+      "building": "A",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-09.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-10.jpg",
+      "file_name": "5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-10.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 318012,
+      "building": "A",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__A__Coralina_Floor Plan_Part 1-10.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-11.jpg",
+      "file_name": "5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-11.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 214341,
+      "building": "B",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-11.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-12.jpg",
+      "file_name": "5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-12.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 515175,
+      "building": "B",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-12.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-13.jpg",
+      "file_name": "5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-13.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 516274,
+      "building": "B",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-13.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-14.jpg",
+      "file_name": "5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-14.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 506174,
+      "building": "B",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-14.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-15.jpg",
+      "file_name": "5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-15.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 514567,
+      "building": "B",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-15.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-16.jpg",
+      "file_name": "5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-16.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 507774,
+      "building": "B",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-16.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-17.jpg",
+      "file_name": "5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-17.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 514834,
+      "building": "B",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-17.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-18.jpg",
+      "file_name": "5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-18.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 478883,
+      "building": "B",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-18.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-19.jpg",
+      "file_name": "5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-19.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 462161,
+      "building": "B",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__B__Coralina_Floor Plan_Part 1-19.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-20.jpg",
+      "file_name": "5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-20.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 214214,
+      "building": "C",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-20.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-21.jpg",
+      "file_name": "5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-21.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 536068,
+      "building": "C",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-21.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-22.jpg",
+      "file_name": "5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-22.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 532858,
+      "building": "C",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-22.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-23.jpg",
+      "file_name": "5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-23.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 530717,
+      "building": "C",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-23.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-24.jpg",
+      "file_name": "5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-24.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 530362,
+      "building": "C",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-24.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-25.jpg",
+      "file_name": "5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-25.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 531081,
+      "building": "C",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-25.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-26.jpg",
+      "file_name": "5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-26.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 531259,
+      "building": "C",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-26.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-27.jpg",
+      "file_name": "5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-27.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 479191,
+      "building": "C",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-27.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-28.jpg",
+      "file_name": "5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-28.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 527469,
+      "building": "C",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__C__Coralina_Floor Plan_Part 1-28.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-29.jpg",
+      "file_name": "5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-29.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 214302,
+      "building": "D",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-29.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-30.jpg",
+      "file_name": "5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-30.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 572370,
+      "building": "D",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-30.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-31.jpg",
+      "file_name": "5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-31.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 590515,
+      "building": "D",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-31.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-32.jpg",
+      "file_name": "5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-32.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 589950,
+      "building": "D",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-32.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-33.jpg",
+      "file_name": "5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-33.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 590083,
+      "building": "D",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-33.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-34.jpg",
+      "file_name": "5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-34.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 590352,
+      "building": "D",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-34.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-35.jpg",
+      "file_name": "5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-35.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 590896,
+      "building": "D",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-35.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-36.jpg",
+      "file_name": "5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-36.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 555304,
+      "building": "D",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-36.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-37.jpg",
+      "file_name": "5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-37.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 536435,
+      "building": "D",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__D__Coralina_Floor Plan_Part 1-37.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-01.jpg",
+      "file_name": "5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-01.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 213319,
+      "building": "E",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-01.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-02.jpg",
+      "file_name": "5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-02.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 600999,
+      "building": "E",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-02.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-03.jpg",
+      "file_name": "5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-03.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 588307,
+      "building": "E",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-03.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-04.jpg",
+      "file_name": "5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-04.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 586708,
+      "building": "E",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-04.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-05.jpg",
+      "file_name": "5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-05.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 584333,
+      "building": "E",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-05.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-06.jpg",
+      "file_name": "5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-06.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 586372,
+      "building": "E",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-06.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-07.jpg",
+      "file_name": "5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-07.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 586564,
+      "building": "E",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-07.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-08.jpg",
+      "file_name": "5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-08.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 542354,
+      "building": "E",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-08.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-09.jpg",
+      "file_name": "5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-09.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 564676,
+      "building": "E",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__E__Coralina_Floor Plan_Part 2-09.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-10.jpg",
+      "file_name": "5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-10.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 212493,
+      "building": "F",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-10.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-11.jpg",
+      "file_name": "5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-11.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 680037,
+      "building": "F",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-11.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-12.jpg",
+      "file_name": "5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-12.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 686226,
+      "building": "F",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-12.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-13.jpg",
+      "file_name": "5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-13.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 683506,
+      "building": "F",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-13.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-14.jpg",
+      "file_name": "5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-14.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 685214,
+      "building": "F",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-14.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-15.jpg",
+      "file_name": "5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-15.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 685016,
+      "building": "F",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-15.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-16.jpg",
+      "file_name": "5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-16.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 697012,
+      "building": "F",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-16.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-17.jpg",
+      "file_name": "5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-17.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 686024,
+      "building": "F",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-17.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-18.jpg",
+      "file_name": "5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-18.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 531100,
+      "building": "F",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__F__Coralina_Floor Plan_Part 2-18.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-19.jpg",
+      "file_name": "5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-19.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 215088,
+      "building": "G",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-19.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-20.jpg",
+      "file_name": "5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-20.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 492011,
+      "building": "G",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-20.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-21.jpg",
+      "file_name": "5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-21.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 488987,
+      "building": "G",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-21.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-22.jpg",
+      "file_name": "5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-22.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 489195,
+      "building": "G",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-22.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-23.jpg",
+      "file_name": "5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-23.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 488160,
+      "building": "G",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-23.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-24.jpg",
+      "file_name": "5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-24.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 488535,
+      "building": "G",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-24.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-25.jpg",
+      "file_name": "5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-25.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 488127,
+      "building": "G",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-25.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-26.jpg",
+      "file_name": "5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-26.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 491009,
+      "building": "G",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-26.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-27.jpg",
+      "file_name": "5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-27.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 396232,
+      "building": "G",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__G__Coralina_Floor Plan_Part 2-27.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-28.jpg",
+      "file_name": "5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-28.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 213958,
+      "building": "H",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-28.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-29.jpg",
+      "file_name": "5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-29.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 440269,
+      "building": "H",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-29.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-30.jpg",
+      "file_name": "5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-30.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 515949,
+      "building": "H",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-30.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-31.jpg",
+      "file_name": "5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-31.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 507745,
+      "building": "H",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-31.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-32.jpg",
+      "file_name": "5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-32.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 506999,
+      "building": "H",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-32.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-33.jpg",
+      "file_name": "5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-33.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 507810,
+      "building": "H",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-33.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-34.jpg",
+      "file_name": "5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-34.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 507791,
+      "building": "H",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-34.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-35.jpg",
+      "file_name": "5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-35.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 471541,
+      "building": "H",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-35.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-36.jpg",
+      "file_name": "5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-36.jpg",
+      "category": "floor_plan",
+      "extension": ".jpg",
+      "bytes": 505804,
+      "building": "H",
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__JPG__H__Coralina_Floor Plan_Part 2-36.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__PDF__Coralina Floor Plan Part 1.pdf",
+      "file_name": "5. Floor Plan__PDF__Coralina Floor Plan Part 1.pdf",
+      "category": "floor_plan",
+      "extension": ".pdf",
+      "bytes": 31456095,
+      "building": null,
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__PDF__Coralina Floor Plan Part 1.pdf",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__PDF__Coralina Floor Plan Part 2.pdf",
+      "file_name": "5. Floor Plan__PDF__Coralina Floor Plan Part 2.pdf",
+      "category": "floor_plan",
+      "extension": ".pdf",
+      "bytes": 36060313,
+      "building": null,
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/5. Floor Plan__PDF__Coralina Floor Plan Part 2.pdf",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom L__20251014_Coralina_Unit Plan_Part2-01.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom L__20251014_Coralina_Unit Plan_Part2-01.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 409356,
+      "building": null,
+      "unit_type_label": "1 Bedroom L",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom L__20251014_Coralina_Unit Plan_Part2-01.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom L__20251014_Coralina_Unit Plan_Part2-02.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom L__20251014_Coralina_Unit Plan_Part2-02.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 433634,
+      "building": null,
+      "unit_type_label": "1 Bedroom L",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom L__20251014_Coralina_Unit Plan_Part2-02.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom L__20251014_Coralina_Unit Plan_Part2-03.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom L__20251014_Coralina_Unit Plan_Part2-03.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 406685,
+      "building": null,
+      "unit_type_label": "1 Bedroom L",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom L__20251014_Coralina_Unit Plan_Part2-03.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom L__20251014_Coralina_Unit Plan_Part2-04.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom L__20251014_Coralina_Unit Plan_Part2-04.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 408436,
+      "building": null,
+      "unit_type_label": "1 Bedroom L",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom L__20251014_Coralina_Unit Plan_Part2-04.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-16.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-16.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 409701,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-16.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-17.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-17.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 405876,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-17.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-18.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-18.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 407220,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-18.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-19.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-19.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 406269,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-19.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-20.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-20.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 404365,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-20.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-21.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-21.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 416349,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-21.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-22.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-22.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 399226,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-22.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-23.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-23.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 402596,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-23.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-24.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-24.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 401881,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-24.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-25.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-25.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 400797,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-25.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-26.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-26.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 401353,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-26.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-27.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-27.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 404051,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-27.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-28.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-28.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 398592,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-28.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-29.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-29.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 401503,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-29.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-30.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-30.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 403437,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-30.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-31.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-31.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 402229,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-31.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-32.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-32.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 408190,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-32.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-33.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-33.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 409562,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-33.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-34.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-34.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 411823,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-34.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-35.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-35.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 411484,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-35.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-36.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-36.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 412745,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-36.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-37.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-37.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 412985,
+      "building": null,
+      "unit_type_label": "1 Bedroom M",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom M__20251014_Coralina_Unit Plan_Part1-37.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-05.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-05.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 438621,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-05.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-06.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-06.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 439768,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-06.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-07.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-07.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 438940,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-07.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-08.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-08.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 440903,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-08.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-09.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-09.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 439054,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-09.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-10.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-10.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 441937,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-10.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-11.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-11.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 439970,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-11.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-12.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-12.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 441286,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-12.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-13.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-13.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 440564,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-13.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-14.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-14.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 440635,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-14.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-15.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-15.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 441411,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-15.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-16.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-16.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 441091,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-16.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-17.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-17.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 442216,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-17.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-18.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-18.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 441747,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-18.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-19.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-19.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 442750,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-19.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-20.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-20.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 440688,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-20.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-21.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-21.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 443494,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-21.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-22.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-22.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 441994,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-22.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-23.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-23.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 441584,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-23.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-24.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-24.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 442956,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-24.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-25.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-25.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 442667,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-25.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-26.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-26.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 427747,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-26.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-27.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-27.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 428608,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-27.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-28.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-28.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 421531,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-28.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-29.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-29.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 428899,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-29.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-30.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-30.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 430067,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-30.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-31.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-31.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 429781,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-31.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-32.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-32.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 427580,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-32.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-33.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-33.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 427400,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-33.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-34.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-34.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 429298,
+      "building": null,
+      "unit_type_label": "1 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom Plus__20251014_Coralina_Unit Plan_Part2-34.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-02.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-02.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 385898,
+      "building": null,
+      "unit_type_label": "1 Bedroom S",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-02.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-03.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-03.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 386826,
+      "building": null,
+      "unit_type_label": "1 Bedroom S",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-03.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-04.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-04.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 385898,
+      "building": null,
+      "unit_type_label": "1 Bedroom S",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-04.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-05.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-05.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 386681,
+      "building": null,
+      "unit_type_label": "1 Bedroom S",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-05.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-06.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-06.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 388037,
+      "building": null,
+      "unit_type_label": "1 Bedroom S",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-06.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-07.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-07.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 386999,
+      "building": null,
+      "unit_type_label": "1 Bedroom S",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-07.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-08.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-08.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 386985,
+      "building": null,
+      "unit_type_label": "1 Bedroom S",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-08.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-09.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-09.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 385438,
+      "building": null,
+      "unit_type_label": "1 Bedroom S",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-09.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-10.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-10.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 387998,
+      "building": null,
+      "unit_type_label": "1 Bedroom S",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-10.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-11.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-11.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 383268,
+      "building": null,
+      "unit_type_label": "1 Bedroom S",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-11.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-12.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-12.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 388781,
+      "building": null,
+      "unit_type_label": "1 Bedroom S",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-12.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-13.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-13.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 384630,
+      "building": null,
+      "unit_type_label": "1 Bedroom S",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-13.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-14.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-14.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 385773,
+      "building": null,
+      "unit_type_label": "1 Bedroom S",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-14.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-15.jpg",
+      "file_name": "6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-15.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 387544,
+      "building": null,
+      "unit_type_label": "1 Bedroom S",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__1 Bedroom S__20251014_Coralina_Unit Plan_Part1-15.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-01.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-01.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 432256,
+      "building": null,
+      "unit_type_label": "2 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-01.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-02.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-02.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 431365,
+      "building": null,
+      "unit_type_label": "2 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-02.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-03.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-03.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 432450,
+      "building": null,
+      "unit_type_label": "2 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-03.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-04.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-04.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 431838,
+      "building": null,
+      "unit_type_label": "2 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-04.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-05.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-05.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 430133,
+      "building": null,
+      "unit_type_label": "2 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-05.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-06.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-06.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 431074,
+      "building": null,
+      "unit_type_label": "2 Bedroom Plus",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom Plus__20251014_Coralina_Unit Plan_Part4-06.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-01.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-01.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 486895,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-01.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-02.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-02.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 488146,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-02.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-03.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-03.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 485768,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-03.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-04.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-04.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 484033,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-04.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-05.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-05.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 471566,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-05.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-06.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-06.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 470676,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-06.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-07.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-07.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 471827,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-07.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-08.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-08.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 471224,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-08.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-09.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-09.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 470190,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-09.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-10.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-10.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 471396,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-10.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-11.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-11.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 470798,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-11.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-12.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-12.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 469884,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-12.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-13.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-13.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 472935,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-13.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-14.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-14.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 472631,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-14.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-15.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-15.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 475760,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-15.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-16.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-16.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 474143,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-16.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-17.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-17.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 473797,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-17.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-18.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-18.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 474081,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-18.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-19.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-19.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 463960,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-19.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-20.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-20.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 466743,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-20.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-21.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-21.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 467721,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-21.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-22.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-22.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 465862,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-22.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-23.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-23.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 465775,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-23.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-24.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-24.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 465142,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-24.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-25.jpg",
+      "file_name": "6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-25.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 466441,
+      "building": null,
+      "unit_type_label": "2 Bedroom",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__2 Bedroom__20251014_Coralina_Unit Plan_Part3-25.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-07.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-07.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 676529,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-07.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-08.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-08.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 618340,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-08.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-09.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-09.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 680049,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-09.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-10.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-10.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 701100,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-10.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-11.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-11.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 682458,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-11.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-12.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-12.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 698814,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-12.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-13.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-13.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 706522,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-13.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-14.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-14.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 709350,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-14.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-15.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-15.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 686684,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-15.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-16.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-16.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 693974,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-16.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-17.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-17.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 763814,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-17.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-18.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-18.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 761948,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-18.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-19.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-19.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 763861,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-19.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-20.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-20.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 712731,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-20.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-21.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-21.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 713839,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-21.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-22.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-22.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 719950,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-22.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-23.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-23.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 719531,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-23.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-24.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-24.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 680712,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-24.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-25.jpg",
+      "file_name": "6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-25.jpg",
+      "category": "unit_plan",
+      "extension": ".jpg",
+      "bytes": 687165,
+      "building": null,
+      "unit_type_label": "Penthouse",
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__JPG__Penthouse__20251014_Coralina_Unit Plan_Part4-25.jpg",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__PDF__Coralina_Unit Plan_Part1.pdf",
+      "file_name": "6. Unit Plan__PDF__Coralina_Unit Plan_Part1.pdf",
+      "category": "unit_plan",
+      "extension": ".pdf",
+      "bytes": 17671221,
+      "building": null,
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__PDF__Coralina_Unit Plan_Part1.pdf",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__PDF__Coralina_Unit Plan_Part2.pdf",
+      "file_name": "6. Unit Plan__PDF__Coralina_Unit Plan_Part2.pdf",
+      "category": "unit_plan",
+      "extension": ".pdf",
+      "bytes": 19329333,
+      "building": null,
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__PDF__Coralina_Unit Plan_Part2.pdf",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__PDF__Coralina_Unit Plan_Part3.pdf",
+      "file_name": "6. Unit Plan__PDF__Coralina_Unit Plan_Part3.pdf",
+      "category": "unit_plan",
+      "extension": ".pdf",
+      "bytes": 18801120,
+      "building": null,
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__PDF__Coralina_Unit Plan_Part3.pdf",
+        "confidence": "high"
+      }
+    },
+    {
+      "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__PDF__Coralina_Unit Plan_Part4.pdf",
+      "file_name": "6. Unit Plan__PDF__Coralina_Unit Plan_Part4.pdf",
+      "category": "unit_plan",
+      "extension": ".pdf",
+      "bytes": 26633875,
+      "building": null,
+      "unit_type_label": null,
+      "source_reference": {
+        "source_file": "forever-data/projects/coralina/source/unit-plans/6. Unit Plan__PDF__Coralina_Unit Plan_Part4.pdf",
+        "confidence": "high"
+      }
+    }
+  ],
+  "extracted_unit_type_labels": [
+    "1 Bedroom L",
+    "1 Bedroom M",
+    "1 Bedroom Plus",
+    "1 Bedroom S",
+    "2 Bedroom",
+    "2 Bedroom Plus",
+    "Penthouse"
+  ],
+  "extracted_building_labels": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H"
+  ]
+}
