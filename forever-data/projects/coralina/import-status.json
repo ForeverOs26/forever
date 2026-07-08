@@ -1,0 +1,56 @@
+{
+  "project_slug": "coralina",
+  "generated_at": "2026-07-08",
+  "ready_for_import": false,
+  "status": "blocked_missing_source_materials",
+  "summary": "Official Coralina source folder structure has been created, but no Coralina source files were available in the repository/workspace during validation. No real import may be run.",
+  "folders_found": [
+    { "asset_type": "brochure", "folder": "source/brochure", "exists": true, "status": "missing", "supported_file_count": 0 },
+    { "asset_type": "price-list", "folder": "source/price-list", "exists": true, "status": "missing", "supported_file_count": 0 },
+    { "asset_type": "masterplan", "folder": "source/masterplan", "exists": true, "status": "missing", "supported_file_count": 0 },
+    { "asset_type": "unit-plans", "folder": "source/unit-plans", "exists": true, "status": "missing", "supported_file_count": 0 },
+    { "asset_type": "images", "folder": "source/images", "exists": true, "status": "missing", "supported_file_count": 0 },
+    { "asset_type": "videos", "folder": "source/videos", "exists": true, "status": "missing", "supported_file_count": 0 },
+    { "asset_type": "documents", "folder": "source/documents", "exists": true, "status": "missing", "supported_file_count": 0 }
+  ],
+  "missing_required_folders": [],
+  "missing_required_files": [
+    "source/brochure",
+    "source/price-list",
+    "extracted/brochure.json",
+    "extracted/price-list.json"
+  ],
+  "missing_recommended_files": [
+    "source/masterplan",
+    "source/unit-plans",
+    "source/images"
+  ],
+  "missing_optional_files": [
+    "source/videos",
+    "source/documents"
+  ],
+  "source_file_count": 0,
+  "extracted_file_count": 0,
+  "validation_issues": [
+    {
+      "severity": "error",
+      "code": "coralina_source_files_absent",
+      "message": "No Coralina source files were found to classify or validate."
+    },
+    {
+      "severity": "error",
+      "code": "manifest_contains_source_pending_values",
+      "message": "Required manifest identity fields are placeholders and must be replaced only with source-backed Coralina facts before import."
+    },
+    {
+      "severity": "error",
+      "code": "required_files_missing",
+      "message": "Required brochure and price-list folders contain no supported source files."
+    },
+    {
+      "severity": "error",
+      "code": "extracted_json_missing",
+      "message": "No extracted brochure or price-list JSON exists for Coralina."
+    }
+  ]
+}
