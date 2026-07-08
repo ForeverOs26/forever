@@ -2,7 +2,8 @@
   "project_slug": "coralina",
   "source_type": "price_list",
   "price_list_date": {
-    "value": "03.07.26",
+    "value": "2026-07-03",
+    "raw_value": "03.07.26",
     "source_file": "forever-data/projects/coralina/source/price-list/CLK - Price List V.2. - Updated 03.07.26.pdf",
     "page_number": 1,
     "sheet_name": null,

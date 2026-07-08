@@ -3,7 +3,7 @@
   "generated_at": "2026-07-08",
   "ready_for_import": false,
   "status": "extracted_not_ready_for_import",
-  "summary": "Coralina source materials have been classified and structured extraction JSON files have been generated. Real import remains blocked because required manifest identity fields still include SOURCE_PENDING values that were not verified from extractable local source text.",
+  "summary": "Coralina source materials have been classified and structured extraction JSON files have been generated. CORALINA KAMALA, Kamala, Phuket, Residential, and the 2026-07-03 price-list date are source-backed. Real import remains blocked because developer and country still require Coralina-specific source evidence and ready_for_import must remain false.",
   "folders_found": [
     {
       "asset_type": "brochure",
@@ -101,6 +101,81 @@
   "source_file_count": 343,
   "needs_review_file_count": 0,
   "extracted_file_count": 6,
+  "mandatory_metadata_review": {
+    "resolved": [
+      {
+        "field": "project_name",
+        "value": "CORALINA KAMALA",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 12,
+        "confidence": "high"
+      },
+      {
+        "field": "project_slug",
+        "value": "coralina",
+        "source_file": "forever-data/projects/coralina/manifest.json",
+        "page_number": null,
+        "confidence": "high"
+      },
+      {
+        "field": "province",
+        "value": "Phuket",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 4,
+        "confidence": "high"
+      },
+      {
+        "field": "location",
+        "value": "Kamala",
+        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
+        "page_number": 1,
+        "confidence": "high"
+      },
+      {
+        "field": "area_detail",
+        "value": "Kamala Beach / walk to the beach 430 m.",
+        "source_file": "forever-data/projects/coralina/source/documents/9. Map__CORALINA Map 2.jpeg",
+        "page_number": null,
+        "confidence": "high"
+      },
+      {
+        "field": "project_type",
+        "value": "Residential",
+        "source_file": "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf",
+        "page_number": 2,
+        "confidence": "medium"
+      },
+      {
+        "field": "price_list_date",
+        "value": "2026-07-03",
+        "source_file": "forever-data/projects/coralina/source/price-list/CLK - Price List V.2. - Updated 03.07.26.pdf",
+        "page_number": 1,
+        "confidence": "high"
+      }
+    ],
+    "still_blocked": [
+      {
+        "field": "developer",
+        "current_value": "SOURCE_PENDING",
+        "required_source": "A Coralina-specific brochure, company profile page, sales sheet, contract page, or official developer statement that explicitly names Coralina's developer."
+      },
+      {
+        "field": "country",
+        "current_value": "SOURCE_PENDING",
+        "required_source": "A Coralina-specific location, address, map, brochure, or legal/developer document that explicitly states the country."
+      },
+      {
+        "field": "coordinates",
+        "current_value": null,
+        "required_source": "A Coralina-specific map, address page, GIS export, or official listing that explicitly provides latitude/longitude or GPS coordinates."
+      },
+      {
+        "field": "construction_status",
+        "current_value": null,
+        "required_source": "A Coralina-specific construction update, completion schedule, permit, inspection, or developer document that states status or completion date."
+      }
+    ]
+  },
   "validation_issues": [
     {
       "severity": "error",
@@ -110,12 +185,27 @@
     {
       "severity": "error",
       "code": "manifest_contains_source_pending_values",
-      "message": "developer and country remain SOURCE_PENDING. They must be replaced only with source-backed Coralina facts before import."
+      "message": "developer and country remain SOURCE_PENDING. They must be replaced only with explicit source-backed Coralina facts before import."
     },
     {
       "severity": "warning",
-      "code": "company_profile_text_not_machine_readable",
-      "message": "The company profile PDF is classified, but the available local PDF text extractor did not expose readable developer text."
+      "code": "developer_source_not_coralina_specific",
+      "message": "The company profile PDF shows The Title, AssetWise, and Rhom Bho Property branding, but no reviewed local source explicitly states Coralina's developer."
+    },
+    {
+      "severity": "warning",
+      "code": "country_not_explicitly_stated",
+      "message": "Reviewed Coralina location sources identify Kamala and Phuket, but do not explicitly state the country."
+    },
+    {
+      "severity": "warning",
+      "code": "coordinates_missing",
+      "message": "No source-backed latitude/longitude or GPS coordinates were found in the local source package."
+    },
+    {
+      "severity": "warning",
+      "code": "construction_status_missing",
+      "message": "No Coralina-specific construction status or completion date was found in the local source package."
     }
   ]
 }
