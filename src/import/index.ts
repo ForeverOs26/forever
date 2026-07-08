@@ -1,4 +1,5 @@
 export { createDatabaseLayer } from "./database";
+export { loadExtractedDatasets } from "./datasets";
 export type {
   BuildingInput,
   DatabaseLayer,
@@ -10,6 +11,26 @@ export type {
 } from "./database";
 export { importProject } from "./importer";
 export type { ImportProjectOptions } from "./importer";
+export { validateImportPlanRelationships } from "./plan-validator";
+export { createImportPlan } from "./planner";
+export { createRollbackPlan, rollbackImport } from "./rollback";
+export { getImportStateMachine, transitionImportState } from "./state-machine";
+export type {
+  ExtractedDatasets,
+  ExtractedPriceList,
+  ExtractedPriceListRow,
+  Fact,
+  ImportEntityType,
+  ImportExecutionContext,
+  ImportExecutionResult,
+  ImportMode,
+  ImportOperation,
+  ImportOperationAction,
+  ImportPlan,
+  ImportState,
+  RollbackPlan,
+  RollbackStep,
+} from "./types";
 export {
   FOREVER_PROJECTS_ROOT,
   getManifestPath,

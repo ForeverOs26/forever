@@ -4,6 +4,8 @@
 
 Import Engine v1 approved and ready for the next verified project intake.
 
+RC3-001 added the production-ready Import Engine architecture skeleton: explicit import plans, extracted dataset loading, relationship validation, rollback contract, and an import state machine.
+
 ## Completed Milestones
 
 - Universal Project Detail Engine foundation and route integration.
@@ -17,6 +19,7 @@ Import Engine v1 approved and ready for the next verified project intake.
 - FDB-003A Forever Import Engine v1 created.
 - FDB-003B Modeva Import Engine dry-run passed.
 - FDB-003C Modeva real import/idempotency test passed.
+- RC3-001 Import Engine architecture skeleton and safety hardening.
 - FDM-001 Modeva source material folder structure.
 - FDM-002 Forever project import manifest standard.
 
@@ -36,7 +39,7 @@ Coralina source intake using the same manifest, extraction, validation, and Impo
 
 ## Architecture Status
 
-The website now uses a reusable Project Detail Engine, Forever Passport layer, deterministic Forever Intelligence module, and a reusable Import Engine for source-driven project ingestion. Architecture continues toward One Engine, Many Interfaces.
+The website now uses a reusable Project Detail Engine, Forever Passport layer, deterministic Forever Intelligence module, and a reusable Import Engine for source-driven project ingestion. The Import Engine now separates package validation, extracted dataset loading, import planning, relationship validation, rollback preparation, and database execution. Architecture continues toward One Engine, Many Interfaces.
 
 ## Database Status
 
@@ -52,4 +55,4 @@ No AI implementation is active. Current intelligence logic is deterministic and 
 
 ## Last Updated
 
-2026-07-08
+2026-07-09
