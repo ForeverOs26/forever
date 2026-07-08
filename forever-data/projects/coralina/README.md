@@ -1,45 +1,27 @@
-# Coralina Source Package
+﻿# Coralina Source Package
 
-Status: **Not ready for import**
+Status: **Classified, not ready for import**
 
-This folder is the official Forever source package shell for the Coralina Import Validation milestone.
+This folder is the official Forever source package for Coralina.
 
-## Package Structure
+## Classification Result
 
-```text
-forever-data/projects/coralina/
-├── manifest.json
-├── import-status.json
-├── README.md
-├── extracted/
-└── source/
-    ├── brochure/
-    ├── price-list/
-    ├── masterplan/
-    ├── unit-plans/
-    ├── images/
-    ├── videos/
-    └── documents/
-```
+Coralina source materials from `forever-data/incoming/Coralina/` have been classified into the official source folders.
 
-## Validation Result
+| Material type | Files |
+| --- | ---: |
+| brochure | 4 |
+| price-list | 2 |
+| masterplan | 10 |
+| unit-plans | 198 |
+| images | 116 |
+| videos | 3 |
+| documents | 10 |
 
-No Coralina source files were present in the repository or workspace at validation time.
-
-Because there are no source files:
-
-- No brochure could be validated.
-- No price list could be validated.
-- No masterplan could be validated.
-- No unit plans could be validated.
-- No images could be validated.
-- No videos could be validated.
-- No documents could be validated.
-- No `extracted/brochure.json` could be generated.
-- No `extracted/price-list.json` could be generated.
+`source/_needs-review/` exists and is empty for this task.
 
 ## Import Safety
 
 `import-status.json` intentionally sets `ready_for_import` to `false`.
 
-Do not run a real import for Coralina until source-backed files and extracted JSON are added and a dry-run passes.
+Do not run a real import for Coralina until source-backed extraction files exist, `SOURCE_PENDING` manifest values are replaced, and a dry-run passes.
