@@ -26,23 +26,24 @@ If any required document is missing at the exact path, Codex must report the mis
 
 ## Canonical Documentation Paths
 
-| Path | Purpose | Required first read |
-| --- | --- | --- |
-| `docs/FOREVER_DOC_INDEX.md` | Canonical index for documentation paths, duplicate names, and new-doc rules. | Yes |
-| `docs/CODEX_OPERATING_MANUAL.md` | Operating rules for Codex work in Forever, including scope, quality, git, data, and communication rules. | Yes |
-| `docs/FOREVER_STATUS.md` | Current repository, product, database, website, and milestone status. This is the source of truth for current state. | Yes |
-| `docs/ROADMAP.md` | Forward-looking development phases, upcoming work, and future milestones. | Yes |
-| `docs/DATA_STANDARD.md` | Canonical data, import, validation, Intelligence, and Passport standards. | Yes |
-| `docs/CODEX_PROJECT_UNDERSTANDING.md` | Canonical project understanding, architecture summary, current milestone context, risks, and recommendations. | Conditional |
-| `docs/FOREVER_DEVELOPMENT_ROADMAP.md` | Compatibility pointer for tasks that request this historical path. The canonical roadmap is `docs/ROADMAP.md`. | No |
-| `docs/KNOWLEDGE_MODEL.md` | Compatibility pointer for tasks that request this historical path. The canonical knowledge and data model docs are `docs/DATA_STANDARD.md` and `docs/CODEX_PROJECT_UNDERSTANDING.md`. | No |
+| Path                                  | Purpose                                                                                                                                                                               | Required first read |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `docs/FOREVER_DOC_INDEX.md`           | Canonical index for documentation paths, duplicate names, and new-doc rules.                                                                                                          | Yes                 |
+| `docs/CODEX_OPERATING_MANUAL.md`      | Operating rules for Codex work in Forever, including scope, quality, git, data, and communication rules.                                                                              | Yes                 |
+| `docs/FOREVER_STATUS.md`              | Current repository, product, database, website, and milestone status. This is the source of truth for current state.                                                                  | Yes                 |
+| `docs/ROADMAP.md`                     | Forward-looking development phases, upcoming work, and future milestones.                                                                                                             | Yes                 |
+| `docs/DATA_STANDARD.md`               | Canonical data, import, validation, Intelligence, and Passport standards.                                                                                                             | Yes                 |
+| `docs/CODEX_PROJECT_UNDERSTANDING.md` | Canonical project understanding, architecture summary, current milestone context, risks, and recommendations.                                                                         | Conditional         |
+| `docs/IMPORT_ENGINE_ARCHITECTURE.md`  | Import Engine architecture, folder structure, interfaces, pipeline, validation, rollback, and state machine.                                                                          | Conditional         |
+| `docs/FOREVER_DEVELOPMENT_ROADMAP.md` | Compatibility pointer for tasks that request this historical path. The canonical roadmap is `docs/ROADMAP.md`.                                                                        | No                  |
+| `docs/KNOWLEDGE_MODEL.md`             | Compatibility pointer for tasks that request this historical path. The canonical knowledge and data model docs are `docs/DATA_STANDARD.md` and `docs/CODEX_PROJECT_UNDERSTANDING.md`. | No                  |
 
 ## Deprecated or Duplicate Documentation Names
 
-| Deprecated or duplicate name | Canonical replacement | Rule |
-| --- | --- | --- |
-| `docs/FOREVER_DEVELOPMENT_ROADMAP.md` | `docs/ROADMAP.md` | Keep only as a compatibility pointer unless a future task explicitly redefines it. Do not duplicate roadmap content here. |
-| `docs/KNOWLEDGE_MODEL.md` | `docs/DATA_STANDARD.md` and `docs/CODEX_PROJECT_UNDERSTANDING.md` | Keep only as a compatibility pointer unless a future task explicitly creates a full knowledge model. Do not duplicate canonical data rules here. |
+| Deprecated or duplicate name          | Canonical replacement                                             | Rule                                                                                                                                             |
+| ------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `docs/FOREVER_DEVELOPMENT_ROADMAP.md` | `docs/ROADMAP.md`                                                 | Keep only as a compatibility pointer unless a future task explicitly redefines it. Do not duplicate roadmap content here.                        |
+| `docs/KNOWLEDGE_MODEL.md`             | `docs/DATA_STANDARD.md` and `docs/CODEX_PROJECT_UNDERSTANDING.md` | Keep only as a compatibility pointer unless a future task explicitly creates a full knowledge model. Do not duplicate canonical data rules here. |
 
 ## Rules for Adding New Docs
 

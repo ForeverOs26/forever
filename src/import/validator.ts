@@ -29,6 +29,17 @@ export interface ProjectValidationReport {
   extracted: ExtractedFilesStatus;
 }
 
+const REQUIRED_MANIFEST_METADATA: Array<keyof ForeverManifest> = [
+  "project_name",
+  "project_slug",
+  "developer",
+  "project_type",
+  "country",
+  "province",
+  "location",
+  "source_version",
+];
+
 interface ImportStatusFolder {
   asset_type?: string;
   folder?: string;
@@ -62,6 +73,10 @@ function isRequired(asset: ForeverManifestAsset) {
   return asset.required || asset.readiness_level === "required";
 }
 
+function isPlaceholder(value: unknown) {
+  return typeof value === "string" && value.trim().toUpperCase() === "SOURCE_PENDING";
+}
+
 async function listSupportedFiles(folderPath: string, extensions: string[]) {
   if (!(await pathExists(folderPath))) return [];
   const files = await readdir(folderPath, { withFileTypes: true });
@@ -91,6 +106,18 @@ export async function validateProjectImport(
       message: `Unsupported manifest version: ${manifest.manifest_version}`,
       path: join(projectRoot, "manifest.json"),
     });
+  }
+
+  for (const field of REQUIRED_MANIFEST_METADATA) {
+    const value = manifest[field];
+    if (isPlaceholder(value)) {
+      issues.push({
+        severity: "error",
+        code: "manifest_metadata_source_pending",
+        message: `Required manifest metadata ${field} is still SOURCE_PENDING.`,
+        path: join(projectRoot, "manifest.json"),
+      });
+    }
   }
 
   if (!importStatus) {
@@ -155,7 +182,8 @@ export async function validateProjectImport(
     issues.push({
       severity: "warning",
       code: "brochure_extraction_missing",
-      message: "extracted/brochure.json is missing. Project import can continue, but project facts may be sparse.",
+      message:
+        "extracted/brochure.json is missing. Project import can continue, but project facts may be sparse.",
       path: brochurePath,
     });
   }
