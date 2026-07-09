@@ -35,6 +35,7 @@ If any required document is missing at the exact path, Codex must report the mis
 | `docs/DATA_STANDARD.md`               | Canonical data, import, validation, Intelligence, and Passport standards.                                                                                                             | Yes                 |
 | `docs/CODEX_PROJECT_UNDERSTANDING.md` | Canonical project understanding, architecture summary, current milestone context, risks, and recommendations.                                                                         | Conditional         |
 | `docs/IMPORT_ENGINE_ARCHITECTURE.md`  | Import Engine architecture, folder structure, interfaces, pipeline, validation, rollback, and state machine.                                                                          | Conditional         |
+| `docs/IMPORT_ENGINE_QA_AUDIT.md`      | RC3-006 QA audit of the Import Engine after RC3-005, including dry-run results, warnings, blockers, risks, and next-stage recommendation.                                             | No                  |
 | `docs/FOREVER_DEVELOPMENT_ROADMAP.md` | Compatibility pointer for tasks that request this historical path. The canonical roadmap is `docs/ROADMAP.md`.                                                                        | No                  |
 | `docs/KNOWLEDGE_MODEL.md`             | Compatibility pointer for tasks that request this historical path. The canonical knowledge and data model docs are `docs/DATA_STANDARD.md` and `docs/CODEX_PROJECT_UNDERSTANDING.md`. | No                  |
 
