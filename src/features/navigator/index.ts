@@ -1,4 +1,5 @@
 export * from "./api";
+export * from "./components";
 export * from "./domain/entities";
 export * from "./domain/models";
 export * from "./domain/schemas";
