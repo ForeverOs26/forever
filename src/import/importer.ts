@@ -1,10 +1,9 @@
-import { createDatabaseLayer, type DatabaseLayer } from "./database";
 import { loadExtractedDatasets } from "./datasets";
 import { loadManifest } from "./manifest";
 import { logStep, logSummary, logWarning, type ImportSummary } from "./logger";
 import { validateImportPlanRelationships } from "./plan-validator";
 import { createImportPlan } from "./planner";
-import { createRollbackPlan, rollbackImport } from "./rollback";
+import { createRollbackPlan } from "./rollback";
 import { transitionImportState } from "./state-machine";
 import type { ImportExecutionContext, ImportPlan } from "./types";
 import { validateProjectImport } from "./validator";
@@ -12,14 +11,12 @@ import { validateProjectImport } from "./validator";
 export interface ImportProjectOptions {
   projectSlug: string;
   projectsRoot?: string;
-  database?: DatabaseLayer;
   dryRun?: boolean;
 }
 
 function logDryRunPlan(plan: ImportPlan) {
-  logStep("Developer", String(plan.developer.name));
-  logStep("Location", String(plan.location.area_name));
   logStep("Project", String(plan.project.slug));
+  logStep("Validation", `project-only operations: ${plan.operations.length}`);
   logStep("Buildings", String(plan.buildings.length));
   logStep("Units", String(plan.units.length));
   logStep("Prices", String(plan.priceHistoryRows.length));
@@ -42,16 +39,37 @@ export async function importProject(options: ImportProjectOptions): Promise<Impo
   context.state = transitionImportState(context.state, "manifest_loaded");
   logStep("Manifest", manifest.project_slug);
 
+  const datasets = await loadExtractedDatasets(manifest.project_slug, projectsRoot);
+  context.state = transitionImportState(context.state, "datasets_loaded");
+
   const validation = await validateProjectImport(manifest, projectsRoot);
   if (!validation.ready) {
-    const details = validation.issues.map((issue) => `${issue.code}: ${issue.message}`).join("\n");
-    throw new Error(`Project is not ready for import.\n${details}`);
+    context.state = transitionImportState(context.state, "blocked");
+    const summary = {
+      projectSlug: manifest.project_slug,
+      status: "blocked" as const,
+      ready: false,
+      validationIssues: validation.issues.map(({ severity, code, message }) => ({
+        severity,
+        code,
+        message,
+      })),
+      operations: 0,
+      buildings: 0,
+      units: 0,
+      prices: 0,
+      skipped: 0,
+    };
+
+    logWarning(
+      "Project is not ready for import. No import plan was created and no database writes were performed.",
+    );
+    logSummary(summary);
+    context.state = transitionImportState(context.state, "completed");
+    return summary;
   }
   context.state = transitionImportState(context.state, "package_validated");
   logStep("Validation");
-
-  const datasets = await loadExtractedDatasets(manifest.project_slug, projectsRoot);
-  context.state = transitionImportState(context.state, "datasets_loaded");
 
   const plan = createImportPlan(manifest, validation, datasets, mode);
   plan.rollback = createRollbackPlan(plan);
@@ -69,6 +87,9 @@ export async function importProject(options: ImportProjectOptions): Promise<Impo
 
     const summary = {
       projectSlug: manifest.project_slug,
+      status: "dry_run_completed" as const,
+      ready: true,
+      operations: plan.operations.length,
       buildings: plan.buildings.length,
       units: plan.units.length,
       prices: plan.priceHistoryRows.length,
@@ -82,51 +103,7 @@ export async function importProject(options: ImportProjectOptions): Promise<Impo
     return summary;
   }
 
-  const database = options.database ?? createDatabaseLayer();
-  context.state = transitionImportState(context.state, "executing");
-
-  try {
-    const developer = await database.upsertDeveloper(manifest);
-    logStep("Developer", developer.name);
-
-    const location = await database.upsertLocation(manifest);
-    logStep("Location", location.area_name ?? manifest.location);
-
-    const project = await database.upsertProject(manifest, developer, location, plan.projectFacts);
-    logStep("Project", project.slug);
-
-    const buildingIds = await database.upsertBuildings(project, plan.buildings);
-    logStep("Buildings", String(buildingIds.size));
-
-    const unitIds = await database.upsertUnits(project, buildingIds, plan.units);
-    logStep("Units", String(unitIds.size));
-
-    const priceCount = await database.upsertPriceHistory(unitIds, plan.units);
-    logStep("Prices", String(priceCount));
-
-    const skipped = plan.units.length - unitIds.size;
-    if (skipped > 0) logWarning(`${skipped} unit rows were skipped.`);
-
-    const summary = {
-      projectSlug: manifest.project_slug,
-      developerId: developer.id,
-      locationId: location.id,
-      projectId: project.id,
-      buildings: buildingIds.size,
-      units: unitIds.size,
-      prices: priceCount,
-      skipped,
-    };
-
-    context.state = transitionImportState(context.state, "completed");
-    logStep("Finished");
-    logSummary(summary);
-    return summary;
-  } catch (error) {
-    context.state = transitionImportState(context.state, "rolling_back");
-    const rollback = await rollbackImport(database, plan.rollback);
-    context.state = transitionImportState(context.state, "failed");
-    logWarning(`Rollback prepared but not executed automatically: ${rollback.reason}`);
-    throw error;
-  }
+  throw new Error(
+    "Project-only execute mode is not enabled yet. Run dry-run only until the Project database write path is explicitly approved.",
+  );
 }

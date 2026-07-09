@@ -22,5 +22,9 @@ export async function loadExtractedDatasets(
   return {
     brochure: await readJsonIfExists(join(extractedRoot, "brochure.json")),
     priceList: await readJsonIfExists<ExtractedPriceList>(join(extractedRoot, "price-list.json")),
+    masterplan: await readJsonIfExists(join(extractedRoot, "masterplan.json")),
+    unitPlans: await readJsonIfExists(join(extractedRoot, "unit-plans.json")),
+    images: await readJsonIfExists(join(extractedRoot, "images.json")),
+    documents: await readJsonIfExists(join(extractedRoot, "documents.json")),
   };
 }

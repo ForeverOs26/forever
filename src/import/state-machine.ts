@@ -2,13 +2,14 @@ import type { ImportState } from "./types";
 
 const transitions: Record<ImportState, ImportState[]> = {
   initialized: ["manifest_loaded", "failed"],
-  manifest_loaded: ["package_validated", "failed"],
-  package_validated: ["datasets_loaded", "failed"],
-  datasets_loaded: ["plan_created", "failed"],
+  manifest_loaded: ["datasets_loaded", "failed"],
+  datasets_loaded: ["package_validated", "blocked", "failed"],
+  package_validated: ["plan_created", "failed"],
   plan_created: ["relationships_validated", "failed"],
   relationships_validated: ["dry_run_completed", "executing", "failed"],
   dry_run_completed: ["completed"],
   executing: ["completed", "rolling_back", "failed"],
+  blocked: ["completed"],
   rolling_back: ["rolled_back", "failed"],
   rolled_back: ["failed"],
   completed: [],

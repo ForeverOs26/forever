@@ -14,12 +14,13 @@ export type ImportMode = "dry-run" | "execute";
 export type ImportState =
   | "initialized"
   | "manifest_loaded"
-  | "package_validated"
   | "datasets_loaded"
+  | "package_validated"
   | "plan_created"
   | "relationships_validated"
   | "dry_run_completed"
   | "executing"
+  | "blocked"
   | "completed"
   | "rolling_back"
   | "rolled_back"
@@ -46,6 +47,10 @@ export interface ImportOperation<TPayload = unknown> {
 export interface ExtractedDatasets {
   brochure: unknown | null;
   priceList: ExtractedPriceList | null;
+  masterplan: unknown | null;
+  unitPlans: unknown | null;
+  images: unknown | null;
+  documents: unknown | null;
 }
 
 export interface Fact<T = unknown> {
@@ -86,6 +91,7 @@ export interface ImportPlan {
   manifest: ForeverManifest;
   validation: ProjectValidationReport;
   datasets: ExtractedDatasets;
+  canonicalProject: CanonicalProject;
   projectFacts: Record<string, Json>;
   developer: Record<string, unknown>;
   location: Record<string, unknown>;
@@ -127,4 +133,52 @@ export interface ImportExecutionResult {
   buildingIds?: Map<string, string>;
   unitIds?: Map<string, string>;
   priceCount?: number;
+}
+
+export interface CanonicalProject {
+  name: string;
+  slug: string;
+  developer: string;
+  country: string;
+  province: string;
+  locationArea: string;
+  projectType: string;
+  publicStatus: string | null;
+  salesStatus: string | null;
+  sourceVersion: string;
+  importManifest: {
+    manifestFormat: string;
+    manifestVersion: string;
+    createdAt: string;
+    projectSlug: string;
+  };
+  importReadiness: {
+    ready: boolean;
+    importStatusReady: boolean;
+    validationIssueCount: number;
+  };
+  optional: {
+    projectCode: string | null;
+    address: string | null;
+    shortDescription: string | null;
+    fullDescription: string | null;
+    constructionStatus: string | null;
+    completionDate: string | null;
+    ownershipType: string | null;
+    distanceToBeach: string | null;
+    distanceToAirport: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    mainImage: string | null;
+    brochureUrl: string | null;
+    startingPrice: number | null;
+    priceRange: string | null;
+    verifiedPriceLabel: string | null;
+    lastPriceUpdate: string | null;
+    lastInspectionDate: string | null;
+    trustNote: string | null;
+    marketPosition: string | null;
+    verdict: string | null;
+    highlights: string[];
+  };
 }

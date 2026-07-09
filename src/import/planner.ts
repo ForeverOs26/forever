@@ -3,6 +3,7 @@ import type { BuildingInput, UnitInput } from "./database";
 import type { ForeverManifest } from "./manifest";
 import type { ProjectValidationReport } from "./validator";
 import type {
+  CanonicalProject,
   ExtractedDatasets,
   ExtractedPriceList,
   Fact,
@@ -52,6 +53,30 @@ function extractProjectFacts(brochure: unknown): Record<string, Json> {
     facilities: data.facilities as Json,
     descriptions: data.descriptions as Json,
   };
+}
+
+function readFactAtPath(data: unknown, path: string[]): Fact | null {
+  let current = data;
+
+  for (const segment of path) {
+    if (!current || typeof current !== "object") return null;
+    current = (current as Record<string, unknown>)[segment];
+  }
+
+  if (!current || typeof current !== "object" || !("value" in current)) return null;
+  return current as Fact;
+}
+
+function sourceBackedString(data: unknown, path: string[]): string | null {
+  const fact = readFactAtPath(data, path);
+  if (!fact || fact.value == null) return null;
+  if (fact.confidence === "none") return null;
+  return String(fact.value);
+}
+
+function sourceBackedNumber(data: unknown, path: string[]): number | null {
+  const value = sourceBackedString(data, path);
+  return parseNumber(value);
 }
 
 function slugify(value: string) {
@@ -119,57 +144,73 @@ function deriveBuildings(units: UnitInput[]): BuildingInput[] {
     }));
 }
 
-function createOperations(
-  developer: Record<string, unknown>,
-  location: Record<string, unknown>,
-  project: Record<string, unknown>,
-  buildings: BuildingInput[],
-  units: UnitInput[],
-): ImportOperation[] {
+function createOperations(project: Record<string, unknown>): ImportOperation[] {
   return [
-    {
-      entity: "developer",
-      action: "upsert",
-      naturalKey: String(developer.slug),
-      payload: developer,
-    },
-    {
-      entity: "location",
-      action: "upsert",
-      naturalKey: String(location.slug),
-      payload: location,
-    },
     {
       entity: "project",
       action: "upsert",
       naturalKey: String(project.slug),
       payload: project,
-      dependsOn: ["developer", "location"],
     },
-    ...buildings.map((building) => ({
-      entity: "building" as const,
-      action: "upsert" as const,
-      naturalKey: `${project.slug}:${building.buildingCode}`,
-      payload: building,
-      dependsOn: ["project" as const],
-    })),
-    ...units.map((unit) => ({
-      entity: "unit" as const,
-      action: "upsert" as const,
-      naturalKey: `${project.slug}:${unit.unitNumber}`,
-      payload: unit,
-      dependsOn: ["project" as const, "building" as const],
-    })),
-    ...units
-      .filter((unit) => unit.price != null)
-      .map((unit) => ({
-        entity: "unit_price_history" as const,
-        action: "upsert" as const,
-        naturalKey: `${project.slug}:${unit.unitNumber}:${unit.sourceFile ?? "unknown"}:${unit.priceListDate ?? "unknown"}`,
-        payload: unit,
-        dependsOn: ["unit" as const],
-      })),
   ];
+}
+
+export function createCanonicalProject(
+  manifest: ForeverManifest,
+  validation: ProjectValidationReport,
+  datasets: ExtractedDatasets,
+): CanonicalProject {
+  const brochure = datasets.brochure;
+
+  return {
+    name: manifest.project_name,
+    slug: manifest.project_slug,
+    developer: manifest.developer,
+    country: manifest.country,
+    province: manifest.province,
+    locationArea: manifest.location,
+    projectType: manifest.project_type,
+    publicStatus: null,
+    salesStatus: null,
+    sourceVersion: manifest.source_version,
+    importManifest: {
+      manifestFormat: manifest.manifest_format,
+      manifestVersion: manifest.manifest_version,
+      createdAt: manifest.created_at,
+      projectSlug: manifest.project_slug,
+    },
+    importReadiness: {
+      ready: validation.ready,
+      importStatusReady: validation.importStatusReady,
+      validationIssueCount: validation.issues.length,
+    },
+    optional: {
+      projectCode: null,
+      address: null,
+      shortDescription: sourceBackedString(brochure, ["descriptions", "short_description"]),
+      fullDescription: sourceBackedString(brochure, ["descriptions", "full_description"]),
+      constructionStatus: sourceBackedString(brochure, ["completion", "construction_status"]),
+      completionDate: sourceBackedString(brochure, ["completion", "completion_date"]),
+      ownershipType: sourceBackedString(brochure, ["ownership", "type"]),
+      distanceToBeach: sourceBackedString(brochure, ["location", "beach_distance"]),
+      distanceToAirport: sourceBackedString(brochure, ["location", "airport_distance"]),
+      latitude: sourceBackedNumber(brochure, ["location", "latitude"]),
+      longitude: sourceBackedNumber(brochure, ["location", "longitude"]),
+      mainImage: null,
+      brochureUrl: null,
+      startingPrice: null,
+      priceRange: null,
+      verifiedPriceLabel: null,
+      lastPriceUpdate: normalizeDate(
+        factValue(datasets.priceList?.price_list_date) as string | null,
+      ),
+      lastInspectionDate: null,
+      trustNote: null,
+      marketPosition: null,
+      verdict: null,
+      highlights: [],
+    },
+  };
 }
 
 export function createImportPlan(
@@ -179,34 +220,10 @@ export function createImportPlan(
   mode: ImportMode,
 ): ImportPlan {
   const projectFacts = extractProjectFacts(datasets.brochure);
-  const units = mapPriceListUnits(datasets.priceList);
-  const buildings = deriveBuildings(units);
-  const developer = {
-    slug: slugify(manifest.developer),
-    name: manifest.developer,
-    legal_name: manifest.developer,
-    country: manifest.country,
-    headquarters_location: `${manifest.province}, ${manifest.country}`,
-    verification_status: "source_imported",
-  };
-  const location = {
-    slug: slugify(manifest.location),
-    area_name: manifest.location,
-    country: manifest.country,
-    province: manifest.province,
-  };
-  const project = {
-    slug: manifest.project_slug,
-    name: manifest.project_name,
-    project_code: manifest.project_slug.toUpperCase(),
-    project_type: manifest.project_type,
-    location_area: manifest.location,
-    address: `${manifest.location}, ${manifest.province}, ${manifest.country}`,
-    is_active: true,
-    public_status: "published",
-    sales_status: "Available",
-    metadata_keys: Object.keys(projectFacts),
-  };
+  const canonicalProject = createCanonicalProject(manifest, validation, datasets);
+  const units: UnitInput[] = [];
+  const buildings: BuildingInput[] = [];
+  const project = { ...canonicalProject };
 
   return {
     projectSlug: manifest.project_slug,
@@ -214,14 +231,15 @@ export function createImportPlan(
     manifest,
     validation,
     datasets,
+    canonicalProject,
     projectFacts,
-    developer,
-    location,
+    developer: {},
+    location: {},
     project,
     buildings,
     units,
     priceHistoryRows: units.filter((unit) => unit.price != null),
-    operations: createOperations(developer, location, project, buildings, units),
+    operations: createOperations(project),
     rollback: {
       supported: mode === "execute",
       strategy: mode === "execute" ? "compensating_actions" : "not_required",

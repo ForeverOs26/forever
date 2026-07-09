@@ -6,6 +6,8 @@ Import Engine v1 approved and ready for the next verified project intake.
 
 RC3-001 added the production-ready Import Engine architecture skeleton: explicit import plans, extracted dataset loading, relationship validation, rollback contract, and an import state machine.
 
+RC3-002 added the first Project-only import stage. The importer now loads Coralina extracted datasets, preserves readiness validation, returns a blocked summary when `ready_for_import=false`, and prevents unit/building/media/relationship imports for this stage.
+
 ## Completed Milestones
 
 - Universal Project Detail Engine foundation and route integration.
@@ -20,12 +22,13 @@ RC3-001 added the production-ready Import Engine architecture skeleton: explicit
 - FDB-003B Modeva Import Engine dry-run passed.
 - FDB-003C Modeva real import/idempotency test passed.
 - RC3-001 Import Engine architecture skeleton and safety hardening.
+- RC3-002 first Project-only import stage and Coralina blocked dry-run validation.
 - FDM-001 Modeva source material folder structure.
 - FDM-002 Forever project import manifest standard.
 
 ## Active Tasks
 
-- Prepare Coralina source intake using the Forever project folder structure and Import Engine v1.
+- Resolve Coralina source-backed blockers for `developer` and `country` before any Project import can proceed.
 - Keep Import Engine usage documented for future projects.
 
 ## Blockers
