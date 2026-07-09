@@ -1,4 +1,4 @@
-import type { UnitInput } from "./database";
+import type { PriceHistoryInput } from "./database";
 import type { ImportPlan } from "./types";
 import type { ValidationIssue } from "./validator";
 
@@ -22,9 +22,15 @@ function duplicateIssues(entity: string, counts: Map<string, number>): Validatio
     }));
 }
 
-function priceHistoryKey(unit: UnitInput) {
-  if (unit.price == null) return undefined;
-  return `${unit.unitNumber}:${unit.sourceFile ?? "unknown"}:${unit.sourcePage ?? "none"}:${unit.priceListDate ?? "none"}`;
+function priceHistoryKey(row: PriceHistoryInput) {
+  return [
+    row.unitNumber,
+    row.priceSource,
+    row.sourceFile ?? "unknown",
+    row.sourcePage ?? "none",
+    row.priceListDate ?? "none",
+    row.sourceRow ?? "none",
+  ].join(":");
 }
 
 export function validateImportPlanRelationships(plan: ImportPlan): ValidationIssue[] {
@@ -38,7 +44,7 @@ export function validateImportPlanRelationships(plan: ImportPlan): ValidationIss
       countBy(plan.units, (unit) => unit.unitNumber),
     ),
   );
-  issues.push(...duplicateIssues("price_history", countBy(plan.units, priceHistoryKey)));
+  issues.push(...duplicateIssues("price_history", countBy(plan.priceHistoryRows, priceHistoryKey)));
   issues.push(
     ...duplicateIssues(
       "building",
@@ -64,12 +70,42 @@ export function validateImportPlanRelationships(plan: ImportPlan): ValidationIss
     }
   }
 
-  for (const unit of plan.priceHistoryRows) {
-    if (!unitCodes.has(unit.unitNumber)) {
+  for (const row of plan.priceHistoryRows) {
+    if (!unitCodes.has(row.unitNumber)) {
       issues.push({
         severity: "error",
         code: "orphan_price_history_unit",
-        message: `Price history references missing unit ${unit.unitNumber}.`,
+        message: `Price history references missing unit ${row.unitNumber}.`,
+      });
+    }
+
+    if (row.price == null || !Number.isFinite(row.price)) {
+      issues.push({
+        severity: "error",
+        code: "price_history_price_invalid",
+        message: `Price history for unit ${row.unitNumber} is missing a numeric price.`,
+      });
+    }
+
+    if (!row.recordedDate) {
+      issues.push({
+        severity: "error",
+        code: "price_history_date_missing",
+        message: `Price history for unit ${row.unitNumber} is missing a recorded price date.`,
+      });
+    }
+
+    if (row.currency == null) {
+      issues.push({
+        severity: "warning",
+        code: "price_history_currency_null",
+        message: `Price history for unit ${row.unitNumber} has explicit null currency in source extraction.`,
+      });
+    } else if (!row.currency.trim()) {
+      issues.push({
+        severity: "error",
+        code: "price_history_currency_missing",
+        message: `Price history for unit ${row.unitNumber} is missing currency.`,
       });
     }
   }

@@ -1,8 +1,8 @@
 # Forever Import Engine Architecture
 
-Task ID: RC3-001 / RC3-002 / RC3-003 / RC3-004
+Task ID: RC3-001 / RC3-002 / RC3-003 / RC3-004 / RC3-005
 
-Status: Project + Buildings + Units dry-run import stage added after initial production-ready architecture skeleton
+Status: Project + Buildings + Units + Price History dry-run import stage added after initial production-ready architecture skeleton
 
 ## Purpose
 
@@ -51,24 +51,25 @@ forever-data/projects/{project_slug}/
 
 ## Current Enabled Stage
 
-RC3-004 enables the canonical Project stage plus Buildings and Units dry-run planning.
+RC3-005 enables the canonical Project stage plus Buildings, Units, and Price History dry-run planning.
 
 The Project stage creates an internal `CanonicalProject` object from the manifest, readiness validation, and extracted dataset context. It populates canonical Project fields only. Missing optional facts remain `null`, `SOURCE_PENDING` is never replaced, and validation still blocks packages that are not ready.
 
 The Buildings stage derives canonical building objects only from source-backed extracted price-list building facts. It adds building operations after the Project operation in the import plan. Building codes are source-backed from extracted rows, while units count, floors count, and source metadata are deterministic aggregates from those source-backed rows.
 
-The Units stage loads `extracted/unit-plans.json` as part of extracted dataset loading. When that dataset contains canonical unit inventory rows, it can create source-backed Unit operations from those rows. Modeva does not yet have canonical unit inventory rows in `unit-plans.json`, so RC3-004 uses Modeva's source-backed `price-list.json` unit inventory as the unit source while stripping price fields and leaving price history empty. Unit operations depend on both Project and Building operations.
+The Units stage loads `extracted/unit-plans.json` as part of extracted dataset loading. When that dataset contains canonical unit inventory rows, it can create source-backed Unit operations from those rows. Modeva does not yet have canonical unit inventory rows in `unit-plans.json`, so the current stage uses Modeva's source-backed `price-list.json` unit inventory as the unit source while stripping price fields from Unit operations. Unit operations depend on both Project and Building operations.
 
-The current Project + Buildings + Units stage intentionally does not import:
+The Price History stage derives canonical price-history rows from source-backed `extracted/price-list.json` unit inventory rows. Price History operations are appended after Unit operations, depend on Unit operations, use `developer_price_list` as the source label, preserve extracted price-list dates, and keep currency null when the extraction explicitly contains null currency. Null currency is reported as a plan validation warning; missing/non-numeric prices, missing price dates, orphan unit references, and duplicate source keys are errors.
+
+The current Project + Buildings + Units + Price History stage intentionally does not import:
 
 - Media.
 - Documents.
 - Relationships.
 - Intelligence.
 - Passport data.
-- Prices.
 
-Dry-run returns Project + Buildings + Units operation counts only. Execute mode is blocked until a Project + Buildings + Units database write path is explicitly approved.
+Dry-run returns Project + Buildings + Units + Price History operation counts only. Execute mode is blocked until a Project + Buildings + Units + Price History database write path is explicitly approved.
 
 ## Validation Pipeline
 
@@ -78,7 +79,7 @@ Validation is layered:
 - Package readiness: `import-status.json`, required folders, required files, extracted JSON.
 - Metadata safety: blocks `SOURCE_PENDING` and empty required manifest fields.
 - Dataset loading: parse JSON or fail loudly on invalid JSON.
-- Relationship validation: duplicate units, duplicate price-history source keys, orphan unit/building links, orphan price-history/unit links.
+- Relationship validation: duplicate units, duplicate price-history source keys, orphan unit/building links, orphan price-history/unit links, numeric price values, price dates, and currency presence or explicit-null warnings.
 
 Validation issues use a shared model:
 
@@ -100,14 +101,15 @@ The import plan is the durable boundary between validation and database executio
 - Canonical Project object.
 - Canonical Building objects.
 - Canonical Unit objects.
+- Canonical Price History objects.
 - Normalized project facts.
-- Project-stage, Building-stage, and Unit-stage payloads for the enabled import stage.
+- Project-stage, Building-stage, Unit-stage, and Price History-stage payloads for the enabled import stage.
 - Ordered operations with natural keys and dependencies.
 - Rollback plan.
 
 ## Database Insertion Layer
 
-`database.ts` remains the only module allowed to create a Supabase import client or perform writes. Dry-run mode never creates the client. RC3-004 blocks execute mode while the current enabled stage is Project + Buildings + Units and has no approved database write path.
+`database.ts` remains the only module allowed to create a Supabase import client or perform writes. Dry-run mode never creates the client. RC3-005 blocks execute mode while the current enabled stage is Project + Buildings + Units + Price History and has no approved database write path.
 
 Future versions should add transaction-scoped execution and canonical source/media/document/intelligence insertion without changing the import-plan boundary.
 

@@ -7,6 +7,7 @@ import { createRollbackPlan } from "./rollback";
 import { transitionImportState } from "./state-machine";
 import type { ImportExecutionContext, ImportPlan } from "./types";
 import { validateProjectImport } from "./validator";
+import type { ValidationIssue } from "./validator";
 
 export interface ImportProjectOptions {
   projectSlug: string;
@@ -16,11 +17,28 @@ export interface ImportProjectOptions {
 
 function logDryRunPlan(plan: ImportPlan) {
   logStep("Project", String(plan.project.slug));
-  logStep("Validation", `Project + Buildings + Units operations: ${plan.operations.length}`);
+  logStep(
+    "Validation",
+    `Project + Buildings + Units + Price History operations: ${plan.operations.length}`,
+  );
   logStep("Buildings", String(plan.buildings.length));
   logStep("Units", String(plan.units.length));
   logStep("Prices", String(plan.priceHistoryRows.length));
   logWarning("Dry run only. No Supabase client was created and no database writes were performed.");
+}
+
+function logValidationWarnings(issues: ValidationIssue[]) {
+  const warnings = issues.filter((issue) => issue.severity === "warning");
+  if (!warnings.length) return;
+
+  const warningCounts = new Map<string, number>();
+  for (const warning of warnings) {
+    warningCounts.set(warning.code, (warningCounts.get(warning.code) ?? 0) + 1);
+  }
+
+  for (const [code, count] of warningCounts.entries()) {
+    logWarning(`Plan validation warning ${code}: ${count} row${count === 1 ? "" : "s"}.`);
+  }
 }
 
 export async function importProject(options: ImportProjectOptions): Promise<ImportSummary> {
@@ -80,6 +98,7 @@ export async function importProject(options: ImportProjectOptions): Promise<Impo
     const details = relationshipIssues.map((issue) => `${issue.code}: ${issue.message}`).join("\n");
     throw new Error(`Import plan failed relationship validation.\n${details}`);
   }
+  logValidationWarnings(relationshipIssues);
   context.state = transitionImportState(context.state, "relationships_validated");
 
   if (options.dryRun) {
@@ -104,6 +123,6 @@ export async function importProject(options: ImportProjectOptions): Promise<Impo
   }
 
   throw new Error(
-    "Project + Buildings + Units execute mode is not enabled yet. Run dry-run only until this database write path is explicitly approved.",
+    "Project + Buildings + Units + Price History execute mode is not enabled yet. Run dry-run only until this database write path is explicitly approved.",
   );
 }

@@ -11,6 +11,7 @@
 - RC3-002 completed: first Project-only import stage added with Coralina dry-run blocked safely by readiness validation.
 - RC3-003 completed: Buildings-only Import Engine stage added after Project for source-backed dry-run planning.
 - RC3-004 completed: Canonical Unit Import dry-run stage added after Buildings.
+- RC3-005 completed: Price History dry-run import stage added after Units.
 - FDM-001 completed.
 - FDM-002 completed.
 
@@ -23,5 +24,6 @@
 - RC3-002 loads Coralina extracted datasets, creates a canonical internal Project object only after readiness passes, returns a blocked summary when readiness fails, and does not import units, buildings, media, relationships, Intelligence, or Passport data.
 - RC3-003 derives canonical Building objects from source-backed price-list building facts, appends Building operations after Project in dry-run plans, keeps Units and Prices at zero, and leaves Coralina blocked until readiness blockers are resolved.
 - RC3-004 loads `extracted/unit-plans.json`, creates canonical Unit operations after Buildings, keeps Prices at zero, blocks execute mode, plans Modeva as Project + 7 Buildings + 289 Units, and leaves Coralina blocked until readiness blockers are resolved.
+- RC3-005 derives canonical Price History operations from source-backed price-list rows after Units, validates unit references, numeric prices, price dates, currency presence or explicit null warnings, and duplicate source keys, blocks execute mode, plans Modeva as Project + 7 Buildings + 289 Units + 289 Price History rows, and leaves Coralina blocked until readiness blockers are resolved.
 - FDM-001 created the Modeva source material folder structure.
 - FDM-002 created the Forever project import manifest standard.
