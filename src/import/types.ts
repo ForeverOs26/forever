@@ -85,6 +85,30 @@ export interface ExtractedPriceList {
   unit_inventory?: ExtractedPriceListRow[];
 }
 
+export interface ExtractedUnitPlanRow {
+  source_row?: number;
+  unit_number?: Fact<string> | string;
+  unit_code?: Fact<string> | string;
+  building?: Fact<string> | string;
+  floor?: Fact<string | number> | string | number;
+  unit_type?: Fact<string> | string;
+  bedrooms?: Fact<string | number> | string | number;
+  bathrooms?: Fact<string | number> | string | number;
+  size_sqm?: Fact<string | number> | string | number;
+  availability_status?: Fact<string> | string;
+  source_file?: string;
+  source_reference?: {
+    source_file?: string;
+    page_number?: number | null;
+    confidence?: string;
+  };
+}
+
+export interface ExtractedUnitPlans {
+  unit_inventory?: ExtractedUnitPlanRow[];
+  units?: ExtractedUnitPlanRow[];
+}
+
 export interface ImportPlan {
   projectSlug: string;
   mode: ImportMode;

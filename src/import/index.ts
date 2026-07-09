@@ -19,6 +19,8 @@ export type {
   ExtractedDatasets,
   ExtractedPriceList,
   ExtractedPriceListRow,
+  ExtractedUnitPlanRow,
+  ExtractedUnitPlans,
   Fact,
   ImportEntityType,
   ImportExecutionContext,
