@@ -6,7 +6,7 @@ Import Engine v1 approved and ready for the next verified project intake.
 
 RC3-001 added the production-ready Import Engine architecture skeleton: explicit import plans, extracted dataset loading, relationship validation, rollback contract, and an import state machine.
 
-RC3-002 added the first Project-only import stage. The importer now loads Coralina extracted datasets, preserves readiness validation, returns a blocked summary when `ready_for_import=false`, and prevents unit/building/media/relationship imports for this stage.
+RC3-002 added the first Project-only import stage. RC3-003 extends the dry-run plan to include source-backed canonical Building objects after Project while still preventing unit, price, media, document, relationship, Intelligence, and Passport imports.
 
 ## Completed Milestones
 
@@ -23,6 +23,7 @@ RC3-002 added the first Project-only import stage. The importer now loads Corali
 - FDB-003C Modeva real import/idempotency test passed.
 - RC3-001 Import Engine architecture skeleton and safety hardening.
 - RC3-002 first Project-only import stage and Coralina blocked dry-run validation.
+- RC3-003 Buildings-only Import Engine stage after Project, with Modeva dry-run planning Project + 7 Buildings and Coralina still blocked by readiness validation.
 - FDM-001 Modeva source material folder structure.
 - FDM-002 Forever project import manifest standard.
 
@@ -42,7 +43,7 @@ Coralina source intake using the same manifest, extraction, validation, and Impo
 
 ## Architecture Status
 
-The website now uses a reusable Project Detail Engine, Forever Passport layer, deterministic Forever Intelligence module, and a reusable Import Engine for source-driven project ingestion. The Import Engine now separates package validation, extracted dataset loading, import planning, relationship validation, rollback preparation, and database execution. Architecture continues toward One Engine, Many Interfaces.
+The website now uses a reusable Project Detail Engine, Forever Passport layer, deterministic Forever Intelligence module, and a reusable Import Engine for source-driven project ingestion. The Import Engine now separates package validation, extracted dataset loading, Project + Buildings import planning, relationship validation, rollback preparation, and database execution. Architecture continues toward One Engine, Many Interfaces.
 
 ## Database Status
 

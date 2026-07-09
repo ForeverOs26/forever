@@ -1,8 +1,8 @@
 # Forever Import Engine Architecture
 
-Task ID: RC3-001 / RC3-002
+Task ID: RC3-001 / RC3-002 / RC3-003
 
-Status: Project-only import stage added after initial production-ready architecture skeleton
+Status: Project + Buildings dry-run import stage added after initial production-ready architecture skeleton
 
 ## Purpose
 
@@ -51,21 +51,23 @@ forever-data/projects/{project_slug}/
 
 ## Current Enabled Stage
 
-RC3-002 enables only the first canonical Project stage.
+RC3-003 enables the canonical Project stage plus a Buildings-only stage.
 
-The stage creates an internal `CanonicalProject` object from the manifest, readiness validation, and extracted dataset context. It populates canonical Project fields only. Missing optional facts remain `null`, `SOURCE_PENDING` is never replaced, and validation still blocks packages that are not ready.
+The Project stage creates an internal `CanonicalProject` object from the manifest, readiness validation, and extracted dataset context. It populates canonical Project fields only. Missing optional facts remain `null`, `SOURCE_PENDING` is never replaced, and validation still blocks packages that are not ready.
 
-The current Project stage intentionally does not import:
+The Buildings stage derives canonical building objects only from source-backed extracted price-list building facts. It adds building operations after the Project operation in the import plan. Building codes are source-backed from extracted rows, while units count, floors count, and source metadata are deterministic aggregates from those source-backed rows.
+
+The current Project + Buildings stage intentionally does not import:
 
 - Units.
-- Buildings.
 - Media.
 - Documents.
 - Relationships.
 - Intelligence.
 - Passport data.
+- Prices.
 
-Dry-run returns a Project-only operation count. Execute mode is blocked until a Project-only database write path is explicitly approved.
+Dry-run returns Project + Buildings operation counts only. Execute mode is blocked until a Project + Buildings database write path is explicitly approved.
 
 ## Validation Pipeline
 
@@ -95,14 +97,15 @@ The import plan is the durable boundary between validation and database executio
 - Manifest and validation report.
 - Loaded datasets.
 - Canonical Project object.
+- Canonical Building objects.
 - Normalized project facts.
-- Project-stage payloads for the enabled import stage.
+- Project-stage and Building-stage payloads for the enabled import stage.
 - Ordered operations with natural keys and dependencies.
 - Rollback plan.
 
 ## Database Insertion Layer
 
-`database.ts` remains the only module allowed to create a Supabase import client or perform writes. Dry-run mode never creates the client. RC3-002 blocks execute mode while the current enabled stage is Project-only and has no approved database write path.
+`database.ts` remains the only module allowed to create a Supabase import client or perform writes. Dry-run mode never creates the client. RC3-003 blocks execute mode while the current enabled stage is Project + Buildings and has no approved database write path.
 
 Future versions should add transaction-scoped execution and canonical source/media/document/intelligence insertion without changing the import-plan boundary.
 
