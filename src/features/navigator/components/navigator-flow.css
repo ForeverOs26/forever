@@ -1,0 +1,211 @@
+.navigator-flow {
+  --canvas: #ffffff;
+  --paper: #f3efe7;
+  --surface: #fbfaf7;
+  --ink: #17150f;
+  --bronze: #9c7b4c;
+  --bronze-lt: #c7b48f;
+  --text-2: #6e6a60;
+  --text-3: #a29c90;
+  --line: #eae6de;
+  --live: #3d8a5f;
+  --r-chip: 15px;
+  --r-btn: 16px;
+  --r-card: 20px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --serif: "Newsreader", Georgia, serif;
+  --sans: "Hanken Grotesk", system-ui, sans-serif;
+
+  min-height: 100dvh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.navigator-flow__shell {
+  position: relative;
+  display: flex;
+  min-height: 100dvh;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  flex-direction: column;
+  background: var(--canvas);
+}
+
+.navigator-progress-header {
+  display: none;
+}
+
+.navigator-screen {
+  animation: navigator-rise 0.6s var(--ease);
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: 30px 30px 128px;
+}
+
+.navigator-welcome {
+  display: flex;
+  min-height: calc(100dvh - 158px);
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.navigator-welcome__content {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+.navigator-eyebrow {
+  margin: 0 0 18px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  line-height: 1;
+}
+
+.navigator-heading {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 38px;
+  font-weight: 300;
+  letter-spacing: 0;
+  line-height: 1.14;
+  outline: none;
+}
+
+.navigator-heading:focus-visible {
+  border-radius: 8px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bronze) 35%, transparent);
+}
+
+.navigator-welcome__sub {
+  margin: 24px 0 0;
+  color: #57534a;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+.navigator-welcome__footnote {
+  margin: 104px 0 0;
+  color: #57534a;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+.navigator-primary-action {
+  position: fixed;
+  right: max(30px, calc((100vw - 520px) / 2 + 30px));
+  bottom: 0;
+  left: max(30px, calc((100vw - 520px) / 2 + 30px));
+  z-index: 10;
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 18px 0 calc(18px + env(safe-area-inset-bottom));
+  background: linear-gradient(
+    to top,
+    var(--canvas) 0%,
+    var(--canvas) 72%,
+    color-mix(in srgb, var(--canvas) 0%, transparent) 100%
+  );
+}
+
+.navigator-btn {
+  width: 100%;
+  min-height: 52px;
+  cursor: pointer;
+  border: none;
+  border-radius: var(--r-btn);
+  background: var(--ink);
+  box-shadow: 0 14px 30px -14px rgba(23, 21, 15, 0.7);
+  color: #ffffff;
+  font: 600 16px/1 var(--sans);
+  transition:
+    background-color 0.3s var(--ease),
+    box-shadow 0.3s var(--ease),
+    transform 0.3s var(--ease);
+}
+
+.navigator-btn:hover {
+  transform: translateY(-1px);
+}
+
+.navigator-btn:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--bronze) 42%, transparent);
+  outline-offset: 3px;
+}
+
+@keyframes navigator-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .navigator-flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 56px 24px;
+  }
+
+  .navigator-flow__shell {
+    min-height: min(760px, calc(100dvh - 112px));
+    border: 1px solid #e3ded4;
+    border-radius: 30px;
+    box-shadow: 0 40px 90px -50px rgba(23, 21, 15, 0.4);
+    overflow: hidden;
+  }
+
+  .navigator-welcome {
+    min-height: min(602px, calc(100dvh - 270px));
+  }
+
+  .navigator-primary-action {
+    right: auto;
+    left: 50%;
+    width: 460px;
+    transform: translateX(-50%);
+  }
+
+  .navigator-btn:hover {
+    transform: translateY(-1px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navigator-screen {
+    animation: navigator-fade 0.4s ease;
+  }
+
+  .navigator-btn {
+    transition: none;
+  }
+
+  .navigator-btn:hover {
+    transform: none;
+  }
+
+  @keyframes navigator-fade {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+}
