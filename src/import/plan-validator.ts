@@ -39,6 +39,12 @@ export function validateImportPlanRelationships(plan: ImportPlan): ValidationIss
     ),
   );
   issues.push(...duplicateIssues("price_history", countBy(plan.units, priceHistoryKey)));
+  issues.push(
+    ...duplicateIssues(
+      "building",
+      countBy(plan.buildings, (building) => building.buildingCode),
+    ),
+  );
 
   for (const unit of plan.units) {
     if (!unit.unitNumber.trim()) {

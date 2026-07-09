@@ -16,6 +16,14 @@ function factValue<T>(fact: Fact<T> | undefined) {
   return fact?.value ?? null;
 }
 
+function isSourceBackedFact<T>(fact: Fact<T> | undefined): fact is Fact<T> {
+  return Boolean(fact?.source_file && fact.value != null && fact.confidence !== "none");
+}
+
+function sourceBackedFactValue<T>(fact: Fact<T> | undefined): T | null {
+  return isSourceBackedFact(fact) ? fact.value : null;
+}
+
 function parseNumber(value: unknown): number | null {
   if (value == null) return null;
   const normalized = String(value).replace(/,/g, "").trim();
@@ -119,32 +127,63 @@ function mapPriceListUnits(priceList: ExtractedPriceList | null): UnitInput[] {
     .filter((unit): unit is UnitInput => Boolean(unit));
 }
 
-function deriveBuildings(units: UnitInput[]): BuildingInput[] {
-  const counts = new Map<string, number>();
-  const maxFloor = new Map<string, number>();
-
-  for (const unit of units) {
-    if (!unit.buildingCode) continue;
-    counts.set(unit.buildingCode, (counts.get(unit.buildingCode) ?? 0) + 1);
-    if (unit.floor != null) {
-      maxFloor.set(unit.buildingCode, Math.max(maxFloor.get(unit.buildingCode) ?? 0, unit.floor));
+function deriveBuildings(priceList: ExtractedPriceList | null): BuildingInput[] {
+  const sourceRows = new Map<
+    string,
+    {
+      unitsCount: number;
+      floors: Set<number>;
+      sourceFiles: Set<string>;
+      sourcePages: Set<number>;
+      sourceRows: number[];
     }
+  >();
+
+  for (const row of priceList?.unit_inventory ?? []) {
+    const buildingCode = sourceBackedFactValue(row.building);
+    if (!buildingCode) continue;
+
+    const normalizedCode = String(buildingCode).trim();
+    if (!normalizedCode) continue;
+
+    const existing = sourceRows.get(normalizedCode) ?? {
+      unitsCount: 0,
+      floors: new Set<number>(),
+      sourceFiles: new Set<string>(),
+      sourcePages: new Set<number>(),
+      sourceRows: [],
+    };
+    const floor = parseNumber(sourceBackedFactValue(row.floor));
+
+    existing.unitsCount += 1;
+    if (floor != null) existing.floors.add(floor);
+    if (row.building?.source_file) existing.sourceFiles.add(row.building.source_file);
+    if (row.building?.page_number != null) existing.sourcePages.add(row.building.page_number);
+    if (row.source_row != null) existing.sourceRows.push(row.source_row);
+
+    sourceRows.set(normalizedCode, existing);
   }
 
-  return [...counts.entries()]
+  return [...sourceRows.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([buildingCode, unitsCount]) => ({
+    .map(([buildingCode, evidence]) => ({
       buildingCode,
       name: `Building ${buildingCode}`,
-      unitsCount,
-      floorsCount: maxFloor.get(buildingCode),
+      unitsCount: evidence.unitsCount,
+      floorsCount: evidence.floors.size ? Math.max(...evidence.floors) : undefined,
       metadata: {
         source: "price_list_extraction",
+        source_files: [...evidence.sourceFiles].sort(),
+        source_pages: [...evidence.sourcePages].sort((left, right) => left - right),
+        source_rows: evidence.sourceRows.sort((left, right) => left - right),
       },
     }));
 }
 
-function createOperations(project: Record<string, unknown>): ImportOperation[] {
+function createOperations(
+  project: Record<string, unknown>,
+  buildings: BuildingInput[],
+): ImportOperation[] {
   return [
     {
       entity: "project",
@@ -152,6 +191,15 @@ function createOperations(project: Record<string, unknown>): ImportOperation[] {
       naturalKey: String(project.slug),
       payload: project,
     },
+    ...buildings.map(
+      (building): ImportOperation<BuildingInput> => ({
+        entity: "building",
+        action: "upsert",
+        naturalKey: `${String(project.slug)}:${building.buildingCode}`,
+        payload: building,
+        dependsOn: ["project"],
+      }),
+    ),
   ];
 }
 
@@ -222,7 +270,7 @@ export function createImportPlan(
   const projectFacts = extractProjectFacts(datasets.brochure);
   const canonicalProject = createCanonicalProject(manifest, validation, datasets);
   const units: UnitInput[] = [];
-  const buildings: BuildingInput[] = [];
+  const buildings = deriveBuildings(datasets.priceList);
   const project = { ...canonicalProject };
 
   return {
@@ -238,8 +286,8 @@ export function createImportPlan(
     project,
     buildings,
     units,
-    priceHistoryRows: units.filter((unit) => unit.price != null),
-    operations: createOperations(project),
+    priceHistoryRows: [],
+    operations: createOperations(project, buildings),
     rollback: {
       supported: mode === "execute",
       strategy: mode === "execute" ? "compensating_actions" : "not_required",
