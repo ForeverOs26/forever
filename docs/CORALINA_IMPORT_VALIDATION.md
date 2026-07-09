@@ -4,6 +4,53 @@ Task ID: FDB-004A
 
 Validation date: 2026-07-08
 
+## RC3-002 Update
+
+Validation date: 2026-07-09
+
+Result: **BLOCKED - NOT READY FOR IMPORT**
+
+Coralina now has classified source materials and extracted datasets under `forever-data/projects/coralina/extracted/`, but `ready_for_import` remains `false`. The importer loaded the manifest and extracted datasets, kept the existing validation gate, and stopped safely before creating an import plan or database client.
+
+Current blockers:
+
+- `developer` remains `SOURCE_PENDING`.
+- `country` remains `SOURCE_PENDING`.
+- `import-status.json` correctly keeps `ready_for_import=false`.
+
+No fake values were introduced, and no `SOURCE_PENDING` value was replaced.
+
+The RC3-002 Project stage creates only an internal canonical Project object after readiness passes. It does not import units, buildings, media, relationships, Intelligence, Passport data, or any website/CRM changes.
+
+Dry-run command:
+
+```bash
+npm.cmd run import coralina -- --dry-run
+```
+
+Exit code: `0`
+
+Expected validation result:
+
+```text
+Import summary
+Project: coralina
+Status: blocked
+Ready: false
+Operations: 0
+Buildings: 0
+Units: 0
+Prices: 0
+Skipped: 0
+
+Validation issues
+error: manifest_metadata_source_pending - Required manifest metadata developer is still SOURCE_PENDING.
+error: manifest_metadata_source_pending - Required manifest metadata country is still SOURCE_PENDING.
+error: import_status_not_ready - import-status.json does not mark the project ready for import.
+```
+
+No database operation was performed.
+
 ## Summary
 
 The Coralina Import Validation milestone has started as an architecture validation task for Import Engine v1.
@@ -76,15 +123,15 @@ Result: no Coralina source files were available to classify or validate.
 
 ## Source Classification
 
-| Category | Folder | Required | Supported file types | Files found | Status |
-| --- | --- | ---: | --- | ---: | --- |
-| Brochure | `source/brochure/` | Yes | `.pdf`, `.jpg`, `.jpeg`, `.png`, `.webp` | 0 | Missing required source file |
-| Price list | `source/price-list/` | Yes | `.pdf`, `.xlsx`, `.xls`, `.csv`, `.jpg`, `.jpeg`, `.png` | 0 | Missing required source file |
-| Masterplan | `source/masterplan/` | Recommended | `.pdf`, `.jpg`, `.jpeg`, `.png`, `.webp` | 0 | Missing recommended source file |
-| Unit plans | `source/unit-plans/` | Recommended | `.pdf`, `.jpg`, `.jpeg`, `.png`, `.webp` | 0 | Missing recommended source file |
-| Images | `source/images/` | Recommended | `.jpg`, `.jpeg`, `.png`, `.webp` | 0 | Missing recommended source file |
-| Videos | `source/videos/` | Optional | `.mp4`, `.mov`, `.webm`, `.url`, `.txt` | 0 | Missing optional source file |
-| Documents | `source/documents/` | Optional | `.pdf`, `.doc`, `.docx`, `.jpg`, `.jpeg`, `.png` | 0 | Missing optional source file |
+| Category   | Folder               |    Required | Supported file types                                     | Files found | Status                          |
+| ---------- | -------------------- | ----------: | -------------------------------------------------------- | ----------: | ------------------------------- |
+| Brochure   | `source/brochure/`   |         Yes | `.pdf`, `.jpg`, `.jpeg`, `.png`, `.webp`                 |           0 | Missing required source file    |
+| Price list | `source/price-list/` |         Yes | `.pdf`, `.xlsx`, `.xls`, `.csv`, `.jpg`, `.jpeg`, `.png` |           0 | Missing required source file    |
+| Masterplan | `source/masterplan/` | Recommended | `.pdf`, `.jpg`, `.jpeg`, `.png`, `.webp`                 |           0 | Missing recommended source file |
+| Unit plans | `source/unit-plans/` | Recommended | `.pdf`, `.jpg`, `.jpeg`, `.png`, `.webp`                 |           0 | Missing recommended source file |
+| Images     | `source/images/`     | Recommended | `.jpg`, `.jpeg`, `.png`, `.webp`                         |           0 | Missing recommended source file |
+| Videos     | `source/videos/`     |    Optional | `.mp4`, `.mov`, `.webm`, `.url`, `.txt`                  |           0 | Missing optional source file    |
+| Documents  | `source/documents/`  |    Optional | `.pdf`, `.doc`, `.docx`, `.jpg`, `.jpeg`, `.png`         |           0 | Missing optional source file    |
 
 ## Manifest Status
 

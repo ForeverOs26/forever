@@ -1,8 +1,8 @@
 # Forever Import Engine Architecture
 
-Task ID: RC3-001
+Task ID: RC3-001 / RC3-002
 
-Status: Initial production-ready architecture skeleton
+Status: Project-only import stage added after initial production-ready architecture skeleton
 
 ## Purpose
 
@@ -39,14 +39,33 @@ forever-data/projects/{project_slug}/
 
 1. Initialize execution context.
 2. Read `manifest.json`.
-3. Validate manifest and package readiness.
-4. Load supported extracted datasets.
-5. Create an import plan with developer, location, project, building, unit, and price-history operations.
-6. Validate plan relationships.
-7. In dry-run mode, return counts and operations without creating a Supabase client.
-8. In execute mode, run the database insertion layer.
-9. If execution fails, enter rollback state and use the rollback contract.
-10. Return an import summary.
+3. Load supported extracted datasets.
+4. Validate manifest and package readiness.
+5. If `ready_for_import=false`, enter `blocked`, return a validation summary, and stop before creating an import plan or database client.
+6. Create an import plan for the current enabled stage.
+7. Validate plan relationships.
+8. In dry-run mode, return counts and operations without creating a Supabase client.
+9. In execute mode, run only database write paths explicitly enabled for the current stage.
+10. If execution fails, enter rollback state and use the rollback contract.
+11. Return an import summary.
+
+## Current Enabled Stage
+
+RC3-002 enables only the first canonical Project stage.
+
+The stage creates an internal `CanonicalProject` object from the manifest, readiness validation, and extracted dataset context. It populates canonical Project fields only. Missing optional facts remain `null`, `SOURCE_PENDING` is never replaced, and validation still blocks packages that are not ready.
+
+The current Project stage intentionally does not import:
+
+- Units.
+- Buildings.
+- Media.
+- Documents.
+- Relationships.
+- Intelligence.
+- Passport data.
+
+Dry-run returns a Project-only operation count. Execute mode is blocked until a Project-only database write path is explicitly approved.
 
 ## Validation Pipeline
 
@@ -75,14 +94,15 @@ The import plan is the durable boundary between validation and database executio
 
 - Manifest and validation report.
 - Loaded datasets.
+- Canonical Project object.
 - Normalized project facts.
-- Payloads for developer, location, project, buildings, units, and price history.
+- Project-stage payloads for the enabled import stage.
 - Ordered operations with natural keys and dependencies.
 - Rollback plan.
 
 ## Database Insertion Layer
 
-`database.ts` remains the only module allowed to create a Supabase import client or perform writes. Dry-run mode never creates the client. The current layer upserts developer, location, project, buildings, units, and unit price history.
+`database.ts` remains the only module allowed to create a Supabase import client or perform writes. Dry-run mode never creates the client. RC3-002 blocks execute mode while the current enabled stage is Project-only and has no approved database write path.
 
 Future versions should add transaction-scoped execution and canonical source/media/document/intelligence insertion without changing the import-plan boundary.
 
@@ -104,11 +124,12 @@ Preferred v2 rollback:
 ```text
 initialized
   -> manifest_loaded
-  -> package_validated
   -> datasets_loaded
+  -> package_validated
   -> plan_created
   -> relationships_validated
   -> dry_run_completed -> completed
+  -> blocked -> completed
   -> executing -> completed
   -> executing -> rolling_back -> rolled_back -> failed
 ```
