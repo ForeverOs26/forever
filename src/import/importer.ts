@@ -16,7 +16,7 @@ export interface ImportProjectOptions {
 
 function logDryRunPlan(plan: ImportPlan) {
   logStep("Project", String(plan.project.slug));
-  logStep("Validation", `Project + Buildings operations: ${plan.operations.length}`);
+  logStep("Validation", `Project + Buildings + Units operations: ${plan.operations.length}`);
   logStep("Buildings", String(plan.buildings.length));
   logStep("Units", String(plan.units.length));
   logStep("Prices", String(plan.priceHistoryRows.length));
@@ -104,6 +104,6 @@ export async function importProject(options: ImportProjectOptions): Promise<Impo
   }
 
   throw new Error(
-    "Project + Buildings execute mode is not enabled yet. Run dry-run only until this database write path is explicitly approved.",
+    "Project + Buildings + Units execute mode is not enabled yet. Run dry-run only until this database write path is explicitly approved.",
   );
 }

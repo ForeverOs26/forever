@@ -192,7 +192,8 @@ export async function validateProjectImport(
     issues.push({
       severity: "warning",
       code: "price_list_extraction_missing",
-      message: "extracted/price-list.json is missing. Unit and price import will be skipped.",
+      message:
+        "extracted/price-list.json is missing. Price-list-derived buildings, units, and prices will be skipped.",
       path: priceListPath,
     });
   }

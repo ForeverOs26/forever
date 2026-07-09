@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getProjectRoot } from "./manifest";
-import type { ExtractedDatasets, ExtractedPriceList } from "./types";
+import type { ExtractedDatasets, ExtractedPriceList, ExtractedUnitPlans } from "./types";
 
 async function readJsonIfExists<T>(path: string): Promise<T | null> {
   try {
@@ -23,7 +23,7 @@ export async function loadExtractedDatasets(
     brochure: await readJsonIfExists(join(extractedRoot, "brochure.json")),
     priceList: await readJsonIfExists<ExtractedPriceList>(join(extractedRoot, "price-list.json")),
     masterplan: await readJsonIfExists(join(extractedRoot, "masterplan.json")),
-    unitPlans: await readJsonIfExists(join(extractedRoot, "unit-plans.json")),
+    unitPlans: await readJsonIfExists<ExtractedUnitPlans>(join(extractedRoot, "unit-plans.json")),
     images: await readJsonIfExists(join(extractedRoot, "images.json")),
     documents: await readJsonIfExists(join(extractedRoot, "documents.json")),
   };

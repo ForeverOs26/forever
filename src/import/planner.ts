@@ -6,6 +6,8 @@ import type {
   CanonicalProject,
   ExtractedDatasets,
   ExtractedPriceList,
+  ExtractedUnitPlanRow,
+  ExtractedUnitPlans,
   Fact,
   ImportMode,
   ImportOperation,
@@ -20,8 +22,17 @@ function isSourceBackedFact<T>(fact: Fact<T> | undefined): fact is Fact<T> {
   return Boolean(fact?.source_file && fact.value != null && fact.confidence !== "none");
 }
 
+function isFact<T>(value: unknown): value is Fact<T> {
+  return Boolean(value && typeof value === "object" && "value" in value);
+}
+
 function sourceBackedFactValue<T>(fact: Fact<T> | undefined): T | null {
   return isSourceBackedFact(fact) ? fact.value : null;
+}
+
+function sourceBackedScalar<T>(value: Fact<T> | T | undefined): T | null {
+  if (isFact<T>(value)) return sourceBackedFactValue(value);
+  return value == null ? null : value;
 }
 
 function parseNumber(value: unknown): number | null {
@@ -33,7 +44,7 @@ function parseNumber(value: unknown): number | null {
 }
 
 function normalizeStatus(value: unknown) {
-  if (typeof value !== "string") return "available";
+  if (typeof value !== "string") return undefined;
   if (value.trim().toLowerCase() === "available") return "available";
   return value.trim().toLowerCase().replace(/\s+/g, "_");
 }
@@ -96,35 +107,92 @@ function slugify(value: string) {
 }
 
 function mapPriceListUnits(priceList: ExtractedPriceList | null): UnitInput[] {
-  const priceListDate =
-    normalizeDate(factValue(priceList?.price_list_date) as string | null) ?? undefined;
-
   return (priceList?.unit_inventory ?? [])
     .map((row): UnitInput | null => {
-      const unitNumber = factValue(row.unit_number);
+      const unitNumber = sourceBackedFactValue(row.unit_number);
       if (!unitNumber) return null;
+      const buildingCode = sourceBackedFactValue(row.building);
+      if (!buildingCode) return null;
 
       return {
         unitNumber,
-        buildingCode: factValue(row.building) ?? undefined,
-        sourceTypeCode: factValue(row.unit_code) ?? undefined,
-        unitType: factValue(row.unit_type) ?? undefined,
-        bedrooms: parseNumber(factValue(row.bedrooms)),
-        bathrooms: parseNumber(factValue(row.bathrooms)),
-        sizeSqm: parseNumber(factValue(row.size_sqm)),
-        floor: parseNumber(factValue(row.floor)),
-        price: parseNumber(factValue(row.price)),
-        currency: factValue(row.currency) ?? "THB",
-        pricePerSqm: parseNumber(factValue(row.price_per_sqm)),
-        availabilityStatus: normalizeStatus(factValue(row.availability_status)),
+        buildingCode,
+        sourceTypeCode: sourceBackedFactValue(row.unit_code) ?? undefined,
+        unitType: sourceBackedFactValue(row.unit_type) ?? undefined,
+        bedrooms: parseNumber(sourceBackedFactValue(row.bedrooms)),
+        bathrooms: parseNumber(sourceBackedFactValue(row.bathrooms)),
+        sizeSqm: parseNumber(sourceBackedFactValue(row.size_sqm)),
+        floor: parseNumber(sourceBackedFactValue(row.floor)),
+        availabilityStatus: normalizeStatus(sourceBackedFactValue(row.availability_status)),
         sourceFile: row.unit_number?.source_file ?? undefined,
         sourcePage: row.unit_number?.page_number ?? undefined,
         sourceRow: row.source_row ?? null,
-        priceListDate,
-        raw: row,
+        raw: {
+          source: "price_list_extraction",
+          source_row: row.source_row ?? null,
+        },
       };
     })
     .filter((unit): unit is UnitInput => Boolean(unit));
+}
+
+function getUnitPlanRows(unitPlans: ExtractedUnitPlans | null): ExtractedUnitPlanRow[] {
+  return unitPlans?.unit_inventory ?? unitPlans?.units ?? [];
+}
+
+function sourceFileFromUnitPlan(row: ExtractedUnitPlanRow) {
+  if (isFact(row.unit_number)) return row.unit_number.source_file ?? undefined;
+  return row.source_reference?.source_file ?? row.source_file;
+}
+
+function sourcePageFromUnitPlan(row: ExtractedUnitPlanRow) {
+  if (isFact(row.unit_number)) return row.unit_number.page_number ?? undefined;
+  return row.source_reference?.page_number ?? undefined;
+}
+
+function mapUnitPlanUnits(unitPlans: ExtractedUnitPlans | null): UnitInput[] {
+  return getUnitPlanRows(unitPlans)
+    .map((row): UnitInput | null => {
+      const sourceFile = sourceFileFromUnitPlan(row);
+      if (!sourceFile) return null;
+
+      const unitNumber = sourceBackedScalar(row.unit_number);
+      if (!unitNumber) return null;
+      const buildingCode = sourceBackedScalar(row.building);
+      if (!buildingCode) return null;
+
+      return {
+        unitNumber,
+        buildingCode,
+        sourceTypeCode: sourceBackedScalar(row.unit_code) ?? undefined,
+        unitType: sourceBackedScalar(row.unit_type) ?? undefined,
+        bedrooms: parseNumber(sourceBackedScalar(row.bedrooms)),
+        bathrooms: parseNumber(sourceBackedScalar(row.bathrooms)),
+        sizeSqm: parseNumber(sourceBackedScalar(row.size_sqm)),
+        floor: parseNumber(sourceBackedScalar(row.floor)),
+        availabilityStatus: normalizeStatus(sourceBackedScalar(row.availability_status)),
+        sourceFile,
+        sourcePage: sourcePageFromUnitPlan(row),
+        sourceRow: row.source_row ?? null,
+        raw: {
+          source: "unit_plans_extraction",
+          source_row: row.source_row ?? null,
+        },
+      };
+    })
+    .filter((unit): unit is UnitInput => Boolean(unit));
+}
+
+function mapCanonicalUnits(datasets: ExtractedDatasets): UnitInput[] {
+  const unitPlanUnits = mapUnitPlanUnits(datasets.unitPlans as ExtractedUnitPlans | null);
+  return unitPlanUnits.length ? unitPlanUnits : mapPriceListUnits(datasets.priceList);
+}
+
+function attachProjectToUnits(projectSlug: string, units: UnitInput[]): UnitInput[] {
+  return units.map((unit) => ({
+    ...unit,
+    projectSlug,
+  }));
 }
 
 function deriveBuildings(priceList: ExtractedPriceList | null): BuildingInput[] {
@@ -183,6 +251,7 @@ function deriveBuildings(priceList: ExtractedPriceList | null): BuildingInput[] 
 function createOperations(
   project: Record<string, unknown>,
   buildings: BuildingInput[],
+  units: UnitInput[],
 ): ImportOperation[] {
   return [
     {
@@ -198,6 +267,15 @@ function createOperations(
         naturalKey: `${String(project.slug)}:${building.buildingCode}`,
         payload: building,
         dependsOn: ["project"],
+      }),
+    ),
+    ...units.map(
+      (unit): ImportOperation<UnitInput> => ({
+        entity: "unit",
+        action: "upsert",
+        naturalKey: `${String(project.slug)}:${unit.unitNumber}`,
+        payload: unit,
+        dependsOn: ["project", "building"],
       }),
     ),
   ];
@@ -269,7 +347,7 @@ export function createImportPlan(
 ): ImportPlan {
   const projectFacts = extractProjectFacts(datasets.brochure);
   const canonicalProject = createCanonicalProject(manifest, validation, datasets);
-  const units: UnitInput[] = [];
+  const units = attachProjectToUnits(manifest.project_slug, mapCanonicalUnits(datasets));
   const buildings = deriveBuildings(datasets.priceList);
   const project = { ...canonicalProject };
 
@@ -287,7 +365,7 @@ export function createImportPlan(
     buildings,
     units,
     priceHistoryRows: [],
-    operations: createOperations(project, buildings),
+    operations: createOperations(project, buildings, units),
     rollback: {
       supported: mode === "execute",
       strategy: mode === "execute" ? "compensating_actions" : "not_required",

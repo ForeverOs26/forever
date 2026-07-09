@@ -1,8 +1,8 @@
 # Forever Import Engine Architecture
 
-Task ID: RC3-001 / RC3-002 / RC3-003
+Task ID: RC3-001 / RC3-002 / RC3-003 / RC3-004
 
-Status: Project + Buildings dry-run import stage added after initial production-ready architecture skeleton
+Status: Project + Buildings + Units dry-run import stage added after initial production-ready architecture skeleton
 
 ## Purpose
 
@@ -51,15 +51,16 @@ forever-data/projects/{project_slug}/
 
 ## Current Enabled Stage
 
-RC3-003 enables the canonical Project stage plus a Buildings-only stage.
+RC3-004 enables the canonical Project stage plus Buildings and Units dry-run planning.
 
 The Project stage creates an internal `CanonicalProject` object from the manifest, readiness validation, and extracted dataset context. It populates canonical Project fields only. Missing optional facts remain `null`, `SOURCE_PENDING` is never replaced, and validation still blocks packages that are not ready.
 
 The Buildings stage derives canonical building objects only from source-backed extracted price-list building facts. It adds building operations after the Project operation in the import plan. Building codes are source-backed from extracted rows, while units count, floors count, and source metadata are deterministic aggregates from those source-backed rows.
 
-The current Project + Buildings stage intentionally does not import:
+The Units stage loads `extracted/unit-plans.json` as part of extracted dataset loading. When that dataset contains canonical unit inventory rows, it can create source-backed Unit operations from those rows. Modeva does not yet have canonical unit inventory rows in `unit-plans.json`, so RC3-004 uses Modeva's source-backed `price-list.json` unit inventory as the unit source while stripping price fields and leaving price history empty. Unit operations depend on both Project and Building operations.
 
-- Units.
+The current Project + Buildings + Units stage intentionally does not import:
+
 - Media.
 - Documents.
 - Relationships.
@@ -67,7 +68,7 @@ The current Project + Buildings stage intentionally does not import:
 - Passport data.
 - Prices.
 
-Dry-run returns Project + Buildings operation counts only. Execute mode is blocked until a Project + Buildings database write path is explicitly approved.
+Dry-run returns Project + Buildings + Units operation counts only. Execute mode is blocked until a Project + Buildings + Units database write path is explicitly approved.
 
 ## Validation Pipeline
 
@@ -98,14 +99,15 @@ The import plan is the durable boundary between validation and database executio
 - Loaded datasets.
 - Canonical Project object.
 - Canonical Building objects.
+- Canonical Unit objects.
 - Normalized project facts.
-- Project-stage and Building-stage payloads for the enabled import stage.
+- Project-stage, Building-stage, and Unit-stage payloads for the enabled import stage.
 - Ordered operations with natural keys and dependencies.
 - Rollback plan.
 
 ## Database Insertion Layer
 
-`database.ts` remains the only module allowed to create a Supabase import client or perform writes. Dry-run mode never creates the client. RC3-003 blocks execute mode while the current enabled stage is Project + Buildings and has no approved database write path.
+`database.ts` remains the only module allowed to create a Supabase import client or perform writes. Dry-run mode never creates the client. RC3-004 blocks execute mode while the current enabled stage is Project + Buildings + Units and has no approved database write path.
 
 Future versions should add transaction-scoped execution and canonical source/media/document/intelligence insertion without changing the import-plan boundary.
 

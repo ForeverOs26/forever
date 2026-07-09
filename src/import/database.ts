@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { ForeverManifest } from "./manifest";
 
-type DatabaseClient = SupabaseClient<any, "public", any>;
+type DatabaseClient = SupabaseClient;
 type JsonObject = Record<string, unknown>;
 
 export interface DeveloperRecord {
@@ -31,6 +31,7 @@ export interface BuildingInput {
 }
 
 export interface UnitInput {
+  projectSlug?: string;
   unitNumber: string;
   buildingCode?: string;
   sourceTypeCode?: string;
@@ -68,7 +69,11 @@ export interface DatabaseLayer {
     projectFacts?: JsonObject,
   ): Promise<ProjectRecord>;
   upsertBuildings(project: ProjectRecord, buildings: BuildingInput[]): Promise<Map<string, string>>;
-  upsertUnits(project: ProjectRecord, buildingIds: Map<string, string>, units: UnitInput[]): Promise<Map<string, string>>;
+  upsertUnits(
+    project: ProjectRecord,
+    buildingIds: Map<string, string>,
+    units: UnitInput[],
+  ): Promise<Map<string, string>>;
   upsertPriceHistory(unitIds: Map<string, string>, units: UnitInput[]): Promise<number>;
 }
 
@@ -100,7 +105,10 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
       new Headers(init.headers).forEach((value, key) => headers.set(key, value));
     }
 
-    if (isNewSupabaseApiKey(supabaseKey) && headers.get("Authorization") === `Bearer ${supabaseKey}`) {
+    if (
+      isNewSupabaseApiKey(supabaseKey) &&
+      headers.get("Authorization") === `Bearer ${supabaseKey}`
+    ) {
       headers.delete("Authorization");
     }
 
@@ -113,7 +121,7 @@ function createImportClient() {
   const url = requireEnvironment("SUPABASE_URL");
   const serviceRoleKey = requireEnvironment("SUPABASE_SERVICE_ROLE_KEY");
 
-  return createClient<any, "public", any>(url, serviceRoleKey, {
+  return createClient(url, serviceRoleKey, {
     global: {
       fetch: createSupabaseFetch(serviceRoleKey),
     },
@@ -129,12 +137,16 @@ function unwrap<T>(data: T | null, error: { message: string } | null) {
   return data;
 }
 
-async function maybeSingle<T>(query: PromiseLike<{ data: T | null; error: { message: string } | null }>) {
+async function maybeSingle<T>(
+  query: PromiseLike<{ data: T | null; error: { message: string } | null }>,
+) {
   const { data, error } = await query;
   return unwrap(data, error);
 }
 
-async function execute<T>(query: PromiseLike<{ data: T | null; error: { message: string } | null }>) {
+async function execute<T>(
+  query: PromiseLike<{ data: T | null; error: { message: string } | null }>,
+) {
   const { data, error } = await query;
   return unwrap(data, error);
 }
@@ -202,7 +214,10 @@ export function createDatabaseLayer(client: DatabaseClient = createImportClient(
       };
 
       const data = await execute<LocationRecord[]>(
-        client.from("locations").upsert(payload, { onConflict: "slug" }).select("id,slug,area_name"),
+        client
+          .from("locations")
+          .upsert(payload, { onConflict: "slug" })
+          .select("id,slug,area_name"),
       );
 
       if (!data?.[0]) throw new Error(`Location upsert failed: ${manifest.location}`);
@@ -287,7 +302,7 @@ export function createDatabaseLayer(client: DatabaseClient = createImportClient(
           bathrooms: unit.bathrooms ?? null,
           size_sqm: unit.sizeSqm ?? null,
           floor: unit.floor ?? null,
-          base_price_thb: unit.currency === "THB" ? unit.price ?? null : null,
+          base_price_thb: unit.currency === "THB" ? (unit.price ?? null) : null,
           price_per_sqm: unit.pricePerSqm ?? null,
           availability_status: unit.availabilityStatus ?? "available",
           unit_status: unit.availabilityStatus ?? "available",
@@ -363,7 +378,9 @@ export function createDatabaseLayer(client: DatabaseClient = createImportClient(
         );
 
         if (existing?.id) {
-          await execute(client.from("unit_price_history").update(payload).eq("id", existing.id).select("id"));
+          await execute(
+            client.from("unit_price_history").update(payload).eq("id", existing.id).select("id"),
+          );
         } else {
           await execute(client.from("unit_price_history").insert(payload).select("id"));
         }
