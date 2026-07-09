@@ -51,8 +51,26 @@ export interface UnitInput {
   raw?: unknown;
 }
 
-export interface PriceHistoryInput extends UnitInput {
-  unitId: string;
+export interface PriceHistoryInput {
+  projectSlug?: string;
+  unitNumber: string;
+  price: number | null;
+  currency: string | null;
+  priceSource: "developer_price_list";
+  recordedDate: string | null;
+  priceListDate: string | null;
+  sourceFile?: string;
+  sourcePage?: number | null;
+  sourceRow?: number | null;
+  pricePerSqm?: number | null;
+  sourceTypeCode?: string;
+  buildingCode?: string;
+  floor?: number | null;
+  unitType?: string;
+  bedrooms?: number | null;
+  sizeSqm?: number | null;
+  availabilityStatus?: string;
+  raw?: unknown;
 }
 
 export interface DatabaseLayer {
@@ -74,7 +92,7 @@ export interface DatabaseLayer {
     buildingIds: Map<string, string>,
     units: UnitInput[],
   ): Promise<Map<string, string>>;
-  upsertPriceHistory(unitIds: Map<string, string>, units: UnitInput[]): Promise<number>;
+  upsertPriceHistory(unitIds: Map<string, string>, rows: PriceHistoryInput[]): Promise<number>;
 }
 
 function slugify(value: string) {
@@ -333,34 +351,34 @@ export function createDatabaseLayer(client: DatabaseClient = createImportClient(
       return ids;
     },
 
-    async upsertPriceHistory(unitIds, units) {
+    async upsertPriceHistory(unitIds, rows) {
       let count = 0;
 
-      for (const unit of units) {
-        const unitId = unitIds.get(unit.unitNumber);
-        if (!unitId || unit.price == null) continue;
+      for (const row of rows) {
+        const unitId = unitIds.get(row.unitNumber);
+        if (!unitId || row.price == null || !row.recordedDate) continue;
 
         const payload = {
           unit_id: unitId,
-          price: unit.price,
-          currency: unit.currency ?? "THB",
-          price_source: "developer_price_list",
-          source_file: unit.sourceFile ?? null,
-          source_page: unit.sourcePage ?? null,
-          price_list_date: unit.priceListDate ?? null,
-          recorded_at: new Date().toISOString(),
+          price: row.price,
+          currency: row.currency ?? "THB",
+          price_source: row.priceSource,
+          source_file: row.sourceFile ?? null,
+          source_page: row.sourcePage ?? null,
+          price_list_date: row.priceListDate,
+          recorded_at: row.recordedDate,
           metadata: {
-            source_type_code: unit.sourceTypeCode,
-            unit_number: unit.unitNumber,
-            building_code: unit.buildingCode,
-            floor: unit.floor,
-            unit_type: unit.unitType,
-            bedrooms: unit.bedrooms,
-            size_sqm: unit.sizeSqm,
-            price_per_sqm: unit.pricePerSqm,
-            availability_status: unit.availabilityStatus,
-            source_row: unit.sourceRow,
-            raw: unit.raw,
+            source_type_code: row.sourceTypeCode,
+            unit_number: row.unitNumber,
+            building_code: row.buildingCode,
+            floor: row.floor,
+            unit_type: row.unitType,
+            bedrooms: row.bedrooms,
+            size_sqm: row.sizeSqm,
+            price_per_sqm: row.pricePerSqm,
+            availability_status: row.availabilityStatus,
+            source_row: row.sourceRow,
+            raw: row.raw,
           },
           updated_at: new Date().toISOString(),
         };

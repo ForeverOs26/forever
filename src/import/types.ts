@@ -3,6 +3,7 @@ import type {
   BuildingInput,
   DeveloperRecord,
   LocationRecord,
+  PriceHistoryInput,
   ProjectRecord,
   UnitInput,
 } from "./database";
@@ -122,7 +123,7 @@ export interface ImportPlan {
   project: Record<string, unknown>;
   buildings: BuildingInput[];
   units: UnitInput[];
-  priceHistoryRows: UnitInput[];
+  priceHistoryRows: PriceHistoryInput[];
   operations: ImportOperation[];
   rollback: RollbackPlan;
 }

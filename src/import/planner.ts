@@ -1,5 +1,5 @@
 import type { Json } from "@/integrations/supabase/types";
-import type { BuildingInput, UnitInput } from "./database";
+import type { BuildingInput, PriceHistoryInput, UnitInput } from "./database";
 import type { ForeverManifest } from "./manifest";
 import type { ProjectValidationReport } from "./validator";
 import type {
@@ -188,9 +188,59 @@ function mapCanonicalUnits(datasets: ExtractedDatasets): UnitInput[] {
   return unitPlanUnits.length ? unitPlanUnits : mapPriceListUnits(datasets.priceList);
 }
 
+function mapPriceHistory(priceList: ExtractedPriceList | null): PriceHistoryInput[] {
+  const priceListDate = normalizeDate(factValue(priceList?.price_list_date) as string | null);
+
+  return (priceList?.unit_inventory ?? [])
+    .map((row): PriceHistoryInput | null => {
+      const unitNumber = sourceBackedFactValue(row.unit_number);
+      if (!unitNumber) return null;
+
+      const price = parseNumber(sourceBackedFactValue(row.price));
+      const sourceFile = row.price?.source_file ?? row.unit_number?.source_file ?? undefined;
+
+      return {
+        unitNumber,
+        price,
+        currency: row.currency?.value == null ? null : String(row.currency.value),
+        priceSource: "developer_price_list",
+        recordedDate: priceListDate,
+        priceListDate,
+        sourceFile,
+        sourcePage: row.price?.page_number ?? row.unit_number?.page_number ?? undefined,
+        sourceRow: row.source_row ?? null,
+        pricePerSqm: parseNumber(sourceBackedFactValue(row.price_per_sqm)),
+        sourceTypeCode: sourceBackedFactValue(row.unit_code) ?? undefined,
+        buildingCode: sourceBackedFactValue(row.building) ?? undefined,
+        floor: parseNumber(sourceBackedFactValue(row.floor)),
+        unitType: sourceBackedFactValue(row.unit_type) ?? undefined,
+        bedrooms: parseNumber(sourceBackedFactValue(row.bedrooms)),
+        sizeSqm: parseNumber(sourceBackedFactValue(row.size_sqm)),
+        availabilityStatus: normalizeStatus(sourceBackedFactValue(row.availability_status)),
+        raw: {
+          source: "price_list_extraction",
+          raw_price: row.price?.value ?? null,
+          raw_currency: row.currency?.value ?? null,
+          source_row: row.source_row ?? null,
+        },
+      };
+    })
+    .filter((row): row is PriceHistoryInput => Boolean(row));
+}
+
 function attachProjectToUnits(projectSlug: string, units: UnitInput[]): UnitInput[] {
   return units.map((unit) => ({
     ...unit,
+    projectSlug,
+  }));
+}
+
+function attachProjectToPriceHistory(
+  projectSlug: string,
+  rows: PriceHistoryInput[],
+): PriceHistoryInput[] {
+  return rows.map((row) => ({
+    ...row,
     projectSlug,
   }));
 }
@@ -252,6 +302,7 @@ function createOperations(
   project: Record<string, unknown>,
   buildings: BuildingInput[],
   units: UnitInput[],
+  priceHistoryRows: PriceHistoryInput[],
 ): ImportOperation[] {
   return [
     {
@@ -276,6 +327,23 @@ function createOperations(
         naturalKey: `${String(project.slug)}:${unit.unitNumber}`,
         payload: unit,
         dependsOn: ["project", "building"],
+      }),
+    ),
+    ...priceHistoryRows.map(
+      (row): ImportOperation<PriceHistoryInput> => ({
+        entity: "unit_price_history",
+        action: "upsert",
+        naturalKey: [
+          String(project.slug),
+          row.unitNumber,
+          row.priceSource,
+          row.sourceFile ?? "unknown",
+          row.sourcePage ?? "none",
+          row.priceListDate ?? "none",
+          row.sourceRow ?? "none",
+        ].join(":"),
+        payload: row,
+        dependsOn: ["project", "unit"],
       }),
     ),
   ];
@@ -348,6 +416,10 @@ export function createImportPlan(
   const projectFacts = extractProjectFacts(datasets.brochure);
   const canonicalProject = createCanonicalProject(manifest, validation, datasets);
   const units = attachProjectToUnits(manifest.project_slug, mapCanonicalUnits(datasets));
+  const priceHistoryRows = attachProjectToPriceHistory(
+    manifest.project_slug,
+    mapPriceHistory(datasets.priceList),
+  );
   const buildings = deriveBuildings(datasets.priceList);
   const project = { ...canonicalProject };
 
@@ -364,8 +436,8 @@ export function createImportPlan(
     project,
     buildings,
     units,
-    priceHistoryRows: [],
-    operations: createOperations(project, buildings, units),
+    priceHistoryRows,
+    operations: createOperations(project, buildings, units, priceHistoryRows),
     rollback: {
       supported: mode === "execute",
       strategy: mode === "execute" ? "compensating_actions" : "not_required",
