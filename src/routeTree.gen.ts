@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as ReviewsRouteImport } from './routes/reviews'
 import { Route as OffersRouteImport } from './routes/offers'
+import { Route as NavigatorRouteImport } from './routes/navigator'
 import { Route as DiscoveryRouteImport } from './routes/discovery'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as AreasRouteImport } from './routes/areas'
@@ -33,6 +34,11 @@ const ReviewsRoute = ReviewsRouteImport.update({
 const OffersRoute = OffersRouteImport.update({
   id: '/offers',
   path: '/offers',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NavigatorRoute = NavigatorRouteImport.update({
+  id: '/navigator',
+  path: '/navigator',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DiscoveryRoute = DiscoveryRouteImport.update({
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/areas': typeof AreasRoute
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
+  '/navigator': typeof NavigatorRoute
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -89,6 +96,7 @@ export interface FileRoutesByTo {
   '/areas': typeof AreasRoute
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
+  '/navigator': typeof NavigatorRoute
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -102,6 +110,7 @@ export interface FileRoutesById {
   '/areas': typeof AreasRoute
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
+  '/navigator': typeof NavigatorRoute
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
     | '/areas'
     | '/contact'
     | '/discovery'
+    | '/navigator'
     | '/offers'
     | '/reviews'
     | '/sitemap.xml'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
     | '/areas'
     | '/contact'
     | '/discovery'
+    | '/navigator'
     | '/offers'
     | '/reviews'
     | '/sitemap.xml'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '/areas'
     | '/contact'
     | '/discovery'
+    | '/navigator'
     | '/offers'
     | '/reviews'
     | '/sitemap.xml'
@@ -153,6 +165,7 @@ export interface RootRouteChildren {
   AreasRoute: typeof AreasRoute
   ContactRoute: typeof ContactRoute
   DiscoveryRoute: typeof DiscoveryRoute
+  NavigatorRoute: typeof NavigatorRoute
   OffersRoute: typeof OffersRoute
   ReviewsRoute: typeof ReviewsRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
@@ -181,6 +194,13 @@ declare module '@tanstack/react-router' {
       path: '/offers'
       fullPath: '/offers'
       preLoaderRoute: typeof OffersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/navigator': {
+      id: '/navigator'
+      path: '/navigator'
+      fullPath: '/navigator'
+      preLoaderRoute: typeof NavigatorRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/discovery': {
@@ -241,6 +261,7 @@ const rootRouteChildren: RootRouteChildren = {
   AreasRoute: AreasRoute,
   ContactRoute: ContactRoute,
   DiscoveryRoute: DiscoveryRoute,
+  NavigatorRoute: NavigatorRoute,
   OffersRoute: OffersRoute,
   ReviewsRoute: ReviewsRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
