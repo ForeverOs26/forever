@@ -57,6 +57,16 @@ type TimelineKey = (typeof TIMELINE_OPTIONS)[number]["key"];
 type ConcernKey = (typeof CONCERN_OPTIONS)[number]["key"];
 type StoryStatus = "idle" | "loading" | "resolved" | "error";
 
+interface LocalRecommendation {
+  primaryRecommendation: string;
+  whyItFits: string;
+  investmentProfile: string;
+  suggestedProjects: {
+    title: string;
+    description: string;
+  }[];
+}
+
 interface StoryFacet {
   label: string;
   value: string;
@@ -97,6 +107,29 @@ const DEFAULT_FOREVER_STORY: LocalForeverStory = {
   profileLabel: "The Considered Retreat-Seeker",
   profileDescription:
     "You'll choose slowly, and once. Guidance matters more to you than options — you want the right decision, not the most choice.",
+};
+
+const DEFAULT_RECOMMENDATION: LocalRecommendation = {
+  primaryRecommendation: "A verified Phuket property shortlist",
+  whyItFits:
+    "You are still shaping the decision, so the right first step is a calm shortlist that compares ownership clarity, area fit, budget comfort, and long-term confidence before narrowing to a specific project type.",
+  investmentProfile:
+    "Balanced explorer: needs clarity before commitment, with room to compare lifestyle and investment tradeoffs.",
+  suggestedProjects: [
+    {
+      title: "Verified entry villas",
+      description:
+        "Placeholder cards for ownership-friendly villas with practical management options.",
+    },
+    {
+      title: "Low-rise coastal residences",
+      description: "Placeholder cards for quiet, easier-to-hold residences near established areas.",
+    },
+    {
+      title: "Rental-ready condominiums",
+      description: "Placeholder cards for managed units with clearer rental assumptions.",
+    },
+  ],
 };
 
 const getOptionLabel = <T extends string>(
@@ -187,6 +220,116 @@ function buildLocalForeverStory({
     profileDescription:
       "You'll choose slowly, and once. Guidance matters more to you than options — you want the right decision, not the most choice.",
   };
+}
+
+function buildLocalRecommendation({
+  motivations,
+  goals,
+  budget,
+  timeline,
+  concerns,
+}: {
+  motivations: MotivationKey[];
+  goals: GoalKey[];
+  budget: BudgetKey | null;
+  timeline: TimelineKey | null;
+  concerns: ConcernKey[];
+}): LocalRecommendation {
+  if (
+    motivations.length === 0 ||
+    goals.length === 0 ||
+    !budget ||
+    !timeline ||
+    concerns.length === 0
+  ) {
+    return DEFAULT_RECOMMENDATION;
+  }
+
+  if (goals.includes("rental_income") || motivations.includes("investment")) {
+    return {
+      primaryRecommendation: "Rental-ready residences with professional management",
+      whyItFits:
+        "Your answers point toward income discipline and easier remote ownership. A managed residence gives you clearer operating assumptions before you compare individual projects.",
+      investmentProfile:
+        timeline === "ready_now" || timeline === "3_6m"
+          ? "Yield-aware investor: ready to compare verified rental assumptions and near-term availability."
+          : "Patient income planner: focused on rental logic, but still needs time to compare areas and management quality.",
+      suggestedProjects: [
+        {
+          title: "Managed coastal condominium",
+          description: "Placeholder card for a furnished unit with rental program comparison.",
+        },
+        {
+          title: "Hotel-managed residence",
+          description: "Placeholder card for branded operations and simpler owner use windows.",
+        },
+        {
+          title: "Resale liquidity watchlist",
+          description: "Placeholder card for projects with stronger secondary-market signals.",
+        },
+      ],
+    };
+  }
+
+  if (
+    goals.includes("peace_privacy") ||
+    motivations.includes("slower_life") ||
+    motivations.includes("retirement")
+  ) {
+    return {
+      primaryRecommendation: "Private low-density villas in established lifestyle areas",
+      whyItFits:
+        "You are optimizing for calm, privacy, and a decision you can live with. A low-density villa path keeps the search focused on comfort, ownership clarity, and day-to-day livability.",
+      investmentProfile:
+        budget === "lt_250k" || budget === "250_500k"
+          ? "Lifestyle-led buyer: careful on budget, with fit and clarity carrying more weight than maximum yield."
+          : "Lifestyle-led capital preserver: values privacy, quality, and long holding confidence.",
+      suggestedProjects: [
+        {
+          title: "Quiet private villa",
+          description:
+            "Placeholder card for low-density homes with practical maintenance planning.",
+        },
+        {
+          title: "Retreat-style residence",
+          description: "Placeholder card for calmer locations with stronger everyday comfort.",
+        },
+        {
+          title: "Ownership clarity shortlist",
+          description:
+            "Placeholder card for projects screened around legal structure and handover risk.",
+        },
+      ],
+    };
+  }
+
+  if (goals.includes("legacy") || motivations.includes("family")) {
+    return {
+      primaryRecommendation: "Family-sized residences with long-hold fundamentals",
+      whyItFits:
+        "Your answers suggest the property needs to work for more than one trip or one season. The first screen should favor space, durability, area convenience, and future flexibility.",
+      investmentProfile:
+        "Long-hold family allocator: prioritizes reliability, usable space, and a decision that remains sensible over time.",
+      suggestedProjects: [
+        {
+          title: "Three-bedroom residence",
+          description: "Placeholder card for practical layouts suited to repeat family stays.",
+        },
+        {
+          title: "Established-area villa",
+          description:
+            "Placeholder card for access to services, beaches, and long-term convenience.",
+        },
+        {
+          title: "Legacy shortlist",
+          description:
+            "Placeholder card for durable projects with clearer ownership documentation.",
+        },
+      ],
+    };
+  }
+
+  return DEFAULT_RECOMMENDATION;
 }
 
 function ScreenFrame({ children }: { children: ReactNode }) {
@@ -581,6 +724,86 @@ function ForeverStoryScreen({
   );
 }
 
+function RecommendationScreen({
+  recommendation,
+  onContinue,
+}: {
+  recommendation: LocalRecommendation;
+  onContinue: () => void;
+}) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
+
+  return (
+    <>
+      <ScreenFrame>
+        <section
+          className="navigator-recommendation"
+          aria-labelledby="navigator-recommendation-title"
+        >
+          <div>
+            <Eyebrow>Your Recommendation</Eyebrow>
+            <SerifHeading
+              id="navigator-recommendation-title"
+              headingRef={headingRef}
+              variant="question"
+            >
+              Start here.
+            </SerifHeading>
+          </div>
+
+          <article className="navigator-recommendation__hero">
+            <p>Primary recommendation</p>
+            <h2>{recommendation.primaryRecommendation}</h2>
+          </article>
+
+          <div className="navigator-recommendation__stack">
+            <section
+              className="navigator-recommendation__panel"
+              aria-labelledby="navigator-fit-title"
+            >
+              <h3 id="navigator-fit-title">Why it fits</h3>
+              <p>{recommendation.whyItFits}</p>
+            </section>
+
+            <section
+              className="navigator-recommendation__panel"
+              aria-labelledby="navigator-profile-title"
+            >
+              <h3 id="navigator-profile-title">Investment profile</h3>
+              <p>{recommendation.investmentProfile}</p>
+            </section>
+          </div>
+
+          <section
+            className="navigator-recommendation__projects"
+            aria-labelledby="navigator-projects-title"
+          >
+            <h3 id="navigator-projects-title">Suggested first projects</h3>
+            <div className="navigator-recommendation__project-list">
+              {recommendation.suggestedProjects.map((project, index) => (
+                <article
+                  key={project.title}
+                  className="navigator-recommendation__project"
+                  style={{ "--navigator-story-delay": `${index * 60}ms` } as CSSProperties}
+                >
+                  <p>{String(index + 1).padStart(2, "0")}</p>
+                  <h4>{project.title}</h4>
+                  <span>{project.description}</span>
+                </article>
+              ))}
+            </div>
+          </section>
+        </section>
+      </ScreenFrame>
+      <PrimaryActionBar primaryLabel="Continue" onPrimary={onContinue} />
+    </>
+  );
+}
+
 function toggleMaxThree<T>(value: T, values: T[]) {
   if (values.includes(value)) {
     return values.filter((currentValue) => currentValue !== value);
@@ -599,7 +822,6 @@ export function NavigatorFlow() {
   const [freeNote, setFreeNote] = useState("");
   const [storyStatus, setStoryStatus] = useState<StoryStatus>("idle");
   const [foreverStory, setForeverStory] = useState<LocalForeverStory | null>(null);
-  const [, setStoryConfirmed] = useState(false);
 
   useEffect(() => {
     if (storyStatus !== "loading") {
@@ -623,11 +845,18 @@ export function NavigatorFlow() {
   }, [budget, concerns, goals, motivations, storyStatus, timeline]);
 
   const beginStoryGeneration = () => {
-    setStoryConfirmed(false);
     setForeverStory(null);
     setStoryStatus("loading");
     setStep(5);
   };
+
+  const recommendation = buildLocalRecommendation({
+    motivations,
+    goals,
+    budget,
+    timeline,
+    concerns,
+  });
 
   const renderScreen = () => {
     switch (step) {
@@ -683,15 +912,19 @@ export function NavigatorFlow() {
             }}
           />
         );
-      default:
+      case 5:
         return (
           <ForeverStoryScreen
             story={foreverStory}
             status={storyStatus}
             onChangeSomething={() => setStep(4)}
-            onConfirm={() => setStoryConfirmed(true)}
+            onConfirm={() => setStep(6)}
             onRetry={beginStoryGeneration}
           />
+        );
+      default:
+        return (
+          <RecommendationScreen recommendation={recommendation} onContinue={() => setStep(6)} />
         );
     }
   };
