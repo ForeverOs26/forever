@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 import ChoiceGroup from "./ChoiceGroup";
 import NoteField from "./NoteField";
@@ -55,6 +55,139 @@ type GoalKey = (typeof SUCCESS_OPTIONS)[number]["key"];
 type BudgetKey = (typeof BUDGET_OPTIONS)[number]["key"];
 type TimelineKey = (typeof TIMELINE_OPTIONS)[number]["key"];
 type ConcernKey = (typeof CONCERN_OPTIONS)[number]["key"];
+type StoryStatus = "idle" | "loading" | "resolved" | "error";
+
+interface StoryFacet {
+  label: string;
+  value: string;
+}
+
+interface LocalForeverStory {
+  reflection: string;
+  facets: StoryFacet[];
+  profileLabel: string;
+  profileDescription: string;
+}
+
+const DEFAULT_FOREVER_STORY: LocalForeverStory = {
+  reflection:
+    "You're not rushing toward Phuket — you're moving toward a certain kind of life. A place by the sea where things slow down, that's genuinely yours and genuinely private. You'd like to feel sure of the decision, which is why the ownership questions matter to you more than the view. There's no hurry. You'll know it when it's right.",
+  facets: [
+    {
+      label: "Why Phuket",
+      value: "A second home by the sea, and a slower way of living.",
+    },
+    {
+      label: "What you're hoping for",
+      value: "Somewhere that feels like home — with real peace and privacy.",
+    },
+    {
+      label: "What matters most",
+      value: "Certainty over yield. You'd rather be right than quick.",
+    },
+    {
+      label: "Where you feel unsure",
+      value: "Legal & ownership — the part that feels least familiar.",
+    },
+    {
+      label: "Your horizon",
+      value: "Unhurried — six to twelve months, ready when it's right.",
+    },
+  ],
+  profileLabel: "The Considered Retreat-Seeker",
+  profileDescription:
+    "You'll choose slowly, and once. Guidance matters more to you than options — you want the right decision, not the most choice.",
+};
+
+const getOptionLabel = <T extends string>(
+  options: readonly { key: T; label: string }[],
+  key: T | null,
+) => options.find((option) => option.key === key)?.label ?? "";
+
+const getOptionLabels = <T extends string>(
+  options: readonly { key: T; label: string }[],
+  keys: T[],
+) =>
+  keys
+    .map((key) => options.find((option) => option.key === key)?.label)
+    .filter((label): label is string => Boolean(label));
+
+function humanizeList(values: string[]) {
+  if (values.length === 0) {
+    return "";
+  }
+
+  if (values.length === 1) {
+    return values[0];
+  }
+
+  if (values.length === 2) {
+    return `${values[0]} and ${values[1]}`;
+  }
+
+  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+}
+
+function buildLocalForeverStory({
+  motivations,
+  goals,
+  budget,
+  timeline,
+  concerns,
+}: {
+  motivations: MotivationKey[];
+  goals: GoalKey[];
+  budget: BudgetKey | null;
+  timeline: TimelineKey | null;
+  concerns: ConcernKey[];
+}): LocalForeverStory {
+  if (
+    motivations.length === 0 ||
+    goals.length === 0 ||
+    !budget ||
+    !timeline ||
+    concerns.length === 0
+  ) {
+    return DEFAULT_FOREVER_STORY;
+  }
+
+  const whyLabels = getOptionLabels(WHY_PHUKET_OPTIONS, motivations);
+  const goalLabels = getOptionLabels(SUCCESS_OPTIONS, goals);
+  const concernLabels = getOptionLabels(CONCERN_OPTIONS, concerns);
+  const why = humanizeList(whyLabels).toLowerCase();
+  const success = humanizeList(goalLabels).toLowerCase();
+  const concern = humanizeList(concernLabels).toLowerCase();
+  const budgetLabel = getOptionLabel(BUDGET_OPTIONS, budget).toLowerCase();
+  const timelineLabel = getOptionLabel(TIMELINE_OPTIONS, timeline).toLowerCase();
+
+  return {
+    reflection: `You're drawn to Phuket for ${why}. Success, for you, looks like ${success} — and with ${budgetLabel} over ${timelineLabel}, the thing that matters most is navigating ${concern}.`,
+    facets: [
+      { label: "Why Phuket", value: `${humanizeList(whyLabels)}.` },
+      {
+        label: "What you're hoping for",
+        value: `${humanizeList(goalLabels)}.`,
+      },
+      {
+        label: "What matters most",
+        value: concerns.includes("ownership")
+          ? "Certainty over yield. You'd rather be right than quick."
+          : "A clear decision that fits the life you're trying to build.",
+      },
+      {
+        label: "Where you feel unsure",
+        value: `${humanizeList(concernLabels)}.`,
+      },
+      {
+        label: "Your horizon",
+        value: `${getOptionLabel(TIMELINE_OPTIONS, timeline)} — ready when it's right.`,
+      },
+    ],
+    profileLabel: "The Considered Retreat-Seeker",
+    profileDescription:
+      "You'll choose slowly, and once. Guidance matters more to you than options — you want the right decision, not the most choice.",
+  };
+}
 
 function ScreenFrame({ children }: { children: ReactNode }) {
   return <main className="navigator-screen">{children}</main>;
@@ -298,7 +431,7 @@ function BiggestConcernScreen({
             <SerifHeading id="navigator-concern-title" headingRef={headingRef} variant="question">
               What&apos;s your biggest concern right now?
             </SerifHeading>
-            <p className="navigator-question__helper">Be honest вЂ” this is what we help with.</p>
+            <p className="navigator-question__helper">Be honest — this is what we help with.</p>
           </div>
 
           <div className="navigator-question__stack">
@@ -327,6 +460,127 @@ function BiggestConcernScreen({
   );
 }
 
+function ForeverStoryScreen({
+  story,
+  status,
+  onChangeSomething,
+  onConfirm,
+  onRetry,
+}: {
+  story: LocalForeverStory | null;
+  status: StoryStatus;
+  onChangeSomething: () => void;
+  onConfirm: () => void;
+  onRetry: () => void;
+}) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, [status]);
+
+  if (status === "loading") {
+    return (
+      <ScreenFrame>
+        <section
+          className="navigator-story navigator-story--loading"
+          aria-labelledby="navigator-story-loading-title"
+          aria-live="polite"
+        >
+          <div className="navigator-story__loading-mark" aria-hidden="true" />
+          <Eyebrow>Your Forever Story</Eyebrow>
+          <SerifHeading
+            id="navigator-story-loading-title"
+            headingRef={headingRef}
+            variant="question"
+          >
+            Writing your reflection…
+          </SerifHeading>
+          <p className="navigator-story__muted">
+            A short pause while we put your answers into something human.
+          </p>
+        </section>
+      </ScreenFrame>
+    );
+  }
+
+  if (status === "error" || !story) {
+    return (
+      <>
+        <ScreenFrame>
+          <section className="navigator-story" aria-labelledby="navigator-story-error-title">
+            <Eyebrow>Your Forever Story</Eyebrow>
+            <SerifHeading
+              id="navigator-story-error-title"
+              headingRef={headingRef}
+              variant="question"
+            >
+              Here&apos;s how I understand your situation.
+            </SerifHeading>
+            <p className="navigator-story__muted">
+              I might not have every detail right — you can adjust anything.
+            </p>
+          </section>
+        </ScreenFrame>
+        <PrimaryActionBar
+          primaryLabel="Try again"
+          onPrimary={onRetry}
+          secondaryLabel="I'd like to change something"
+          onSecondary={onChangeSomething}
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <ScreenFrame>
+        <section className="navigator-story" aria-labelledby="navigator-story-title">
+          <div>
+            <Eyebrow>Your Forever Story</Eyebrow>
+            <SerifHeading id="navigator-story-title" headingRef={headingRef} variant="question">
+              Here&apos;s how I understand your situation.
+            </SerifHeading>
+          </div>
+
+          <div className="navigator-story__stack">
+            <p className="navigator-story__reflection">{story.reflection}</p>
+
+            <dl className="navigator-story__facets">
+              {story.facets.map((facet, index) => (
+                <div
+                  key={facet.label}
+                  className="navigator-story__facet"
+                  style={{ "--navigator-story-delay": `${index * 60}ms` } as CSSProperties}
+                >
+                  <dt>{facet.label}</dt>
+                  <dd>{facet.value}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <article className="navigator-story__profile">
+              <p>How I&apos;d describe you</p>
+              <h2>{story.profileLabel}</h2>
+              <p>{story.profileDescription}</p>
+            </article>
+
+            <p className="navigator-story__muted">
+              I might not have every detail right — you can adjust anything.
+            </p>
+          </div>
+        </section>
+      </ScreenFrame>
+      <PrimaryActionBar
+        primaryLabel="Yes, this describes me"
+        onPrimary={onConfirm}
+        secondaryLabel="I'd like to change something"
+        onSecondary={onChangeSomething}
+      />
+    </>
+  );
+}
+
 function toggleMaxThree<T>(value: T, values: T[]) {
   if (values.includes(value)) {
     return values.filter((currentValue) => currentValue !== value);
@@ -343,6 +597,37 @@ export function NavigatorFlow() {
   const [timeline, setTimeline] = useState<TimelineKey | null>(null);
   const [concerns, setConcerns] = useState<ConcernKey[]>([]);
   const [freeNote, setFreeNote] = useState("");
+  const [storyStatus, setStoryStatus] = useState<StoryStatus>("idle");
+  const [foreverStory, setForeverStory] = useState<LocalForeverStory | null>(null);
+  const [, setStoryConfirmed] = useState(false);
+
+  useEffect(() => {
+    if (storyStatus !== "loading") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setForeverStory(
+        buildLocalForeverStory({
+          motivations,
+          goals,
+          budget,
+          timeline,
+          concerns,
+        }),
+      );
+      setStoryStatus("resolved");
+    }, 900);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [budget, concerns, goals, motivations, storyStatus, timeline]);
+
+  const beginStoryGeneration = () => {
+    setStoryConfirmed(false);
+    setForeverStory(null);
+    setStoryStatus("loading");
+    setStep(5);
+  };
 
   const renderScreen = () => {
     switch (step) {
@@ -386,16 +671,26 @@ export function NavigatorFlow() {
             }}
           />
         );
-      default:
+      case 4:
         return (
           <BiggestConcernScreen
             concerns={concerns}
             note={freeNote}
-            onContinue={() => undefined}
+            onContinue={beginStoryGeneration}
             onNoteChange={setFreeNote}
             onToggleConcern={(concern) => {
               setConcerns((currentConcerns) => toggleMaxThree(concern, currentConcerns));
             }}
+          />
+        );
+      default:
+        return (
+          <ForeverStoryScreen
+            story={foreverStory}
+            status={storyStatus}
+            onChangeSomething={() => setStep(4)}
+            onConfirm={() => setStoryConfirmed(true)}
+            onRetry={beginStoryGeneration}
           />
         );
     }
