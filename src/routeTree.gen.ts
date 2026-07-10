@@ -16,6 +16,7 @@ import { Route as NavigatorRouteImport } from './routes/navigator'
 import { Route as DiscoveryRouteImport } from './routes/discovery'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as AreasRouteImport } from './routes/areas'
+import { Route as AdvisoryRouteImport } from './routes/advisory'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
@@ -56,6 +57,11 @@ const AreasRoute = AreasRouteImport.update({
   path: '/areas',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdvisoryRoute = AdvisoryRouteImport.update({
+  id: '/advisory',
+  path: '/advisory',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AboutRoute = AboutRouteImport.update({
   id: '/about',
   path: '/about',
@@ -80,6 +86,7 @@ const ProjectsSlugRoute = ProjectsSlugRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/advisory': typeof AdvisoryRoute
   '/areas': typeof AreasRoute
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
@@ -93,6 +100,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/advisory': typeof AdvisoryRoute
   '/areas': typeof AreasRoute
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
@@ -107,6 +115,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/advisory': typeof AdvisoryRoute
   '/areas': typeof AreasRoute
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
@@ -122,6 +131,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/about'
+    | '/advisory'
     | '/areas'
     | '/contact'
     | '/discovery'
@@ -135,6 +145,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/about'
+    | '/advisory'
     | '/areas'
     | '/contact'
     | '/discovery'
@@ -148,6 +159,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/about'
+    | '/advisory'
     | '/areas'
     | '/contact'
     | '/discovery'
@@ -162,6 +174,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
+  AdvisoryRoute: typeof AdvisoryRoute
   AreasRoute: typeof AreasRoute
   ContactRoute: typeof ContactRoute
   DiscoveryRoute: typeof DiscoveryRoute
@@ -224,6 +237,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AreasRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/advisory': {
+      id: '/advisory'
+      path: '/advisory'
+      fullPath: '/advisory'
+      preLoaderRoute: typeof AdvisoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/about': {
       id: '/about'
       path: '/about'
@@ -258,6 +278,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
+  AdvisoryRoute: AdvisoryRoute,
   AreasRoute: AreasRoute,
   ContactRoute: ContactRoute,
   DiscoveryRoute: DiscoveryRoute,
