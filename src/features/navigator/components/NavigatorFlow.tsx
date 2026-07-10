@@ -811,6 +811,7 @@ function AdvisorInvitationScreen({
   concerns,
   budget,
   timeline,
+  onContinue,
 }: {
   motivations: MotivationKey[];
   goals: GoalKey[];
@@ -818,6 +819,7 @@ function AdvisorInvitationScreen({
   concerns: ConcernKey[];
   budget: BudgetKey | null;
   timeline: TimelineKey | null;
+  onContinue: () => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const priorityLabels = [
@@ -870,7 +872,64 @@ function AdvisorInvitationScreen({
           </article>
         </section>
       </ScreenFrame>
-      <PrimaryActionBar primaryLabel="Continue" onPrimary={() => undefined} />
+      <PrimaryActionBar primaryLabel="Continue" onPrimary={onContinue} />
+    </>
+  );
+}
+
+function ConfirmationScreen({ onStartAgain }: { onStartAgain: () => void }) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
+
+  return (
+    <>
+      <ScreenFrame>
+        <section className="navigator-confirmation" aria-labelledby="navigator-confirmation-title">
+          <div className="navigator-confirmation__check" aria-hidden="true">
+            ✓
+          </div>
+
+          <div className="navigator-confirmation__heading">
+            <Eyebrow>Navigator Complete</Eyebrow>
+            <SerifHeading
+              id="navigator-confirmation-title"
+              headingRef={headingRef}
+              variant="question"
+            >
+              Your Forever Profile is Ready
+            </SerifHeading>
+          </div>
+
+          <div className="navigator-confirmation__id">
+            <p>Temporary Forever ID</p>
+            <strong>FVR-RC1-0001</strong>
+          </div>
+
+          <ul className="navigator-confirmation__status" aria-label="Completion status">
+            <li>
+              <span aria-hidden="true">✓</span>
+              Navigator completed
+            </li>
+            <li>
+              <span aria-hidden="true">✓</span>
+              Profile generated
+            </li>
+            <li>
+              <span aria-hidden="true">✓</span>
+              Ready for Advisor review
+            </li>
+          </ul>
+        </section>
+      </ScreenFrame>
+      <PrimaryActionBar
+        primaryLabel="Request Private Advisory"
+        onPrimary={() => undefined}
+        secondaryLabel="Start Again"
+        onSecondary={onStartAgain}
+      />
     </>
   );
 }
@@ -919,6 +978,18 @@ export function NavigatorFlow() {
     setForeverStory(null);
     setStoryStatus("loading");
     setStep(5);
+  };
+
+  const startAgain = () => {
+    setMotivations([]);
+    setGoals([]);
+    setBudget(null);
+    setTimeline(null);
+    setConcerns([]);
+    setFreeNote("");
+    setStoryStatus("idle");
+    setForeverStory(null);
+    setStep(0);
   };
 
   const recommendation = buildLocalRecommendation({
@@ -997,7 +1068,7 @@ export function NavigatorFlow() {
         return (
           <RecommendationScreen recommendation={recommendation} onContinue={() => setStep(7)} />
         );
-      default:
+      case 7:
         return (
           <AdvisorInvitationScreen
             motivations={motivations}
@@ -1006,8 +1077,11 @@ export function NavigatorFlow() {
             concerns={concerns}
             budget={budget}
             timeline={timeline}
+            onContinue={() => setStep(8)}
           />
         );
+      default:
+        return <ConfirmationScreen onStartAgain={startAgain} />;
     }
   };
 
