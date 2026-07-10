@@ -56,9 +56,7 @@ export function mapProjectToAdvisorySession(project: ProjectDetail): AdvisorySes
       {
         id: project.core.slug,
         name: project.core.name,
-        matchScore: project.trust.trustScore
-          ? Math.min(100, Math.max(0, project.trust.trustScore * 10))
-          : null,
+        matchScore: null,
         primaryReason,
         tradeOff: project.core.constructionStatus
           ? `Construction status: ${project.core.constructionStatus}`
