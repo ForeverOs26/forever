@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
+import ChoiceGroup from "./ChoiceGroup";
+import PrimaryActionBar from "./PrimaryActionBar";
+import ProgressHeader from "./ProgressHeader";
 import "./navigator-flow.css";
 
 const WHY_PHUKET_OPTIONS = [
@@ -42,31 +45,6 @@ type GoalKey = (typeof SUCCESS_OPTIONS)[number]["key"];
 type BudgetKey = (typeof BUDGET_OPTIONS)[number]["key"];
 type TimelineKey = (typeof TIMELINE_OPTIONS)[number]["key"];
 
-function ProgressHeader({ step, onBack }: { step: number; onBack: () => void }) {
-  if (step < 1 || step > 4) {
-    return null;
-  }
-
-  return (
-    <header className="navigator-progress-header">
-      <button type="button" className="navigator-back" onClick={onBack} aria-label="Go back">
-        Back
-      </button>
-      <div className="navigator-progress" aria-hidden="true">
-        <div className="navigator-progress__track">
-          <div
-            className="navigator-progress__bar"
-            style={{ inlineSize: `${Math.round((Math.min(step, 4) / 4) * 100)}%` }}
-          />
-        </div>
-      </div>
-      <p className="navigator-step-count" aria-label={`Step ${step} of 4`}>
-        {String(step).padStart(2, "0")} / 04
-      </p>
-    </header>
-  );
-}
-
 function ScreenFrame({ children }: { children: ReactNode }) {
   return <main className="navigator-screen">{children}</main>;
 }
@@ -98,62 +76,6 @@ function SerifHeading({
   );
 }
 
-function PrimaryAction({
-  children,
-  disabled = false,
-  onClick,
-}: {
-  children: ReactNode;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <footer className="navigator-primary-action">
-      <button type="button" className="navigator-btn" disabled={disabled} onClick={onClick}>
-        {children}
-      </button>
-    </footer>
-  );
-}
-
-function ChoiceCard({
-  children,
-  selected,
-  onToggle,
-}: {
-  children: ReactNode;
-  selected: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="navigator-choice-card"
-      aria-pressed={selected}
-      onClick={onToggle}
-    >
-      <span>{children}</span>
-      <span className="navigator-choice-card__dot" aria-hidden="true" />
-    </button>
-  );
-}
-
-function Pill({
-  children,
-  selected,
-  onToggle,
-}: {
-  children: ReactNode;
-  selected: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button type="button" className="navigator-pill" aria-pressed={selected} onClick={onToggle}>
-      {children}
-    </button>
-  );
-}
-
 function WelcomeScreen({ onBegin }: { onBegin: () => void }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -178,7 +100,7 @@ function WelcomeScreen({ onBegin }: { onBegin: () => void }) {
           <p className="navigator-welcome__footnote">About 3 minutes · No sign-up required</p>
         </section>
       </ScreenFrame>
-      <PrimaryAction onClick={onBegin}>Begin</PrimaryAction>
+      <PrimaryActionBar primaryLabel="Begin" onPrimary={onBegin} />
     </>
   );
 }
@@ -211,26 +133,18 @@ function WhyPhuketScreen({
             <p className="navigator-question__helper">Choose up to three that ring true.</p>
           </div>
 
-          <div
-            className="navigator-choice-list"
-            role="group"
-            aria-label="Why are you considering Phuket?"
-          >
-            {WHY_PHUKET_OPTIONS.map((option) => (
-              <ChoiceCard
-                key={option.key}
-                selected={motivations.includes(option.key)}
-                onToggle={() => onToggleMotivation(option.key)}
-              >
-                {option.label}
-              </ChoiceCard>
-            ))}
-          </div>
+          <ChoiceGroup
+            ariaLabel="Why are you considering Phuket?"
+            items={WHY_PHUKET_OPTIONS.map((option) => ({
+              key: option.key,
+              title: option.label,
+            }))}
+            selectedKeys={motivations}
+            onToggle={(motivation) => onToggleMotivation(motivation as MotivationKey)}
+          />
         </section>
       </ScreenFrame>
-      <PrimaryAction disabled={!canContinue} onClick={onContinue}>
-        Continue
-      </PrimaryAction>
+      <PrimaryActionBar primaryLabel="Continue" disabled={!canContinue} onPrimary={onContinue} />
     </>
   );
 }
@@ -263,26 +177,18 @@ function SuccessScreen({
             <p className="navigator-question__helper">Up to three.</p>
           </div>
 
-          <div
-            className="navigator-choice-list"
-            role="group"
-            aria-label="What would success look like for you?"
-          >
-            {SUCCESS_OPTIONS.map((option) => (
-              <ChoiceCard
-                key={option.key}
-                selected={goals.includes(option.key)}
-                onToggle={() => onToggleGoal(option.key)}
-              >
-                {option.label}
-              </ChoiceCard>
-            ))}
-          </div>
+          <ChoiceGroup
+            ariaLabel="What would success look like for you?"
+            items={SUCCESS_OPTIONS.map((option) => ({
+              key: option.key,
+              title: option.label,
+            }))}
+            selectedKeys={goals}
+            onToggle={(goal) => onToggleGoal(goal as GoalKey)}
+          />
         </section>
       </ScreenFrame>
-      <PrimaryAction disabled={!canContinue} onClick={onContinue}>
-        Continue
-      </PrimaryAction>
+      <PrimaryActionBar primaryLabel="Continue" disabled={!canContinue} onPrimary={onContinue} />
     </>
   );
 }
@@ -321,39 +227,33 @@ function BudgetTimelineScreen({
           <div className="navigator-pill-groups">
             <div className="navigator-pill-group">
               <p className="navigator-pill-group__label">Budget</p>
-              <div className="navigator-pill-list" role="group" aria-label="Budget">
-                {BUDGET_OPTIONS.map((option) => (
-                  <Pill
-                    key={option.key}
-                    selected={budget === option.key}
-                    onToggle={() => onToggleBudget(option.key)}
-                  >
-                    {option.label}
-                  </Pill>
-                ))}
-              </div>
+              <ChoiceGroup
+                ariaLabel="Budget"
+                items={BUDGET_OPTIONS.map((option) => ({
+                  key: option.key,
+                  title: option.label,
+                }))}
+                selectedKeys={budget ? [budget] : []}
+                onToggle={(nextBudget) => onToggleBudget(nextBudget as BudgetKey)}
+              />
             </div>
 
             <div className="navigator-pill-group">
               <p className="navigator-pill-group__label">Timeline</p>
-              <div className="navigator-pill-list" role="group" aria-label="Timeline">
-                {TIMELINE_OPTIONS.map((option) => (
-                  <Pill
-                    key={option.key}
-                    selected={timeline === option.key}
-                    onToggle={() => onToggleTimeline(option.key)}
-                  >
-                    {option.label}
-                  </Pill>
-                ))}
-              </div>
+              <ChoiceGroup
+                ariaLabel="Timeline"
+                items={TIMELINE_OPTIONS.map((option) => ({
+                  key: option.key,
+                  title: option.label,
+                }))}
+                selectedKeys={timeline ? [timeline] : []}
+                onToggle={(nextTimeline) => onToggleTimeline(nextTimeline as TimelineKey)}
+              />
             </div>
           </div>
         </section>
       </ScreenFrame>
-      <PrimaryAction disabled={!canContinue} onClick={onContinue}>
-        Continue
-      </PrimaryAction>
+      <PrimaryActionBar primaryLabel="Continue" disabled={!canContinue} onPrimary={onContinue} />
     </>
   );
 }
@@ -421,10 +321,14 @@ export function NavigatorFlow() {
   return (
     <div className="navigator-flow">
       <div className="navigator-flow__shell">
-        <ProgressHeader
-          step={step}
-          onBack={() => setStep((currentStep) => Math.max(0, currentStep - 1))}
-        />
+        {step >= 1 && step <= 4 ? (
+          <ProgressHeader
+            currentStep={step}
+            totalSteps={4}
+            onBack={() => setStep((currentStep) => Math.max(0, currentStep - 1))}
+            backLabel="Go back"
+          />
+        ) : null}
         {renderScreen()}
       </div>
     </div>
