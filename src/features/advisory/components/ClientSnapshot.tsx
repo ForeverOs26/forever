@@ -15,6 +15,8 @@ interface FieldProps {
   children: React.ReactNode;
 }
 
+const unavailable = <span className="text-[#9A958A]">Not available</span>;
+
 function Field({ label, children }: FieldProps) {
   return (
     <div className="flex flex-col gap-1">
@@ -41,17 +43,17 @@ export function ClientSnapshot({
         >
           Client Snapshot
         </h2>
-        <p className="mt-1 text-sm text-[#9A958A]">{data.clientName}</p>
+        <p className="mt-1 text-sm text-[#9A958A]">{data.clientName ?? "Not available"}</p>
       </header>
 
       <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Buyer type">{data.buyerType}</Field>
-        <Field label="Primary goal">{data.primaryGoal}</Field>
-        <Field label="Budget">{data.budget}</Field>
-        <Field label="Timeline">{data.timeline}</Field>
-        <Field label="Risk profile">{data.riskProfile}</Field>
+        <Field label="Buyer type">{data.buyerType ?? unavailable}</Field>
+        <Field label="Primary goal">{data.primaryGoal ?? unavailable}</Field>
+        <Field label="Budget">{data.budget ?? unavailable}</Field>
+        <Field label="Timeline">{data.timeline ?? unavailable}</Field>
+        <Field label="Risk profile">{data.riskProfile ?? unavailable}</Field>
         <Field label="Top priorities">
-          <ul className="flex flex-wrap gap-2">
+          {data.topPriorities.length === 0 ? unavailable : <ul className="flex flex-wrap gap-2">
             {data.topPriorities.map((priority) => (
               <li
                 key={priority}
@@ -60,7 +62,7 @@ export function ClientSnapshot({
                 {priority}
               </li>
             ))}
-          </ul>
+          </ul>}
         </Field>
       </dl>
     </section>
