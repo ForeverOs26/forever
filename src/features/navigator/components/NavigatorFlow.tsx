@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import ChoiceGroup from "./ChoiceGroup";
+import NoteField from "./NoteField";
 import PrimaryActionBar from "./PrimaryActionBar";
 import ProgressHeader from "./ProgressHeader";
 import "./navigator-flow.css";
@@ -40,10 +41,20 @@ const TIMELINE_OPTIONS = [
   { key: "exploring", label: "Just exploring" },
 ] as const;
 
+const CONCERN_OPTIONS = [
+  { key: "ownership", label: "Legal & ownership rules" },
+  { key: "developer_trust", label: "Trusting the developer" },
+  { key: "rental_returns", label: "Rental returns" },
+  { key: "resale", label: "Resale & liquidity" },
+  { key: "remote_mgmt", label: "Managing it from abroad" },
+  { key: "area_choice", label: "Choosing the right area" },
+] as const;
+
 type MotivationKey = (typeof WHY_PHUKET_OPTIONS)[number]["key"];
 type GoalKey = (typeof SUCCESS_OPTIONS)[number]["key"];
 type BudgetKey = (typeof BUDGET_OPTIONS)[number]["key"];
 type TimelineKey = (typeof TIMELINE_OPTIONS)[number]["key"];
+type ConcernKey = (typeof CONCERN_OPTIONS)[number]["key"];
 
 function ScreenFrame({ children }: { children: ReactNode }) {
   return <main className="navigator-screen">{children}</main>;
@@ -258,6 +269,64 @@ function BudgetTimelineScreen({
   );
 }
 
+function BiggestConcernScreen({
+  concerns,
+  note,
+  onContinue,
+  onNoteChange,
+  onToggleConcern,
+}: {
+  concerns: ConcernKey[];
+  note: string;
+  onContinue: () => void;
+  onNoteChange: (note: string) => void;
+  onToggleConcern: (concern: ConcernKey) => void;
+}) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const canContinue = concerns.length > 0;
+
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
+
+  return (
+    <>
+      <ScreenFrame>
+        <section className="navigator-question" aria-labelledby="navigator-concern-title">
+          <div>
+            <p className="navigator-question__index">04</p>
+            <SerifHeading id="navigator-concern-title" headingRef={headingRef} variant="question">
+              What&apos;s your biggest concern right now?
+            </SerifHeading>
+            <p className="navigator-question__helper">Be honest вЂ” this is what we help with.</p>
+          </div>
+
+          <div className="navigator-question__stack">
+            <ChoiceGroup
+              ariaLabel="What's your biggest concern right now?"
+              items={CONCERN_OPTIONS.map((option) => ({
+                key: option.key,
+                title: option.label,
+              }))}
+              selectedKeys={concerns}
+              onToggle={(concern) => onToggleConcern(concern as ConcernKey)}
+            />
+
+            <NoteField
+              label="Anything else on your mind?"
+              value={note}
+              onChange={onNoteChange}
+              placeholder="Anything else on your mind? (optional)"
+              rows={3}
+            />
+          </div>
+        </section>
+      </ScreenFrame>
+      <PrimaryActionBar primaryLabel="Continue" disabled={!canContinue} onPrimary={onContinue} />
+    </>
+  );
+}
+
 function toggleMaxThree<T>(value: T, values: T[]) {
   if (values.includes(value)) {
     return values.filter((currentValue) => currentValue !== value);
@@ -272,6 +341,8 @@ export function NavigatorFlow() {
   const [goals, setGoals] = useState<GoalKey[]>([]);
   const [budget, setBudget] = useState<BudgetKey | null>(null);
   const [timeline, setTimeline] = useState<TimelineKey | null>(null);
+  const [concerns, setConcerns] = useState<ConcernKey[]>([]);
+  const [freeNote, setFreeNote] = useState("");
 
   const renderScreen = () => {
     switch (step) {
@@ -299,12 +370,12 @@ export function NavigatorFlow() {
             }}
           />
         );
-      default:
+      case 3:
         return (
           <BudgetTimelineScreen
             budget={budget}
             timeline={timeline}
-            onContinue={() => undefined}
+            onContinue={() => setStep(4)}
             onToggleBudget={(nextBudget) => {
               setBudget((currentBudget) => (currentBudget === nextBudget ? null : nextBudget));
             }}
@@ -312,6 +383,18 @@ export function NavigatorFlow() {
               setTimeline((currentTimeline) =>
                 currentTimeline === nextTimeline ? null : nextTimeline,
               );
+            }}
+          />
+        );
+      default:
+        return (
+          <BiggestConcernScreen
+            concerns={concerns}
+            note={freeNote}
+            onContinue={() => undefined}
+            onNoteChange={setFreeNote}
+            onToggleConcern={(concern) => {
+              setConcerns((currentConcerns) => toggleMaxThree(concern, currentConcerns));
             }}
           />
         );

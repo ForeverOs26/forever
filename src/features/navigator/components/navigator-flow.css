@@ -181,6 +181,12 @@
   line-height: 1.6;
 }
 
+.navigator-question__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
 .navigator-choice-list {
   display: flex;
   flex-direction: column;
