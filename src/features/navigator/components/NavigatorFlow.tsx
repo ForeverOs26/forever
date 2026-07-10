@@ -804,6 +804,77 @@ function RecommendationScreen({
   );
 }
 
+function AdvisorInvitationScreen({
+  motivations,
+  goals,
+  recommendation,
+  concerns,
+  budget,
+  timeline,
+}: {
+  motivations: MotivationKey[];
+  goals: GoalKey[];
+  recommendation: LocalRecommendation;
+  concerns: ConcernKey[];
+  budget: BudgetKey | null;
+  timeline: TimelineKey | null;
+}) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const priorityLabels = [
+    ...getOptionLabels(WHY_PHUKET_OPTIONS, motivations),
+    ...getOptionLabels(SUCCESS_OPTIONS, goals),
+  ];
+  const concernLabels = getOptionLabels(CONCERN_OPTIONS, concerns);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
+
+  return (
+    <>
+      <ScreenFrame>
+        <section className="navigator-advisor" aria-labelledby="navigator-advisor-title">
+          <div>
+            <Eyebrow>Personal Review</Eyebrow>
+            <SerifHeading id="navigator-advisor-title" headingRef={headingRef} variant="question">
+              Meet your Forever Advisor
+            </SerifHeading>
+            <p className="navigator-advisor__intro">
+              A Forever Advisor will personally review your profile before recommending projects
+              that fit what matters most to you.
+            </p>
+          </div>
+
+          <article className="navigator-advisor__summary" aria-label="Your profile summary">
+            <dl className="navigator-advisor__list">
+              <div className="navigator-advisor__row">
+                <dt>Your priorities</dt>
+                <dd>{humanizeList(priorityLabels) || "Still taking shape"}</dd>
+              </div>
+              <div className="navigator-advisor__row">
+                <dt>Investment profile</dt>
+                <dd>{recommendation.investmentProfile}</dd>
+              </div>
+              <div className="navigator-advisor__row">
+                <dt>Biggest concern</dt>
+                <dd>{humanizeList(concernLabels) || "Not specified"}</dd>
+              </div>
+              <div className="navigator-advisor__row">
+                <dt>Budget summary</dt>
+                <dd>
+                  {budget ? getOptionLabel(BUDGET_OPTIONS, budget) : "Still exploring"}
+                  {timeline ? ` · ${getOptionLabel(TIMELINE_OPTIONS, timeline)}` : ""}
+                </dd>
+              </div>
+            </dl>
+          </article>
+        </section>
+      </ScreenFrame>
+      <PrimaryActionBar primaryLabel="Continue" onPrimary={() => undefined} />
+    </>
+  );
+}
+
 function toggleMaxThree<T>(value: T, values: T[]) {
   if (values.includes(value)) {
     return values.filter((currentValue) => currentValue !== value);
@@ -922,9 +993,20 @@ export function NavigatorFlow() {
             onRetry={beginStoryGeneration}
           />
         );
+      case 6:
+        return (
+          <RecommendationScreen recommendation={recommendation} onContinue={() => setStep(7)} />
+        );
       default:
         return (
-          <RecommendationScreen recommendation={recommendation} onContinue={() => setStep(6)} />
+          <AdvisorInvitationScreen
+            motivations={motivations}
+            goals={goals}
+            recommendation={recommendation}
+            concerns={concerns}
+            budget={budget}
+            timeline={timeline}
+          />
         );
     }
   };
