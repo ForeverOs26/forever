@@ -302,6 +302,98 @@
   line-height: 1.6;
 }
 
+.navigator-recommendation {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 20px;
+  padding-top: 34px;
+}
+
+.navigator-recommendation__hero {
+  border: 1px solid #e7ddc9;
+  border-radius: 18px;
+  background: linear-gradient(160deg, #fbf6ec, #f5eedf);
+  padding: 20px;
+}
+
+.navigator-recommendation__hero p,
+.navigator-recommendation__panel h3,
+.navigator-recommendation__projects h3,
+.navigator-recommendation__project p {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.navigator-recommendation__hero h2 {
+  margin: 8px 0 0;
+  color: #2b2820;
+  font-family: var(--serif);
+  font-size: 27px;
+  font-weight: 300;
+  line-height: 1.18;
+}
+
+.navigator-recommendation__stack {
+  display: grid;
+  gap: 10px;
+}
+
+.navigator-recommendation__panel {
+  border: 1px solid #eee7d9;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 15px 16px;
+}
+
+.navigator-recommendation__panel p {
+  margin: 7px 0 0;
+  color: #2b2820;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.navigator-recommendation__projects {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.navigator-recommendation__project-list {
+  display: grid;
+  gap: 10px;
+}
+
+.navigator-recommendation__project {
+  animation: navigator-rise 0.6s var(--ease) both;
+  animation-delay: var(--navigator-story-delay, 0ms);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 15px 16px;
+}
+
+.navigator-recommendation__project h4 {
+  margin: 7px 0 5px;
+  color: #2b2820;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.navigator-recommendation__project span {
+  display: block;
+  color: #57534a;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
 .navigator-choice-list {
   display: flex;
   flex-direction: column;
@@ -549,7 +641,8 @@
   }
 
   .navigator-story__facet,
-  .navigator-story__profile {
+  .navigator-story__profile,
+  .navigator-recommendation__project {
     animation: navigator-fade 0.4s ease both;
   }
 
