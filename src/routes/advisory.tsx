@@ -2,16 +2,27 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback } from "react";
 
 import { SiteShell } from "@/components/SiteShell";
-import { AdvisoryWorkspace, DEMO_SESSION, type AdvisoryActionId } from "@/features/advisory";
+import {
+  AdvisoryWorkspace,
+  mapProjectToAdvisorySession,
+  type AdvisoryActionId,
+} from "@/features/advisory";
+import { projectDetailQuery } from "@/features/project-detail/project-detail-query";
+
+/** Active Forever project identity; import-package identity remains `modeva`. */
+const ADVISORY_PROJECT_SLUG = "the-modeva-bang-tao";
 
 export const Route = createFileRoute("/advisory")({
+  loader: async ({ context }) => ({
+    project: await context.queryClient.ensureQueryData(projectDetailQuery(ADVISORY_PROJECT_SLUG)),
+  }),
   head: () => ({
     meta: [
       { title: "Forever Advisory Workspace" },
       {
         name: "description",
         content:
-          "Demo-only advisory workspace for preparing a Phuket property consultation with deterministic session data.",
+          "Advisory workspace using Forever's verified project data.",
       },
     ],
     links: [
@@ -27,14 +38,27 @@ export const Route = createFileRoute("/advisory")({
 });
 
 function AdvisoryRoute() {
+  const { project } = Route.useLoaderData();
   const handleAction = useCallback((actionId: AdvisoryActionId) => {
-    console.info("[advisory-demo] action emitted", { actionId });
+    console.info("[advisory] action emitted", { actionId });
   }, []);
+
+  if (!project) {
+    return (
+      <SiteShell>
+        <div className="bg-[#F3EFE7] px-4 py-12 text-center text-[#17150F]">
+          Advisory project data is unavailable.
+        </div>
+      </SiteShell>
+    );
+  }
+
+  const session = mapProjectToAdvisorySession(project);
 
   return (
     <SiteShell>
       <div className="bg-[#F3EFE7] py-6 sm:py-8">
-        <AdvisoryWorkspace session={DEMO_SESSION} onAction={handleAction} />
+        <AdvisoryWorkspace session={session} onAction={handleAction} />
       </div>
     </SiteShell>
   );

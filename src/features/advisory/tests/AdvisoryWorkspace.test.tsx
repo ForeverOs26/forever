@@ -3,41 +3,78 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { AdvisoryWorkspace } from "../AdvisoryWorkspace";
-import { ADVISORY_ACTIONS, DEMO_SESSION } from "../mock";
-import type { AdvisoryRisk } from "../types";
+import { ADVISORY_ACTIONS } from "../mock";
+import type { AdvisoryRisk, AdvisorySession } from "../types";
+
+const PROJECT_SESSION: AdvisorySession = {
+  client: {
+    clientName: null,
+    buyerType: null,
+    primaryGoal: null,
+    budget: null,
+    timeline: null,
+    riskProfile: null,
+    topPriorities: [],
+  },
+  recommendations: [
+    {
+      id: "modeva",
+      name: "Modeva",
+      matchScore: 80,
+      primaryReason: "Verified project record",
+      tradeOff: "Construction status: Under Construction",
+      confidence: null,
+    },
+  ],
+  strategy: {
+    discussFirst: "Verified project record",
+    avoidLeadingWith: null,
+    showFirstProjectId: "modeva",
+    mustClarify: null,
+    consultationSequence: [],
+  },
+  risks: [],
+};
 
 describe("AdvisoryWorkspace", () => {
   it("renders the workspace with its main heading", () => {
-    render(<AdvisoryWorkspace session={DEMO_SESSION} />);
+    render(<AdvisoryWorkspace session={PROJECT_SESSION} />);
     expect(
       screen.getByRole("heading", { level: 1, name: /advisory workspace/i }),
     ).toBeInTheDocument();
   });
 
   it("renders the client snapshot section with the client name", () => {
-    render(<AdvisoryWorkspace session={DEMO_SESSION} />);
+    render(<AdvisoryWorkspace session={PROJECT_SESSION} />);
     expect(screen.getByRole("heading", { name: /client snapshot/i })).toBeInTheDocument();
-    expect(screen.getByText(DEMO_SESSION.client.clientName)).toBeInTheDocument();
+    expect(screen.getAllByText("Not available").length).toBeGreaterThan(0);
   });
 
-  it("renders exactly three recommended projects", () => {
-    render(<AdvisoryWorkspace session={DEMO_SESSION} />);
+  it("renders recommendations supplied from the project adapter", () => {
+    render(<AdvisoryWorkspace session={PROJECT_SESSION} />);
     const region = screen
       .getByRole("heading", { name: /best matches/i })
       .closest("section") as HTMLElement;
     const cards = within(region).getAllByRole("listitem");
-    expect(cards).toHaveLength(3);
+    expect(cards).toHaveLength(1);
+    expect(screen.getByText("Modeva")).toBeInTheDocument();
   });
 
   it("renders the advisor strategy section", () => {
-    render(<AdvisoryWorkspace session={DEMO_SESSION} />);
+    render(<AdvisoryWorkspace session={PROJECT_SESSION} />);
     expect(screen.getByRole("heading", { name: /advisor strategy/i })).toBeInTheDocument();
     expect(screen.getByText(/private — advisor only/i)).toBeInTheDocument();
   });
 
   it("renders no more than three risks even when more are supplied", () => {
     const extraRisks: AdvisoryRisk[] = [
-      ...DEMO_SESSION.risks,
+      ...Array.from({ length: 3 }, (_, index): AdvisoryRisk => ({
+        id: `risk-${index}`,
+        title: `Risk ${index}`,
+        explanation: "Existing project data gap.",
+        severity: "info",
+        scope: "data",
+      })),
       {
         id: "risk-extra",
         title: "Fourth risk (should not render)",
@@ -46,7 +83,7 @@ describe("AdvisoryWorkspace", () => {
         scope: "data",
       },
     ];
-    render(<AdvisoryWorkspace session={{ ...DEMO_SESSION, risks: extraRisks }} />);
+    render(<AdvisoryWorkspace session={{ ...PROJECT_SESSION, risks: extraRisks }} />);
     const region = screen
       .getByRole("heading", { name: /risk panel/i })
       .closest("section") as HTMLElement;
@@ -57,7 +94,7 @@ describe("AdvisoryWorkspace", () => {
   });
 
   it("renders all five next actions", () => {
-    render(<AdvisoryWorkspace session={DEMO_SESSION} />);
+    render(<AdvisoryWorkspace session={PROJECT_SESSION} />);
     const region = screen
       .getByRole("heading", { name: /next action/i })
       .closest("section") as HTMLElement;
@@ -73,14 +110,14 @@ describe("AdvisoryWorkspace", () => {
   it("emits the correct action id through onAction", async () => {
     const user = userEvent.setup();
     const onAction = vi.fn();
-    render(<AdvisoryWorkspace session={DEMO_SESSION} onAction={onAction} />);
+    render(<AdvisoryWorkspace session={PROJECT_SESSION} onAction={onAction} />);
     await user.click(screen.getByRole("button", { name: /send project passport/i }));
     expect(onAction).toHaveBeenCalledTimes(1);
     expect(onAction).toHaveBeenCalledWith("send-passport");
   });
 
   it("exposes accessible section headings", () => {
-    render(<AdvisoryWorkspace session={DEMO_SESSION} />);
+    render(<AdvisoryWorkspace session={PROJECT_SESSION} />);
     for (const name of [
       /client snapshot/i,
       /best matches/i,

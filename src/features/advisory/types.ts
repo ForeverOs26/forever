@@ -31,12 +31,12 @@ export type RiskScope = "client" | "project" | "data";
  * Rendered by the `ClientSnapshot` component.
  */
 export interface ClientSnapshotData {
-  clientName: string;
-  buyerType: BuyerType;
-  primaryGoal: string;
-  budget: string;
-  timeline: ClientTimeline;
-  riskProfile: RiskProfile;
+  clientName: string | null;
+  buyerType: BuyerType | null;
+  primaryGoal: string | null;
+  budget: string | null;
+  timeline: ClientTimeline | null;
+  riskProfile: RiskProfile | null;
   topPriorities: string[];
 }
 
@@ -48,12 +48,12 @@ export interface RecommendedProject {
   id: string;
   name: string;
   /** Match score, 0-100 inclusive. */
-  matchScore: number;
+  matchScore: number | null;
   /** The single strongest reason to recommend this project. */
-  primaryReason: string;
+  primaryReason: string | null;
   /** The single most relevant trade-off to disclose. */
-  tradeOff: string;
-  confidence: ConfidenceLevel;
+  tradeOff: string | null;
+  confidence: ConfidenceLevel | null;
   /** Marks clearly-labelled placeholder / demo entries. */
   isPlaceholder?: boolean;
 }
@@ -63,11 +63,11 @@ export interface RecommendedProject {
  * Rendered by the `AdvisorStrategy` component.
  */
 export interface AdvisorStrategyData {
-  discussFirst: string;
-  avoidLeadingWith: string;
+  discussFirst: string | null;
+  avoidLeadingWith: string | null;
   /** `id` of the project to present first (matches a `RecommendedProject.id`). */
   showFirstProjectId: string;
-  mustClarify: string;
+  mustClarify: string | null;
   consultationSequence: string[];
 }
 

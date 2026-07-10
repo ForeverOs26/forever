@@ -29,7 +29,8 @@ export type {
   NextActionProps,
 } from "./components";
 
-export { ADVISORY_ACTIONS, DEMO_SESSION } from "./mock";
+export { ADVISORY_ACTIONS } from "./mock";
+export { mapProjectToAdvisorySession } from "./project-adapter";
 
 export type {
   // Enumerations

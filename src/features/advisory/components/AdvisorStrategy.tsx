@@ -52,17 +52,19 @@ export function AdvisorStrategy({
       </header>
 
       <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <GuidanceRow label="Discuss first">{data.discussFirst}</GuidanceRow>
-        <GuidanceRow label="Don't lead with">{data.avoidLeadingWith}</GuidanceRow>
+        <GuidanceRow label="Discuss first">{data.discussFirst ?? "Not available"}</GuidanceRow>
+        <GuidanceRow label="Don't lead with">{data.avoidLeadingWith ?? "Not available"}</GuidanceRow>
         <GuidanceRow label="Show first">{showFirstName}</GuidanceRow>
-        <GuidanceRow label="Must clarify">{data.mustClarify}</GuidanceRow>
+        <GuidanceRow label="Must clarify">{data.mustClarify ?? "Not available"}</GuidanceRow>
       </dl>
 
       <div className="mt-5">
         <h3 className="mb-2 text-xs uppercase tracking-wide text-[#9A958A]">
           Suggested consultation sequence
         </h3>
-        <ol className="flex flex-col gap-2">
+        {data.consultationSequence.length === 0 ? (
+          <p className="text-sm text-[#9A958A]">Not available</p>
+        ) : <ol className="flex flex-col gap-2">
           {data.consultationSequence.map((step, index) => (
             <li key={step} className="flex gap-3 text-sm text-[#17150F]">
               <span
@@ -74,7 +76,7 @@ export function AdvisorStrategy({
               <span>{step}</span>
             </li>
           ))}
-        </ol>
+        </ol>}
       </div>
     </section>
   );

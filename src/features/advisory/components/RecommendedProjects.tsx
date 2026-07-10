@@ -26,7 +26,7 @@ const CONFIDENCE_BORDER: Record<ConfidenceLevel, string> = {
 function ProjectCard({ project }: { project: RecommendedProject }) {
   return (
     <li
-      className={`flex flex-col gap-3 rounded-2xl bg-white p-5 ${CONFIDENCE_BORDER[project.confidence]}`}
+      className={`flex flex-col gap-3 rounded-2xl bg-white p-5 ${project.confidence ? CONFIDENCE_BORDER[project.confidence] : "border border-[#EAE6DE]"}`}
     >
       <div className="flex items-baseline justify-between gap-3">
         <h3
@@ -35,13 +35,13 @@ function ProjectCard({ project }: { project: RecommendedProject }) {
         >
           {project.name}
         </h3>
-        <span
+        {project.matchScore !== null ? <span
           className="shrink-0 text-sm font-semibold text-[#9C7B4C]"
           aria-label={`Match score ${project.matchScore} out of 100`}
         >
           {project.matchScore}
           <span className="text-[#9A958A]">/100</span>
-        </span>
+        </span> : null}
       </div>
 
       {project.isPlaceholder ? (
@@ -53,15 +53,17 @@ function ProjectCard({ project }: { project: RecommendedProject }) {
       <dl className="flex flex-col gap-2 text-sm">
         <div>
           <dt className="text-xs uppercase tracking-wide text-[#9A958A]">Primary reason</dt>
-          <dd className="text-[#17150F]">{project.primaryReason}</dd>
+          <dd className="text-[#17150F]">{project.primaryReason ?? "Not available"}</dd>
         </div>
         <div>
           <dt className="text-xs uppercase tracking-wide text-[#9A958A]">Trade-off</dt>
-          <dd className="text-[#17150F]">{project.tradeOff}</dd>
+          <dd className="text-[#17150F]">{project.tradeOff ?? "Not available"}</dd>
         </div>
       </dl>
 
-      <p className="mt-auto text-xs text-[#9A958A]">{CONFIDENCE_LABEL[project.confidence]}</p>
+      <p className="mt-auto text-xs text-[#9A958A]">
+        {project.confidence ? CONFIDENCE_LABEL[project.confidence] : "Confidence not available"}
+      </p>
     </li>
   );
 }
