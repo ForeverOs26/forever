@@ -8,6 +8,7 @@ import {
   deriveInvestmentIntelligence,
   deriveLocationIntelligence,
   deriveProjectComparison,
+  deriveProjectRecommendations,
   deriveProjectSummary,
   deriveRentalIntelligence,
   mapProjectToAdvisorySession,
@@ -37,14 +38,36 @@ async function loadComparisonProject(primarySlug: string): Promise<ProjectDetail
   }
 }
 
+/**
+ * Resolve every active project's detail record so the Project Recommendations
+ * section can rank the full candidate set. Failures degrade gracefully to an
+ * empty list, so the section never breaks the existing page.
+ */
+async function loadRecommendationProjects(): Promise<ProjectDetail[]> {
+  try {
+    const slugs = await ProjectService.listActiveSlugs();
+    const details = await Promise.all(
+      slugs.map((slug) => ProjectDetailService.getBySlug(slug).catch(() => null)),
+    );
+    return details.filter((detail): detail is ProjectDetail => detail !== null);
+  } catch {
+    return [];
+  }
+}
+
 export const Route = createFileRoute("/advisory")({
   loader: async ({ context }) => {
     const project = await context.queryClient.ensureQueryData(
       projectDetailQuery(ADVISORY_PROJECT_SLUG),
     );
+    const [comparisonProject, recommendationProjects] = await Promise.all([
+      loadComparisonProject(ADVISORY_PROJECT_SLUG),
+      loadRecommendationProjects(),
+    ]);
     return {
       project,
-      comparisonProject: await loadComparisonProject(ADVISORY_PROJECT_SLUG),
+      comparisonProject,
+      recommendationProjects,
     };
   },
   head: () => ({
@@ -68,7 +91,7 @@ export const Route = createFileRoute("/advisory")({
 });
 
 function AdvisoryRoute() {
-  const { project, comparisonProject } = Route.useLoaderData();
+  const { project, comparisonProject, recommendationProjects } = Route.useLoaderData();
   const handleAction = useCallback((actionId: AdvisoryActionId) => {
     console.info("[advisory] action emitted", { actionId });
   }, []);
@@ -104,6 +127,18 @@ function AdvisoryRoute() {
       })
     : undefined;
 
+  // Rank every available project on already-verified evidence coverage only,
+  // reusing the primary project's derived Passport / Summary. Falls back to the
+  // primary project alone when the candidate lookup yields nothing.
+  const candidates = recommendationProjects.length > 0 ? recommendationProjects : [project];
+  const projectRecommendations = deriveProjectRecommendations({
+    candidates: candidates.map((candidate) =>
+      candidate.core.slug === project.core.slug
+        ? { project: candidate, passport, summary: projectSummary }
+        : { project: candidate },
+    ),
+  });
+
   return (
     <SiteShell>
       <div className="bg-[#F3EFE7] py-6 sm:py-8">
@@ -112,6 +147,7 @@ function AdvisoryRoute() {
           passport={passport}
           projectSummary={projectSummary}
           projectComparison={projectComparison}
+          projectRecommendations={projectRecommendations}
           investmentIntelligence={investmentIntelligence}
           rentalIntelligence={rentalIntelligence}
           locationIntelligence={locationIntelligence}

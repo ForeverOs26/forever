@@ -34,5 +34,8 @@ export type { ProjectSummaryProps } from "./ProjectSummary";
 export { ProjectComparison } from "./ProjectComparison";
 export type { ProjectComparisonProps } from "./ProjectComparison";
 
+export { ProjectRecommendations } from "./ProjectRecommendations";
+export type { ProjectRecommendationsProps } from "./ProjectRecommendations";
+
 export { NextAction } from "./NextAction";
 export type { NextActionProps } from "./NextAction";
