@@ -5,6 +5,7 @@ import { SiteShell } from "@/components/SiteShell";
 import {
   AdvisoryWorkspace,
   deriveInvestmentIntelligence,
+  deriveLocationIntelligence,
   deriveRentalIntelligence,
   mapProjectToAdvisorySession,
   type AdvisoryActionId,
@@ -57,6 +58,7 @@ function AdvisoryRoute() {
   const session = mapProjectToAdvisorySession(project);
   const investmentIntelligence = deriveInvestmentIntelligence(project);
   const rentalIntelligence = deriveRentalIntelligence(project);
+  const locationIntelligence = deriveLocationIntelligence(project);
 
   return (
     <SiteShell>
@@ -65,6 +67,7 @@ function AdvisoryRoute() {
           session={session}
           investmentIntelligence={investmentIntelligence}
           rentalIntelligence={rentalIntelligence}
+          locationIntelligence={locationIntelligence}
           onAction={handleAction}
         />
       </div>

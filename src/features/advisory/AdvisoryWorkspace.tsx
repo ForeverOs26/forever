@@ -4,6 +4,7 @@ import {
   AdvisorStrategy,
   ClientSnapshot,
   InvestmentIntelligence,
+  LocationIntelligence,
   NextAction,
   RecommendedProjects,
   RentalIntelligence,
@@ -22,6 +23,7 @@ export function AdvisoryWorkspace({
   session,
   investmentIntelligence,
   rentalIntelligence,
+  locationIntelligence,
   actions = [...ADVISORY_ACTIONS],
   onAction,
   title = "Advisory Workspace",
@@ -53,6 +55,8 @@ export function AdvisoryWorkspace({
       {investmentIntelligence ? <InvestmentIntelligence data={investmentIntelligence} /> : null}
 
       {rentalIntelligence ? <RentalIntelligence data={rentalIntelligence} /> : null}
+
+      {locationIntelligence ? <LocationIntelligence data={locationIntelligence} /> : null}
 
       <NextAction actions={actions} onAction={onAction} />
     </div>

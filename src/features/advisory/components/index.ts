@@ -22,5 +22,8 @@ export type { InvestmentIntelligenceProps } from "./InvestmentIntelligence";
 export { RentalIntelligence } from "./RentalIntelligence";
 export type { RentalIntelligenceProps } from "./RentalIntelligence";
 
+export { LocationIntelligence } from "./LocationIntelligence";
+export type { LocationIntelligenceProps } from "./LocationIntelligence";
+
 export { NextAction } from "./NextAction";
 export type { NextActionProps } from "./NextAction";

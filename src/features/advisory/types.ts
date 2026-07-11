@@ -13,6 +13,7 @@
 
 import type { InvestmentIntelligence } from "./investment-intelligence";
 import type { RentalIntelligence } from "./rental-intelligence";
+import type { LocationIntelligence } from "./location-intelligence";
 
 /** Buyer archetype used to frame the whole consultation. */
 export type BuyerType = "First-time buyer" | "Investor" | "Upgrader" | "Relocating" | "Second home";
@@ -133,6 +134,13 @@ export interface AdvisoryWorkspaceProps {
    * simply not rendered.
    */
   rentalIntelligence?: RentalIntelligence;
+  /**
+   * Optional, pre-derived Location Intelligence for the loaded project. When
+   * present, the workspace renders the Location Intelligence section without
+   * removing or altering any existing section. When absent, the section is
+   * simply not rendered.
+   */
+  locationIntelligence?: LocationIntelligence;
   /** Actions to render in the Next Action panel. */
   actions?: AdvisoryAction[];
   /** Emitted when the advisor selects an action. */
