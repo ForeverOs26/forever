@@ -15,6 +15,7 @@
 - FDM-001 completed.
 - FDM-002 completed.
 - RC2.5 completed: Advisory Project Summary — a concise, evidence-only executive summary that summarises the verified project data and the already-derived Forever Passport and Intelligence outputs, with no new scoring engine.
+- RC2.6 completed: Advisory Project Comparison — the first comparison engine, a descriptive, evidence-only comparison of two projects built on top of the already-derived Forever Passport and Project Summary, with no new scoring engine, ranking, or fabricated values.
 
 ## Notes
 

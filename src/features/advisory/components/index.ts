@@ -31,5 +31,8 @@ export type { ForeverPassportProps } from "./ForeverPassport";
 export { ProjectSummary } from "./ProjectSummary";
 export type { ProjectSummaryProps } from "./ProjectSummary";
 
+export { ProjectComparison } from "./ProjectComparison";
+export type { ProjectComparisonProps } from "./ProjectComparison";
+
 export { NextAction } from "./NextAction";
 export type { NextActionProps } from "./NextAction";
