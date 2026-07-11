@@ -22,6 +22,7 @@ export {
   RentalIntelligence,
   LocationIntelligence,
   ForeverPassport,
+  ProjectSummary,
   NextAction,
 } from "./components";
 
@@ -34,6 +35,7 @@ export type {
   RentalIntelligenceProps,
   LocationIntelligenceProps,
   ForeverPassportProps,
+  ProjectSummaryProps,
   NextActionProps,
 } from "./components";
 
@@ -83,6 +85,18 @@ export type {
   PassportEvidenceRow,
   PassportMetadata,
 } from "./forever-passport";
+export { deriveProjectSummary } from "./project-summary";
+export type {
+  ProjectSummary as ProjectSummaryData,
+  DeriveProjectSummaryInput,
+  ProjectSummaryDomainKey,
+  ProjectSummarySignal,
+  ProjectSummaryOverview,
+  ProjectSummaryFact,
+  ProjectSummaryBuyerProfile,
+  ProjectSummaryReadiness,
+  ProjectSummaryMetadata,
+} from "./project-summary";
 
 export type {
   // Enumerations
