@@ -10,6 +10,21 @@ The long-term vision is to become the trusted decision layer for real estate buy
 
 Forever is built around the principle of **One Engine, Many Interfaces**: the same structured project data, Supabase backend, Project Detail Engine, Intelligence Engine, and future Decision Engine should power every experience across web, tablet booth, sales, CRM, marketing, and AI-assisted workflows.
 
+## Constitutional source-of-truth principles
+
+- Forever exists to reduce uncertainty in real estate decisions.
+- Forever follows **One Engine, Many Interfaces**: one structured engine should power website, tablet booth, sales, CRM, reports, mobile, and future AI-assisted workflows.
+- GitHub is the source of truth for code and version-controlled documentation.
+- Supabase is the source of truth for structured operational data.
+- Work follows **One Finished Result**: each stage is organized around one completed, validated result before the next stage starts.
+- Forever follows **Incremental Forever Factory**: automation is introduced only when it accelerates the current stage or immediately reduces recurring manual work.
+- Before each stage, ask: **Is there a small automation that will accelerate this stage and later stages?**
+- If automation is not needed now, record it in the roadmap or backlog, but do not let it delay product progress.
+- ChatGPT acts as Chief Architect / Technical Director.
+- Claude supports specifications, UX, copy, audits, isolated components, tests, and code drafts.
+- Codex performs repository-aware implementation, migrations when approved, cross-file integration, validation, commits, and pull requests.
+- Paid tools are purchased only after checking necessity, ROI, alternatives, dependency risk, and current-stage relevance.
+
 ## 2. Mission
 
 **Status: In Progress**
@@ -271,81 +286,20 @@ Possible AI modules:
 - CRM note summarizer.
 - Multilingual project explainer.
 
-## 15. Roadmap
+## 15. Roadmap, Backlog, and Future Ideas
 
 **Status: In Progress**
 
-Near-term:
+The Blueprint defines direction, not day-to-day task assignment. To avoid competing scopes:
 
-- Stabilize Project Detail Engine.
-- Improve project-detail data coverage from Supabase.
-- Add tests around mappers, services, and intelligence scoring.
-- Refine Forever Intelligence UI.
-- Complete lead submission hygiene and monitoring.
+- Current active-stage work belongs in `docs/CURRENT_STAGE.md`.
+- Sequenced phases, dependencies, and milestones belong in `docs/ROADMAP.md`.
+- Future tasks and parked ideas belong in `docs/BACKLOG.md`.
+- Durable architecture and workflow decisions belong in `docs/DECISIONS.md`.
 
-Mid-term:
+Roadmap and backlog items do not become active scope until the Architect moves them into the current stage. Future ideas should always be evaluated against the core mission: reducing uncertainty in real estate decisions.
 
-- Implement Decision Engine core.
-- Add buyer profile capture.
-- Build project comparison.
-- Add CRM foundations.
-- Design Tablet Booth Mode.
-
-Long-term:
-
-- Launch Knowledge Engine.
-- Add sales automation.
-- Add AI-assisted explanation modules.
-- Build analytics for project performance and lead quality.
-- Support multi-market expansion beyond the first geography.
-
-## 16. Backlog
-
-**Status: Planned**
-
-Product backlog:
-
-- Project comparison interface.
-- Buyer profile questionnaire.
-- Saved shortlist.
-- CRM lead dashboard.
-- Booth Mode project browser.
-- QR handoff flow.
-- Document download tracking.
-- Developer trust profile.
-- Area scoring model.
-- Recommendation version history.
-
-Engineering backlog:
-
-- Unit tests for Intelligence Engine scoring.
-- Integration tests for project detail data loading.
-- Supabase type regeneration workflow.
-- Error and loading state audit.
-- Performance review for project media and route chunks.
-- Security review for public data access and RLS policies.
-- Observability for lead submission failures.
-
-## 17. Future Ideas
-
-**Status: Future**
-
-Potential future directions:
-
-- Multi-project investment portfolio planner.
-- Rental yield simulator.
-- Exit scenario modeling.
-- Buyer risk profile calibration.
-- Developer reliability index.
-- Market timing signals.
-- Personalized project watchlists.
-- Agent-assisted live presentation mode.
-- Investor report export.
-- White-label developer portals.
-
-These ideas should be evaluated against the core mission: reducing uncertainty in real estate decisions.
-
-## 18. Lessons Learned
+## 16. Lessons Learned
 
 **Status: In Progress**
 
