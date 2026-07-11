@@ -14,6 +14,7 @@
 import type { InvestmentIntelligence } from "./investment-intelligence";
 import type { RentalIntelligence } from "./rental-intelligence";
 import type { LocationIntelligence } from "./location-intelligence";
+import type { ForeverPassport } from "./forever-passport";
 
 /** Buyer archetype used to frame the whole consultation. */
 export type BuyerType = "First-time buyer" | "Investor" | "Upgrader" | "Relocating" | "Second home";
@@ -120,6 +121,13 @@ export interface AdvisorySession {
 export interface AdvisoryWorkspaceProps {
   /** Fully-resolved session data. Deterministic; supplied by the host. */
   session: AdvisorySession;
+  /**
+   * Optional, pre-derived Forever Passport for the loaded project. When present,
+   * the workspace renders it as the executive-summary section at the top of the
+   * workspace, aggregating the intelligence foundations. When absent, the
+   * section is simply not rendered.
+   */
+  passport?: ForeverPassport;
   /**
    * Optional, pre-derived Investment Intelligence for the loaded project.
    * When present, the workspace renders the Investment Intelligence section

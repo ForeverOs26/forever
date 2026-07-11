@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { SiteShell } from "@/components/SiteShell";
 import {
   AdvisoryWorkspace,
+  deriveForeverPassport,
   deriveInvestmentIntelligence,
   deriveLocationIntelligence,
   deriveRentalIntelligence,
@@ -59,12 +60,14 @@ function AdvisoryRoute() {
   const investmentIntelligence = deriveInvestmentIntelligence(project);
   const rentalIntelligence = deriveRentalIntelligence(project);
   const locationIntelligence = deriveLocationIntelligence(project);
+  const passport = deriveForeverPassport(project);
 
   return (
     <SiteShell>
       <div className="bg-[#F3EFE7] py-6 sm:py-8">
         <AdvisoryWorkspace
           session={session}
+          passport={passport}
           investmentIntelligence={investmentIntelligence}
           rentalIntelligence={rentalIntelligence}
           locationIntelligence={locationIntelligence}

@@ -25,5 +25,8 @@ export type { RentalIntelligenceProps } from "./RentalIntelligence";
 export { LocationIntelligence } from "./LocationIntelligence";
 export type { LocationIntelligenceProps } from "./LocationIntelligence";
 
+export { ForeverPassport } from "./ForeverPassport";
+export type { ForeverPassportProps } from "./ForeverPassport";
+
 export { NextAction } from "./NextAction";
 export type { NextActionProps } from "./NextAction";
