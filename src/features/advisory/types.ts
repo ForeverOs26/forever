@@ -16,6 +16,7 @@ import type { RentalIntelligence } from "./rental-intelligence";
 import type { LocationIntelligence } from "./location-intelligence";
 import type { ForeverPassport } from "./forever-passport";
 import type { ProjectSummary } from "./project-summary";
+import type { ProjectComparison } from "./project-comparison";
 
 /** Buyer archetype used to frame the whole consultation. */
 export type BuyerType = "First-time buyer" | "Investor" | "Upgrader" | "Relocating" | "Second home";
@@ -137,6 +138,14 @@ export interface AdvisoryWorkspaceProps {
    * unchanged.
    */
   projectSummary?: ProjectSummary;
+  /**
+   * Optional, pre-derived Project Comparison for two projects. When present, the
+   * workspace renders it directly beneath the Project Summary and above the
+   * detailed Intelligence foundations. When absent — including whenever fewer
+   * than two projects are available to compare — the section is simply not
+   * rendered and existing behaviour is unchanged.
+   */
+  projectComparison?: ProjectComparison;
   /**
    * Optional, pre-derived Investment Intelligence for the loaded project.
    * When present, the workspace renders the Investment Intelligence section

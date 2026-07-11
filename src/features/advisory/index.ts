@@ -23,6 +23,7 @@ export {
   LocationIntelligence,
   ForeverPassport,
   ProjectSummary,
+  ProjectComparison,
   NextAction,
 } from "./components";
 
@@ -36,6 +37,7 @@ export type {
   LocationIntelligenceProps,
   ForeverPassportProps,
   ProjectSummaryProps,
+  ProjectComparisonProps,
   NextActionProps,
 } from "./components";
 
@@ -97,6 +99,27 @@ export type {
   ProjectSummaryReadiness,
   ProjectSummaryMetadata,
 } from "./project-summary";
+export { deriveProjectComparison } from "./project-comparison";
+export type {
+  ProjectComparison as ProjectComparisonData,
+  DeriveProjectComparisonInput,
+  ComparisonProjectInput,
+  ComparisonSide,
+  ComparisonLead,
+  ComparisonRow,
+  ComparisonRowStatus,
+  ComparisonSetDiff,
+  ComparisonProjectIdentity,
+  ComparedProjects,
+  ComparisonHeadline,
+  PassportComparison,
+  DomainComparison,
+  BuyerProfileComparison,
+  ReadinessComparison,
+  EvidenceCompletenessRow,
+  EvidenceCompletenessComparison,
+  ProjectComparisonMetadata,
+} from "./project-comparison";
 
 export type {
   // Enumerations
