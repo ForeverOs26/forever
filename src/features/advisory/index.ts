@@ -20,6 +20,7 @@ export {
   RiskPanel,
   InvestmentIntelligence,
   RentalIntelligence,
+  LocationIntelligence,
   NextAction,
 } from "./components";
 
@@ -30,6 +31,7 @@ export type {
   RiskPanelProps,
   InvestmentIntelligenceProps,
   RentalIntelligenceProps,
+  LocationIntelligenceProps,
   NextActionProps,
 } from "./components";
 
@@ -51,6 +53,13 @@ export type {
   RentalReadinessVerdict,
   RentalReadinessSignals,
 } from "./rental-intelligence";
+export { deriveLocationIntelligence, LOCATION_SCORE_UNAVAILABLE } from "./location-intelligence";
+export type {
+  LocationIntelligence as LocationIntelligenceData,
+  LocationReadinessVerdict,
+  LocationReadinessSignals,
+  LocationIntelligenceSources,
+} from "./location-intelligence";
 
 export type {
   // Enumerations
