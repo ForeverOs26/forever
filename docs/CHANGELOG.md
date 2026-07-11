@@ -14,6 +14,7 @@
 - RC3-005 completed: Price History dry-run import stage added after Units.
 - FDM-001 completed.
 - FDM-002 completed.
+- RC2.5 completed: Advisory Project Summary — a concise, evidence-only executive summary that summarises the verified project data and the already-derived Forever Passport and Intelligence outputs, with no new scoring engine.
 
 ## Notes
 

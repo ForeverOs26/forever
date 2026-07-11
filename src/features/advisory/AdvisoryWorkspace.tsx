@@ -7,6 +7,7 @@ import {
   InvestmentIntelligence,
   LocationIntelligence,
   NextAction,
+  ProjectSummary,
   RecommendedProjects,
   RentalIntelligence,
   RiskPanel,
@@ -23,6 +24,7 @@ import {
 export function AdvisoryWorkspace({
   session,
   passport,
+  projectSummary,
   investmentIntelligence,
   rentalIntelligence,
   locationIntelligence,
@@ -47,6 +49,8 @@ export function AdvisoryWorkspace({
       </header>
 
       {passport ? <ForeverPassport data={passport} /> : null}
+
+      {projectSummary ? <ProjectSummary data={projectSummary} /> : null}
 
       <ClientSnapshot data={session.client} />
 

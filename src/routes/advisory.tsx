@@ -7,6 +7,7 @@ import {
   deriveForeverPassport,
   deriveInvestmentIntelligence,
   deriveLocationIntelligence,
+  deriveProjectSummary,
   deriveRentalIntelligence,
   mapProjectToAdvisorySession,
   type AdvisoryActionId,
@@ -61,6 +62,13 @@ function AdvisoryRoute() {
   const rentalIntelligence = deriveRentalIntelligence(project);
   const locationIntelligence = deriveLocationIntelligence(project);
   const passport = deriveForeverPassport(project);
+  const projectSummary = deriveProjectSummary({
+    project,
+    passport,
+    investment: investmentIntelligence,
+    rental: rentalIntelligence,
+    location: locationIntelligence,
+  });
 
   return (
     <SiteShell>
@@ -68,6 +76,7 @@ function AdvisoryRoute() {
         <AdvisoryWorkspace
           session={session}
           passport={passport}
+          projectSummary={projectSummary}
           investmentIntelligence={investmentIntelligence}
           rentalIntelligence={rentalIntelligence}
           locationIntelligence={locationIntelligence}

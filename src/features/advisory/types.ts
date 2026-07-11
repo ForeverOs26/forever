@@ -15,6 +15,7 @@ import type { InvestmentIntelligence } from "./investment-intelligence";
 import type { RentalIntelligence } from "./rental-intelligence";
 import type { LocationIntelligence } from "./location-intelligence";
 import type { ForeverPassport } from "./forever-passport";
+import type { ProjectSummary } from "./project-summary";
 
 /** Buyer archetype used to frame the whole consultation. */
 export type BuyerType = "First-time buyer" | "Investor" | "Upgrader" | "Relocating" | "Second home";
@@ -128,6 +129,14 @@ export interface AdvisoryWorkspaceProps {
    * section is simply not rendered.
    */
   passport?: ForeverPassport;
+  /**
+   * Optional, pre-derived Project Summary for the loaded project. When present,
+   * the workspace renders it as the concise executive summary directly beneath
+   * the Forever Passport and above the detailed Intelligence foundations. When
+   * absent, the section is simply not rendered and existing behaviour is
+   * unchanged.
+   */
+  projectSummary?: ProjectSummary;
   /**
    * Optional, pre-derived Investment Intelligence for the loaded project.
    * When present, the workspace renders the Investment Intelligence section
