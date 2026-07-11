@@ -18,6 +18,7 @@ export {
   RecommendedProjects,
   AdvisorStrategy,
   RiskPanel,
+  InvestmentIntelligence,
   NextAction,
 } from "./components";
 
@@ -26,11 +27,22 @@ export type {
   RecommendedProjectsProps,
   AdvisorStrategyProps,
   RiskPanelProps,
+  InvestmentIntelligenceProps,
   NextActionProps,
 } from "./components";
 
 export { ADVISORY_ACTIONS } from "./mock";
 export { mapProjectToAdvisorySession } from "./project-adapter";
+export {
+  deriveInvestmentIntelligence,
+  NOT_AVAILABLE,
+  INVESTMENT_SCORE_UNAVAILABLE,
+} from "./investment-intelligence";
+export type {
+  InvestmentIntelligence as InvestmentIntelligenceData,
+  InvestmentReadinessVerdict,
+  InvestmentReadinessSignals,
+} from "./investment-intelligence";
 
 export type {
   // Enumerations

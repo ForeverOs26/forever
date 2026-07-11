@@ -16,5 +16,8 @@ export type { AdvisorStrategyProps } from "./AdvisorStrategy";
 export { RiskPanel } from "./RiskPanel";
 export type { RiskPanelProps } from "./RiskPanel";
 
+export { InvestmentIntelligence } from "./InvestmentIntelligence";
+export type { InvestmentIntelligenceProps } from "./InvestmentIntelligence";
+
 export { NextAction } from "./NextAction";
 export type { NextActionProps } from "./NextAction";
