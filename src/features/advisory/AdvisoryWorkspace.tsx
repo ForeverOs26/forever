@@ -8,6 +8,7 @@ import {
   LocationIntelligence,
   NextAction,
   ProjectComparison,
+  ProjectRecommendations,
   ProjectSummary,
   RecommendedProjects,
   RentalIntelligence,
@@ -27,6 +28,7 @@ export function AdvisoryWorkspace({
   passport,
   projectSummary,
   projectComparison,
+  projectRecommendations,
   investmentIntelligence,
   rentalIntelligence,
   locationIntelligence,
@@ -55,6 +57,8 @@ export function AdvisoryWorkspace({
       {projectSummary ? <ProjectSummary data={projectSummary} /> : null}
 
       {projectComparison ? <ProjectComparison data={projectComparison} /> : null}
+
+      {projectRecommendations ? <ProjectRecommendations data={projectRecommendations} /> : null}
 
       <ClientSnapshot data={session.client} />
 

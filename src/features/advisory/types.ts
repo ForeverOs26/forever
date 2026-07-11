@@ -17,6 +17,7 @@ import type { LocationIntelligence } from "./location-intelligence";
 import type { ForeverPassport } from "./forever-passport";
 import type { ProjectSummary } from "./project-summary";
 import type { ProjectComparison } from "./project-comparison";
+import type { ProjectRecommendations } from "./project-recommendations";
 
 /** Buyer archetype used to frame the whole consultation. */
 export type BuyerType = "First-time buyer" | "Investor" | "Upgrader" | "Relocating" | "Second home";
@@ -146,6 +147,15 @@ export interface AdvisoryWorkspaceProps {
    * rendered and existing behaviour is unchanged.
    */
   projectComparison?: ProjectComparison;
+  /**
+   * Optional, pre-derived Project Recommendations across the available projects.
+   * When present, the workspace renders it directly beneath the Project
+   * Comparison and above the client-facing advisory sections. It ranks the
+   * candidate projects on already-verified evidence coverage and documented
+   * readiness only — never a new score. When absent, the section is simply not
+   * rendered and existing behaviour is unchanged.
+   */
+  projectRecommendations?: ProjectRecommendations;
   /**
    * Optional, pre-derived Investment Intelligence for the loaded project.
    * When present, the workspace renders the Investment Intelligence section

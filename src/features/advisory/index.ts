@@ -24,6 +24,7 @@ export {
   ForeverPassport,
   ProjectSummary,
   ProjectComparison,
+  ProjectRecommendations,
   NextAction,
 } from "./components";
 
@@ -38,6 +39,7 @@ export type {
   ForeverPassportProps,
   ProjectSummaryProps,
   ProjectComparisonProps,
+  ProjectRecommendationsProps,
   NextActionProps,
 } from "./components";
 
@@ -120,6 +122,18 @@ export type {
   EvidenceCompletenessComparison,
   ProjectComparisonMetadata,
 } from "./project-comparison";
+export { deriveProjectRecommendations } from "./project-recommendations";
+export type {
+  ProjectRecommendations as ProjectRecommendationsData,
+  DeriveProjectRecommendationsInput,
+  RecommendationCandidateInput,
+  RecommendationCoverage,
+  RecommendationSuitability,
+  ProjectRecommendationEntry,
+  RecommendationTop,
+  ProjectRecommendationsHeadline,
+  ProjectRecommendationsMetadata,
+} from "./project-recommendations";
 
 export type {
   // Enumerations

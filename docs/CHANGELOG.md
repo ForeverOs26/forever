@@ -16,6 +16,7 @@
 - FDM-002 completed.
 - RC2.5 completed: Advisory Project Summary — a concise, evidence-only executive summary that summarises the verified project data and the already-derived Forever Passport and Intelligence outputs, with no new scoring engine.
 - RC2.6 completed: Advisory Project Comparison — the first comparison engine, a descriptive, evidence-only comparison of two projects built on top of the already-derived Forever Passport and Project Summary, with no new scoring engine, ranking, or fabricated values.
+- RC2.7 completed: Advisory Project Recommendations — an evidence-only recommendation layer that ranks the available projects using the already-derived Forever Passport, Project Summary and Project Comparison. Ordering is a deterministic sort over documented readiness stage, present verified evidence-signal counts, and recorded data-gap counts only; it introduces no new scoring engine or match score, duplicates no derivation logic, fabricates no values, uses no marketing language, and renders missing data as "Not available".
 
 ## Notes
 
