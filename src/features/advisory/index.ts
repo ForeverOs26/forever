@@ -19,6 +19,7 @@ export {
   AdvisorStrategy,
   RiskPanel,
   InvestmentIntelligence,
+  RentalIntelligence,
   NextAction,
 } from "./components";
 
@@ -28,6 +29,7 @@ export type {
   AdvisorStrategyProps,
   RiskPanelProps,
   InvestmentIntelligenceProps,
+  RentalIntelligenceProps,
   NextActionProps,
 } from "./components";
 
@@ -43,6 +45,12 @@ export type {
   InvestmentReadinessVerdict,
   InvestmentReadinessSignals,
 } from "./investment-intelligence";
+export { deriveRentalIntelligence, RENTAL_SCORE_UNAVAILABLE } from "./rental-intelligence";
+export type {
+  RentalIntelligence as RentalIntelligenceData,
+  RentalReadinessVerdict,
+  RentalReadinessSignals,
+} from "./rental-intelligence";
 
 export type {
   // Enumerations

@@ -6,6 +6,7 @@ import {
   InvestmentIntelligence,
   NextAction,
   RecommendedProjects,
+  RentalIntelligence,
   RiskPanel,
 } from "./components";
 
@@ -20,6 +21,7 @@ import {
 export function AdvisoryWorkspace({
   session,
   investmentIntelligence,
+  rentalIntelligence,
   actions = [...ADVISORY_ACTIONS],
   onAction,
   title = "Advisory Workspace",
@@ -49,6 +51,8 @@ export function AdvisoryWorkspace({
       <RiskPanel risks={session.risks} />
 
       {investmentIntelligence ? <InvestmentIntelligence data={investmentIntelligence} /> : null}
+
+      {rentalIntelligence ? <RentalIntelligence data={rentalIntelligence} /> : null}
 
       <NextAction actions={actions} onAction={onAction} />
     </div>
