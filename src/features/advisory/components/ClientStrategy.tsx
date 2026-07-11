@@ -61,11 +61,7 @@ function StrategyCard({ section }: { section: ClientStrategySection }) {
       className="rounded-2xl border border-[#EAE6DE] bg-white p-5"
     >
       <div className="flex items-baseline justify-between gap-3">
-        <h3
-          id={headingId}
-          className="font-serif text-base text-[#17150F] sm:text-lg"
-          style={serif}
-        >
+        <h3 id={headingId} className="font-serif text-base text-[#17150F] sm:text-lg" style={serif}>
           {section.title}
         </h3>
         {section.readinessVerdict ? (
@@ -110,14 +106,7 @@ export function ClientStrategy({
   headingId = "advisory-client-strategy-heading",
 }: ClientStrategyProps) {
   const { investment, purchase, rental, exit, risk, actionPlan, basis } = data;
-  const ordered: ClientStrategySection[] = [
-    investment,
-    purchase,
-    rental,
-    exit,
-    risk,
-    actionPlan,
-  ];
+  const ordered: ClientStrategySection[] = [investment, purchase, rental, exit, risk, actionPlan];
 
   return (
     <section
@@ -125,11 +114,7 @@ export function ClientStrategy({
       className="rounded-2xl border border-[#EAE6DE] bg-white p-5 sm:p-6"
     >
       <header className="mb-4">
-        <h2
-          id={headingId}
-          className="font-serif text-lg text-[#17150F] sm:text-xl"
-          style={serif}
-        >
+        <h2 id={headingId} className="font-serif text-lg text-[#17150F] sm:text-xl" style={serif}>
           Client Strategy
         </h2>
         <p className={`mt-1 text-sm ${muted}`}>

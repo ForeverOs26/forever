@@ -190,9 +190,7 @@ function dedupe(items: Array<string | null | undefined>): string[] {
 }
 
 /** Assemble a section, computing `available` from its evidence content only. */
-function makeSection(
-  section: Omit<ClientStrategySection, "available">,
-): ClientStrategySection {
+function makeSection(section: Omit<ClientStrategySection, "available">): ClientStrategySection {
   const available =
     section.points.some((point) => isPresent(point.value)) || section.considerations.length > 0;
   return { ...section, available };
