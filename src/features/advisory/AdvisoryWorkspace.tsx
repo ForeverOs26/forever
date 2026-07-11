@@ -3,6 +3,7 @@ import { ADVISORY_ACTIONS } from "./mock";
 import {
   AdvisorStrategy,
   ClientSnapshot,
+  ForeverPassport,
   InvestmentIntelligence,
   LocationIntelligence,
   NextAction,
@@ -21,6 +22,7 @@ import {
  */
 export function AdvisoryWorkspace({
   session,
+  passport,
   investmentIntelligence,
   rentalIntelligence,
   locationIntelligence,
@@ -43,6 +45,8 @@ export function AdvisoryWorkspace({
         </h1>
         <p className="mt-1 text-sm text-[#9A958A]">Prepare for the consultation at a glance.</p>
       </header>
+
+      {passport ? <ForeverPassport data={passport} /> : null}
 
       <ClientSnapshot data={session.client} />
 

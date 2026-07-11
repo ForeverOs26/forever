@@ -21,6 +21,7 @@ export {
   InvestmentIntelligence,
   RentalIntelligence,
   LocationIntelligence,
+  ForeverPassport,
   NextAction,
 } from "./components";
 
@@ -32,6 +33,7 @@ export type {
   InvestmentIntelligenceProps,
   RentalIntelligenceProps,
   LocationIntelligenceProps,
+  ForeverPassportProps,
   NextActionProps,
 } from "./components";
 
@@ -60,6 +62,27 @@ export type {
   LocationReadinessSignals,
   LocationIntelligenceSources,
 } from "./location-intelligence";
+export { deriveForeverPassport } from "./forever-passport";
+export type {
+  ForeverPassport as ForeverPassportData,
+  DeriveForeverPassportOptions,
+  PassportReadinessVerdict,
+  PassportFoundationKey,
+  PassportProjectIdentity,
+  PassportTrustSummary,
+  PassportTrustSignals,
+  PassportInvestmentSummary,
+  PassportRentalSummary,
+  PassportLocationSummary,
+  PassportDataCompleteness,
+  PassportCompletenessRow,
+  PassportCombinedGaps,
+  PassportOverallVerdict,
+  PassportVerdictRow,
+  PassportEvidenceCoverage,
+  PassportEvidenceRow,
+  PassportMetadata,
+} from "./forever-passport";
 
 export type {
   // Enumerations
