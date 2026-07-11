@@ -21,6 +21,7 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
 import { Route as ProjectsSlugRouteImport } from './routes/projects.$slug'
+import { Route as AdvisoryReportRouteImport } from './routes/advisory_.report'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -82,6 +83,11 @@ const ProjectsSlugRoute = ProjectsSlugRouteImport.update({
   path: '/projects/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdvisoryReportRoute = AdvisoryReportRouteImport.update({
+  id: '/advisory_/report',
+  path: '/advisory/report',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -94,6 +100,7 @@ export interface FileRoutesByFullPath {
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/advisory/report': typeof AdvisoryReportRoute
   '/projects/$slug': typeof ProjectsSlugRoute
   '/projects/': typeof ProjectsIndexRoute
 }
@@ -108,6 +115,7 @@ export interface FileRoutesByTo {
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/advisory/report': typeof AdvisoryReportRoute
   '/projects/$slug': typeof ProjectsSlugRoute
   '/projects': typeof ProjectsIndexRoute
 }
@@ -123,6 +131,7 @@ export interface FileRoutesById {
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/advisory_/report': typeof AdvisoryReportRoute
   '/projects/$slug': typeof ProjectsSlugRoute
   '/projects/': typeof ProjectsIndexRoute
 }
@@ -139,6 +148,7 @@ export interface FileRouteTypes {
     | '/offers'
     | '/reviews'
     | '/sitemap.xml'
+    | '/advisory/report'
     | '/projects/$slug'
     | '/projects/'
   fileRoutesByTo: FileRoutesByTo
@@ -153,6 +163,7 @@ export interface FileRouteTypes {
     | '/offers'
     | '/reviews'
     | '/sitemap.xml'
+    | '/advisory/report'
     | '/projects/$slug'
     | '/projects'
   id:
@@ -167,6 +178,7 @@ export interface FileRouteTypes {
     | '/offers'
     | '/reviews'
     | '/sitemap.xml'
+    | '/advisory_/report'
     | '/projects/$slug'
     | '/projects/'
   fileRoutesById: FileRoutesById
@@ -182,6 +194,7 @@ export interface RootRouteChildren {
   OffersRoute: typeof OffersRoute
   ReviewsRoute: typeof ReviewsRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  AdvisoryReportRoute: typeof AdvisoryReportRoute
   ProjectsSlugRoute: typeof ProjectsSlugRoute
   ProjectsIndexRoute: typeof ProjectsIndexRoute
 }
@@ -272,6 +285,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/advisory_/report': {
+      id: '/advisory_/report'
+      path: '/advisory/report'
+      fullPath: '/advisory/report'
+      preLoaderRoute: typeof AdvisoryReportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -286,6 +306,7 @@ const rootRouteChildren: RootRouteChildren = {
   OffersRoute: OffersRoute,
   ReviewsRoute: ReviewsRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  AdvisoryReportRoute: AdvisoryReportRoute,
   ProjectsSlugRoute: ProjectsSlugRoute,
   ProjectsIndexRoute: ProjectsIndexRoute,
 }

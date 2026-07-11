@@ -39,3 +39,6 @@ export type { ProjectRecommendationsProps } from "./ProjectRecommendations";
 
 export { NextAction } from "./NextAction";
 export type { NextActionProps } from "./NextAction";
+
+export { AdvisorReport } from "./AdvisorReport";
+export type { AdvisorReportProps } from "./AdvisorReport";
