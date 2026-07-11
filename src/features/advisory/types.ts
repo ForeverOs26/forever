@@ -18,6 +18,7 @@ import type { ForeverPassport } from "./forever-passport";
 import type { ProjectSummary } from "./project-summary";
 import type { ProjectComparison } from "./project-comparison";
 import type { ProjectRecommendations } from "./project-recommendations";
+import type { ClientStrategy } from "./client-strategy";
 
 /** Buyer archetype used to frame the whole consultation. */
 export type BuyerType = "First-time buyer" | "Investor" | "Upgrader" | "Relocating" | "Second home";
@@ -156,6 +157,17 @@ export interface AdvisoryWorkspaceProps {
    * rendered and existing behaviour is unchanged.
    */
   projectRecommendations?: ProjectRecommendations;
+  /**
+   * Optional, pre-derived Forever Client Strategy for the loaded project. When
+   * present, the workspace renders it directly beneath the Project
+   * Recommendations and above the client-facing advisory sections (and ahead of
+   * the separate Advisor Report). It composes the already-derived Passport,
+   * Summary and Intelligence outputs into deterministic strategy sections; it
+   * never calculates a new score, verdict, ranking or financial figure. When
+   * absent, the section is simply not rendered and existing behaviour is
+   * unchanged.
+   */
+  clientStrategy?: ClientStrategy;
   /**
    * Optional, pre-derived Investment Intelligence for the loaded project.
    * When present, the workspace renders the Investment Intelligence section

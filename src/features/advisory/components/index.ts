@@ -37,6 +37,9 @@ export type { ProjectComparisonProps } from "./ProjectComparison";
 export { ProjectRecommendations } from "./ProjectRecommendations";
 export type { ProjectRecommendationsProps } from "./ProjectRecommendations";
 
+export { ClientStrategy } from "./ClientStrategy";
+export type { ClientStrategyProps } from "./ClientStrategy";
+
 export { NextAction } from "./NextAction";
 export type { NextActionProps } from "./NextAction";
 

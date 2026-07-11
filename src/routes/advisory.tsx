@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { SiteShell } from "@/components/SiteShell";
 import {
   AdvisoryWorkspace,
+  deriveClientStrategy,
   deriveForeverPassport,
   deriveInvestmentIntelligence,
   deriveLocationIntelligence,
@@ -139,6 +140,17 @@ function AdvisoryRoute() {
     ),
   });
 
+  // Compose the Client Strategy from the already-derived Advisory outputs only.
+  const clientStrategy = deriveClientStrategy({
+    passport,
+    summary: projectSummary,
+    investment: investmentIntelligence,
+    rental: rentalIntelligence,
+    location: locationIntelligence,
+    comparison: projectComparison,
+    recommendations: projectRecommendations,
+  });
+
   return (
     <SiteShell>
       <div className="bg-[#F3EFE7] py-6 sm:py-8">
@@ -148,6 +160,7 @@ function AdvisoryRoute() {
           projectSummary={projectSummary}
           projectComparison={projectComparison}
           projectRecommendations={projectRecommendations}
+          clientStrategy={clientStrategy}
           investmentIntelligence={investmentIntelligence}
           rentalIntelligence={rentalIntelligence}
           locationIntelligence={locationIntelligence}
