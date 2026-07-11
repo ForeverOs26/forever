@@ -53,7 +53,7 @@ async function loadRecommendationProjects(): Promise<ProjectDetail[]> {
   }
 }
 
-export const Route = createFileRoute("/advisory/report")({
+export const Route = createFileRoute("/advisory_/report")({
   loader: async ({ context }) => {
     const project = await context.queryClient.ensureQueryData(
       projectDetailQuery(ADVISORY_PROJECT_SLUG),

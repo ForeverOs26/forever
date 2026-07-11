@@ -21,7 +21,7 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
 import { Route as ProjectsSlugRouteImport } from './routes/projects.$slug'
-import { Route as AdvisoryReportRouteImport } from './routes/advisory.report'
+import { Route as AdvisoryReportRouteImport } from './routes/advisory_.report'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -84,15 +84,15 @@ const ProjectsSlugRoute = ProjectsSlugRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdvisoryReportRoute = AdvisoryReportRouteImport.update({
-  id: '/report',
-  path: '/report',
-  getParentRoute: () => AdvisoryRoute,
+  id: '/advisory_/report',
+  path: '/advisory/report',
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/advisory': typeof AdvisoryRouteWithChildren
+  '/advisory': typeof AdvisoryRoute
   '/areas': typeof AreasRoute
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
@@ -107,7 +107,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/advisory': typeof AdvisoryRouteWithChildren
+  '/advisory': typeof AdvisoryRoute
   '/areas': typeof AreasRoute
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
@@ -123,7 +123,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/advisory': typeof AdvisoryRouteWithChildren
+  '/advisory': typeof AdvisoryRoute
   '/areas': typeof AreasRoute
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
@@ -131,7 +131,7 @@ export interface FileRoutesById {
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/advisory/report': typeof AdvisoryReportRoute
+  '/advisory_/report': typeof AdvisoryReportRoute
   '/projects/$slug': typeof ProjectsSlugRoute
   '/projects/': typeof ProjectsIndexRoute
 }
@@ -178,7 +178,7 @@ export interface FileRouteTypes {
     | '/offers'
     | '/reviews'
     | '/sitemap.xml'
-    | '/advisory/report'
+    | '/advisory_/report'
     | '/projects/$slug'
     | '/projects/'
   fileRoutesById: FileRoutesById
@@ -186,7 +186,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
-  AdvisoryRoute: typeof AdvisoryRouteWithChildren
+  AdvisoryRoute: typeof AdvisoryRoute
   AreasRoute: typeof AreasRoute
   ContactRoute: typeof ContactRoute
   DiscoveryRoute: typeof DiscoveryRoute
@@ -194,6 +194,7 @@ export interface RootRouteChildren {
   OffersRoute: typeof OffersRoute
   ReviewsRoute: typeof ReviewsRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  AdvisoryReportRoute: typeof AdvisoryReportRoute
   ProjectsSlugRoute: typeof ProjectsSlugRoute
   ProjectsIndexRoute: typeof ProjectsIndexRoute
 }
@@ -284,32 +285,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/advisory/report': {
-      id: '/advisory/report'
-      path: '/report'
+    '/advisory_/report': {
+      id: '/advisory_/report'
+      path: '/advisory/report'
       fullPath: '/advisory/report'
       preLoaderRoute: typeof AdvisoryReportRouteImport
-      parentRoute: typeof AdvisoryRoute
+      parentRoute: typeof rootRouteImport
     }
   }
 }
 
-interface AdvisoryRouteChildren {
-  AdvisoryReportRoute: typeof AdvisoryReportRoute
-}
-
-const AdvisoryRouteChildren: AdvisoryRouteChildren = {
-  AdvisoryReportRoute: AdvisoryReportRoute,
-}
-
-const AdvisoryRouteWithChildren = AdvisoryRoute._addFileChildren(
-  AdvisoryRouteChildren,
-)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
-  AdvisoryRoute: AdvisoryRouteWithChildren,
+  AdvisoryRoute: AdvisoryRoute,
   AreasRoute: AreasRoute,
   ContactRoute: ContactRoute,
   DiscoveryRoute: DiscoveryRoute,
@@ -317,6 +306,7 @@ const rootRouteChildren: RootRouteChildren = {
   OffersRoute: OffersRoute,
   ReviewsRoute: ReviewsRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  AdvisoryReportRoute: AdvisoryReportRoute,
   ProjectsSlugRoute: ProjectsSlugRoute,
   ProjectsIndexRoute: ProjectsIndexRoute,
 }
