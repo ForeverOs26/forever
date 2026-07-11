@@ -1,22 +1,14 @@
 \# Forever Project Status
 
-
+> Superseded document: this Navigator-era status is retained for historical context only. Current active-stage truth belongs in `docs/CURRENT_STAGE.md`; current factual repository and milestone status belongs in `docs/FOREVER_STATUS.md`.
 
 Last updated: 2026-07-09
 
-
-
 \## Current phase
-
-
 
 Navigator RC1
 
-
-
 \## Completed
-
-
 
 \- GitHub connected
 
@@ -36,15 +28,11 @@ Navigator RC1
 
 \- Navigator component archive stored under assets
 
-\- Screen 05 – Biggest Concern 
+\- Screen 05 – Biggest Concern
 
-\- Screen 06 – Forever Story 
-
-
+\- Screen 06 – Forever Story
 
 \## Waiting for Codex
-
-
 
 \- Integrate production UI components
 
@@ -58,15 +46,9 @@ Navigator RC1
 
 \- Screen 09
 
-
-
 \## Next milestone
 
-
-
 Complete Navigator MVP.
-
-
 
 After Navigator:
 
@@ -79,4 +61,3 @@ After Navigator:
 \- Passport
 
 \- Intelligence Engine
-

@@ -1,5 +1,9 @@
 # Forever Roadmap
 
+## Document role
+
+This document defines development phases, dependencies, and sequencing. It is not the active task board. The active stage is maintained in `docs/CURRENT_STAGE.md`; future unsequenced tasks and ideas are maintained in `docs/BACKLOG.md`.
+
 ## Current Development Phase
 
 Import Engine v1 validation and next project intake preparation.
@@ -71,3 +75,7 @@ The product is ready for guided real-client testing while the database, source-m
 - Admin/project data management.
 - Mobile app interface.
 - Knowledge Engine.
+
+## Backlog boundary
+
+Items that are not sequenced into a roadmap phase belong in `docs/BACKLOG.md`. Moving backlog work into this roadmap or into `docs/CURRENT_STAGE.md` requires Architect Review.

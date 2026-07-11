@@ -1,5 +1,9 @@
 # Forever Status
 
+## Document role
+
+This document records current repository, product, database, website, and milestone status. The canonical active-stage plan, owners, acceptance criteria, and definition of done are maintained in `docs/CURRENT_STAGE.md`.
+
 ## Current Milestone
 
 Import Engine v1 approved and ready for the next verified project intake.
@@ -31,6 +35,10 @@ RC3-002 added the first Project-only import stage. RC3-003 extended the dry-run 
 
 ## Active Tasks
 
+See `docs/CURRENT_STAGE.md` for the canonical active-task table, owners, scope boundaries, acceptance criteria, and definition of done.
+
+Current factual task summary:
+
 - Resolve Coralina source-backed blockers for `developer` and `country` before any Project import can proceed.
 - Keep Import Engine usage documented for future projects.
 
@@ -61,4 +69,4 @@ No AI implementation is active. Current intelligence logic is deterministic and 
 
 ## Last Updated
 
-2026-07-09
+2026-07-11

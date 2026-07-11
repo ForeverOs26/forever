@@ -15,10 +15,11 @@ Codex is a software engineer working on Forever. Its responsibility is to build 
 Before every task, Codex must read:
 
 1. `docs/FOREVER_DOC_INDEX.md`
-2. `docs/FOREVER_STATUS.md`
-3. `docs/ROADMAP.md`
-4. `docs/DATA_STANDARD.md`
-5. `docs/KNOWLEDGE_MODEL.md`
+2. `docs/FOREVER_BLUEPRINT.md`
+3. `docs/CURRENT_STAGE.md`
+4. `docs/FOREVER_STATUS.md`
+5. `docs/ROADMAP.md`
+6. `docs/DATA_STANDARD.md`
 
 If any required document is missing, Codex must report it before proceeding.
 
@@ -27,10 +28,11 @@ Canonical documentation paths, deprecated document names, and rules for adding n
 Current required-document check for FF-004:
 
 - `docs/FOREVER_DOC_INDEX.md` - found.
+- `docs/FOREVER_BLUEPRINT.md` - found.
+- `docs/CURRENT_STAGE.md` - found.
 - `docs/FOREVER_STATUS.md` - found.
 - `docs/ROADMAP.md` - found.
 - `docs/DATA_STANDARD.md` - found.
-- `docs/KNOWLEDGE_MODEL.md` - found as compatibility pointer.
 
 ## Mission
 
@@ -89,9 +91,13 @@ Every major feature must update the appropriate project documents.
 
 Update these when appropriate:
 
-- `docs/FOREVER_STATUS.md`
-- `docs/CHANGELOG.md`
-- `docs/ROADMAP.md`
+- `docs/FOREVER_BLUEPRINT.md` for constitutional architecture changes.
+- `docs/CURRENT_STAGE.md` for active-stage changes.
+- `docs/FOREVER_STATUS.md` for factual status changes.
+- `docs/CHANGELOG.md` for completed implementation milestones.
+- `docs/ROADMAP.md` for sequenced future phases.
+- `docs/BACKLOG.md` for future tasks that are not active scope.
+- `docs/DECISIONS.md` for durable approved decisions.
 
 Documentation must be factual, current, and clear about:
 
