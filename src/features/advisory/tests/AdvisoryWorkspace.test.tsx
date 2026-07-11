@@ -57,7 +57,7 @@ describe("AdvisoryWorkspace", () => {
       .closest("section") as HTMLElement;
     const cards = within(region).getAllByRole("listitem");
     expect(cards).toHaveLength(1);
-    expect(screen.getByText("Modeva")).toBeInTheDocument();
+    expect(within(region).getByText("Modeva")).toBeInTheDocument();
   });
 
   it("renders the advisor strategy section", () => {
@@ -68,13 +68,16 @@ describe("AdvisoryWorkspace", () => {
 
   it("renders no more than three risks even when more are supplied", () => {
     const extraRisks: AdvisoryRisk[] = [
-      ...Array.from({ length: 3 }, (_, index): AdvisoryRisk => ({
-        id: `risk-${index}`,
-        title: `Risk ${index}`,
-        explanation: "Existing project data gap.",
-        severity: "info",
-        scope: "data",
-      })),
+      ...Array.from(
+        { length: 3 },
+        (_, index): AdvisoryRisk => ({
+          id: `risk-${index}`,
+          title: `Risk ${index}`,
+          explanation: "Existing project data gap.",
+          severity: "info",
+          scope: "data",
+        }),
+      ),
       {
         id: "risk-extra",
         title: "Fourth risk (should not render)",

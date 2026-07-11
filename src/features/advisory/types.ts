@@ -6,7 +6,12 @@
  * Data-carrying types are suffixed `Data` / prefixed to avoid colliding with
  * component names of the same concept (e.g. `ClientSnapshotData` vs the
  * `ClientSnapshot` component).
+ *
+ * The one exception is the optional, pre-derived `InvestmentIntelligence` view
+ * model (itself a plain data shape) surfaced on `AdvisoryWorkspaceProps`.
  */
+
+import type { InvestmentIntelligence } from "./investment-intelligence";
 
 /** Buyer archetype used to frame the whole consultation. */
 export type BuyerType = "First-time buyer" | "Investor" | "Upgrader" | "Relocating" | "Second home";
@@ -113,6 +118,13 @@ export interface AdvisorySession {
 export interface AdvisoryWorkspaceProps {
   /** Fully-resolved session data. Deterministic; supplied by the host. */
   session: AdvisorySession;
+  /**
+   * Optional, pre-derived Investment Intelligence for the loaded project.
+   * When present, the workspace renders the Investment Intelligence section
+   * without removing or altering any existing section. When absent, the
+   * section is simply not rendered.
+   */
+  investmentIntelligence?: InvestmentIntelligence;
   /** Actions to render in the Next Action panel. */
   actions?: AdvisoryAction[];
   /** Emitted when the advisor selects an action. */

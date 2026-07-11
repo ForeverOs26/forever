@@ -3,6 +3,7 @@ import { ADVISORY_ACTIONS } from "./mock";
 import {
   AdvisorStrategy,
   ClientSnapshot,
+  InvestmentIntelligence,
   NextAction,
   RecommendedProjects,
   RiskPanel,
@@ -18,6 +19,7 @@ import {
  */
 export function AdvisoryWorkspace({
   session,
+  investmentIntelligence,
   actions = [...ADVISORY_ACTIONS],
   onAction,
   title = "Advisory Workspace",
@@ -45,6 +47,8 @@ export function AdvisoryWorkspace({
       <AdvisorStrategy data={session.strategy} projects={session.recommendations} />
 
       <RiskPanel risks={session.risks} />
+
+      {investmentIntelligence ? <InvestmentIntelligence data={investmentIntelligence} /> : null}
 
       <NextAction actions={actions} onAction={onAction} />
     </div>

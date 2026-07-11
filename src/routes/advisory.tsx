@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { SiteShell } from "@/components/SiteShell";
 import {
   AdvisoryWorkspace,
+  deriveInvestmentIntelligence,
   mapProjectToAdvisorySession,
   type AdvisoryActionId,
 } from "@/features/advisory";
@@ -21,8 +22,7 @@ export const Route = createFileRoute("/advisory")({
       { title: "Forever Advisory Workspace" },
       {
         name: "description",
-        content:
-          "Advisory workspace using Forever's verified project data.",
+        content: "Advisory workspace using Forever's verified project data.",
       },
     ],
     links: [
@@ -54,11 +54,16 @@ function AdvisoryRoute() {
   }
 
   const session = mapProjectToAdvisorySession(project);
+  const investmentIntelligence = deriveInvestmentIntelligence(project);
 
   return (
     <SiteShell>
       <div className="bg-[#F3EFE7] py-6 sm:py-8">
-        <AdvisoryWorkspace session={session} onAction={handleAction} />
+        <AdvisoryWorkspace
+          session={session}
+          investmentIntelligence={investmentIntelligence}
+          onAction={handleAction}
+        />
       </div>
     </SiteShell>
   );
