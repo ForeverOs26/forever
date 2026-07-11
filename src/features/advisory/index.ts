@@ -26,6 +26,7 @@ export {
   ProjectComparison,
   ProjectRecommendations,
   NextAction,
+  AdvisorReport,
 } from "./components";
 
 export type {
@@ -41,6 +42,7 @@ export type {
   ProjectComparisonProps,
   ProjectRecommendationsProps,
   NextActionProps,
+  AdvisorReportProps,
 } from "./components";
 
 export { ADVISORY_ACTIONS } from "./mock";
@@ -134,6 +136,17 @@ export type {
   ProjectRecommendationsHeadline,
   ProjectRecommendationsMetadata,
 } from "./project-recommendations";
+export { deriveAdvisorReport } from "./advisor-report";
+export type {
+  AdvisorReport as AdvisorReportData,
+  DeriveAdvisorReportInput,
+  AdvisorReportSectionKey,
+  AdvisorReportCover,
+  AdvisorReportExecutiveOverview,
+  AdvisorReportIdentity,
+  AdvisorReportDisclaimer,
+  AdvisorReportMetadata,
+} from "./advisor-report";
 
 export type {
   // Enumerations
