@@ -3,6 +3,7 @@ import { ADVISORY_ACTIONS } from "./mock";
 import {
   AdvisorStrategy,
   ClientSnapshot,
+  ClientStrategy,
   ForeverPassport,
   InvestmentIntelligence,
   LocationIntelligence,
@@ -29,6 +30,7 @@ export function AdvisoryWorkspace({
   projectSummary,
   projectComparison,
   projectRecommendations,
+  clientStrategy,
   investmentIntelligence,
   rentalIntelligence,
   locationIntelligence,
@@ -59,6 +61,8 @@ export function AdvisoryWorkspace({
       {projectComparison ? <ProjectComparison data={projectComparison} /> : null}
 
       {projectRecommendations ? <ProjectRecommendations data={projectRecommendations} /> : null}
+
+      {clientStrategy ? <ClientStrategy data={clientStrategy} /> : null}
 
       <ClientSnapshot data={session.client} />
 

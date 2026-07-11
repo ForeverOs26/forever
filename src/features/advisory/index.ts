@@ -25,6 +25,7 @@ export {
   ProjectSummary,
   ProjectComparison,
   ProjectRecommendations,
+  ClientStrategy,
   NextAction,
   AdvisorReport,
 } from "./components";
@@ -41,6 +42,7 @@ export type {
   ProjectSummaryProps,
   ProjectComparisonProps,
   ProjectRecommendationsProps,
+  ClientStrategyProps,
   NextActionProps,
   AdvisorReportProps,
 } from "./components";
@@ -147,6 +149,15 @@ export type {
   AdvisorReportDisclaimer,
   AdvisorReportMetadata,
 } from "./advisor-report";
+export { deriveClientStrategy } from "./client-strategy";
+export type {
+  ClientStrategy as ClientStrategyData,
+  DeriveClientStrategyInput,
+  ClientStrategySectionKey,
+  ClientStrategyPoint,
+  ClientStrategySection,
+  ClientStrategyMetadata,
+} from "./client-strategy";
 
 export type {
   // Enumerations
