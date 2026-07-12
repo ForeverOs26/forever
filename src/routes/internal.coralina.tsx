@@ -16,9 +16,14 @@ import { CoralinaKnowledgePage } from "@/features/coralina-knowledge/components/
  */
 export const Route = createFileRoute("/internal/coralina")({
   loader: async () => {
-    const { getCoralinaKnowledgeInspection } =
-      await import("@/features/coralina-knowledge/inspection");
-    return { inspection: getCoralinaKnowledgeInspection() };
+    // Served through the RC5.1 catalog so this route and
+    // /internal/projects/coralina share one per-process build and cache.
+    // The catalog output is pinned equal to getCoralinaKnowledgeInspection().
+    const { getProjectKnowledgeInspection } =
+      await import("@/features/forever-project-knowledge/catalog");
+    const inspection = await getProjectKnowledgeInspection("coralina");
+    if (!inspection) throw new Error("Coralina is not catalogued");
+    return { inspection };
   },
   head: () => ({
     meta: [

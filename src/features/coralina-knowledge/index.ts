@@ -26,5 +26,6 @@ export * from "./identity";
 export * from "./sources";
 export * from "./facts";
 export * from "./profile";
+export * from "./definition";
 export * from "./slice";
 export * from "./inspection";
