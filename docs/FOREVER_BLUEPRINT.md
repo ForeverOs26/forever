@@ -194,11 +194,11 @@ Every recommendation must remain deterministic, explainable, and traceable to pr
 
 ## 10. Knowledge Engine
 
-**Status: Planned**
+**Status: In Progress (internal architecture; not yet a public or content-authoring product)**
 
-The Knowledge Engine should organize Forever's real estate expertise into reusable structured knowledge.
+RC4.4–RC5.1 built the source-backed half of the Knowledge Engine: a tested, architecture-only chain (source registry, extraction pipeline, canonical project database, cross-source validation, knowledge graph, readiness) exposed through a project-agnostic engine, `src/features/forever-project-knowledge`. It runs over committed repository artifacts for Coralina and Modeva and is inspectable only at internal, `noindex` routes (`/internal/coralina`, `/internal/projects/$slug`) — it has no persistence layer, no public route, and no content-authoring surface yet.
 
-It may include:
+The Knowledge Engine should eventually also organize Forever's real estate expertise into reusable structured knowledge. It may include:
 
 - Area guides.
 - Buyer education.

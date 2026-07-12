@@ -6,11 +6,9 @@ This document records current repository, product, database, website, and milest
 
 ## Current Milestone
 
-Import Engine v1 approved and ready for the next verified project intake.
+Coralina source-backed intake completion, using the completed RC4.4–RC5.1 Project Knowledge Platform. See `docs/CURRENT_STAGE.md`.
 
-RC3-001 added the production-ready Import Engine architecture skeleton: explicit import plans, extracted dataset loading, relationship validation, rollback contract, and an import state machine.
-
-RC3-002 added the first Project-only import stage. RC3-003 extended the dry-run plan to include source-backed canonical Building objects after Project. RC3-004 extended the dry-run plan to include canonical Unit objects. RC3-005 extends the dry-run plan to include source-backed canonical Price History objects while still preventing media, document, relationship, Intelligence, and Passport imports.
+RC4.4–RC4.9 completed a full, tested, architecture-only intake foundation chain (source registry → extraction pipeline → canonical project database → cross-source validation → knowledge graph → readiness). RC5.0 ran real, committed Coralina source data through that entire chain and exposed the result at an internal-only route. RC5.1 generalized that vertical slice into a project-agnostic engine and onboarded a second real project, Modeva, purely from committed repository artifacts.
 
 ## Completed Milestones
 
@@ -32,6 +30,15 @@ RC3-002 added the first Project-only import stage. RC3-003 extended the dry-run 
 - RC3-005 Price History dry-run stage after Units, with Modeva dry-run planning Project + 7 Buildings + 289 Units + 289 Price History rows and Coralina still blocked by readiness validation.
 - FDM-001 Modeva source material folder structure.
 - FDM-002 Forever project import manifest standard.
+- RC2.4–RC2.8 Advisory layer: Passport, Project Summary, Project Comparison, Project Recommendations, and the print-ready Advisor Report, all evidence-only compositions of already-derived data with no new scoring engine.
+- RC4.4 Forever Source Registry Foundation: the canonical, architecture-only catalogue of every source document that enters the Forever ecosystem, with a deterministic in-memory registry and a never-throwing validation pipeline (`src/features/forever-project-sources`).
+- RC4.5 Forever Extraction Pipeline Foundation: the architecture-only description of how a registered source produces structured, evidence-backed extraction facts, with confidence, provenance, and conflict handling that never silently resolves (`src/features/forever-extraction-pipeline`).
+- RC4.6 Forever Canonical Project Database Foundation: the canonical destination of the intake chain — versioned fields, append-only revisions, snapshots, and merge description, still architecture only, with no persistence (`src/features/forever-project-database`).
+- RC4.7 Forever Cross-Source Validation Foundation: deterministically examines extracted facts against registered sources and describes agreement, conflict, and admissibility without ever resolving a disagreement (`src/features/forever-cross-validation`).
+- RC4.8 Forever Project Knowledge Graph Foundation: describes the knowledge graph a project's sources, facts, canonical record, and validation findings add up to, with uncertainty preserved and full traceability (`src/features/forever-knowledge-graph`).
+- RC4.9 Forever Project Readiness Foundation: judges — never approves — whether a project's accumulated knowledge satisfies caller-stated requirements, formalizing the readiness audits the repository previously kept by hand (`src/features/forever-project-readiness`).
+- RC5.0 Coralina End-to-End Vertical Slice: real, committed Coralina source data run through the complete RC4.4–RC4.9 chain, exposed at the internal-only route `/internal/coralina` (`noindex`, not linked, dynamically imported). Readiness is honestly `blocked` on the same two real gaps (`developer`, `country`) already tracked in the Coralina manifest.
+- RC5.1 Project Knowledge Platform: the RC5.0 slice generalized into a project-agnostic engine, `src/features/forever-project-knowledge`. Coralina restated as a declarative definition with all 61 RC5.0 tests passing unchanged; Modeva onboarded as a second real project purely from committed artifacts, with an honestly `blocked` readiness verdict (no committed developer brochure). One generic internal inspection route, `/internal/projects/$slug`, now serves every catalogued project. See `docs/RC5_1_PROJECT_KNOWLEDGE_PLATFORM.md`.
 
 ## Active Tasks
 
@@ -44,29 +51,35 @@ Current factual task summary:
 
 ## Blockers
 
-- No current Modeva import blocker.
-- Future project imports require source materials to be placed under `forever-data/projects/{project_slug}/`.
+- No current Modeva database-import blocker (Modeva has been live in the production database since FDB-003C).
+- Coralina's `developer` and `country` facts remain unresolved; its Project Knowledge Platform readiness report is `blocked` for those two reasons.
+- Modeva's Project Knowledge Platform readiness report is separately `blocked`: no developer package (brochure) was ever committed under `forever-data/projects/modeva/`, so its committed knowledge package cannot pass the intake bar even though the project itself is live.
+- Future project imports and knowledge onboarding require source materials to be placed under `forever-data/projects/{project_slug}/`; `rainpalm` and `gardens-of-eden` currently have only blank `database/projects/*/README.md` templates and no committed source package.
 
 ## Next Milestone
 
-Coralina source intake using the same manifest, extraction, validation, and Import Engine pipeline.
+Resolve Coralina's two source-backed blockers using the completed RC4.4–RC5.1 chain, then re-run cross-source validation, readiness, and an Import Engine dry-run. See `docs/CURRENT_STAGE.md` for the recommended stage after that.
 
 ## Architecture Status
 
-The website now uses a reusable Project Detail Engine, Forever Passport layer, deterministic Forever Intelligence module, and a reusable Import Engine for source-driven project ingestion. The Import Engine now separates package validation, extracted dataset loading, Project + Buildings + Units + Price History import planning, relationship validation, rollback preparation, and database execution. Architecture continues toward One Engine, Many Interfaces.
+The website continues to use a reusable Project Detail Engine, Forever Passport layer, deterministic Forever Intelligence module, and a reusable Import Engine for source-driven project ingestion, as before. Alongside that public-facing stack, RC4.4–RC5.1 completed a separate, tested, architecture-only intake foundation chain — source registry, extraction pipeline, canonical project database, cross-source validation, knowledge graph, and readiness — culminating in the generic Project Knowledge Platform (`src/features/forever-project-knowledge`). This chain is proven end to end on two real projects and is exposed only through internal, `noindex` inspection routes (`/internal/coralina`, `/internal/projects/$slug`); it has no persistence layer and is not wired into any public route, the database, or the Import Engine's execute mode. Architecture continues toward One Engine, Many Interfaces.
 
 ## Database Status
 
-FDB-001 is complete as additive, backward-compatible Supabase migrations. Modeva has been imported and validated with 7 buildings, 289 units, and 289 unit price history rows. FDB-003 Import Engine v1 is approved after dry-run and real idempotency validation.
+FDB-001 is complete as additive, backward-compatible Supabase migrations. Modeva has been imported and validated with 7 buildings, 289 units, and 289 unit price history rows. FDB-003 Import Engine v1 is approved after dry-run and real idempotency validation. The RC4.4–RC5.1 knowledge chain is separate from this database layer: it runs over committed repository artifacts and produces an in-memory canonical record and readiness report, not a Supabase write. Bridging that canonical record to persistence is future work (see `docs/CURRENT_STAGE.md`, "Next stage").
 
 ## Website Status
 
-RC0 is safe for guided real-client testing. Remaining RC1 work includes compare completion, deeper mobile QA, loading states, and Project Detail story-flow refinement.
+RC0 is safe for guided real-client testing. Remaining RC1 work includes compare completion, deeper mobile QA, loading states, and Project Detail story-flow refinement. The public website is unaffected by the RC4.4–RC5.1 chain; the only new surfaces are the internal, `noindex`, unlinked inspection routes used for architecture verification.
 
 ## AI Status
 
-No AI implementation is active. Current intelligence logic is deterministic and explainable.
+No AI implementation is active. Current intelligence logic is deterministic and explainable. The RC4.4–RC5.1 knowledge chain is likewise fully deterministic and rules-based, with no AI or LLM involvement.
+
+## Test Suite Status
+
+225 test files / 1,661 tests passing (`npx vitest run`), including the full RC4.4–RC5.1 suite and the pre-existing website, Intelligence, Passport, and Import Engine suites.
 
 ## Last Updated
 
-2026-07-11
+2026-07-12
