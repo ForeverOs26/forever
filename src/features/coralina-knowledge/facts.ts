@@ -44,6 +44,7 @@ import {
   type ExtractionLocator,
   type ExtractionStructuredValue,
 } from "@/features/forever-extraction-pipeline";
+import type { ProjectKnowledgeGap } from "@/features/forever-project-knowledge";
 import type { ProjectSourceDefinition } from "@/features/forever-project-sources";
 
 import { CORALINA_DATASETS, CORALINA_KNOWLEDGE_EXTRACTED_AT, CORALINA_SLUG } from "./identity";
@@ -73,17 +74,14 @@ export const CORALINA_UNIT_PLAN_TYPE_LABELS: readonly string[] = [
   "Penthouse",
 ];
 
-/** A canonical field path Coralina's sources genuinely do not address. */
-export interface CoralinaKnowledgeGap {
-  path: string;
-  reason: string;
-  /**
-   * True for the fields the committed manifest marks SOURCE_PENDING — the
-   * import blockers. The readiness profile derives its required gap
-   * statements from this flag, so the two encodings cannot drift.
-   */
-  manifestBlocker?: boolean;
-}
+/**
+ * A canonical field path Coralina's sources genuinely do not address — the
+ * engine's shared gap shape, aliased (RC5.1) so the two declarations cannot
+ * drift. For Coralina, `manifestBlocker` marks the fields the committed
+ * manifest records as SOURCE_PENDING; the readiness profile derives its
+ * required gap statements from that flag.
+ */
+export type CoralinaKnowledgeGap = ProjectKnowledgeGap;
 
 /**
  * The field paths Coralina's committed sources do NOT state, with the reason

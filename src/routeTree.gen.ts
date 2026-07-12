@@ -23,6 +23,7 @@ import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
 import { Route as ProjectsSlugRouteImport } from './routes/projects.$slug'
 import { Route as InternalCoralinaRouteImport } from './routes/internal.coralina'
 import { Route as AdvisoryReportRouteImport } from './routes/advisory_.report'
+import { Route as InternalProjectsSlugRouteImport } from './routes/internal.projects.$slug'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -94,6 +95,11 @@ const AdvisoryReportRoute = AdvisoryReportRouteImport.update({
   path: '/advisory/report',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InternalProjectsSlugRoute = InternalProjectsSlugRouteImport.update({
+  id: '/internal/projects/$slug',
+  path: '/internal/projects/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -110,6 +116,7 @@ export interface FileRoutesByFullPath {
   '/internal/coralina': typeof InternalCoralinaRoute
   '/projects/$slug': typeof ProjectsSlugRoute
   '/projects/': typeof ProjectsIndexRoute
+  '/internal/projects/$slug': typeof InternalProjectsSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -126,6 +133,7 @@ export interface FileRoutesByTo {
   '/internal/coralina': typeof InternalCoralinaRoute
   '/projects/$slug': typeof ProjectsSlugRoute
   '/projects': typeof ProjectsIndexRoute
+  '/internal/projects/$slug': typeof InternalProjectsSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -143,6 +151,7 @@ export interface FileRoutesById {
   '/internal/coralina': typeof InternalCoralinaRoute
   '/projects/$slug': typeof ProjectsSlugRoute
   '/projects/': typeof ProjectsIndexRoute
+  '/internal/projects/$slug': typeof InternalProjectsSlugRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -161,6 +170,7 @@ export interface FileRouteTypes {
     | '/internal/coralina'
     | '/projects/$slug'
     | '/projects/'
+    | '/internal/projects/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -177,6 +187,7 @@ export interface FileRouteTypes {
     | '/internal/coralina'
     | '/projects/$slug'
     | '/projects'
+    | '/internal/projects/$slug'
   id:
     | '__root__'
     | '/'
@@ -193,6 +204,7 @@ export interface FileRouteTypes {
     | '/internal/coralina'
     | '/projects/$slug'
     | '/projects/'
+    | '/internal/projects/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -210,6 +222,7 @@ export interface RootRouteChildren {
   InternalCoralinaRoute: typeof InternalCoralinaRoute
   ProjectsSlugRoute: typeof ProjectsSlugRoute
   ProjectsIndexRoute: typeof ProjectsIndexRoute
+  InternalProjectsSlugRoute: typeof InternalProjectsSlugRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -312,6 +325,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdvisoryReportRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/internal/projects/$slug': {
+      id: '/internal/projects/$slug'
+      path: '/internal/projects/$slug'
+      fullPath: '/internal/projects/$slug'
+      preLoaderRoute: typeof InternalProjectsSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -330,6 +350,7 @@ const rootRouteChildren: RootRouteChildren = {
   InternalCoralinaRoute: InternalCoralinaRoute,
   ProjectsSlugRoute: ProjectsSlugRoute,
   ProjectsIndexRoute: ProjectsIndexRoute,
+  InternalProjectsSlugRoute: InternalProjectsSlugRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
