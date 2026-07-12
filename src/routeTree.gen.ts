@@ -21,6 +21,7 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
 import { Route as ProjectsSlugRouteImport } from './routes/projects.$slug'
+import { Route as InternalCoralinaRouteImport } from './routes/internal.coralina'
 import { Route as AdvisoryReportRouteImport } from './routes/advisory_.report'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -83,6 +84,11 @@ const ProjectsSlugRoute = ProjectsSlugRouteImport.update({
   path: '/projects/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InternalCoralinaRoute = InternalCoralinaRouteImport.update({
+  id: '/internal/coralina',
+  path: '/internal/coralina',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdvisoryReportRoute = AdvisoryReportRouteImport.update({
   id: '/advisory_/report',
   path: '/advisory/report',
@@ -101,6 +107,7 @@ export interface FileRoutesByFullPath {
   '/reviews': typeof ReviewsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/advisory/report': typeof AdvisoryReportRoute
+  '/internal/coralina': typeof InternalCoralinaRoute
   '/projects/$slug': typeof ProjectsSlugRoute
   '/projects/': typeof ProjectsIndexRoute
 }
@@ -116,6 +123,7 @@ export interface FileRoutesByTo {
   '/reviews': typeof ReviewsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/advisory/report': typeof AdvisoryReportRoute
+  '/internal/coralina': typeof InternalCoralinaRoute
   '/projects/$slug': typeof ProjectsSlugRoute
   '/projects': typeof ProjectsIndexRoute
 }
@@ -132,6 +140,7 @@ export interface FileRoutesById {
   '/reviews': typeof ReviewsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/advisory_/report': typeof AdvisoryReportRoute
+  '/internal/coralina': typeof InternalCoralinaRoute
   '/projects/$slug': typeof ProjectsSlugRoute
   '/projects/': typeof ProjectsIndexRoute
 }
@@ -149,6 +158,7 @@ export interface FileRouteTypes {
     | '/reviews'
     | '/sitemap.xml'
     | '/advisory/report'
+    | '/internal/coralina'
     | '/projects/$slug'
     | '/projects/'
   fileRoutesByTo: FileRoutesByTo
@@ -164,6 +174,7 @@ export interface FileRouteTypes {
     | '/reviews'
     | '/sitemap.xml'
     | '/advisory/report'
+    | '/internal/coralina'
     | '/projects/$slug'
     | '/projects'
   id:
@@ -179,6 +190,7 @@ export interface FileRouteTypes {
     | '/reviews'
     | '/sitemap.xml'
     | '/advisory_/report'
+    | '/internal/coralina'
     | '/projects/$slug'
     | '/projects/'
   fileRoutesById: FileRoutesById
@@ -195,6 +207,7 @@ export interface RootRouteChildren {
   ReviewsRoute: typeof ReviewsRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   AdvisoryReportRoute: typeof AdvisoryReportRoute
+  InternalCoralinaRoute: typeof InternalCoralinaRoute
   ProjectsSlugRoute: typeof ProjectsSlugRoute
   ProjectsIndexRoute: typeof ProjectsIndexRoute
 }
@@ -285,6 +298,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/internal/coralina': {
+      id: '/internal/coralina'
+      path: '/internal/coralina'
+      fullPath: '/internal/coralina'
+      preLoaderRoute: typeof InternalCoralinaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/advisory_/report': {
       id: '/advisory_/report'
       path: '/advisory/report'
@@ -307,6 +327,7 @@ const rootRouteChildren: RootRouteChildren = {
   ReviewsRoute: ReviewsRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   AdvisoryReportRoute: AdvisoryReportRoute,
+  InternalCoralinaRoute: InternalCoralinaRoute,
   ProjectsSlugRoute: ProjectsSlugRoute,
   ProjectsIndexRoute: ProjectsIndexRoute,
 }
