@@ -1,7 +1,7 @@
 # Forever Decisions
 
 Status: Canonical decision log
-Last updated: 2026-07-11
+Last updated: 2026-07-12
 
 ## Purpose
 
@@ -46,6 +46,13 @@ Each decision should include:
 - **Context:** Future AI orchestration and automation ideas can distract from product delivery.
 - **Consequence:** Automation ideas that are not needed now are recorded for later and do not block the current stage.
 - **Review trigger:** Revisit when repetitive manual work becomes measurable and recurring.
+
+### 2026-07-12 — RC4.4–RC5.1 documentation reconciliation and next-stage selection
+
+- **Decision:** `docs/CURRENT_STAGE.md`, `docs/FOREVER_STATUS.md`, `docs/ROADMAP.md`, `docs/FOREVER_BLUEPRINT.md`, and `docs/FOREVER_BRAIN_V1.md` are updated to reflect the completed RC4.4–RC5.1 Project Knowledge Platform chain (source registry, extraction pipeline, canonical project database, cross-source validation, knowledge graph, readiness, and the generic engine proven on Coralina and Modeva). The next active stage is resolving Coralina's two remaining source-backed blockers (`developer`, `country`), not a new foundation, a third project, or public exposure.
+- **Context:** RC4.4–RC5.1 shipped six commits of tested architecture (`docs/RC5_1_PROJECT_KNOWLEDGE_PLATFORM.md`'s own governance note flagged this) without the canonical stage/status/roadmap documents being updated, leaving them describing a pre-RC4.4 state. A third project cannot be onboarded through data only because `rainpalm` and `gardens-of-eden` have no committed source material; bridging the canonical record to persistence and exposing project knowledge publicly are both larger, riskier steps that are premature while both catalogued projects report a `blocked` readiness verdict.
+- **Consequence:** Documentation now distinguishes architecture foundations (RC4.4–RC5.1, internal only) from internal inspection routes (`/internal/coralina`, `/internal/projects/$slug`, both `noindex`) from public product readiness (unchanged, still RC0/RC1). The recommended next stage is Coralina blocker resolution; persistence bridging (FOREVER_BRAIN RC6/RC7) and public exposure remain explicitly deferred until that resolves.
+- **Review trigger:** Revisit once Coralina's `developer` and `country` facts are source-backed, or if a third project's source material is committed.
 
 ### 2026-07-11 — AI roles are separated
 

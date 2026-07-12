@@ -6,9 +6,9 @@ This document defines development phases, dependencies, and sequencing. It is no
 
 ## Current Development Phase
 
-Import Engine v1 validation and next project intake preparation.
+Coralina source-backed intake completion, using the completed RC4.4–RC5.1 Project Knowledge Platform. See `docs/CURRENT_STAGE.md`.
 
-The product is ready for guided real-client testing while the database, source-material standards, and Import Engine are prepared for repeatable verified project imports.
+The product is ready for guided real-client testing while a separate, tested, architecture-only intake foundation chain (RC4.4–RC5.1) proves that Coralina and Modeva can each be run through a shared, project-agnostic Project Knowledge Platform. Both projects currently report an honest `blocked` readiness verdict for different source-backed reasons; closing Coralina's two remaining gaps (`developer`, `country`) is the current phase.
 
 ## Completed Phases
 
@@ -46,13 +46,25 @@ The product is ready for guided real-client testing while the database, source-m
   - FDM-001 Modeva source folder structure.
   - FDM-002 Forever project import manifest standard.
 
+- Advisory layer (RC2.4–RC2.8)
+  - Forever Passport, Project Summary, Project Comparison, Project Recommendations, and the print-ready Advisor Report — evidence-only compositions of already-derived data, no new scoring engine.
+
+- Project Knowledge Platform foundation chain (RC4.4–RC5.1)
+  - RC4.4 Forever Source Registry Foundation.
+  - RC4.5 Forever Extraction Pipeline Foundation.
+  - RC4.6 Forever Canonical Project Database Foundation.
+  - RC4.7 Forever Cross-Source Validation Foundation.
+  - RC4.8 Forever Project Knowledge Graph Foundation.
+  - RC4.9 Forever Project Readiness Foundation.
+  - RC5.0 Coralina end-to-end vertical slice through the full chain, exposed at the internal `/internal/coralina` route.
+  - RC5.1 generalisation into the project-agnostic `forever-project-knowledge` engine; Modeva onboarded as a second real project; generic internal route `/internal/projects/$slug`.
+  - Architecture only: no persistence layer, no public route, no database write. Both catalogued projects report an honest `blocked` readiness verdict.
+
 ## Upcoming Phases
 
-- Coralina source intake
-  - Create Coralina source folder structure.
-  - Add Coralina manifest and import-status.
-  - Classify source files.
-  - Extract brochure and price-list data.
+- Coralina source-backed blocker resolution
+  - Locate and register source-backed evidence for `developer` and `country`.
+  - Re-run cross-source validation and readiness through the RC4.4–RC5.1 chain.
   - Run Import Engine dry-run before any real import.
 
 - RC1 architecture hardening
@@ -74,7 +86,8 @@ The product is ready for guided real-client testing while the database, source-m
 - Import Engine v2 for richer documents, media, and intelligence ingestion.
 - Admin/project data management.
 - Mobile app interface.
-- Knowledge Engine.
+- Bridging the RC4.4–RC5.1 Project Knowledge Platform's canonical record to a persistence layer (the FOREVER_BRAIN RC6/RC7 track).
+- Exposing approved project knowledge to the public product, once source-backed blockers are resolved for at least one project.
 
 ## Backlog boundary
 

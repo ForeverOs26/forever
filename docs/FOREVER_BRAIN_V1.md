@@ -36,6 +36,7 @@ Current implementation status:
 - Supabase is the application database and long-term canonical persistence layer.
 - Import Engine RC3 supports source package validation and dry-run planning for Project, Buildings, Units, and Price History.
 - RC3 intentionally blocks execute mode for the expanded Project + Buildings + Units + Price History stage until write-path, rollback, audit, and currency policy are approved.
+- RC4.4–RC5.1 (2026-07-11/12) completed a different slice of this architecture than Section 11 originally sequenced: instead of first hardening Import Engine execute mode, the work built the Knowledge Engine's source-backed foundation chain (source registry → extraction pipeline → canonical project database → cross-source validation → knowledge graph → readiness) and proved it end to end on two real projects (Coralina, Modeva) through a generic engine, `src/features/forever-project-knowledge`. This is architecture only — no persistence, no public route, no database write — inspectable at internal `noindex` routes (`/internal/coralina`, `/internal/projects/$slug`). See `docs/RC5_1_PROJECT_KNOWLEDGE_PLATFORM.md` and Section 11's note below.
 - Media, documents, source records, Intelligence persistence, Passport snapshots, CRM writes, website canonical read-model migration, and AI Agent workflows are future phases.
 
 ## 2. Core Engines and Responsibilities
@@ -416,6 +417,8 @@ Planned extension points:
 - Admin/project data management.
 
 ## 11. Release Evolution Roadmap (RC4-RC8)
+
+Status note (2026-07-12): the RC4 label below was originally reserved for Import Engine execute-mode hardening. What actually shipped under RC4.4–RC4.9 and RC5.0–RC5.1 was the Knowledge Engine foundation chain described in Section 1 and `docs/RC5_1_PROJECT_KNOWLEDGE_PLATFORM.md` — architecture-only, proven on two real projects, with no persistence or execute-mode change. The RC4 exit criteria below (stage registry, schema validation, currency policy) remain undone; Import Engine execute-mode hardening is still a real, separate next step whenever it is picked up, distinct from the completed Knowledge Engine chain.
 
 ### RC4: Import Engine Hardening
 
