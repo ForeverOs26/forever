@@ -19,7 +19,9 @@ describe("canonical Forever project template", () => {
 
   it("requires everything except the transport connector", () => {
     const template = buildForeverProjectTemplate();
-    expect(template.components.filter((c) => !c.required).map((c) => c.kind)).toEqual(["connector"]);
+    expect(template.components.filter((c) => !c.required).map((c) => c.kind)).toEqual([
+      "connector",
+    ]);
     const required = requiredProjectComponentKinds(template);
     expect(required).toContain("identity");
     expect(required).toContain("verification");

@@ -14,11 +14,7 @@
  * The template describes structure only; it never instantiates a package's data.
  */
 
-import {
-  projectComponent,
-  type ProjectComponent,
-  type ProjectComponentKind,
-} from "./component";
+import { projectComponent, type ProjectComponent, type ProjectComponentKind } from "./component";
 import { projectLayout, projectLayoutNode, type ProjectLayout } from "./layout";
 import { projectReference, type ProjectReference } from "./reference";
 import type { ProjectTemplateIdentity } from "./identity";
@@ -108,16 +104,12 @@ export function foreverProjectLayout(): ProjectLayout {
     projectLayoutNode("sources", "directory", {
       component: "sources",
       description: "Source definitions (RC3.3).",
-      children: [
-        projectLayoutNode("sources/index.ts", "module", { component: "sources" }),
-      ],
+      children: [projectLayoutNode("sources/index.ts", "module", { component: "sources" })],
     }),
     projectLayoutNode("adapters", "directory", {
       component: "canonical",
       description: "Adapters mapping verified facts to canonical records (RC3.0/3.1).",
-      children: [
-        projectLayoutNode("adapters/index.ts", "module", { component: "canonical" }),
-      ],
+      children: [projectLayoutNode("adapters/index.ts", "module", { component: "canonical" })],
     }),
     projectLayoutNode("integration", "directory", {
       component: "integration",

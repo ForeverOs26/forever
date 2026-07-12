@@ -28,7 +28,9 @@ describe("project catalogue data model", () => {
 
   it("finds an entry by package id", () => {
     const catalog = addProjectCatalogEntry(emptyProjectCatalog("c1"), makeEntry());
-    expect(findProjectCatalogEntry(catalog, "pkg_coralina")?.package.identity.slug).toBe("coralina");
+    expect(findProjectCatalogEntry(catalog, "pkg_coralina")?.package.identity.slug).toBe(
+      "coralina",
+    );
     expect(findProjectCatalogEntry(catalog, "pkg_absent")).toBeUndefined();
   });
 

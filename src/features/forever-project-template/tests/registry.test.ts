@@ -14,39 +14,69 @@ describe("in-memory package registry", () => {
 
   it("throws on a duplicate id so a clash surfaces at wiring time", () => {
     const registry = new ProjectPackageRegistry();
-    registry.register(buildProjectPackage("coralina", { provides: ["identity"], entities: ["project"] }));
+    registry.register(
+      buildProjectPackage("coralina", { provides: ["identity"], entities: ["project"] }),
+    );
     expect(() =>
-      registry.register(buildProjectPackage("coralina", { provides: ["sources"], entities: ["project"] })),
+      registry.register(
+        buildProjectPackage("coralina", { provides: ["sources"], entities: ["project"] }),
+      ),
     ).toThrow(/already registered/);
   });
 
   it("lists packages in insertion order", () => {
     const registry = new ProjectPackageRegistry();
-    registry.register(buildProjectPackage("alpha", { provides: ["identity"], entities: ["project"] }));
-    registry.register(buildProjectPackage("beta", { provides: ["identity"], entities: ["project"] }));
+    registry.register(
+      buildProjectPackage("alpha", { provides: ["identity"], entities: ["project"] }),
+    );
+    registry.register(
+      buildProjectPackage("beta", { provides: ["identity"], entities: ["project"] }),
+    );
     expect(registry.list().map((p) => p.identity.slug)).toEqual(["alpha", "beta"]);
   });
 
   it("filters by scope", () => {
     const registry = new ProjectPackageRegistry();
-    registry.register(buildProjectPackage("alpha", { scope: "project", provides: ["identity"], entities: ["project"] }));
-    registry.register(buildProjectPackage("beta", { scope: "developer", provides: ["identity"], entities: ["project"] }));
+    registry.register(
+      buildProjectPackage("alpha", {
+        scope: "project",
+        provides: ["identity"],
+        entities: ["project"],
+      }),
+    );
+    registry.register(
+      buildProjectPackage("beta", {
+        scope: "developer",
+        provides: ["identity"],
+        entities: ["project"],
+      }),
+    );
     expect(registry.listByScope("developer").map((p) => p.identity.slug)).toEqual(["beta"]);
   });
 
   it("filters by template", () => {
     const registry = new ProjectPackageRegistry();
-    registry.register(buildProjectPackage("alpha", { provides: ["identity"], entities: ["project"] }));
     registry.register(
-      buildProjectPackage("beta", { templateId: "tmpl_other", provides: ["identity"], entities: ["project"] }),
+      buildProjectPackage("alpha", { provides: ["identity"], entities: ["project"] }),
+    );
+    registry.register(
+      buildProjectPackage("beta", {
+        templateId: "tmpl_other",
+        provides: ["identity"],
+        entities: ["project"],
+      }),
     );
     expect(registry.listByTemplate("tmpl_other").map((p) => p.identity.slug)).toEqual(["beta"]);
   });
 
   it("filters by provided component", () => {
     const registry = new ProjectPackageRegistry();
-    registry.register(buildProjectPackage("alpha", { provides: ["identity"], entities: ["project"] }));
-    registry.register(buildProjectPackage("beta", { provides: ["sources"], entities: ["project"] }));
+    registry.register(
+      buildProjectPackage("alpha", { provides: ["identity"], entities: ["project"] }),
+    );
+    registry.register(
+      buildProjectPackage("beta", { provides: ["sources"], entities: ["project"] }),
+    );
     expect(registry.listByComponent("sources").map((p) => p.identity.slug)).toEqual(["beta"]);
   });
 });

@@ -9,10 +9,7 @@
  */
 
 import { isKnownProjectComponentKind } from "../component";
-import {
-  isKnownProjectReferenceKind,
-  type ProjectReference,
-} from "../reference";
+import { isKnownProjectReferenceKind, type ProjectReference } from "../reference";
 import { projectTemplateError } from "../types";
 import type { ProjectTemplateIssue } from "../types";
 

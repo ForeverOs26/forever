@@ -12,7 +12,9 @@ import type { ProjectCatalog, ProjectCatalogEntry } from "../catalog";
 import { PROJECT_COMPONENT_KINDS } from "../component";
 
 /** A complete package: provides every component and covers the core entities. */
-export function makePackage(overrides: Partial<Parameters<typeof buildProjectPackage>[1]> = {}): ProjectPackage {
+export function makePackage(
+  overrides: Partial<Parameters<typeof buildProjectPackage>[1]> = {},
+): ProjectPackage {
   return buildProjectPackage("coralina", {
     name: "Coralina",
     provides: [...PROJECT_COMPONENT_KINDS],

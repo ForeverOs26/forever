@@ -62,8 +62,6 @@ export function findProjectCatalogEntry(
 }
 
 /** Every enabled entry in the catalogue, in catalogue order. */
-export function listEnabledProjectCatalogEntries(
-  catalog: ProjectCatalog,
-): ProjectCatalogEntry[] {
+export function listEnabledProjectCatalogEntries(catalog: ProjectCatalog): ProjectCatalogEntry[] {
   return catalog.entries.filter((entry) => entry.enabled);
 }

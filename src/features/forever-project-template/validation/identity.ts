@@ -21,7 +21,11 @@ export function validateProjectTemplateIdentity(
   const issues: ProjectTemplateIssue[] = [];
   if (!isNonEmptyString(identity.id)) {
     issues.push(
-      projectTemplateError("missing_template_id", "Template identity is missing an id", "identity.id"),
+      projectTemplateError(
+        "missing_template_id",
+        "Template identity is missing an id",
+        "identity.id",
+      ),
     );
   }
   if (!isNonEmptyString(identity.slug)) {

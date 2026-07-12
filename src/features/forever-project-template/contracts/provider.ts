@@ -57,8 +57,6 @@ export function projectPackageProviderCovers(
 }
 
 /** The number of component kinds a provider's package provides. */
-export function projectPackageProviderComponentCount(
-  provider: ProjectPackageProvider,
-): number {
+export function projectPackageProviderComponentCount(provider: ProjectPackageProvider): number {
   return provider.package.provides.length;
 }

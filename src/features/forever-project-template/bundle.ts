@@ -74,9 +74,7 @@ export function missingProjectComponentKinds(bundle: ProjectBundle): ProjectComp
 
 /** The template component kinds a bundle's package provides, in template order. */
 export function providedProjectComponentKinds(bundle: ProjectBundle): ProjectComponentKind[] {
-  return bundle.components
-    .filter((entry) => entry.provided)
-    .map((entry) => entry.component.kind);
+  return bundle.components.filter((entry) => entry.provided).map((entry) => entry.component.kind);
 }
 
 /** Whether the package provides every component the template requires. */

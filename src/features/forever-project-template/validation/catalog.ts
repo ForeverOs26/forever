@@ -14,15 +14,8 @@
 
 import type { ProjectCatalog, ProjectCatalogEntry } from "../catalog";
 import { isNonEmptyString, projectPackageKey } from "../helpers";
-import {
-  partitionProjectTemplateIssues,
-  projectTemplateError,
-} from "../types";
-import type {
-  ProjectTemplateError,
-  ProjectTemplateIssue,
-  ProjectTemplateWarning,
-} from "../types";
+import { partitionProjectTemplateIssues, projectTemplateError } from "../types";
+import type { ProjectTemplateError, ProjectTemplateIssue, ProjectTemplateWarning } from "../types";
 import { validateProjectPackage } from "./package";
 
 /** The structured verdict of {@link validateProjectCatalog}. */
@@ -34,9 +27,7 @@ export interface ProjectTemplateValidation {
 }
 
 /** Validate one catalogue entry's flag and its package. */
-export function validateProjectCatalogEntry(
-  entry: ProjectCatalogEntry,
-): ProjectTemplateIssue[] {
+export function validateProjectCatalogEntry(entry: ProjectCatalogEntry): ProjectTemplateIssue[] {
   const issues: ProjectTemplateIssue[] = [];
   if (typeof entry.enabled !== "boolean") {
     issues.push(

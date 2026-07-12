@@ -38,9 +38,14 @@ describe("identity naming conventions", () => {
   });
 
   it("honours name and scope overrides and stays a pure function", () => {
-    const identity = deriveProjectPackageIdentity("coralina", { name: "Coralina", scope: "developer" });
+    const identity = deriveProjectPackageIdentity("coralina", {
+      name: "Coralina",
+      scope: "developer",
+    });
     expect(identity.name).toBe("Coralina");
     expect(identity.scope).toBe("developer");
-    expect(deriveProjectPackageIdentity("coralina")).toEqual(deriveProjectPackageIdentity("coralina"));
+    expect(deriveProjectPackageIdentity("coralina")).toEqual(
+      deriveProjectPackageIdentity("coralina"),
+    );
   });
 });
