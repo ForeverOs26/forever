@@ -9,13 +9,17 @@ Coralina source-backed intake completion, using the completed RC4.4–RC5.1 Proj
 
 ## Objective
 
-Resolve the two remaining source-backed blockers for Coralina (`developer`, `country`) so its intake moves from architecture-verified-and-blocked to readiness-passed, using the existing RC4.4–RC5.1 foundation chain (source registry, extraction pipeline, canonical project database, cross-source validation, knowledge graph, readiness) and the Import Engine — without changing application code, database schema, public routes, UI components, or business logic.
+Resolve the two remaining source-backed blockers for Coralina (`developer`, `country`) only when real committed Coralina source material supports it, using the existing RC4.4–RC5.1 foundation chain (source registry, extraction pipeline, canonical project database, cross-source validation, knowledge graph, readiness) and the Import Engine — without changing application code, database schema, public routes, UI components, business logic, or readiness rules.
+
+## RC5.3 evidence audit (2026-07-12)
+
+RC5.3 re-audited both blockers against every committed Coralina artifact (manifest, import status, classification log, all six extracted JSON datasets, and every `source/*` folder). Finding: no new source document has been committed (git-tracked) since RC5.0 — `source/*` is `.gitignore`-excluded of everything but `.gitkeep`, checked via `git ls-files` rather than the raw filesystem, since a local working copy may legitimately hold real, uncommitted documents on disk — and no extracted dataset states either fact; both remain genuinely unresolved. Per the decision rule for "neither blocker has sufficient evidence," no fact was added or fabricated. The gap reasons in `src/features/coralina-knowledge/facts.ts` were extended with the exact source-acquisition requirement for each blocker, so `/internal/coralina` now shows precisely what evidence is still needed. Full audit: `docs/CORALINA_RC5_3_EVIDENCE_AUDIT.md`. Readiness standing is unchanged: `blocked`.
 
 ## Why it matters now
 
 RC4.4–RC5.1 completed the full intake foundation chain and proved it end to end on two real projects through the generic Project Knowledge Platform (`src/features/forever-project-knowledge`):
 
-- Coralina (RC5.0, restated as a definition in RC5.1) has 17 project-level facts, a knowledge graph, and a readiness report that is `blocked` on exactly two real, source-backed gaps: `developer` and `country`.
+- Coralina (RC5.0, restated as a definition in RC5.1; re-audited in RC5.3) has 17 project-level facts, a knowledge graph, and a readiness report that is `blocked` on exactly two real, source-backed gaps: `developer` and `country`.
 - Modeva (RC5.1) has 18 facts built purely from committed repository artifacts (the FDB-001 seed migration, the FDB-002C reviewed price-list import, the FDB-003C real-run report) and is honestly `blocked` for a different reason: no developer package was ever committed under `forever-data/projects/modeva/`, so there is no brochure to satisfy the intake bar, even though Modeva is already live in the production database.
 
 Both internal inspection routes (`/internal/coralina`, `/internal/projects/$slug`, both `noindex`/`nofollow` and not linked from the public site) render these findings today. The architecture is no longer the limiting factor for Coralina — real source evidence is. The highest-value next step is closing the one gap the chain was built to expose, not adding further architecture.
@@ -54,8 +58,8 @@ Both internal inspection routes (`/internal/coralina`, `/internal/projects/$slug
 
 | Task                                                                         | Owner             | Stage   | Status                 |
 | ----------------------------------------------------------------------------| ----------------- | ------- | ---------------------- |
-| Resolve Coralina `developer` source-backed blocker.                         | Constantin        | Current | Active                 |
-| Resolve Coralina `country` source-backed blocker.                          | Constantin        | Current | Active                 |
+| Resolve Coralina `developer` source-backed blocker.                         | Constantin        | Current | Blocked — RC5.3 audit found no new committed evidence |
+| Resolve Coralina `country` source-backed blocker.                          | Constantin        | Current | Blocked — RC5.3 audit found no new committed evidence |
 | Re-state resolved facts through the `forever-project-knowledge` definition and re-run cross-validation/readiness. | Codex | Current | Pending source updates |
 | Run Import Engine dry-run before any real import.                          | Codex             | Current | Pending validation     |
 | Review whether documentation remains aligned after intake readiness changes. | Architect / Codex | Current | Ongoing                |
@@ -78,8 +82,8 @@ Both internal inspection routes (`/internal/coralina`, `/internal/projects/$slug
 
 ## Known blockers
 
-- Coralina `developer` is blocked until source-backed evidence is available.
-- Coralina `country` is blocked until source-backed evidence is available.
+- Coralina `developer` is blocked until source-backed evidence is available. RC5.3 re-audited and confirmed no new evidence exists in the committed repository (`docs/CORALINA_RC5_3_EVIDENCE_AUDIT.md`).
+- Coralina `country` is blocked until source-backed evidence is available. RC5.3 re-audited and confirmed no new evidence exists in the committed repository (`docs/CORALINA_RC5_3_EVIDENCE_AUDIT.md`).
 - Modeva's knowledge package is blocked on a missing committed developer brochure; this is evidence for the platform's honesty posture, not an active task of this stage (Modeva is already live in the production database from its earlier FDB-002/FDB-003 import).
 
 ## Next stage

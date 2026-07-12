@@ -66,6 +66,7 @@ The product is ready for guided real-client testing while a separate, tested, ar
   - Locate and register source-backed evidence for `developer` and `country`.
   - Re-run cross-source validation and readiness through the RC4.4–RC5.1 chain.
   - Run Import Engine dry-run before any real import.
+  - RC5.3 re-audited both blockers against every committed Coralina artifact and confirmed neither has sufficient evidence yet — no fact was added. See `docs/CORALINA_RC5_3_EVIDENCE_AUDIT.md`. This phase remains upcoming until real Coralina-specific source material is committed.
 
 - RC1 architecture hardening
   - Clarify canonical media flow.

@@ -39,6 +39,7 @@ RC4.4–RC4.9 completed a full, tested, architecture-only intake foundation chai
 - RC4.9 Forever Project Readiness Foundation: judges — never approves — whether a project's accumulated knowledge satisfies caller-stated requirements, formalizing the readiness audits the repository previously kept by hand (`src/features/forever-project-readiness`).
 - RC5.0 Coralina End-to-End Vertical Slice: real, committed Coralina source data run through the complete RC4.4–RC4.9 chain, exposed at the internal-only route `/internal/coralina` (`noindex`, not linked, dynamically imported). Readiness is honestly `blocked` on the same two real gaps (`developer`, `country`) already tracked in the Coralina manifest.
 - RC5.1 Project Knowledge Platform: the RC5.0 slice generalized into a project-agnostic engine, `src/features/forever-project-knowledge`. Coralina restated as a declarative definition with all 61 RC5.0 tests passing unchanged; Modeva onboarded as a second real project purely from committed artifacts, with an honestly `blocked` readiness verdict (no committed developer brochure). One generic internal inspection route, `/internal/projects/$slug`, now serves every catalogued project. See `docs/RC5_1_PROJECT_KNOWLEDGE_PLATFORM.md`.
+- RC5.3 Coralina Evidence Audit: re-checked every committed Coralina artifact for `developer` and `country` evidence; found none new since RC5.0, so no fact was added for either blocker. The declared gap reasons were extended with the exact source-acquisition requirement for each field so `/internal/coralina` states precisely what evidence is still needed. Readiness standing is unchanged: `blocked`. See `docs/CORALINA_RC5_3_EVIDENCE_AUDIT.md`.
 
 ## Active Tasks
 
@@ -52,7 +53,7 @@ Current factual task summary:
 ## Blockers
 
 - No current Modeva database-import blocker (Modeva has been live in the production database since FDB-003C).
-- Coralina's `developer` and `country` facts remain unresolved; its Project Knowledge Platform readiness report is `blocked` for those two reasons.
+- Coralina's `developer` and `country` facts remain unresolved; its Project Knowledge Platform readiness report is `blocked` for those two reasons. RC5.3 re-audited both against every committed artifact and confirmed no new evidence exists (`docs/CORALINA_RC5_3_EVIDENCE_AUDIT.md`).
 - Modeva's Project Knowledge Platform readiness report is separately `blocked`: no developer package (brochure) was ever committed under `forever-data/projects/modeva/`, so its committed knowledge package cannot pass the intake bar even though the project itself is live.
 - Future project imports and knowledge onboarding require source materials to be placed under `forever-data/projects/{project_slug}/`; `rainpalm` and `gardens-of-eden` currently have only blank `database/projects/*/README.md` templates and no committed source package.
 
