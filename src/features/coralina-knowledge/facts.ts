@@ -88,18 +88,33 @@ export type CoralinaKnowledgeGap = ProjectKnowledgeGap;
  * recorded by the committed manifest / extraction package. RC4.7 receives
  * these as `expectedPaths`, so each one surfaces as an explicit
  * `missing_information` finding instead of a fabricated value.
+ *
+ * RC5.3 re-audited both manifest blockers (`developer.name`, `location.country`)
+ * against every committed Coralina artifact — the manifest, the import status
+ * report, all six extracted JSON datasets, and the `source/*` folders — and
+ * found no explicit statement of either fact and no new source document
+ * committed (git-tracked) since RC5.0. `source/*` is `.gitignore`-excluded of
+ * everything but `.gitkeep`, so a local working copy may legitimately hold
+ * real, uncommitted source documents on disk without changing what this
+ * module can treat as evidence; see `docs/CORALINA_RC5_3_EVIDENCE_AUDIT.md`.
+ * Each `reason` below therefore also states the exact evidence still
+ * required, transcribed from
+ * `forever-data/projects/coralina/import-status.json` →
+ * `mandatory_metadata_review.still_blocked[].required_source`, so the
+ * unresolved blocker and its acquisition requirement stay visible together on
+ * the inspection route without inventing a resolution.
  */
 export const CORALINA_EXPECTED_MISSING_PATHS: readonly CoralinaKnowledgeGap[] = [
   {
     path: "developer.name",
     reason:
-      "manifest: developer is SOURCE_PENDING — local sources show The Title / AssetWise / Rhom Bho branding but no Coralina-specific developer statement",
+      "manifest: developer is SOURCE_PENDING — local sources show The Title / AssetWise / Rhom Bho branding but no Coralina-specific developer statement. Required to resolve: A Coralina-specific brochure, company profile page, sales sheet, contract page, or official developer statement that explicitly names Coralina's developer.",
     manifestBlocker: true,
   },
   {
     path: "location.country",
     reason:
-      "manifest: country is SOURCE_PENDING — sources identify Kamala and Phuket but never state the country",
+      "manifest: country is SOURCE_PENDING — sources identify Kamala and Phuket but never state the country. Required to resolve: A Coralina-specific location, address, map, brochure, or legal/developer document that explicitly states the country.",
     manifestBlocker: true,
   },
   {
