@@ -4,6 +4,10 @@
 
 This document records current repository, product, database, website, and milestone status. The canonical active-stage plan, owners, acceptance criteria, and definition of done are maintained in `docs/CURRENT_STAGE.md`.
 
+## Factory Activation
+
+Forever Factory Constitution RC1 is active at A0 — Propose only. Operator v0.1 has completed its first isolated proving cycle: documentation-only `validate-only` reached `validated`, and the separate `dry-run` reached `dry-run-complete`. Security, TypeScript, product tests, lint, build, and Git diff gates passed while the primary `main` worktree remained unchanged. No commit, push, pull request, merge, autonomy promotion, Night Shift, browser automation, or automatic model invocation occurred. The Factory foundation is proven for bounded A0 use; Forever product development remains the primary priority, and future Factory improvements are bounded backlog work that must not delay product delivery.
+
 ## Current Milestone
 
 Coralina source-backed intake completion, using the completed RC4.4–RC5.1 Project Knowledge Platform. See `docs/CURRENT_STAGE.md`.
