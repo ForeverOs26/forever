@@ -8,7 +8,7 @@ This document defines development phases, dependencies, and sequencing. It is no
 
 Coralina source-backed intake completion, using the completed RC4.4–RC5.1 Project Knowledge Platform. See `docs/CURRENT_STAGE.md`.
 
-The product is ready for guided real-client testing while a separate, tested, architecture-only intake foundation chain (RC4.4–RC5.1) proves that Coralina and Modeva can each be run through a shared, project-agnostic Project Knowledge Platform. Both projects currently report an honest `blocked` readiness verdict for different source-backed reasons; closing Coralina's two remaining gaps (`developer`, `country`) is the current phase.
+The product is ready for guided real-client testing while the shared Project Knowledge Platform now reports Coralina `ready` after RC5.4 official-source verification. Modeva remains independently `blocked` by its missing committed developer package.
 
 ## Completed Phases
 
@@ -58,15 +58,24 @@ The product is ready for guided real-client testing while a separate, tested, ar
   - RC4.9 Forever Project Readiness Foundation.
   - RC5.0 Coralina end-to-end vertical slice through the full chain, exposed at the internal `/internal/coralina` route.
   - RC5.1 generalisation into the project-agnostic `forever-project-knowledge` engine; Modeva onboarded as a second real project; generic internal route `/internal/projects/$slug`.
-  - Architecture only: no persistence layer, no public route, no database write. Both catalogued projects report an honest `blocked` readiness verdict.
+  - Architecture only: no persistence layer, no public route, no database write. RC5.4 later advanced Coralina to `ready`; Modeva remains honestly `blocked`.
 
-## Upcoming Phases
+## Completed source-verification phase
 
 - Coralina source-backed blocker resolution
   - Locate and register source-backed evidence for `developer` and `country`.
   - Re-run cross-source validation and readiness through the RC4.4–RC5.1 chain.
   - Run Import Engine dry-run before any real import.
-  - RC5.3 re-audited both blockers against every committed Coralina artifact and confirmed neither has sufficient evidence yet — no fact was added. See `docs/CORALINA_RC5_3_EVIDENCE_AUDIT.md`. This phase remains upcoming until real Coralina-specific source material is committed.
+  - RC5.3 re-audited committed Coralina artifacts and correctly preserved both gaps. See `docs/CORALINA_RC5_3_EVIDENCE_AUDIT.md`.
+  - RC5.4 resolved both blockers using official corporate and government-hosted evidence, registered full provenance, regenerated the canonical record, and passed the 405-operation Import Engine dry-run. Execute mode remains disabled.
+  - RC5.4 completed currency preparation with a deterministic Thailand-to-THB `inferred_default` policy. The source-verified Thailand evidence, price-list absence, rule id/version, and confidence remain auditable; no database write occurred.
+
+## Upcoming Phases
+
+- RC5.5 Coralina safe execution
+  - Add staging/local target protection.
+  - Add transaction-backed execution and rollback behavior.
+  - Inspect existing target records and validate repeat-import semantics before any permanent write.
 
 - RC1 architecture hardening
   - Clarify canonical media flow.

@@ -25,6 +25,7 @@ import { CORALINA_PROJECT_NAME } from "@/features/coralina-integration";
 import { CORALINA_KNOWLEDGE_DESCRIBED_AT, CORALINA_PROJECT_ID, CORALINA_SLUG } from "./identity";
 import {
   CORALINA_AREA_FACT,
+  CORALINA_DEVELOPER_FACT,
   CORALINA_EXPECTED_MISSING_PATHS,
   CORALINA_EXTRACTION_FACTS,
   CORALINA_GREEN_SPACE_FACT,
@@ -39,19 +40,23 @@ import {
   CORALINA_KNOWLEDGE_SOURCES,
   CORALINA_LOCATION_MAP_SOURCE,
   CORALINA_MASTER_PLAN_SOURCE,
+  CORALINA_OFFICIAL_HISTORY_SOURCE,
   CORALINA_PRICE_LIST_SOURCE,
+  CORALINA_SEC_FILING_SOURCE,
   CORALINA_UNIT_PLANS_SOURCE,
 } from "./sources";
 import { CORALINA_READINESS_PROFILE } from "./profile";
 
 /** Extraction plan targets per source — only fact types this definition actually states. */
 export const CORALINA_PLAN_TARGETS: readonly ProjectKnowledgePlanTarget[] = [
-  { source: CORALINA_BROCHURE_SOURCE, factTypes: ["project_name", "location", "amenity"] },
+  { source: CORALINA_BROCHURE_SOURCE, factTypes: ["location", "amenity"] },
   { source: CORALINA_PRICE_LIST_SOURCE, factTypes: ["unit_type", "document_date"] },
   { source: CORALINA_FACILITIES_SOURCE, factTypes: ["property_type", "inventory", "amenity"] },
   { source: CORALINA_LOCATION_MAP_SOURCE, factTypes: ["location"] },
   { source: CORALINA_UNIT_PLANS_SOURCE, factTypes: ["inventory", "unit_type"] },
   { source: CORALINA_MASTER_PLAN_SOURCE, factTypes: ["document_date"] },
+  { source: CORALINA_OFFICIAL_HISTORY_SOURCE, factTypes: ["project_name"] },
+  { source: CORALINA_SEC_FILING_SOURCE, factTypes: ["developer", "location"] },
 ];
 
 /**
@@ -67,6 +72,12 @@ function coralinaEntityDeclarations(): KnowledgeEntityDeclaration[] {
     refs: [{ factId: fact.id, sourceId: fact.sourceId }],
   });
   return [
+    {
+      kind: "developer",
+      slug: "rhom-bho-property-public-company-limited",
+      name: "Rhom Bho Property Public Company Limited",
+      refs: [{ factId: CORALINA_DEVELOPER_FACT.id, sourceId: CORALINA_DEVELOPER_FACT.sourceId }],
+    },
     {
       kind: "location",
       slug: "kamala",
@@ -89,6 +100,12 @@ function coralinaRelationDeclarations(): KnowledgeRelationDeclaration[] {
     refs: [{ factId: fact.id, sourceId: fact.sourceId }],
   });
   return [
+    {
+      kind: "developed_by",
+      from: { kind: "project", key: CORALINA_SLUG },
+      to: { kind: "developer", key: "rhom-bho-property-public-company-limited" },
+      refs: [{ factId: CORALINA_DEVELOPER_FACT.id, sourceId: CORALINA_DEVELOPER_FACT.sourceId }],
+    },
     {
       kind: "located_in",
       from: { kind: "project", key: CORALINA_SLUG },
@@ -128,12 +145,12 @@ export const CORALINA_KNOWLEDGE_DEFINITION: ProjectKnowledgeDefinition = {
     intro:
       "Real Coralina source data run end-to-end through the Forever foundations: Project Sources (RC4.4) → Extraction Facts (RC4.5) → Cross-Source Validation (RC4.7) → Canonical Record (RC4.6) → Knowledge Graph (RC4.8) → Readiness (RC4.9). Every value below traces back to a committed source artifact; missing and disputed information is shown, not filled in.",
     sourcesNote:
-      "The committed Coralina source artifacts this slice extracts from. No developer, country, legal, or construction source exists in the package — none is registered.",
+      "The committed Coralina package plus official corporate and SEC sources captured by RC5.4. Developer and country are source-verified; legal tenure and construction status remain absent.",
     missingNote:
       "Fields Coralina's committed sources genuinely do not state. Each is declared to RC4.7 and reported as an explicit missing_information finding — never given a placeholder value.",
     readinessNote:
-      "The blockers below are the same two blockers the committed manifest records as SOURCE_PENDING.",
+      "RC5.4 resolved the developer and country blockers through official-source evidence. Remaining gaps are non-blocking and stay explicit.",
     footer:
-      'This page is a deterministic inspection of committed repository data (forever-data/projects/coralina). It performs no network calls, reads no database, and fabricates no values: facts absent from the sources appear under "Missing information", and conflicting statements appear under "Disputed information" unresolved.',
+      "This page is a deterministic inspection of committed repository evidence. Official web statements are captured with URLs and retrieval provenance; runtime rendering performs no network calls and reads no database.",
   },
 };

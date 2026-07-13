@@ -14,9 +14,9 @@ describe("CoralinaKnowledgePage", () => {
   it("renders the verified project name and readiness standing", () => {
     render(<CoralinaKnowledgePage inspection={inspection} />);
     expect(
-      screen.getByRole("heading", { name: /CORALINA KAMALA — Project Knowledge/ }),
+      screen.getByRole("heading", { name: /The Title Coralina Kamala — Project Knowledge/ }),
     ).toBeTruthy();
-    expect(screen.getAllByText("blocked").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("ready").length).toBeGreaterThan(0);
   });
 
   it("shows all six foundation stages", () => {
@@ -26,11 +26,11 @@ describe("CoralinaKnowledgePage", () => {
     }
   });
 
-  it("shows missing information honestly instead of filling it in", () => {
+  it("shows verified developer and country while preserving remaining gaps", () => {
     render(<CoralinaKnowledgePage inspection={inspection} />);
     expect(screen.getAllByText("developer.name").length).toBeGreaterThan(0);
     expect(screen.getAllByText("location.country").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/developer is SOURCE_PENDING/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("location.coordinates").length).toBeGreaterThan(0);
   });
 
   it("shows the unresolved unit-type dispute with both claims", () => {

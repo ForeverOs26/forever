@@ -9,6 +9,7 @@ import type {
 } from "./database";
 import type { ForeverManifest } from "./manifest";
 import type { ProjectValidationReport, ValidationIssue } from "./validator";
+import type { CurrencyDecision } from "./currency-policy";
 
 export type ImportMode = "dry-run" | "execute";
 
@@ -61,6 +62,7 @@ export interface Fact<T = unknown> {
   page_number?: number | null;
   sheet_name?: string | null;
   confidence?: string;
+  status?: "source_verified" | "inferred_default" | "unresolved" | "conflict";
 }
 
 export interface ExtractedPriceListRow {
@@ -83,6 +85,7 @@ export interface ExtractedPriceListRow {
 
 export interface ExtractedPriceList {
   price_list_date?: Fact<string>;
+  currency_decision?: CurrencyDecision;
   unit_inventory?: ExtractedPriceListRow[];
 }
 

@@ -11,7 +11,7 @@ const INSUFFICIENT = "Insufficient verified data";
 describe("Coralina advisory compatibility (reuses RC2.1–RC2.9)", () => {
   it("feeds the canonical project into the existing derivations without error", () => {
     const advisory = deriveCoralinaAdvisory();
-    expect(advisory.project.core.name).toBe("CORALINA KAMALA");
+    expect(advisory.project.core.name).toBe("The Title Coralina Kamala");
     expect(advisory.investment).toBeDefined();
     expect(advisory.rental).toBeDefined();
     expect(advisory.location).toBeDefined();
@@ -26,7 +26,7 @@ describe("Coralina advisory compatibility (reuses RC2.1–RC2.9)", () => {
     // No numeric scores are ever produced by the reused derivations.
     expect(investment.investmentScore).toBe(INVESTMENT_SCORE_UNAVAILABLE);
     expect(rental.rentalScore).toBe(RENTAL_SCORE_UNAVAILABLE);
-    // Coralina lacks a developer, construction status, verified price, and
+    // Coralina lacks construction status, verified price, and
     // rental/investment evidence, so the overall verdict is the most conservative.
     expect(passport.overallVerdict.readinessVerdict).toBe(INSUFFICIENT);
     expect(investment.readinessVerdict).toBe(INSUFFICIENT);
@@ -50,8 +50,7 @@ describe("Coralina advisory compatibility (reuses RC2.1–RC2.9)", () => {
     expect(project.units).toHaveLength(198);
     expect(project.media.unitPlans.length).toBeGreaterThan(0);
     expect(project.media.brochures.length).toBeGreaterThan(0);
-    // No verified price is surfaced (currency gap): every unit price stays null.
-    expect(project.units.every((u) => u.basePriceTHB === null)).toBe(true);
-    expect(project.developer).toBeNull();
+    expect(project.units.every((u) => (u.basePriceTHB ?? 0) > 0)).toBe(true);
+    expect(project.developer?.name).toBe("Rhom Bho Property Public Company Limited");
   });
 });

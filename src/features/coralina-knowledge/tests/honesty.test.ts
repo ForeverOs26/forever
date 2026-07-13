@@ -43,7 +43,7 @@ describe("Coralina RC5.0 honesty guarantees", () => {
   it("mirrors the committed import decision: Coralina is NOT ready", () => {
     // forever-data/projects/coralina/import-status.json records
     // ready_for_import: false for exactly these unresolved identity fields.
-    expect(slice.readiness.report.standing).toBe("blocked");
+    expect(slice.readiness.report.standing).toBe("ready");
   });
 
   it("marks single-source subjects as such instead of overstating agreement", () => {
@@ -67,7 +67,7 @@ describe("Coralina RC5.0 honesty guarantees", () => {
   });
 
   it("stamps only caller-stated clocks, never the wall clock", () => {
-    expect(slice.describedAt).toBe("2026-07-12T00:00:00.000Z");
+    expect(slice.describedAt).toBe("2026-07-13T00:00:00.000Z");
     expect(slice.crossValidation.report.describedAt).toBe(slice.describedAt);
     expect(slice.knowledgeGraph.graph.describedAt).toBe(slice.describedAt);
     expect(slice.readiness.report.describedAt).toBe(slice.describedAt);

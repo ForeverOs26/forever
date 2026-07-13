@@ -24,6 +24,8 @@ import {
   CORALINA_AREA_DETAIL,
   CORALINA_BEACH_DISTANCE,
   CORALINA_BUILDINGS,
+  CORALINA_COUNTRY,
+  CORALINA_DEVELOPER,
   CORALINA_HIGHLIGHTS,
   CORALINA_PRICE_LIST_DATE,
   CORALINA_PROJECT_NAME,
@@ -53,7 +55,9 @@ import {
   CORALINA_FACILITIES_SOURCE,
   CORALINA_LOCATION_MAP_SOURCE,
   CORALINA_MASTER_PLAN_SOURCE,
+  CORALINA_OFFICIAL_HISTORY_SOURCE,
   CORALINA_PRICE_LIST_SOURCE,
+  CORALINA_SEC_FILING_SOURCE,
   CORALINA_UNIT_PLANS_SOURCE,
 } from "./sources";
 
@@ -106,18 +110,6 @@ export type CoralinaKnowledgeGap = ProjectKnowledgeGap;
  */
 export const CORALINA_EXPECTED_MISSING_PATHS: readonly CoralinaKnowledgeGap[] = [
   {
-    path: "developer.name",
-    reason:
-      "manifest: developer is SOURCE_PENDING — local sources show The Title / AssetWise / Rhom Bho branding but no Coralina-specific developer statement. Required to resolve: A Coralina-specific brochure, company profile page, sales sheet, contract page, or official developer statement that explicitly names Coralina's developer.",
-    manifestBlocker: true,
-  },
-  {
-    path: "location.country",
-    reason:
-      "manifest: country is SOURCE_PENDING — sources identify Kamala and Phuket but never state the country. Required to resolve: A Coralina-specific location, address, map, brochure, or legal/developer document that explicitly states the country.",
-    manifestBlocker: true,
-  },
-  {
     path: "location.coordinates",
     reason: "no GPS coordinates appear in any committed extracted dataset",
   },
@@ -131,9 +123,37 @@ export const CORALINA_EXPECTED_MISSING_PATHS: readonly CoralinaKnowledgeGap[] = 
   },
   {
     path: "pricing.currency",
-    reason: "the price list states figures but no currency; the extracted currency is null",
+    reason:
+      "the price list states no direct currency; canonical import applies THB only as inferred_default from source-verified country Thailand under project_country_default_currency v1.0.0",
   },
 ];
+
+/** Verified legal developer from the official SEC-hosted company filing. */
+export const CORALINA_DEVELOPER_FACT = coralinaFact({
+  factSlug: "developer",
+  factType: "developer",
+  fieldPath: "developer.name",
+  source: CORALINA_SEC_FILING_SOURCE,
+  dataset: CORALINA_DATASETS.officialEvidence,
+  rawValue: CORALINA_DEVELOPER.value,
+  confidence: CORALINA_DEVELOPER.confidence,
+  page: 1,
+  excerpt:
+    'Rhom Bho Property Public Company Limited\'s core business is developing real estate projects for sale, primarily condominium projects in Phuket under the brand "The Title" ... Coralina Kamala.',
+});
+
+/** Verified country from the official filing that identifies the project portfolio and Thailand. */
+export const CORALINA_COUNTRY_FACT = coralinaFact({
+  factSlug: "country",
+  factType: "location",
+  fieldPath: "location.country",
+  source: CORALINA_SEC_FILING_SOURCE,
+  dataset: CORALINA_DATASETS.officialEvidence,
+  rawValue: CORALINA_COUNTRY.value,
+  confidence: CORALINA_COUNTRY.confidence,
+  page: 1,
+  excerpt: "Bangkok, 10310 Thailand ... condominium projects in Phuket ... Coralina Kamala",
+});
 
 /** Map a committed confidence label onto the RC4.5 vocabulary without inventing certainty. */
 function coralinaConfidenceLevel(recorded: string): ExtractionConfidenceLevel {
@@ -187,12 +207,12 @@ export const CORALINA_NAME_FACT = coralinaFact({
   factSlug: "project-name",
   factType: "project_name",
   fieldPath: "general.name",
-  source: CORALINA_BROCHURE_SOURCE,
-  dataset: CORALINA_DATASETS.verifiedFacts,
+  source: CORALINA_OFFICIAL_HISTORY_SOURCE,
+  dataset: CORALINA_DATASETS.officialEvidence,
   rawValue: CORALINA_PROJECT_NAME.value,
   confidence: CORALINA_PROJECT_NAME.confidence,
-  page: CORALINA_PROJECT_NAME.page ?? undefined,
-  excerpt: CORALINA_PROJECT_NAME.value,
+  locatorDetail: "2025 history, October",
+  excerpt: "Launched sales of The Title Coralina Kamala project in Phuket Province",
 });
 
 /** Verified project type (facilities document p.2). */
@@ -451,9 +471,11 @@ export const CORALINA_PET_FRIENDLY_FACT = coralinaFact({
 /** Every Coralina extraction fact this slice states, in declared order. */
 export const CORALINA_EXTRACTION_FACTS: readonly ExtractionFact[] = [
   CORALINA_NAME_FACT,
+  CORALINA_DEVELOPER_FACT,
   CORALINA_PROJECT_TYPE_FACT,
   CORALINA_AREA_FACT,
   CORALINA_PROVINCE_FACT,
+  CORALINA_COUNTRY_FACT,
   CORALINA_AREA_DETAIL_FACT,
   CORALINA_BEACH_DISTANCE_FACT,
   CORALINA_BUILDINGS_FACILITIES_FACT,

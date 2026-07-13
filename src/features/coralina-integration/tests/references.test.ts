@@ -39,10 +39,10 @@ describe("Coralina cross-foundation reference resolution (closes RC4.0 boundary)
     expect(projectCheck?.target).toBe(CORALINA_PROJECT_ID);
   });
 
-  it("treats the absent developer as a consistent absent reference", () => {
+  it("resolves the verified developer reference", () => {
     const dev = resolveCoralinaReferences().checks.find((c) => c.kind === "developerId");
     expect(dev?.resolved).toBe(true);
-    expect(dev?.message.toLowerCase()).toContain("no developer");
+    expect(dev?.message.toLowerCase()).toContain("matches the developer record");
   });
 
   it("flags an unresolved source reference when the source registry is empty", () => {

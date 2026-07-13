@@ -14,6 +14,7 @@ dist-ssr
 .vinxi
 .tanstack/**
 .nitro
+.codex/
 *.local
 .env
 .env.*
@@ -44,6 +45,9 @@ forever-data/projects/coralina/*
 !forever-data/projects/coralina/import-status.json
 !forever-data/projects/coralina/manifest.json
 !forever-data/projects/coralina/classification-log.json
+!forever-data/projects/coralina/evidence/
+forever-data/projects/coralina/evidence/*
+!forever-data/projects/coralina/evidence/rc5-4-evidence-review.json
 !forever-data/projects/coralina/extracted/
 forever-data/projects/coralina/extracted/*
 !forever-data/projects/coralina/extracted/.gitkeep

@@ -19,7 +19,7 @@ describe("Coralina canonical mapping (RC3.0)", () => {
     const record = buildCoralinaRecord();
     expect(record.project.id).toBe(CORALINA_PROJECT_ID);
     expect(record.project.slug).toBe("coralina");
-    expect(record.project.name).toBe("CORALINA KAMALA");
+    expect(record.project.name).toBe("The Title Coralina Kamala");
     expect(record.project.province).toBe("Phuket");
     expect(record.project.area).toBe("Kamala");
     expect(record.location?.areaName).toBe("Kamala");
@@ -28,13 +28,13 @@ describe("Coralina canonical mapping (RC3.0)", () => {
     expect(record.media.length).toBeGreaterThan(0);
   });
 
-  it("leaves absent facts absent (developer, country, coordinates, currency)", () => {
+  it("maps verified developer/country and leaves coordinates absent", () => {
     const record = buildCoralinaRecord();
-    expect(record.developer).toBeNull();
-    expect(record.project.developerId).toBeUndefined();
-    expect(record.project.country).toBeUndefined();
+    expect(record.developer?.name).toBe("Rhom Bho Property Public Company Limited");
+    expect(record.project.developerId).toBe(record.developer?.id);
+    expect(record.project.country).toBe("Thailand");
     expect(record.location?.geo).toBeUndefined();
-    expect(record.location?.country).toBeUndefined();
+    expect(record.location?.country).toBe("Thailand");
     // No verified construction / rental / investment / payment collections.
     expect(record.constructionProgress).toEqual([]);
     expect(record.rentalInformation).toEqual([]);
@@ -42,17 +42,24 @@ describe("Coralina canonical mapping (RC3.0)", () => {
     expect(record.paymentPlans).toEqual([]);
   });
 
-  it("never promotes a price to a canonical Money value (no currency in source)", () => {
+  it("promotes prices with transparent inferred-default THB provenance", () => {
     const record = buildCoralinaRecord();
     for (const unit of record.units) {
-      expect(unit.basePrice).toBeUndefined();
+      expect(unit.basePrice?.currency).toBe("THB");
+      expect(unit.basePrice?.amount).toBeGreaterThan(0);
       expect(unit.discountedPrice).toBeUndefined();
-      expect(unit.pricePerSqm).toBeUndefined();
-      // but the verified figure is preserved verbatim in provenance
+      expect(unit.pricePerSqm).toBeGreaterThan(0);
       expect(unit.source?.raw?.price).toBeDefined();
-      expect(unit.source?.raw?.currency).toBeNull();
+      expect(unit.source?.raw?.sourceCurrency).toBeNull();
+      expect(unit.source?.raw?.currencyDecision).toMatchObject({
+        value: "THB",
+        status: "inferred_default",
+        confidence: "medium",
+        inferenceRule: "project_country_default_currency",
+        inferredFromCountry: "Thailand",
+      });
     }
-    expect(record.project.pricing.startingPrice).toBeUndefined();
+    expect(record.project.pricing.startingPrice?.currency).toBe("THB");
   });
 
   it("passes RC3.0 record validation (schema + duplicates + integrity)", () => {

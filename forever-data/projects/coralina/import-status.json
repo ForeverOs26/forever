@@ -1,9 +1,9 @@
 {
   "project_slug": "coralina",
-  "generated_at": "2026-07-08",
-  "ready_for_import": false,
-  "status": "extracted_not_ready_for_import",
-  "summary": "Coralina source materials have been classified and structured extraction JSON files have been generated. CORALINA KAMALA, Kamala, Phuket, Residential, and the 2026-07-03 price-list date are source-backed. Real import remains blocked because developer and country still require Coralina-specific source evidence and ready_for_import must remain false.",
+  "generated_at": "2026-07-13",
+  "ready_for_import": true,
+  "status": "source_verified_ready_for_dry_run",
+  "summary": "The Title Coralina Kamala has source-verified identity, developer, and Thailand location. Selling-price currency is transparently inferred as THB from the source-verified country under project_country_default_currency v1.0.0; it is not source-verified. RC5.4 permits dry-run planning only; execute mode and database writes remain disabled.",
   "folders_found": [
     {
       "asset_type": "brochure",
@@ -105,9 +105,9 @@
     "resolved": [
       {
         "field": "project_name",
-        "value": "CORALINA KAMALA",
-        "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
-        "page_number": 12,
+        "value": "The Title Coralina Kamala",
+        "source_file": "https://investor.rhombho.co.th/en/corporate-info/our-history",
+        "page_number": null,
         "confidence": "high"
       },
       {
@@ -146,6 +146,20 @@
         "confidence": "medium"
       },
       {
+        "field": "developer",
+        "value": "Rhom Bho Property Public Company Limited",
+        "source_file": "https://market.sec.or.th/public/idisc/Download?FILEID=dat%2Fnews%2F202605%2F1379NWS060520261945432730E.pdf",
+        "page_number": 1,
+        "confidence": "high"
+      },
+      {
+        "field": "country",
+        "value": "Thailand",
+        "source_file": "https://market.sec.or.th/public/idisc/Download?FILEID=dat%2Fnews%2F202605%2F1379NWS060520261945432730E.pdf",
+        "page_number": 1,
+        "confidence": "high"
+      },
+      {
         "field": "price_list_date",
         "value": "2026-07-03",
         "source_file": "forever-data/projects/coralina/source/price-list/CLK - Price List V.2. - Updated 03.07.26.pdf",
@@ -153,17 +167,8 @@
         "confidence": "high"
       }
     ],
-    "still_blocked": [
-      {
-        "field": "developer",
-        "current_value": "SOURCE_PENDING",
-        "required_source": "A Coralina-specific brochure, company profile page, sales sheet, contract page, or official developer statement that explicitly names Coralina's developer."
-      },
-      {
-        "field": "country",
-        "current_value": "SOURCE_PENDING",
-        "required_source": "A Coralina-specific location, address, map, brochure, or legal/developer document that explicitly states the country."
-      },
+    "still_blocked": [],
+    "remaining_non_blocking": [
       {
         "field": "coordinates",
         "current_value": null,
@@ -177,26 +182,6 @@
     ]
   },
   "validation_issues": [
-    {
-      "severity": "error",
-      "code": "import_status_not_ready",
-      "message": "ready_for_import remains false because not all required manifest identity fields are source-backed."
-    },
-    {
-      "severity": "error",
-      "code": "manifest_contains_source_pending_values",
-      "message": "developer and country remain SOURCE_PENDING. They must be replaced only with explicit source-backed Coralina facts before import."
-    },
-    {
-      "severity": "warning",
-      "code": "developer_source_not_coralina_specific",
-      "message": "The company profile PDF shows The Title, AssetWise, and Rhom Bho Property branding, but no reviewed local source explicitly states Coralina's developer."
-    },
-    {
-      "severity": "warning",
-      "code": "country_not_explicitly_stated",
-      "message": "Reviewed Coralina location sources identify Kamala and Phuket, but do not explicitly state the country."
-    },
     {
       "severity": "warning",
       "code": "coordinates_missing",

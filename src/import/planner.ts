@@ -13,6 +13,7 @@ import type {
   ImportOperation,
   ImportPlan,
 } from "./types";
+import { currencyEvidenceFromFact, decideCurrency, type CurrencyEvidence } from "./currency-policy";
 
 function factValue<T>(fact: Fact<T> | undefined) {
   return fact?.value ?? null;
@@ -188,7 +189,22 @@ function mapCanonicalUnits(datasets: ExtractedDatasets): UnitInput[] {
   return unitPlanUnits.length ? unitPlanUnits : mapPriceListUnits(datasets.priceList);
 }
 
-function mapPriceHistory(priceList: ExtractedPriceList | null): PriceHistoryInput[] {
+function projectCountryEvidence(datasets: ExtractedDatasets): CurrencyEvidence {
+  const fact = readFactAtPath(datasets.brochure, ["location", "country"]);
+  return {
+    value: fact?.value == null ? null : String(fact.value),
+    status: fact?.status === "source_verified" ? "source_verified" : "unresolved",
+    confidence: fact?.confidence === "high" ? "high" : "none",
+    sourceFile: fact?.source_file,
+    sourcePage: fact?.page_number,
+    context: "source-verified project country",
+  };
+}
+
+function mapPriceHistory(
+  priceList: ExtractedPriceList | null,
+  countryEvidence: CurrencyEvidence,
+): PriceHistoryInput[] {
   const priceListDate = normalizeDate(factValue(priceList?.price_list_date) as string | null);
 
   return (priceList?.unit_inventory ?? [])
@@ -198,11 +214,16 @@ function mapPriceHistory(priceList: ExtractedPriceList | null): PriceHistoryInpu
 
       const price = parseNumber(sourceBackedFactValue(row.price));
       const sourceFile = row.price?.source_file ?? row.unit_number?.source_file ?? undefined;
+      const currencyDecision = decideCurrency({
+        priceEvidence: [currencyEvidenceFromFact(row.currency)],
+        countryEvidence,
+      });
 
       return {
         unitNumber,
         price,
-        currency: row.currency?.value == null ? null : String(row.currency.value),
+        currency: currencyDecision.value,
+        currencyDecision,
         priceSource: "developer_price_list",
         recordedDate: priceListDate,
         priceListDate,
@@ -221,6 +242,7 @@ function mapPriceHistory(priceList: ExtractedPriceList | null): PriceHistoryInpu
           source: "price_list_extraction",
           raw_price: row.price?.value ?? null,
           raw_currency: row.currency?.value ?? null,
+          currency_decision: currencyDecision,
           source_row: row.source_row ?? null,
         },
       };
@@ -418,7 +440,7 @@ export function createImportPlan(
   const units = attachProjectToUnits(manifest.project_slug, mapCanonicalUnits(datasets));
   const priceHistoryRows = attachProjectToPriceHistory(
     manifest.project_slug,
-    mapPriceHistory(datasets.priceList),
+    mapPriceHistory(datasets.priceList, projectCountryEvidence(datasets)),
   );
   const buildings = deriveBuildings(datasets.priceList);
   const project = { ...canonicalProject };

@@ -9,6 +9,33 @@
     "sheet_name": null,
     "confidence": "high"
   },
+  "currency_decision": {
+    "value": "THB",
+    "status": "inferred_default",
+    "confidence": "medium",
+    "inferenceRule": "project_country_default_currency",
+    "inferenceRuleVersion": "1.0.0",
+    "inferredFromCountry": "Thailand",
+    "priceEvidence": [
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "sourceFile": "forever-data/projects/coralina/source/price-list/CLK - Price List V.2. - Updated 03.07.26.pdf",
+        "sourcePage": null,
+        "context": "Selling Price and Price/sqm table columns on pages 1-4 do not state a currency"
+      }
+    ],
+    "countryEvidence": {
+      "value": "Thailand",
+      "status": "source_verified",
+      "confidence": "high",
+      "sourceFile": "https://market.sec.or.th/public/idisc/Download?FILEID=dat%2Fnews%2F202605%2F1379NWS060520261945432730E.pdf",
+      "sourcePage": 1,
+      "context": "Source-verified project country"
+    },
+    "reviewFindings": []
+  },
   "files_processed": [
     {
       "file": {

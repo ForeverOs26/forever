@@ -1,9 +1,9 @@
 {
   "project": {
     "name": {
-      "value": "CORALINA KAMALA",
-      "source_file": "forever-data/projects/coralina/source/brochure/2. E-Brochure__20251209 Coralina E-brochure.pdf",
-      "page_number": 12,
+      "value": "The Title Coralina Kamala",
+      "source_file": "https://investor.rhombho.co.th/en/corporate-info/our-history",
+      "page_number": null,
       "sheet_name": null,
       "confidence": "high"
     },
@@ -51,11 +51,11 @@
     }
   },
   "developer": {
-    "value": null,
-    "source_file": null,
-    "page_number": null,
+    "value": "Rhom Bho Property Public Company Limited",
+    "source_file": "https://market.sec.or.th/public/idisc/Download?FILEID=dat%2Fnews%2F202605%2F1379NWS060520261945432730E.pdf",
+    "page_number": 1,
     "sheet_name": null,
-    "confidence": "none"
+    "confidence": "high"
   },
   "location": {
     "primary_location": {
@@ -73,11 +73,12 @@
       "confidence": "high"
     },
     "country": {
-      "value": null,
-      "source_file": null,
-      "page_number": null,
+      "value": "Thailand",
+      "status": "source_verified",
+      "source_file": "https://market.sec.or.th/public/idisc/Download?FILEID=dat%2Fnews%2F202605%2F1379NWS060520261945432730E.pdf",
+      "page_number": 1,
       "sheet_name": null,
-      "confidence": "none"
+      "confidence": "high"
     },
     "beach_distance": {
       "value": "WALK TO THE BEACH 430 M. / 5 MINS",

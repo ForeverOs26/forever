@@ -27,7 +27,7 @@ describe("Coralina RC5.0 end-to-end chain", () => {
   });
 
   it("plans extraction for each registered source through the RC4.5 pipeline", () => {
-    expect(slice.extraction.plans).toHaveLength(6);
+    expect(slice.extraction.plans).toHaveLength(8);
     const plannedSources = slice.extraction.plans.map((plan) => plan.metadata.sourceId);
     expect(plannedSources).toEqual(slice.sources.definitions.map((s) => s.identity.id));
   });
@@ -67,11 +67,9 @@ describe("Coralina RC5.0 end-to-end chain", () => {
     expect(slice.canonical.merge.conflicts).toEqual([]);
     const rejected = slice.canonical.merge.entries.filter((entry) => entry.kind === "rejected");
     expect(rejected).toEqual([]);
-    // 15 admitted facts: 14 fields added, 1 corroborating duplicate unchanged.
-    // (17 stated − 2 contested unit-type facts.)
-    expect(slice.canonical.admittedFactIds).toHaveLength(15);
-    expect(slice.canonical.record.fields).toHaveLength(14);
-    expect(slice.canonical.merge.entries.filter((e) => e.kind === "added")).toHaveLength(14);
+    expect(slice.canonical.admittedFactIds).toHaveLength(17);
+    expect(slice.canonical.record.fields).toHaveLength(16);
+    expect(slice.canonical.merge.entries.filter((e) => e.kind === "added")).toHaveLength(16);
     expect(slice.canonical.merge.entries.filter((e) => e.kind === "unchanged")).toHaveLength(1);
   });
 
@@ -104,21 +102,14 @@ describe("Coralina RC5.0 end-to-end chain", () => {
     expect(findKnowledgeNode(graph, "location", "kamala")).toBeDefined();
     expect(listKnowledgeEdgesByKind(graph, "located_in")).toHaveLength(1);
     expect(listKnowledgeEdgesByKind(graph, "offers")).toHaveLength(5);
-    // No developer entity may exist — the developer is genuinely unknown.
-    expect(graph.nodes.filter((node) => node.kind === "developer")).toEqual([]);
+    expect(graph.nodes.filter((node) => node.kind === "developer")).toHaveLength(1);
+    expect(listKnowledgeEdgesByKind(graph, "developed_by")).toHaveLength(1);
   });
 
-  it("derives readiness BLOCKED from exactly the two real manifest blockers", () => {
-    expect(slice.readiness.report.standing).toBe("blocked");
+  it("derives readiness READY after official evidence resolves both blockers", () => {
+    expect(slice.readiness.report.standing).toBe("ready");
     const blockers = listReadinessBlockers(slice.readiness.report);
-    expect(blockers.map((evaluation) => evaluation.requirement.path).sort()).toEqual([
-      "developer.name",
-      "location.country",
-    ]);
-    for (const blocker of blockers) {
-      expect(blocker.verdict).toBe("unmet");
-      expect(blocker.requirement.kind).toBe("field_present");
-    }
+    expect(blockers).toEqual([]);
   });
 
   it("meets the source and identity requirements that the committed data satisfies", () => {

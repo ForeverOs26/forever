@@ -22,6 +22,9 @@ export const CORALINA_SLUG: Slug = CORALINA_PROJECT_SLUG;
 /** Canonical project id. */
 export const CORALINA_PROJECT_ID: ForeverId = `proj_${CORALINA_SLUG}`;
 
+/** Canonical developer id derived from the verified legal name. */
+export const CORALINA_DEVELOPER_ID: ForeverId = "dev_rhom-bho-property-public-company-limited";
+
 /** Canonical location id (project-scoped, one location per project). */
 export const CORALINA_LOCATION_ID: ForeverId = `${CORALINA_PROJECT_ID}::location`;
 
