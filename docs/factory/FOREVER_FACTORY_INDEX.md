@@ -2,7 +2,7 @@
 
 Status: Cold-clone start here
 Current autonomy: A0 — Propose only
-Current Operator maturity: v0.1 implemented in this branch; deterministic local checks become active after merge and setup; real low-risk operational proving still required
+Current Operator maturity: v0.1 implemented; first isolated documentation-only proving cycle completed for bounded A0 use
 
 ## What Forever Factory is
 
@@ -58,7 +58,7 @@ Invoke **Continue Forever** or **Продолжай Forever**, then follow `docs
 ## Current boundaries
 
 - Autonomy is A0. No unattended task origination, night execution, automatic model invocation, browser control, or automatic merge is enabled.
-- Operator v0.1 is included in this branch and can validate bounded patches locally in disposable worktrees after merge and local setup. Auto-merge is disabled, and no control is considered proven for production use until real low-risk operational testing is separately approved.
+- Operator v0.1 can validate bounded patches locally in disposable worktrees. Its first isolated documentation-only `validate-only` and `dry-run` proving cycle completed successfully, establishing bounded A0 use without enabling production autonomy or resolving every known limitation. Auto-merge remains disabled.
 - GitHub CI enforcement, native R0–R3 gate profiles, Ledger synchronization, shared-contract locking, author/reviewer identity enforcement, semantic data gates, and approval verification remain `PLANNED` unless separately implemented and activated.
 - Until approved repository CI workflows are active, bootstrap relies on local Operator validation, manual diff review, and Owner merge authorization. Planned gates are never described as passed; once a gate is active and required, absence or failure blocks merge.
 - R2 and R3 always remain human-in-the-loop; R3 is Owner-merged.
