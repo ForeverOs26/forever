@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forever.local/schemas/operator-task-v0.1.json",
+  "title": "Forever Operator task v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "taskId", "title", "patchPath", "expectedBaseCommit",
+    "allowedPaths", "forbiddenPaths", "riskOverride", "branchName",
+    "commitMessage", "createPullRequest", "allowAutomaticMerge", "validationProfile"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "0.1" },
+    "taskId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "patchPath": { "type": "string", "minLength": 1, "description": "Path inside the configured patch inbox, relative to .forever-factory." },
+    "expectedBaseCommit": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$" },
+    "allowedPaths": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "forbiddenPaths": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "riskOverride": { "type": ["string", "null"], "enum": ["LOW", "MEDIUM", "HIGH", null], "description": "Minimum risk floor. It may raise automatic risk but can never lower it." },
+    "branchName": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]+$", "maxLength": 128 },
+    "commitMessage": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[^\\u0000-\\u001F\\u007F]+$" },
+    "createPullRequest": { "type": "boolean" },
+    "allowAutomaticMerge": { "type": "boolean" },
+    "validationProfile": { "type": "string", "enum": ["full", "quick"] }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "0.1",
+  "taskId": "FACTORY-EXAMPLE-001",
+  "title": "Example documentation patch",
+  "patchPath": "inbox/example.patch",
+  "expectedBaseCommit": "REPLACE_WITH_40_CHARACTER_COMMIT_SHA",
+  "allowedPaths": ["docs/**"],
+  "forbiddenPaths": ["docs/private/**"],
+  "riskOverride": null,
+  "branchName": "factory/example-documentation-patch",
+  "commitMessage": "docs: apply example documentation patch",
+  "createPullRequest": true,
+  "allowAutomaticMerge": false,
+  "validationProfile": "full"
+}

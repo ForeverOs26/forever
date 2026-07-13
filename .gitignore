@@ -15,6 +15,17 @@ dist-ssr
 .tanstack/**
 .nitro
 .codex/
+.forever-factory/inbox/*
+!.forever-factory/inbox/.gitkeep
+!.forever-factory/logs/
+.forever-factory/logs/*
+!.forever-factory/logs/.gitkeep
+.forever-factory/reports/*
+!.forever-factory/reports/.gitkeep
+.forever-factory/state/*
+!.forever-factory/state/.gitkeep
+.forever-factory/worktrees/*
+!.forever-factory/worktrees/.gitkeep
 *.local
 .env
 .env.*
