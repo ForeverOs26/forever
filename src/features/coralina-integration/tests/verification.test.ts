@@ -46,7 +46,7 @@ describe("Coralina integration verification result", () => {
 
   it("lists verified facts and remaining data gaps", () => {
     const result = buildCoralinaVerification();
-    expect(result.verifiedFacts.some((f) => f.includes("CORALINA KAMALA"))).toBe(true);
+    expect(result.verifiedFacts.some((f) => f.includes("The Title Coralina Kamala"))).toBe(true);
     expect(result.verifiedFacts.some((f) => f.includes("198"))).toBe(true);
     expect(result.dataGaps.length).toBeGreaterThan(0);
   });

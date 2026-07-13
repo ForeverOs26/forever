@@ -1,15 +1,23 @@
 # Forever Current Stage
 
 Status: Canonical active-stage document
-Last updated: 2026-07-12
+Last updated: 2026-07-13
 
 ## Stage name
 
-Coralina source-backed intake completion, using the completed RC4.4–RC5.1 Project Knowledge Platform.
+RC5.4 Coralina official-source intake validation and dry-run completion.
 
 ## Objective
 
-Resolve the two remaining source-backed blockers for Coralina (`developer`, `country`) only when real committed Coralina source material supports it, using the existing RC4.4–RC5.1 foundation chain (source registry, extraction pipeline, canonical project database, cross-source validation, knowledge graph, readiness) and the Import Engine — without changing application code, database schema, public routes, UI components, business logic, or readiness rules.
+Validate the newly source-verified Coralina developer and country facts through the existing RC4.4–RC5.1 foundation chain and Import Engine dry-run, while keeping execute mode and database writes disabled.
+
+## RC5.4 official-source resolution (2026-07-13)
+
+Official Rhom Bho Property corporate pages, official shareholder publications, and a Thailand SEC-hosted company filing resolve the two RC5.3 blockers. Canonical values are `Rhom Bho Property Public Company Limited` and `Thailand`; official project name is `The Title Coralina Kamala`. AssetWise is documented as an indirect major shareholder through 39 Estate, not the developer. Project Knowledge readiness is `ready`; Import Engine dry-run completes with 405 operations (1 project, 8 buildings, 198 units, 198 price-history rows) and zero writes. Execute mode remains disabled.
+
+The Coralina selling-price tables do not print a currency. RC5.4 therefore applies `project_country_default_currency` v1.0.0: source-verified country `Thailand` yields `THB` with status `inferred_default` and medium confidence. Direct source currencies always override this default; conflicts remain unresolved. The execute layer no longer substitutes THB for null currency and persists the canonical decision and provenance in existing metadata JSON. No schema migration or database write was performed.
+
+RC5.4 data preparation is complete. The first permanent Coralina import remains a separately approved checkpoint; execute mode has not been run and total database writes remain zero.
 
 ## RC5.3 evidence audit (2026-07-12)
 
@@ -19,10 +27,10 @@ RC5.3 re-audited both blockers against every committed Coralina artifact (manife
 
 RC4.4–RC5.1 completed the full intake foundation chain and proved it end to end on two real projects through the generic Project Knowledge Platform (`src/features/forever-project-knowledge`):
 
-- Coralina (RC5.0, restated as a definition in RC5.1; re-audited in RC5.3) has 17 project-level facts, a knowledge graph, and a readiness report that is `blocked` on exactly two real, source-backed gaps: `developer` and `country`.
+- Coralina (RC5.0, restated in RC5.1 and source-verified in RC5.4) has 19 project-level facts, a knowledge graph, and a `ready` readiness report after official evidence resolved `developer` and `country`.
 - Modeva (RC5.1) has 18 facts built purely from committed repository artifacts (the FDB-001 seed migration, the FDB-002C reviewed price-list import, the FDB-003C real-run report) and is honestly `blocked` for a different reason: no developer package was ever committed under `forever-data/projects/modeva/`, so there is no brochure to satisfy the intake bar, even though Modeva is already live in the production database.
 
-Both internal inspection routes (`/internal/coralina`, `/internal/projects/$slug`, both `noindex`/`nofollow` and not linked from the public site) render these findings today. The architecture is no longer the limiting factor for Coralina — real source evidence is. The highest-value next step is closing the one gap the chain was built to expose, not adding further architecture.
+Both internal inspection routes (`/internal/coralina`, `/internal/projects/$slug`, both `noindex`/`nofollow` and not linked from the public site) render these findings today. RC5.4 resolves the evidence and deterministic preparation checkpoint; permanent persistence remains deferred.
 
 ## In scope
 
@@ -39,7 +47,7 @@ Both internal inspection routes (`/internal/coralina`, `/internal/projects/$slug
 - Real database import for Coralina before readiness blockers are resolved and dry-run validation passes.
 - Onboarding a third project through data only: `rainpalm` and `gardens-of-eden` still have blank `database/projects/*/README.md` templates and no committed source package, so a knowledge definition for either would have to fabricate facts, which `docs/DATA_STANDARD.md` forbids.
 - Bridging the canonical project record produced by the chain toward a persistence layer (the FOREVER_BRAIN RC6/RC7 track) — deferred until this stage closes; see "Next stage."
-- Exposing project knowledge to the public product — premature while both catalogued projects report a `blocked` readiness verdict.
+- Exposing project knowledge to the public product — outside this evidence-validation stage and still unsupported for Modeva's incomplete knowledge package.
 - Website UI redesigns, route changes, component rewrites, or business-logic changes.
 - New AI orchestration, agent automation, or AI-driven scoring.
 - Tablet Booth Mode, CRM workflows, mobile app, PDF automation.
@@ -56,13 +64,13 @@ Both internal inspection routes (`/internal/coralina`, `/internal/projects/$slug
 
 ## Active tasks
 
-| Task                                                                         | Owner             | Stage   | Status                 |
-| ----------------------------------------------------------------------------| ----------------- | ------- | ---------------------- |
-| Resolve Coralina `developer` source-backed blocker.                         | Constantin        | Current | Blocked — RC5.3 audit found no new committed evidence |
-| Resolve Coralina `country` source-backed blocker.                          | Constantin        | Current | Blocked — RC5.3 audit found no new committed evidence |
-| Re-state resolved facts through the `forever-project-knowledge` definition and re-run cross-validation/readiness. | Codex | Current | Pending source updates |
-| Run Import Engine dry-run before any real import.                          | Codex             | Current | Pending validation     |
-| Review whether documentation remains aligned after intake readiness changes. | Architect / Codex | Current | Ongoing                |
+| Task                                                                                                              | Owner              | Stage   | Status                                    |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------ | ------- | ----------------------------------------- |
+| Resolve Coralina `developer` source-backed blocker.                                                               | Constantin / Codex | Current | Complete — verified from official sources |
+| Resolve Coralina `country` source-backed blocker.                                                                 | Constantin / Codex | Current | Complete — verified from official sources |
+| Re-state resolved facts through the `forever-project-knowledge` definition and re-run cross-validation/readiness. | Codex              | Current | Complete — readiness is `ready`           |
+| Run Import Engine dry-run before any real import.                                                                 | Codex              | Current | Complete — 405 operations, zero writes    |
+| Review whether documentation remains aligned after intake readiness changes.                                      | Architect / Codex  | Current | Ongoing                                   |
 
 ## Acceptance criteria
 
@@ -82,12 +90,11 @@ Both internal inspection routes (`/internal/coralina`, `/internal/projects/$slug
 
 ## Known blockers
 
-- Coralina `developer` is blocked until source-backed evidence is available. RC5.3 re-audited and confirmed no new evidence exists in the committed repository (`docs/CORALINA_RC5_3_EVIDENCE_AUDIT.md`).
-- Coralina `country` is blocked until source-backed evidence is available. RC5.3 re-audited and confirmed no new evidence exists in the committed repository (`docs/CORALINA_RC5_3_EVIDENCE_AUDIT.md`).
+- No Coralina readiness blocker remains. The two RC5.3 evidence gaps are resolved by the official sources registered in `forever-data/projects/coralina/evidence/rc5-4-evidence-review.json`.
 - Modeva's knowledge package is blocked on a missing committed developer brochure; this is evidence for the platform's honesty posture, not an active task of this stage (Modeva is already live in the production database from its earlier FDB-002/FDB-003 import).
 
 ## Next stage
 
-Recommended: once Coralina's two blockers are resolved and its Import Engine dry-run passes, begin bridging the canonical project record the RC4.4–RC5.1 chain already produces toward a persistence layer (the FOREVER_BRAIN RC6/RC7 track), rather than adding a third foundation or a third project — no other project currently has committed source material to onboard, and exposing project knowledge to the public product is premature while both catalogued projects are blocked. This ordering, and the reasons a third project or public exposure are not yet viable, is recorded in `docs/RC5_1_PROJECT_KNOWLEDGE_PLATFORM.md`.
+RC5.5 is the next separately approved checkpoint. It must address staging/local target guards, transaction-backed execution, rollback behavior, existing-record collision inspection, and repeat-import validation before any permanent Coralina write.
 
 Do not start this stage until the current stage is reviewed and closed by the Architect.

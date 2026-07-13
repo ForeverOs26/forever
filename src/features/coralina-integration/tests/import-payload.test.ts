@@ -15,13 +15,21 @@ describe("Coralina import payload (RC3.1)", () => {
     expect(a.batch.units).toHaveLength(198);
     expect(a.batch.media?.length).toBeGreaterThan(0);
     expect(a.batch.documents?.length).toBeGreaterThan(0);
-    // No developer is imported — none is verified.
-    expect(a.batch.developers).toBeUndefined();
+    expect(a.batch.developers).toHaveLength(1);
+    expect(a.batch.developers?.[0]?.verificationStatus).toBe("verified");
   });
 
-  it("carries no default currency in its context (source states none)", () => {
+  it("carries the canonical inferred currency without an import-context fallback", () => {
     const payload = buildCoralinaImportPayload();
     expect(payload.context.defaultCurrency).toBeUndefined();
+    expect(payload.batch.units?.every((unit) => unit.basePrice?.currency === "THB")).toBe(true);
+    expect(
+      payload.batch.units?.every(
+        (unit) =>
+          (unit.source?.raw?.currencyDecision as { status?: string } | undefined)?.status ===
+          "inferred_default",
+      ),
+    ).toBe(true);
     expect(payload.source.format).toBe("manual");
   });
 

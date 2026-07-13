@@ -95,11 +95,17 @@ export function validateImportPlanRelationships(plan: ImportPlan): ValidationIss
       });
     }
 
-    if (row.currency == null) {
+    if (row.currencyDecision.status === "conflict") {
+      issues.push({
+        severity: "error",
+        code: "price_history_currency_conflict",
+        message: `Price history for unit ${row.unitNumber} has conflicting authoritative currencies.`,
+      });
+    } else if (row.currency == null) {
       issues.push({
         severity: "warning",
-        code: "price_history_currency_null",
-        message: `Price history for unit ${row.unitNumber} has explicit null currency in source extraction.`,
+        code: "price_history_currency_unresolved",
+        message: `Price history for unit ${row.unitNumber} has unresolved currency.`,
       });
     } else if (!row.currency.trim()) {
       issues.push({
@@ -107,6 +113,19 @@ export function validateImportPlanRelationships(plan: ImportPlan): ValidationIss
         code: "price_history_currency_missing",
         message: `Price history for unit ${row.unitNumber} is missing currency.`,
       });
+    }
+
+    if (row.currencyDecision.status === "source_verified") {
+      const hasDirectEvidence = row.currencyDecision.priceEvidence.some(
+        (evidence) => evidence.status === "source_verified" && evidence.value === row.currency,
+      );
+      if (!hasDirectEvidence) {
+        issues.push({
+          severity: "error",
+          code: "price_history_currency_source_verification_missing",
+          message: `Price history for unit ${row.unitNumber} labels currency source_verified without direct evidence.`,
+        });
+      }
     }
   }
 

@@ -10,9 +10,9 @@
  *
  * Absent facts are mapped to the empty/zero sentinels the advisory already reads
  * as "Not available" (an empty string, `0`, or a `null` coordinate). No fact is
- * fabricated: because the source carries no currency, no verified price, no
- * developer, and no rental/investment figures, those surfaces stay empty and the
- * advisory output therefore stays conservative on its own.
+ * fabricated: inferred-default price currency remains labelled in canonical
+ * provenance, while missing construction, tenure, rental, and investment facts
+ * stay empty.
  */
 
 import type { ForeverDatabaseRecord, ForeverUnit } from "@/features/forever-database";
@@ -48,10 +48,9 @@ function toUnit(unit: ForeverUnit): ProjectDetailUnit {
     floor: unit.floor ?? null,
     viewType: unit.viewType ?? "",
     ownershipType: unit.ownershipTypeRaw,
-    // No verified currency, so no price is surfaced (kept null, read as absent).
-    basePriceTHB: null,
+    basePriceTHB: unit.basePrice?.currency === "THB" ? unit.basePrice.amount : null,
     discountedPriceTHB: null,
-    pricePerSqm: null,
+    pricePerSqm: unit.pricePerSqm ?? null,
     availabilityStatus: unit.availabilityStatusRaw,
     paymentPlan: unit.paymentPlanLabel ?? "",
     furniturePackage: unit.furniturePackage ?? "",
@@ -100,9 +99,13 @@ export function buildCoralinaProjectDetail(
       isActive: project.isActive,
     },
     pricing: {
-      // No verified currency → no price surfaced; `0`/"" read as "Not available".
-      startingPriceTHB: 0,
-      displayPrice: "",
+      startingPriceTHB:
+        project.pricing.startingPrice?.currency === "THB"
+          ? project.pricing.startingPrice.amount
+          : 0,
+      displayPrice: project.pricing.startingPrice
+        ? `${project.pricing.startingPrice.currency} ${project.pricing.startingPrice.amount.toLocaleString("en-US")}`
+        : "",
       priceRange: "",
       pricePerSqm: "",
       verifiedPrice: "",
@@ -135,7 +138,18 @@ export function buildCoralinaProjectDetail(
       nearbyHospitals: location ? [...location.nearbyHospitals] : [],
       lifestyle: location ? [...location.lifestyle] : [],
     },
-    developer: null,
+    developer: record.developer
+      ? {
+          id: record.developer.id,
+          name: record.developer.name,
+          description: record.developer.description ?? "",
+          website: record.developer.website ?? "",
+          contactName: record.developer.contactName ?? "",
+          contactPhone: record.developer.contactPhone ?? "",
+          contactEmail: record.developer.contactEmail ?? "",
+          logoUrl: record.developer.logoUrl ?? "",
+        }
+      : null,
     media: {
       hero: null,
       gallery: galleryImages.map((m) => toMediaItem(m, "gallery")),

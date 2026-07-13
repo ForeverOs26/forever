@@ -2,8 +2,10 @@
  * Coralina verified project-level facts.
  *
  * Every value here is copied verbatim from the committed Coralina source
- * material under `forever-data/projects/coralina/` (the manifest and the
- * `extracted/*.json` datasets). Nothing is inferred or defaulted.
+ * material under `forever-data/projects/coralina/` (the manifest,
+ * `extracted/*.json` datasets, and the RC5.4 official-web evidence review).
+ * Source facts remain verbatim. Policy-derived values are separately labelled
+ * and never represented as source-verified.
  *
  * The CRITICAL ANTI-FABRICATION RULE governs this file: a fact that the source
  * does not state is listed in {@link CORALINA_DATA_GAPS} and is never given a
@@ -27,12 +29,44 @@ const BROCHURE =
 const FACILITIES =
   "forever-data/projects/coralina/source/documents/3. Facilities__Coralina Facilities.pdf";
 const MAP2 = "forever-data/projects/coralina/source/documents/9. Map__CORALINA Map 2.jpeg";
+const OFFICIAL_SEC_FILING =
+  "https://market.sec.or.th/public/idisc/Download?FILEID=dat%2Fnews%2F202605%2F1379NWS060520261945432730E.pdf";
+
+/** Verified legal developer from Rhom Bho Property's official SEC filing. */
+export const CORALINA_DEVELOPER: CoralinaFact = {
+  value: "Rhom Bho Property Public Company Limited",
+  sourceFile: OFFICIAL_SEC_FILING,
+  page: 1,
+  confidence: "high",
+};
+
+/** Verified country from the same official filing that lists Coralina Kamala. */
+export const CORALINA_COUNTRY: CoralinaFact = {
+  value: "Thailand",
+  sourceFile: OFFICIAL_SEC_FILING,
+  page: 1,
+  confidence: "high",
+};
+
+/** Shared table-level decision for selling prices whose source omits currency. */
+export const CORALINA_PRICE_CURRENCY_DECISION = {
+  value: "THB",
+  status: "inferred_default",
+  confidence: "medium",
+  inferenceRule: "project_country_default_currency",
+  inferenceRuleVersion: "1.0.0",
+  inferredFromCountry: CORALINA_COUNTRY.value,
+  priceSourceFile:
+    "forever-data/projects/coralina/source/price-list/CLK - Price List V.2. - Updated 03.07.26.pdf",
+  countrySourceFile: CORALINA_COUNTRY.sourceFile,
+  countrySourcePage: CORALINA_COUNTRY.page,
+} as const;
 
 /** Verified project identity. */
 export const CORALINA_PROJECT_NAME: CoralinaFact = {
-  value: "CORALINA KAMALA",
-  sourceFile: BROCHURE,
-  page: 12,
+  value: "The Title Coralina Kamala",
+  sourceFile: "https://investor.rhombho.co.th/en/corporate-info/our-history",
+  page: null,
   confidence: "high",
 };
 
@@ -169,16 +203,13 @@ export const CORALINA_BROCHURE_SOURCE_FILE = BROCHURE;
  * `null` value in the committed manifest / extraction datasets.
  */
 export const CORALINA_DATA_GAPS: readonly string[] = [
-  "developer (manifest: SOURCE_PENDING — local sources show The Title / AssetWise / Rhom Bho branding but no Coralina-specific developer statement)",
-  "country (manifest: SOURCE_PENDING — sources identify Kamala and Phuket but not the country)",
   "coordinates / latitude / longitude (no GPS values in any extracted dataset)",
   "construction status / completion date (no Coralina-specific value in any source)",
   "ownership type / tenure (freehold vs leasehold not stated)",
-  "price currency (price list states figures but no currency; extracted currency is null)",
+  "selling-price currency is not printed in the price list; THB is retained only as an inferred_default from source-verified country Thailand",
   "project total unit count as a stated fact (derivable only by counting the price list)",
   "per-unit bathrooms (not recorded in the price list)",
   "payment plan / payment terms (not recorded in the price list)",
   "rental information (no expected rent, occupancy, guarantee, or management figures)",
   "investment information (no ROI, yield, or capital-growth figures)",
-  "developer legal entity, website, and contact details",
 ];

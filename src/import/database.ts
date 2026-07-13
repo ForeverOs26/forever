@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { ForeverManifest } from "./manifest";
+import type { CurrencyDecision } from "./currency-policy";
 
 type DatabaseClient = SupabaseClient;
 type JsonObject = Record<string, unknown>;
@@ -42,6 +43,7 @@ export interface UnitInput {
   floor?: number | null;
   price?: number | null;
   currency?: string;
+  currencyDecision?: CurrencyDecision;
   pricePerSqm?: number | null;
   availabilityStatus?: string;
   sourceFile?: string;
@@ -56,6 +58,7 @@ export interface PriceHistoryInput {
   unitNumber: string;
   price: number | null;
   currency: string | null;
+  currencyDecision: CurrencyDecision;
   priceSource: "developer_price_list";
   recordedDate: string | null;
   priceListDate: string | null;
@@ -93,6 +96,34 @@ export interface DatabaseLayer {
     units: UnitInput[],
   ): Promise<Map<string, string>>;
   upsertPriceHistory(unitIds: Map<string, string>, rows: PriceHistoryInput[]): Promise<number>;
+}
+
+export function createPriceHistoryPersistencePayload(unitId: string, row: PriceHistoryInput) {
+  return {
+    unit_id: unitId,
+    price: row.price,
+    currency: row.currency,
+    price_source: row.priceSource,
+    source_file: row.sourceFile ?? null,
+    source_page: row.sourcePage ?? null,
+    price_list_date: row.priceListDate,
+    recorded_at: row.recordedDate,
+    metadata: {
+      source_type_code: row.sourceTypeCode,
+      unit_number: row.unitNumber,
+      building_code: row.buildingCode,
+      floor: row.floor,
+      unit_type: row.unitType,
+      bedrooms: row.bedrooms,
+      size_sqm: row.sizeSqm,
+      price_per_sqm: row.pricePerSqm,
+      availability_status: row.availabilityStatus,
+      source_row: row.sourceRow,
+      raw: row.raw,
+      currency_decision: row.currencyDecision,
+    },
+    updated_at: new Date().toISOString(),
+  };
 }
 
 function slugify(value: string) {
@@ -358,30 +389,7 @@ export function createDatabaseLayer(client: DatabaseClient = createImportClient(
         const unitId = unitIds.get(row.unitNumber);
         if (!unitId || row.price == null || !row.recordedDate) continue;
 
-        const payload = {
-          unit_id: unitId,
-          price: row.price,
-          currency: row.currency ?? "THB",
-          price_source: row.priceSource,
-          source_file: row.sourceFile ?? null,
-          source_page: row.sourcePage ?? null,
-          price_list_date: row.priceListDate,
-          recorded_at: row.recordedDate,
-          metadata: {
-            source_type_code: row.sourceTypeCode,
-            unit_number: row.unitNumber,
-            building_code: row.buildingCode,
-            floor: row.floor,
-            unit_type: row.unitType,
-            bedrooms: row.bedrooms,
-            size_sqm: row.sizeSqm,
-            price_per_sqm: row.pricePerSqm,
-            availability_status: row.availabilityStatus,
-            source_row: row.sourceRow,
-            raw: row.raw,
-          },
-          updated_at: new Date().toISOString(),
-        };
+        const payload = createPriceHistoryPersistencePayload(unitId, row);
 
         const existing = await maybeSingle<{ id: string }>(
           client

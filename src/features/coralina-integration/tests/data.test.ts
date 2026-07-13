@@ -38,11 +38,10 @@ describe("Coralina verified data", () => {
     }
   });
 
-  it("records every known data gap explicitly, including currency and developer", () => {
+  it("records every remaining known data gap explicitly", () => {
     const joined = CORALINA_DATA_GAPS.join(" | ").toLowerCase();
-    expect(joined).toContain("developer");
-    expect(joined).toContain("country");
     expect(joined).toContain("currency");
+    expect(joined).not.toContain("source_pending");
     expect(joined).toContain("construction");
     expect(joined).toContain("coordinates");
     expect(joined).toContain("rental");

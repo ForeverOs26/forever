@@ -18,9 +18,9 @@
  *   brochure and price list are high-trust developer materials, the
  *   supporting documents and image collections are standard-trust.
  *
- * No source is invented: there is deliberately NO developer-information,
- * country, legal, construction-status, or rental/investment source, because
- * Coralina's committed package contains none.
+ * RC5.4 adds two official web sources captured in the committed evidence
+ * review. The source registry stores their URLs and retrieval provenance; it
+ * performs no network access at runtime.
  */
 
 import {
@@ -154,6 +154,46 @@ export const CORALINA_MASTER_PLAN_SOURCE: ProjectSourceDefinition = describeProj
   },
 });
 
+/** Official corporate history identifying The Title Coralina Kamala in Phuket. */
+export const CORALINA_OFFICIAL_HISTORY_SOURCE: ProjectSourceDefinition = describeProjectSource({
+  projectSlug: CORALINA_SLUG,
+  sourceSlug: "official-corporate-history",
+  name: "Rhom Bho Property Official History",
+  documentType: "developer_update",
+  fileFormat: "text",
+  version: projectSourceVersion(1, 0, 0),
+  authority: projectSourceAuthority("developer_official"),
+  status: "verified",
+  origin: "developer_website",
+  metadata: {
+    owner: "Rhom Bho Property Public Company Limited",
+    region: "Phuket, Thailand",
+    tags: ["coralina", "official-web", "rc5.4"],
+    description: "https://investor.rhombho.co.th/en/corporate-info/our-history",
+  },
+});
+
+/** Official SEC-hosted filing defining the company, brand, portfolio, and jurisdiction. */
+export const CORALINA_SEC_FILING_SOURCE: ProjectSourceDefinition = describeProjectSource({
+  projectSlug: CORALINA_SLUG,
+  sourceSlug: "official-sec-q1-2026-filing",
+  name: "Rhom Bho Property Q1 2026 SEC Filing",
+  documentType: "legal_document",
+  fileFormat: "pdf",
+  version: projectSourceVersion(1, 0, 0),
+  authority: projectSourceAuthority("government"),
+  status: "verified",
+  origin: "developer_website",
+  documentDate: "2026-05-06",
+  metadata: {
+    owner: "Rhom Bho Property Public Company Limited",
+    region: "Thailand",
+    tags: ["coralina", "official-filing", "rc5.4"],
+    description:
+      "https://market.sec.or.th/public/idisc/Download?FILEID=dat%2Fnews%2F202605%2F1379NWS060520261945432730E.pdf",
+  },
+});
+
 /** Every Coralina source this slice registers, in declared order. */
 export const CORALINA_KNOWLEDGE_SOURCES: readonly ProjectSourceDefinition[] = [
   CORALINA_BROCHURE_SOURCE,
@@ -162,6 +202,8 @@ export const CORALINA_KNOWLEDGE_SOURCES: readonly ProjectSourceDefinition[] = [
   CORALINA_LOCATION_MAP_SOURCE,
   CORALINA_UNIT_PLANS_SOURCE,
   CORALINA_MASTER_PLAN_SOURCE,
+  CORALINA_OFFICIAL_HISTORY_SOURCE,
+  CORALINA_SEC_FILING_SOURCE,
 ];
 
 /** Fresh RC4.4 registry with every Coralina source registered. */

@@ -20,7 +20,7 @@ describe("Coralina knowledge inspection view-model", () => {
   });
 
   it("derives the project name from the canonical record, not a constant", () => {
-    expect(inspection.projectName).toBe("CORALINA KAMALA");
+    expect(inspection.projectName).toBe("The Title Coralina Kamala");
     expect(inspection.projectId).toBe("proj_coralina");
   });
 
@@ -53,20 +53,17 @@ describe("Coralina knowledge inspection view-model", () => {
     expect(displays.some((display) => display.includes("1 Bedroom S"))).toBe(true);
   });
 
-  it("lists all six missing paths, each tied to a real finding", () => {
-    expect(inspection.missing).toHaveLength(6);
+  it("lists the four remaining missing paths, each tied to a real finding", () => {
+    expect(inspection.missing).toHaveLength(4);
     for (const row of inspection.missing) {
       expect(row.findingIds.length).toBeGreaterThan(0);
       expect(row.reason.length).toBeGreaterThan(0);
     }
   });
 
-  it("summarises readiness as blocked with the two manifest blockers", () => {
-    expect(inspection.readiness.standing).toBe("blocked");
-    expect(inspection.readiness.blockers.map((row) => row.subject).sort()).toEqual([
-      "developer.name",
-      "location.country",
-    ]);
+  it("summarises readiness as ready with no blockers", () => {
+    expect(inspection.readiness.standing).toBe("ready");
+    expect(inspection.readiness.blockers).toEqual([]);
     expect(inspection.readiness.evaluations.length).toBe(slice.readiness.report.evaluations.length);
   });
 

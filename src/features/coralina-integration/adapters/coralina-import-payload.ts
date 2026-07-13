@@ -23,7 +23,7 @@ import type {
 import { validateImport } from "@/features/forever-import";
 
 import { CORALINA_BROCHURE_SOURCE_FILE } from "../data";
-import { CORALINA_LOCATION_ID } from "../identity";
+import { CORALINA_DEVELOPER_ID, CORALINA_LOCATION_ID } from "../identity";
 import { buildCoralinaRecord } from "./coralina-canonical";
 
 /** The complete, self-contained Coralina import payload. */
@@ -47,12 +47,13 @@ export const CORALINA_IMPORT_SOURCE: ImportSource = {
  * Build the Coralina import payload from the canonical record.
  *
  * The batch carries the project, its 198 units, its media, and its documents.
- * `developers` is intentionally absent (no verified developer). The scope makes
- * the project's `locationId` resolvable so referential validation passes.
+ * The verified developer is included in the same batch. The scope makes the
+ * project's location reference resolvable so referential validation passes.
  */
 export function buildCoralinaImportPayload(): CoralinaImportPayload {
   const record = buildCoralinaRecord();
   const batch: ImportBatch = {
+    developers: record.developer ? [record.developer] : undefined,
     projects: [record.project],
     units: record.units,
     media: record.media,
@@ -62,7 +63,10 @@ export function buildCoralinaImportPayload(): CoralinaImportPayload {
     source: CORALINA_IMPORT_SOURCE,
     context: { source: CORALINA_IMPORT_SOURCE },
     batch,
-    scope: { locationIds: new Set([CORALINA_LOCATION_ID]) },
+    scope: {
+      developerIds: new Set([CORALINA_DEVELOPER_ID]),
+      locationIds: new Set([CORALINA_LOCATION_ID]),
+    },
   };
 }
 

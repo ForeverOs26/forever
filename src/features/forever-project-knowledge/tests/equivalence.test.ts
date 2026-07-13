@@ -19,24 +19,24 @@ import { buildProjectKnowledgeSlice } from "../slice";
 const slice = buildProjectKnowledgeSlice(CORALINA_KNOWLEDGE_DEFINITION);
 const inspection = describeProjectKnowledgeInspection(slice, CORALINA_KNOWLEDGE_DEFINITION.copy);
 
-describe("RC5.0 behaviour pinned through the RC5.1 engine", () => {
+describe("Coralina behaviour pinned through the RC5.1 engine", () => {
   it("states a structurally valid Coralina definition", () => {
     expect(validateProjectKnowledgeDefinition(CORALINA_KNOWLEDGE_DEFINITION)).toEqual([]);
   });
 
-  it("keeps the RC5.0 judgements intact", () => {
-    expect(slice.readiness.report.standing).toBe("blocked");
+  it("keeps the RC5.4 judgements intact", () => {
+    expect(slice.readiness.report.standing).toBe("ready");
     const contested = slice.crossValidation.report.subjects.filter(
       (subject) => subject.consensus === "contested",
     );
     expect(contested).toHaveLength(1);
     expect(contested[0]!.subject.fieldPath).toBe("units.unitTypes");
     expect(slice.canonical.withheld).toHaveLength(2);
-    expect(slice.canonical.admittedFactIds).toHaveLength(15);
+    expect(slice.canonical.admittedFactIds).toHaveLength(17);
   });
 
-  it("keeps the RC5.0 canonical-record artifacts intact", () => {
-    expect(slice.canonical.record.identity.name).toBe("CORALINA KAMALA");
+  it("keeps the canonical-record artifacts intact", () => {
+    expect(slice.canonical.record.identity.name).toBe("The Title Coralina Kamala");
     expect(slice.canonical.record.status).toBe("draft");
     expect(slice.canonical.merge.revision.author).toBe("coralina-knowledge (RC5.0)");
     expect(slice.canonical.merge.revision.reason).toBe(
@@ -50,7 +50,7 @@ describe("RC5.0 behaviour pinned through the RC5.1 engine", () => {
     );
   });
 
-  it("keeps the RC5.0 inspection shape, with one deliberate wording change", () => {
+  it("keeps the inspection shape with the RC5.4 source additions", () => {
     expect(inspection.chain.map((stage) => stage.rc)).toEqual([
       "RC4.4",
       "RC4.5",
@@ -63,11 +63,11 @@ describe("RC5.0 behaviour pinned through the RC5.1 engine", () => {
     // "…from the classified Coralina package"; the engine's summary is
     // project-agnostic. Recorded in docs/RC5_1_PROJECT_KNOWLEDGE_PLATFORM.md.
     expect(inspection.chain[0]!.summary).toBe(
-      "6 source artifacts registered from the project's committed package; 0 validation issues.",
+      "8 source artifacts registered from the project's committed package; 0 validation issues.",
     );
-    expect(inspection.projectName).toBe("CORALINA KAMALA");
+    expect(inspection.projectName).toBe("The Title Coralina Kamala");
     expect(inspection.copy?.kicker).toBe("Internal inspection — RC5.0 vertical slice");
-    expect(inspection.copy?.footer).toContain("forever-data/projects/coralina");
+    expect(inspection.copy?.footer).toContain("Official web statements");
   });
 
   it("delegates the RC5.0 API to the engine deterministically", () => {

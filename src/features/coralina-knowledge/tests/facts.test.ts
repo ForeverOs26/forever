@@ -113,10 +113,8 @@ describe("Coralina RC4.5 extraction facts", () => {
     }
   });
 
-  it("declares the known gaps for developer, country, coordinates, status, tenure, and currency", () => {
+  it("declares the remaining gaps for coordinates, status, tenure, and currency", () => {
     expect(CORALINA_EXPECTED_MISSING_PATHS.map((gap) => gap.path)).toEqual([
-      "developer.name",
-      "location.country",
       "location.coordinates",
       "construction.status",
       "legal.ownershipType",

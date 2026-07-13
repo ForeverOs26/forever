@@ -20,7 +20,7 @@ export { CORALINA_SLUG, CORALINA_PROJECT_ID } from "@/features/coralina-integrat
 export const CORALINA_KNOWLEDGE_EXTRACTED_AT = "2026-07-08T00:00:00.000Z";
 
 /** The slice's stated description clock (constant, so the build is reproducible). */
-export const CORALINA_KNOWLEDGE_DESCRIBED_AT = "2026-07-12T00:00:00.000Z";
+export const CORALINA_KNOWLEDGE_DESCRIBED_AT = "2026-07-13T00:00:00.000Z";
 
 /** Committed datasets every slice value is transcribed from, for citation. */
 export const CORALINA_DATASETS = {
@@ -31,4 +31,5 @@ export const CORALINA_DATASETS = {
   masterplan: "forever-data/projects/coralina/extracted/masterplan.json",
   unitPlans: "forever-data/projects/coralina/extracted/unit-plans.json",
   verifiedFacts: "src/features/coralina-integration/data/coralina-facts.ts",
+  officialEvidence: "forever-data/projects/coralina/evidence/rc5-4-evidence-review.json",
 } as const;

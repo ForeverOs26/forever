@@ -8,21 +8,21 @@
  *
  * Anti-fabrication is enforced structurally, not by convention:
  *
- * - No developer is asserted (`developer: null`) — the manifest marks it
- *   `SOURCE_PENDING`.
- * - No country, coordinates, construction status, ownership tenure, payment
+ * - Developer and country are asserted from RC5.4 official corporate and SEC
+ *   evidence with their web provenance retained.
+ * - No coordinates, construction status, ownership tenure, payment
  *   plan, rental, or investment fact is emitted — the source states none, so the
  *   corresponding fields/collections stay absent or empty.
- * - No unit price is promoted to a canonical `Money` value, because a `Money`
- *   requires a currency and the source states none. Every verified price figure
- *   is instead preserved verbatim in the unit's `source.raw` provenance so
- *   nothing is lost and a future currency confirmation can promote it.
+ * - Unit prices use the explicit country-default policy. THB is inferred from
+ *   source-verified Thailand with medium confidence and remains distinguishable
+ *   from a source-verified currency in provenance.
  */
 
 import {
   normalizeAvailabilityStatus,
   slugify,
   type ForeverDatabaseRecord,
+  type ForeverDeveloper,
   type ForeverDocument,
   type ForeverDocumentType,
   type ForeverLocation,
@@ -37,12 +37,15 @@ import {
   CORALINA_BEACH_DISTANCE,
   CORALINA_BROCHURE_SOURCE_FILE,
   CORALINA_DESCRIPTION,
+  CORALINA_COUNTRY,
+  CORALINA_DEVELOPER,
   CORALINA_DOCUMENT_FACTS,
   CORALINA_HIGHLIGHTS,
   CORALINA_MEDIA_FACTS,
   CORALINA_NEARBY_DESTINATIONS,
   CORALINA_NEARBY_HOSPITALS,
   CORALINA_PRICE_LIST_DATE,
+  CORALINA_PRICE_CURRENCY_DECISION,
   CORALINA_PRICE_LIST_SOURCE_FILE,
   CORALINA_PROJECT_NAME,
   CORALINA_PROJECT_TYPE,
@@ -55,6 +58,7 @@ import {
 } from "../data";
 import {
   CORALINA_LOCATION_ID,
+  CORALINA_DEVELOPER_ID,
   CORALINA_PROJECT_ID,
   CORALINA_SLUG,
   coralinaAssetId,
@@ -64,12 +68,16 @@ import {
 /** Provenance label for the developer price list, per the Data Standard. */
 const PRICE_LIST_LABEL = "developer_price_list";
 
+function parsePrice(value: string): number {
+  return Number(value.replace(/,/g, ""));
+}
+
 function mapProject(): ForeverProject {
   return {
     id: CORALINA_PROJECT_ID,
     slug: CORALINA_SLUG,
     name: CORALINA_PROJECT_NAME.value,
-    // developerId omitted — no verified developer (manifest: SOURCE_PENDING).
+    developerId: CORALINA_DEVELOPER_ID,
     locationId: CORALINA_LOCATION_ID,
     projectType: CORALINA_PROJECT_TYPE.value,
     // The project is in source intake, not published, so it is a draft with no
@@ -85,7 +93,7 @@ function mapProject(): ForeverProject {
       constructionStatus: "",
       ownershipType: "",
     },
-    // country omitted — manifest: SOURCE_PENDING.
+    country: CORALINA_COUNTRY.value,
     province: CORALINA_PROVINCE.value,
     area: CORALINA_AREA.value,
     tagline: CORALINA_TAGLINE.value,
@@ -93,8 +101,10 @@ function mapProject(): ForeverProject {
     highlights: CORALINA_HIGHLIGHTS.map((h) => h.value),
     brochureUrl: CORALINA_BROCHURE_SOURCE_FILE,
     pricing: {
-      // No startingPrice / range: prices exist but the source states no
-      // currency, so no canonical Money value is asserted.
+      startingPrice: {
+        amount: Math.min(...CORALINA_UNIT_FACTS.map((unit) => parsePrice(unit.price))),
+        currency: CORALINA_PRICE_CURRENCY_DECISION.value,
+      },
       lastPriceUpdate: CORALINA_PRICE_LIST_DATE,
     },
     trust: {
@@ -112,12 +122,32 @@ function mapProject(): ForeverProject {
   };
 }
 
+function mapDeveloper(): ForeverDeveloper {
+  return {
+    id: CORALINA_DEVELOPER_ID,
+    slug: "rhom-bho-property-public-company-limited",
+    name: CORALINA_DEVELOPER.value,
+    legalName: CORALINA_DEVELOPER.value,
+    country: CORALINA_COUNTRY.value,
+    website: "https://www.thetitleresidence.com/",
+    verificationStatus: "verified",
+    lastVerifiedDate: "2026-07-13",
+    notes:
+      "AssetWise is an indirect major shareholder through 39 Estate; it is not recorded as Coralina's developer.",
+    source: {
+      sourceLabel: "official_sec_filing",
+      sourceFile: CORALINA_DEVELOPER.sourceFile,
+      sourcePage: CORALINA_DEVELOPER.page ?? undefined,
+    },
+  };
+}
+
 function mapLocation(): ForeverLocation {
   return {
     id: CORALINA_LOCATION_ID,
     slug: slugify(CORALINA_AREA.value),
     areaName: CORALINA_AREA.value,
-    // country omitted — SOURCE_PENDING.
+    country: CORALINA_COUNTRY.value,
     province: CORALINA_PROVINCE.value,
     // geo omitted — no coordinates in any source.
     description: CORALINA_AREA_DETAIL.value,
@@ -148,9 +178,11 @@ function mapUnit(fact: CoralinaUnitFact): ForeverUnit {
     // bathrooms omitted — not recorded in the price list.
     sizeSqm: fact.sizeSqm,
     floor: fact.floor,
-    // basePrice / discountedPrice / pricePerSqm omitted — the source states no
-    // currency, so no canonical monetary value is asserted. The verified
-    // figures are preserved verbatim below.
+    basePrice: {
+      amount: parsePrice(fact.price),
+      currency: CORALINA_PRICE_CURRENCY_DECISION.value,
+    },
+    pricePerSqm: parsePrice(fact.pricePerSqm),
     source: {
       sourceLabel: PRICE_LIST_LABEL,
       sourceFile: CORALINA_PRICE_LIST_SOURCE_FILE,
@@ -160,7 +192,8 @@ function mapUnit(fact: CoralinaUnitFact): ForeverUnit {
         building: fact.building,
         price: fact.price,
         pricePerSqm: fact.pricePerSqm,
-        currency: null,
+        sourceCurrency: null,
+        currencyDecision: CORALINA_PRICE_CURRENCY_DECISION,
         priceListDate: CORALINA_PRICE_LIST_DATE,
       },
     },
@@ -218,12 +251,12 @@ function mapMediaAsset(fact: CoralinaMediaFact, sortOrder: number): ForeverMedia
  *
  * Pure and deterministic. Collections with no verified evidence
  * (`paymentPlans`, `constructionProgress`, `rentalInformation`,
- * `investmentInformation`) are returned empty, and `developer` is `null`.
+ * `investmentInformation`) are returned empty.
  */
 export function buildCoralinaRecord(): ForeverDatabaseRecord {
   return {
     project: mapProject(),
-    developer: null,
+    developer: mapDeveloper(),
     location: mapLocation(),
     units: CORALINA_UNIT_FACTS.map(mapUnit),
     media: CORALINA_MEDIA_FACTS.map(mapMediaAsset),
