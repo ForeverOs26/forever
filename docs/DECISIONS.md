@@ -1,7 +1,7 @@
 # Forever Decisions
 
 Status: Canonical decision log
-Last updated: 2026-07-12
+Last updated: 2026-07-13
 
 ## Purpose
 
@@ -18,6 +18,24 @@ Each decision should include:
 - Review trigger, if any
 
 ## Approved decisions
+
+### 2026-07-13 — Ratify Forever Factory Constitution RC1
+
+- **Decision:** Ratify `docs/FOREVER_FACTORY_CONSTITUTION.md` as Forever Factory Constitution RC1.
+- **Owner:** Constantin.
+- **Core architecture:** Constitution → Ledger → Dispatcher → Workshop → Gates → Integration.
+- **Key decisions:**
+  - No persistent autonomous Supervisor agent is authorized. “Forever Supervisor” may remain the user-facing name for the complete management function.
+  - Durable Factory state lives in Git. The Dispatcher is stateless and proposal-only.
+  - Operator executes repository mechanics and deterministic validation but never owns architecture or priority.
+  - Routing uses the maximum of risk floor, ambiguity floor, evidence sensitivity, and gate blindness. Role names remain separate from replaceable model mappings.
+  - The current mapping is Claude Sonnet 5.0 for drafting/mechanical work, Claude Opus 4.8 as the default engineering tier, Codex for repository integration, Git, validation, Factory tooling, and repository-wide work, and Claude Fable 5.0 as a limited strategic-judgment resource.
+  - Autonomy begins at A0 — Propose only. R2 and R3 always remain human-in-the-loop.
+  - Product development remains higher priority than Factory infrastructure. Browser automation and Night Shift remain deferred until measured bottlenecks justify them.
+- **Context:** Reduce Owner mechanics while preserving human ownership of strategy, evidence, money, legal matters, production effects, and constitutional authority.
+- **Implementation note:** RC5.4 merged before Factory RC1. Its evidence resolved the original OQ-001/OQ-002 before Factory activation. Until an approved GitHub CI workflow is active, bootstrap uses local validation, manual diff review, and Owner merge authorization; planned gates are not treated as passed.
+- **Consequence:** Operator v0.1 is implemented in the Factory RC1 branch and its deterministic local checks become active after merge and local setup. The next operating phase is the Paper Factory at A0. “Continue Forever” is the common entry protocol but is not yet fully autonomous.
+- **Review trigger:** Any constitutional amendment; any proposed autonomy promotion; the quarterly model-mapping review; or evidence that Factory overhead is not improving product throughput or safety.
 
 ### 2026-07-11 — GitHub and Supabase source-of-truth boundary
 

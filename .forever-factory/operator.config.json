@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "0.1",
+  "repositoryRoot": "..",
+  "defaultBranch": "main",
+  "githubRepository": "ForeverOs26/forever",
+  "patchInbox": "inbox",
+  "worktreeRoot": "worktrees",
+  "reportRoot": "reports",
+  "logRoot": "logs",
+  "stateRoot": "state",
+  "validationProfiles": {
+    "full": [
+      { "name": "dependency-validation", "executable": "npm.cmd", "arguments": ["ci", "--ignore-scripts"] },
+      { "name": "typecheck", "executable": "npx.cmd", "arguments": ["tsc", "--noEmit"] },
+      { "name": "tests", "executable": "npm.cmd", "arguments": ["test"] },
+      { "name": "changed-file-lint", "executable": "npx.cmd", "arguments": ["eslint"] },
+      { "name": "build", "executable": "npm.cmd", "arguments": ["run", "build"] },
+      { "name": "git-diff-check", "executable": "git.exe", "arguments": ["diff", "--check"] }
+    ],
+    "quick": [
+      { "name": "typecheck", "executable": "npx.cmd", "arguments": ["tsc", "--noEmit"] },
+      { "name": "tests", "executable": "npm.cmd", "arguments": ["test"] },
+      { "name": "changed-file-lint", "executable": "npx.cmd", "arguments": ["eslint"] },
+      { "name": "git-diff-check", "executable": "git.exe", "arguments": ["diff", "--check"] }
+    ]
+  },
+  "lintBaseline": {
+    "executable": "npm.cmd",
+    "arguments": ["run", "lint"],
+    "errorCount": 5379,
+    "recordedAt": "2026-07-13",
+    "policy": "The repository-wide baseline is informational. Every changed JavaScript/TypeScript file is linted directly and any failure stops the task."
+  },
+  "protectedPaths": [
+    ".github/workflows/**",
+    ".env*",
+    "supabase/migrations/**",
+    "supabase/config.toml",
+    "package-lock.json"
+  ],
+  "binaryPatchesAllowed": false,
+  "highRiskPullRequestsAllowed": false,
+  "autoMerge": false,
+  "maximumRetryCount": 2,
+  "timeouts": {
+    "commandSeconds": 1800,
+    "githubChecksSeconds": 1800,
+    "githubPollSeconds": 20
+  },
+  "security": {
+    "maximumFileBytes": 10485760,
+    "clientDataPatternsEnabled": true
+  }
+}

@@ -1,13 +1,17 @@
 # Forever AI Workflow
 
 Status: Canonical AI and development workflow
-Last updated: 2026-07-11
+Last updated: 2026-07-13
 
 ## Purpose
 
 This document defines how ChatGPT, Claude, Codex, and Constantin collaborate in Forever without creating competing sources of truth or expanding scope beyond the active stage.
 
 GitHub remains the source of truth for code and version-controlled documentation. Durable decisions must be recorded in repository documents, not left only in chat threads.
+
+Factory execution is governed by `docs/FOREVER_FACTORY_CONSTITUTION.md`. Operational routing, gates, Task Packets, Owner-only work, and the A0 entry protocol live under `docs/factory/`. This workflow summarizes collaboration roles; it does not grant authority beyond those policies.
+
+For every Factory-governed task, Codex reads `docs/factory/FOREVER_FACTORY_INDEX.md`, current stage/status documents, the approved Task Packet, and the relevant routing and gate sections. The complete Factory Constitution is required for Factory architecture, routing policy, autonomy, security, R2 or R3 work, shared contracts, constitutional interpretation, external side effects, production access, browser automation, or legal, financial, or privileged actions. Isolated ordinary product tasks may use the Factory Index and relevant task-specific documents unless the Task Packet requires the complete Constitution. Product Blueprint and Data Standard reading requirements remain unchanged.
 
 ## Role boundaries
 
@@ -32,6 +36,7 @@ GitHub remains the source of truth for code and version-controlled documentation
 - Performs migrations only when explicitly required and approved.
 - Integrates cross-file changes, validates formatting/types/tests/builds where applicable, commits changes, and opens pull requests.
 - Does not merge its own pull requests.
+- Acts as the repository integration tier when justified by `docs/factory/FACTORY_ROUTING_POLICY.md`; it does not choose product priority.
 
 ### Constantin — Project owner and source-material provider
 
@@ -56,9 +61,13 @@ GitHub remains the source of truth for code and version-controlled documentation
 
 - Every task must belong to the current stage, roadmap, backlog, or an explicitly recorded decision.
 - If a new request does not support the current stage, record it in `docs/BACKLOG.md` or `docs/ROADMAP.md` instead of starting it immediately.
-- Do not create a second architecture constitution. Update `docs/FOREVER_BLUEPRINT.md` for durable constitutional changes.
+- Product constitutional changes belong in `docs/FOREVER_BLUEPRINT.md`; development-system constitutional changes belong in `docs/FOREVER_FACTORY_CONSTITUTION.md`. Either requires its applicable ratification process.
 - Important decisions belong in `docs/DECISIONS.md`.
 - Current-stage work belongs in `docs/CURRENT_STAGE.md`.
+
+## Current Factory autonomy
+
+Forever Factory is at A0 — Propose only. “Continue Forever” produces exactly one proposed Task Packet or one Owner request, then waits for Owner packet approval. No unattended task origination, automatic model invocation, browser control, Night Shift, or automatic merge is enabled.
 
 ## Automation rule
 
