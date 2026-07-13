@@ -16,6 +16,7 @@ Forever is built around the principle of **One Engine, Many Interfaces**: the sa
 - Forever follows **One Engine, Many Interfaces**: one structured engine should power website, tablet booth, sales, CRM, reports, mobile, and future AI-assisted workflows.
 - GitHub is the source of truth for code and version-controlled documentation.
 - Supabase is the source of truth for structured operational data.
+- `docs/FOREVER_FACTORY_CONSTITUTION.md` governs the development system that builds and maintains Forever; it does not replace this product Constitution.
 - Work follows **One Finished Result**: each stage is organized around one completed, validated result before the next stage starts.
 - Forever follows **Incremental Forever Factory**: automation is introduced only when it accelerates the current stage or immediately reduces recurring manual work.
 - Before each stage, ask: **Is there a small automation that will accelerate this stage and later stages?**

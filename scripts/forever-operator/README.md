@@ -2,6 +2,8 @@
 
 Forever Operator safely validates a Claude-generated Git patch in a disposable Git worktree, runs the repository's real checks, and can create a task branch and Pull Request. It does not call an AI service and never applies an unverified patch to the primary working tree.
 
+Before operation, follow the reading policy in `docs/factory/FOREVER_FACTORY_INDEX.md` and read the approved Task Packet plus relevant gate sections. Read the complete Factory Constitution when that policy requires it. Operator executes an approved Task Packet; it does not select priorities, approve architecture, or replace required human review. Current autonomy is A0 and automatic merge remains disabled.
+
 ## Prerequisites
 
 - Windows PowerShell 5.1 or PowerShell 7.
