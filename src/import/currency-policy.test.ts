@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 
 import { loadExtractedDatasets } from "./datasets";
 import { loadManifest } from "./manifest";
@@ -8,6 +9,8 @@ import { validateImportPlanRelationships } from "./plan-validator";
 import { validateProjectImport } from "./validator";
 import { decideCurrency, type CurrencyEvidence } from "./currency-policy";
 import { createPriceHistoryPersistencePayload, type PriceHistoryInput } from "./database";
+
+const MODEVA_CURRENCY_FIXTURE_ROOT = resolve(process.cwd(), "src/import/test-fixtures");
 
 const explicit = (value: string): CurrencyEvidence => ({
   value,
@@ -128,16 +131,16 @@ describe("Coralina currency planning", () => {
     );
   });
 
-  it("leaves Modeva extraction behavior unchanged", async () => {
-    const manifest = await loadManifest("modeva", "forever-data/projects");
-    const datasets = await loadExtractedDatasets("modeva", "forever-data/projects");
-    const validation = await validateProjectImport(manifest);
+  it("leaves Modeva-like price data without authoritative currency unresolved", async () => {
+    const manifest = await loadManifest("modeva-currency", MODEVA_CURRENCY_FIXTURE_ROOT);
+    const datasets = await loadExtractedDatasets("modeva-currency", MODEVA_CURRENCY_FIXTURE_ROOT);
+    const validation = await validateProjectImport(manifest, MODEVA_CURRENCY_FIXTURE_ROOT);
     const plan = createImportPlan(manifest, validation, datasets, "dry-run");
-    expect(plan.priceHistoryRows.length).toBeGreaterThan(0);
-    expect(plan.priceHistoryRows.every((row) => row.currency === null)).toBe(true);
-    expect(plan.priceHistoryRows.every((row) => row.currencyDecision.status === "unresolved")).toBe(
-      true,
-    );
+
+    expect(validation.ready).toBe(true);
+    expect(plan.priceHistoryRows).toHaveLength(1);
+    expect(plan.priceHistoryRows[0].currency).toBeNull();
+    expect(plan.priceHistoryRows[0].currencyDecision.status).toBe("unresolved");
   });
 });
 
