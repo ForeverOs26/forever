@@ -4,23 +4,30 @@ $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'ForeverOperator.psm1') -Force
 $script:Passed=0;$script:Failed=0
 function Test-Case([string]$Name,[scriptblock]$Body){try{&$Body;Write-Host "PASS $Name";$script:Passed++}catch{Write-Host "FAIL $Name :: $($_.Exception.Message)";$script:Failed++}}
-function Assert-True($Value,[string]$Message='assertion failed'){if(-not$Value){throw$Message}}
+function Assert-True($Value,[string]$Message='assertion failed'){if(-not$Value){throw $Message}}
 function Assert-Equal($Actual,$Expected,[string]$Message='values differ'){if($Actual-ne$Expected){throw "$Message; actual='$Actual' expected='$Expected'"}}
-function Assert-Throws([scriptblock]$Body,[string]$Pattern){try{&$Body;throw'expected exception was not raised'}catch{if($_.Exception.Message-eq'expected exception was not raised'-or$_.Exception.Message-notmatch$Pattern){throw}}}
+function Assert-Throws([scriptblock]$Body,[string]$Pattern){try{&$Body;throw 'expected exception was not raised'}catch{if($_.Exception.Message-eq'expected exception was not raised'-or$_.Exception.Message-notmatch$Pattern){throw}}}
 function Write-Utf8([string]$Path,[string]$Value){$parent=Split-Path $Path;if($parent){New-Item -ItemType Directory -Force -Path $parent|Out-Null};[IO.File]::WriteAllText($Path,$Value,[Text.UTF8Encoding]::new($false))}
-function Run-Git([string]$Directory,[string[]]$Arguments){$result=Invoke-Native 'git.exe' $Arguments $Directory 60 -AllowFailure;if($result.ExitCode){throw"git failed: $($result.Output)"};$result.Summary}
+function Run-Git([string]$Directory,[string[]]$Arguments){$result=Invoke-Native 'git.exe' $Arguments $Directory 60 -AllowFailure;if($result.ExitCode){throw "git failed: $($result.Output)"};$result.Summary}
 
 function New-Fixture {
-  param([string]$Name,[string]$Target='docs/a.md',[string]$Content="changed`n",[string]$RiskOverride=$null,[string]$Profile='quick',[bool]$CreatePr=$false,[bool]$AutoMerge=$false,[bool]$ConfigAutoMerge=$false,[switch]$LintFailure)
+  param([string]$Name,[string]$Target='docs/a.md',[string]$Content="changed`n",[string]$RiskOverride=$null,[string]$Profile='quick',[bool]$CreatePr=$false,[bool]$AutoMerge=$false,[bool]$ConfigAutoMerge=$false,[switch]$LintFailure,[switch]$TestsFailure)
   $base=Join-Path $script:Root $Name;$repo=Join-Path $base 'repo';$bare=Join-Path $base 'origin.git';New-Item -ItemType Directory -Force -Path $repo|Out-Null
   Run-Git $base @('init','--bare','--initial-branch=main',$bare)|Out-Null;Run-Git $repo @('init','--initial-branch=main')|Out-Null;Run-Git $repo @('config','user.name','Fixture Tester')|Out-Null;Run-Git $repo @('config','user.email','fixture@example.invalid')|Out-Null
   Write-Utf8 (Join-Path $repo '.gitignore') "/.forever-factory/`n";Write-Utf8 (Join-Path $repo 'docs/a.md') "base`n";Write-Utf8 (Join-Path $repo 'src/base.ts') "export const base = true;`n"
   Run-Git $repo @('add','--','.gitignore','docs/a.md','src/base.ts')|Out-Null;Run-Git $repo @('commit','-m','fixture base')|Out-Null;Run-Git $repo @('remote','add','origin',$bare)|Out-Null;Run-Git $repo @('push','-u','origin','main')|Out-Null;$sha=Run-Git $repo @('rev-parse','HEAD')
   $targetPath=Join-Path $repo $Target;Write-Utf8 $targetPath $Content;if((Invoke-Native 'git.exe' @('ls-files','--error-unmatch','--',$Target) $repo 30 -AllowFailure).ExitCode -eq 0){$patchText=(Invoke-Native 'git.exe' @('diff','--binary','--',$Target) $repo 60).Output;Run-Git $repo @('checkout','--',$Target)|Out-Null}else{Run-Git $repo @('add','--',$Target)|Out-Null;$patchText=(Invoke-Native 'git.exe' @('diff','--cached','--binary','--',$Target) $repo 60).Output;Run-Git $repo @('reset','--',$Target)|Out-Null;Remove-Item -LiteralPath $targetPath -Force}
-  $factory=Join-Path $repo '.forever-factory';foreach($d in 'inbox','worktrees','reports','logs','state'){New-Item -ItemType Directory -Force -Path (Join-Path $factory $d)|Out-Null};$patch=Join-Path $factory 'inbox/task.patch';Write-Utf8 $patch $patchText
+  $factory=Join-Path $repo '.forever-factory';foreach($d in 'inbox','worktrees','reports','logs','state'){New-Item -ItemType Directory -Force -Path (Join-Path $factory $d)|Out-Null};$patch=Join-Path $factory 'inbox/task.patch';Write-Utf8 $patch ($patchText.TrimEnd("`r","`n")+"`n")
   $lintScript=Join-Path $factory 'lint.ps1';Write-Utf8 $lintScript ($(if($LintFailure){"param([Parameter(ValueFromRemainingArguments=`$true)][string[]]`$Files)`nexit 9`n"}else{"param([Parameter(ValueFromRemainingArguments=`$true)][string[]]`$Files)`nexit 0`n"}))
+  $okScript=Join-Path $factory 'gate-ok.ps1';Write-Utf8 $okScript "exit 0`n";$testsScript=Join-Path $factory 'gate-tests.ps1';Write-Utf8 $testsScript ($(if($TestsFailure){"exit 9`n"}else{"exit 0`n"}))
   $validations=@(@{name='git-diff-check';executable='git.exe';arguments=@('diff','--check')});if($Profile-eq'lint'){$validations=@(@{name='changed-file-lint';executable='powershell.exe';arguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$lintScript)})}
-  $config=[ordered]@{schemaVersion='0.1';repositoryRoot='..';defaultBranch='main';githubRepository='FixtureOwner/FixtureRepo';patchInbox='inbox';worktreeRoot='worktrees';reportRoot='reports';logRoot='logs';stateRoot='state';validationProfiles=@{quick=$validations;lint=$validations};lintBaseline=@{errorCount=5379};protectedPaths=@('.github/workflows/**','.env*','supabase/migrations/**');binaryPatchesAllowed=$false;highRiskPullRequestsAllowed=$false;autoMerge=$ConfigAutoMerge;maximumRetryCount=3;timeouts=@{commandSeconds=60;githubChecksSeconds=60;githubPollSeconds=1};security=@{maximumFileBytes=1048576}}
+  if($Profile-eq'fullgate'){$validations=@(
+    @{name='changed-file-lint';executable='powershell.exe';arguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$lintScript)},
+    @{name='typecheck';executable='powershell.exe';arguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$okScript)},
+    @{name='tests';executable='powershell.exe';arguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$testsScript)},
+    @{name='build';executable='powershell.exe';arguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$okScript)},
+    @{name='git-diff-check';executable='git.exe';arguments=@('diff','--check')})}
+  $config=[ordered]@{schemaVersion='0.1';repositoryRoot='..';defaultBranch='main';githubRepository='FixtureOwner/FixtureRepo';patchInbox='inbox';worktreeRoot='worktrees';reportRoot='reports';logRoot='logs';stateRoot='state';validationProfiles=@{quick=$validations;lint=$validations;fullgate=$validations};lintBaseline=@{errorCount=5379};protectedPaths=@('.github/workflows/**','.env*','supabase/migrations/**');binaryPatchesAllowed=$false;highRiskPullRequestsAllowed=$false;autoMerge=$ConfigAutoMerge;maximumRetryCount=3;timeouts=@{commandSeconds=60;githubChecksSeconds=60;githubPollSeconds=1};security=@{maximumFileBytes=1048576}}
   $task=[ordered]@{schemaVersion='0.1';taskId="TASK-$Name";title='Fixture task';patchPath='inbox/task.patch';expectedBaseCommit=$sha;allowedPaths=@('**');forbiddenPaths=@();riskOverride=$RiskOverride;branchName="factory/$Name";commitMessage='test: apply fixture';createPullRequest=$CreatePr;allowAutomaticMerge=$AutoMerge;validationProfile=$Profile}
   $configPath=Join-Path $factory 'operator.config.json';$taskPath=Join-Path $factory 'CURRENT_TASK.json';$config|ConvertTo-Json -Depth 12|Set-Content -LiteralPath $configPath -Encoding utf8;$task|ConvertTo-Json -Depth 12|Set-Content -LiteralPath $taskPath -Encoding utf8
   [pscustomobject]@{Repo=$repo;Factory=$factory;Config=$configPath;Task=$taskPath;Patch=$patch;TaskObject=$task;ConfigObject=$config;Sha=$sha}
@@ -48,6 +55,45 @@ try{
   Test-Case 'integration successful validate-only and unchanged lint baseline'{$f=New-Fixture 'validate';$r=Invoke-ForeverOperator -TaskFile $f.Task -Mode validate-only -ConfigFile $f.Config -SkipFetch;Assert-Equal $r.FinalStatus 'validated' $r.StopReason;Assert-True($r.Lint-match'baseline: 5379');Assert-True(-not(Test-Path (Join-Path $f.Factory 'worktrees/TASK-validate')))}
   Test-Case 'integration changed-file lint passes'{$f=New-Fixture 'lintpass' -Target 'src/base.ts' -Content "export const base = false;`n" -Profile lint;$r=Invoke-ForeverOperator -TaskFile $f.Task -Mode validate-only -ConfigFile $f.Config -SkipFetch;Assert-Equal $r.FinalStatus 'validated' $r.StopReason;Assert-True($r.Lint-match'passed for 1 changed file')}
   Test-Case 'integration patch introduces lint failure'{$f=New-Fixture 'lintfail' -Target 'src/base.ts' -Content "export const broken = ;`n" -Profile lint -LintFailure;$r=Invoke-ForeverOperator -TaskFile $f.Task -Mode validate-only -ConfigFile $f.Config -SkipFetch;Assert-Equal $r.FinalStatus 'stopped';Assert-True($r.StopReason-match'changed-file-lint')}
+  Test-Case 'validation result contract: synthetic lint result is StrictMode-safe'{
+    $profile=@([pscustomobject]@{name='changed-file-lint';executable='powershell.exe';arguments=@()})
+    $r=@(Invoke-ValidationProfile $profile @('docs/only.md','README.md') $script:Root 30 $null 5379)
+    Assert-Equal $r.Count 1;Assert-Equal $r[0].Name 'changed-file-lint';Assert-Equal $r[0].Status 'passed'
+    Assert-True($r[0].Detail-match'no changed lint-supported files; repository baseline: 5379') 'synthetic detail must carry baseline'
+    Assert-True($r[0].PSObject.Properties.Name -contains 'Native') 'synthetic result must expose the Native property'
+    Assert-True($null -eq $r[0].Native) 'synthetic Native must be null'
+    & {Set-StrictMode -Version Latest;foreach($v in $r){if($v.Native){throw 'synthetic result must not carry a native payload'}}}}
+  Test-Case 'integration documentation-only patch passes full gate profile'{
+    $f=New-Fixture 'docfullgate' -Profile fullgate
+    $r=Invoke-ForeverOperator -TaskFile $f.Task -Mode validate-only -ConfigFile $f.Config -SkipFetch
+    Assert-Equal $r.FinalStatus 'validated' $r.StopReason
+    Assert-True($r.Lint-match'no changed lint-supported files; repository baseline: 5379') 'lint must report synthetic pass with baseline'
+    Assert-Equal $r.Typecheck 'passed';Assert-Equal $r.Tests 'passed';Assert-Equal $r.Build 'passed';Assert-Equal $r.GitDiffCheck 'passed'
+    Assert-Equal $r.Commit 'not created';Assert-Equal $r.Push 'not pushed';Assert-Equal $r.PullRequest 'not created';Assert-Equal $r.Merge 'not merged'
+    Assert-True(-not(Test-Path (Join-Path $f.Factory 'worktrees/TASK-docfullgate'))) 'temporary worktree must be removed'
+    Assert-True((Invoke-Native 'git.exe' @('show-ref','--verify','refs/heads/factory/docfullgate') $f.Repo 30 -AllowFailure).ExitCode -ne 0) 'temporary branch must be removed'
+    Assert-Equal ((Invoke-Native 'git.exe' @('status','--porcelain') $f.Repo 30).Output) '' 'primary fixture worktree must stay clean'}
+  Test-Case 'integration dry-run with separate task id after validate-only'{
+    $f=New-Fixture 'docdryrun' -Profile fullgate
+    $first=Invoke-ForeverOperator -TaskFile $f.Task -Mode validate-only -ConfigFile $f.Config -SkipFetch
+    Assert-Equal $first.FinalStatus 'validated' $first.StopReason
+    $task2=Get-Content -Raw $f.Task|ConvertFrom-Json;$task2.taskId='TASK-docdryrun-DR';$task2.branchName='factory/docdryrun-dr'
+    $task2Path=Join-Path $f.Factory 'DRYRUN_TASK.json';$task2|ConvertTo-Json -Depth 10|Set-Content -LiteralPath $task2Path -Encoding utf8
+    $second=Invoke-ForeverOperator -TaskFile $task2Path -Mode dry-run -ConfigFile $f.Config -SkipFetch
+    Assert-Equal $second.FinalStatus 'dry-run-complete' $second.StopReason
+    Assert-True($second.Lint-match'no changed lint-supported files; repository baseline: 5379')
+    Assert-Equal $second.Typecheck 'passed';Assert-Equal $second.Tests 'passed';Assert-Equal $second.Build 'passed';Assert-Equal $second.GitDiffCheck 'passed'
+    Assert-Equal $second.Commit 'not created';Assert-Equal $second.Push 'not pushed';Assert-Equal $second.PullRequest 'not created';Assert-Equal $second.Merge 'not merged'
+    Assert-True(-not(Test-Path (Join-Path $f.Factory 'worktrees/TASK-docdryrun-DR'))) 'dry-run worktree must be removed'
+    Assert-True((Invoke-Native 'git.exe' @('show-ref','--verify','refs/heads/factory/docdryrun-dr') $f.Repo 30 -AllowFailure).ExitCode -ne 0) 'dry-run branch must be removed'
+    Assert-Equal ((Invoke-Native 'git.exe' @('status','--porcelain') $f.Repo 30).Output) '' 'primary fixture worktree must stay clean'}
+  Test-Case 'integration failing native gate after synthetic lint still fails closed'{
+    $f=New-Fixture 'docfailgate' -Profile fullgate -TestsFailure
+    $r=Invoke-ForeverOperator -TaskFile $f.Task -Mode validate-only -ConfigFile $f.Config -SkipFetch
+    Assert-Equal $r.FinalStatus 'stopped'
+    Assert-True($r.StopReason-match'Validation failed: tests') 'real native failure must stop the task'
+    Assert-True(-not(Test-Path (Join-Path $f.Factory 'worktrees/TASK-docfailgate'))) 'failed-run worktree must be removed'
+    Assert-True((Invoke-Native 'git.exe' @('show-ref','--verify','refs/heads/factory/docfailgate') $f.Repo 30 -AllowFailure).ExitCode -ne 0) 'failed-run branch must be removed'}
   Test-Case 'integration patch path escape rejected'{$f=New-Fixture 'escape';$task=Get-Content -Raw $f.Task|ConvertFrom-Json;$task.patchPath='../outside.patch';$task|ConvertTo-Json -Depth 10|Set-Content -LiteralPath $f.Task;$outside=Join-Path $f.Repo 'outside.patch';Copy-Item -LiteralPath $f.Patch -Destination $outside;Assert-Throws{Invoke-ForeverOperator -TaskFile $f.Task -Mode validate-only -ConfigFile $f.Config -SkipFetch}'Patch path must stay'}
   Test-Case 'integration wrong base commit stops'{$f=New-Fixture 'wrongbase';$task=Get-Content -Raw $f.Task|ConvertFrom-Json;$task.expectedBaseCommit='f'*40;$task|ConvertTo-Json -Depth 10|Set-Content -LiteralPath $f.Task;$r=Invoke-ForeverOperator -TaskFile $f.Task -Mode validate-only -ConfigFile $f.Config -SkipFetch;Assert-Equal $r.FinalStatus 'stopped';Assert-True($r.StopReason-match'base commit does not exist')}
 
