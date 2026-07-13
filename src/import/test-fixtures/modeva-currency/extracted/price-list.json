@@ -1,0 +1,43 @@
+{
+  "_test_only": "Synthetic price data with intentionally absent currency evidence.",
+  "price_list_date": {
+    "value": "2026-01-15",
+    "source_file": "synthetic-price-list.test.json",
+    "page_number": 1,
+    "confidence": "high",
+    "status": "source_verified"
+  },
+  "unit_inventory": [
+    {
+      "source_row": 1,
+      "unit_number": {
+        "value": "TEST-A101",
+        "source_file": "synthetic-price-list.test.json",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "building": {
+        "value": "TEST-A",
+        "source_file": "synthetic-price-list.test.json",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "Synthetic One Bedroom",
+        "source_file": "synthetic-price-list.test.json",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": 123456,
+        "source_file": "synthetic-price-list.test.json",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      }
+    }
+  ]
+}
