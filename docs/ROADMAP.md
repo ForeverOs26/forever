@@ -6,9 +6,9 @@ This document defines development phases, dependencies, and sequencing. It is no
 
 ## Current Development Phase
 
-Coralina source-backed intake completion, using the completed RC4.4–RC5.1 Project Knowledge Platform. See `docs/CURRENT_STAGE.md`.
+RC5.5 Coralina safe execution, currently limited to RC5.5A target and preflight guards. See `docs/CURRENT_STAGE.md`.
 
-The product is ready for guided real-client testing while the shared Project Knowledge Platform now reports Coralina `ready` after RC5.4 official-source verification. Modeva remains independently `blocked` by its missing committed developer package.
+RC5.4 is closed as Completed: the shared Project Knowledge Platform reports Coralina `ready`, and the Import Engine dry-run plans 405 operations with zero writes. RC5.5A adds only deterministic plan fingerprints and fail-closed, non-networked target preflight; execute mode remains disabled.
 
 ## Completed Phases
 
@@ -70,12 +70,15 @@ The product is ready for guided real-client testing while the shared Project Kno
   - RC5.4 resolved both blockers using official corporate and government-hosted evidence, registered full provenance, regenerated the canonical record, and passed the 405-operation Import Engine dry-run. Execute mode remains disabled.
   - RC5.4 completed currency preparation with a deterministic Thailand-to-THB `inferred_default` policy. The source-verified Thailand evidence, price-list absence, rule id/version, and confidence remain auditable; no database write occurred.
 
-## Upcoming Phases
+## Active safe-execution phase
 
 - RC5.5 Coralina safe execution
-  - Add staging/local target protection.
-  - Add transaction-backed execution and rollback behavior.
-  - Inspect existing target records and validate repeat-import semantics before any permanent write.
+  - RC5.5A (current): deterministic plan hashing, explicit local/staging/production targets, pure preflight guards, and a non-persistent dry-run receipt. Production is blocked; staging is unconfigured; no database access occurs.
+  - RC5.5B (next, separate approval): read-only target collision inspection. No write authorization is implied.
+  - RC5.5C (later, separate approval): migration and transaction-backed execution/rollback behavior.
+  - Staging rehearsal and the first permanent Coralina write remain later explicit Owner checkpoints.
+
+## Upcoming Phases
 
 - RC1 architecture hardening
   - Clarify canonical media flow.
