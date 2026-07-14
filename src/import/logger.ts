@@ -26,6 +26,8 @@ export interface ImportSummary {
   units: number;
   prices: number;
   skipped: number;
+  planFingerprint?: import("./plan-hash").PlanFingerprint;
+  receipt?: import("./plan-hash").DryRunReceipt;
 }
 
 export function logStep(step: ImportStep, detail?: string) {
@@ -47,6 +49,14 @@ export function logSummary(summary: ImportSummary) {
   if (summary.status) console.log(`Status: ${summary.status}`);
   if (typeof summary.ready === "boolean") console.log(`Ready: ${summary.ready}`);
   if (typeof summary.operations === "number") console.log(`Operations: ${summary.operations}`);
+  if (summary.planFingerprint) {
+    console.log(`Plan SHA-256: ${summary.planFingerprint.hash}`);
+    console.log(`Plan short hash: ${summary.planFingerprint.shortHash}`);
+  }
+  if (summary.receipt) {
+    console.log(`Future confirmation: ${summary.receipt.confirmation}`);
+    console.log(`Execute enabled: ${summary.receipt.executeEnabled}`);
+  }
   console.log(`Buildings: ${summary.buildings}`);
   console.log(`Units: ${summary.units}`);
   console.log(`Prices: ${summary.prices}`);

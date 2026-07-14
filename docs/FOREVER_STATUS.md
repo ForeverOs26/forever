@@ -10,7 +10,7 @@ Forever Factory Constitution RC1 is active at A0 — Propose only. Operator v0.1
 
 ## Current Milestone
 
-Coralina source-backed intake completion, using the completed RC4.4–RC5.1 Project Knowledge Platform. See `docs/CURRENT_STAGE.md`.
+RC5.5 Coralina safe execution, currently bounded to RC5.5A Target and Preflight Guards. RC5.4 is closed as Completed. See `docs/CURRENT_STAGE.md`.
 
 RC4.4–RC4.9 completed a full, tested, architecture-only intake foundation chain (source registry → extraction pipeline → canonical project database → cross-source validation → knowledge graph → readiness). RC5.0 ran real, committed Coralina source data through that entire chain and exposed the result at an internal-only route. RC5.1 generalized that vertical slice into a project-agnostic engine and onboarded a second real project, Modeva, purely from committed repository artifacts.
 
@@ -54,19 +54,20 @@ See `docs/CURRENT_STAGE.md` for the canonical active-task table, owners, scope b
 
 Current factual task summary:
 
-- Review the source-verified Coralina staging result before any separately approved execute-mode import.
-- Keep Import Engine usage documented for future projects.
+- Review RC5.5A deterministic plan hashing and pure fail-closed target preflight.
+- Keep production blocked, staging unconfigured, local identity explicit, and execute mode disabled.
+- Preserve zero database access and zero writes; RC5.5B collision inspection remains a separate read-only slice.
 
 ## Blockers
 
 - No current Modeva database-import blocker (Modeva has been live in the production database since FDB-003C).
-- Coralina has no current knowledge-readiness blocker: RC5.4 resolved `developer` and `country` from official sources and produced a successful dry-run. Execute mode remains disabled pending separate approval.
+- Coralina has no knowledge-readiness blocker: RC5.4 resolved `developer` and `country` from official sources and produced a successful 405-operation dry-run. RC5.5A does not authorize database access; execute mode remains disabled.
 - Modeva's Project Knowledge Platform readiness report is separately `blocked`: no developer package (brochure) was ever committed under `forever-data/projects/modeva/`, so its committed knowledge package cannot pass the intake bar even though the project itself is live.
 - Future project imports and knowledge onboarding require source materials to be placed under `forever-data/projects/{project_slug}/`; `rainpalm` and `gardens-of-eden` currently have only blank `database/projects/*/README.md` templates and no committed source package.
 
 ## Next Milestone
 
-RC5.5 is the separately approved safe-execution phase: target guards, transactions, rollback behavior, collision inspection, and repeat-import validation. No database write is part of RC5.4.
+Within RC5.5, RC5.5B is the next separately approved read-only collision-inspection slice. RC5.5C migration and transactional execution require another separate approval. Staging rehearsal and the first permanent Coralina write remain later explicit Owner checkpoints.
 
 ## Architecture Status
 
@@ -74,7 +75,7 @@ The website continues to use a reusable Project Detail Engine, Forever Passport 
 
 ## Database Status
 
-FDB-001 is complete as additive, backward-compatible Supabase migrations. Modeva has been imported and validated with 7 buildings, 289 units, and 289 unit price history rows. FDB-003 Import Engine v1 is approved after dry-run and real idempotency validation. The RC4.4–RC5.1 knowledge chain is separate from this database layer: it runs over committed repository artifacts and produces an in-memory canonical record and readiness report, not a Supabase write. Bridging that canonical record to persistence is future work (see `docs/CURRENT_STAGE.md`, "Next stage").
+FDB-001 is complete as additive, backward-compatible Supabase migrations. Modeva has been imported and validated with 7 buildings, 289 units, and 289 unit price history rows. FDB-003 Import Engine v1 is approved after dry-run and real idempotency validation. RC5.5A adds only in-memory fingerprint and preflight controls: it creates no Supabase client, reads no service-role key, performs no database query or write, and changes no schema. Permanent Coralina writes remain disabled.
 
 ## Website Status
 
@@ -86,8 +87,8 @@ No AI implementation is active. Current intelligence logic is deterministic and 
 
 ## Test Suite Status
 
-225 test files / 1,661 tests passing (`npx vitest run`), including the full RC4.4–RC5.1 suite and the pre-existing website, Intelligence, Passport, and Import Engine suites.
+230 test files / 1,698 tests passing (`npx vitest run`), including the 3 RC5.5A test files / 21 focused tests and the full pre-existing website, Intelligence, Passport, Coralina, Modeva, and Import Engine regressions.
 
 ## Last Updated
 
-2026-07-12
+2026-07-13

@@ -4,6 +4,13 @@ import { logStep, logSummary, logWarning, type ImportSummary } from "./logger";
 import { validateImportPlanRelationships } from "./plan-validator";
 import { createImportPlan } from "./planner";
 import { createRollbackPlan } from "./rollback";
+import {
+  createDryRunReceipt,
+  fingerprintImportPlan,
+  type ImportOperationCounts,
+} from "./plan-hash";
+import { runImportPreflight } from "./target-guard";
+import type { ImportTargetIdentity } from "./import-targets";
 import { transitionImportState } from "./state-machine";
 import type { ImportExecutionContext, ImportPlan } from "./types";
 import { validateProjectImport } from "./validator";
@@ -13,6 +20,11 @@ export interface ImportProjectOptions {
   projectSlug: string;
   projectsRoot?: string;
   dryRun?: boolean;
+  target?: string;
+  expectedPlanHash?: string;
+  confirmation?: string;
+  expectedOperationCounts?: ImportOperationCounts;
+  targetIdentity?: ImportTargetIdentity;
 }
 
 function logDryRunPlan(plan: ImportPlan) {
@@ -100,9 +112,11 @@ export async function importProject(options: ImportProjectOptions): Promise<Impo
   }
   logValidationWarnings(relationshipIssues);
   context.state = transitionImportState(context.state, "relationships_validated");
+  const planFingerprint = fingerprintImportPlan(plan);
 
   if (options.dryRun) {
     logDryRunPlan(plan);
+    const receipt = createDryRunReceipt(planFingerprint);
 
     const summary = {
       projectSlug: manifest.project_slug,
@@ -113,6 +127,8 @@ export async function importProject(options: ImportProjectOptions): Promise<Impo
       units: plan.units.length,
       prices: plan.priceHistoryRows.length,
       skipped: plan.units.length - plan.priceHistoryRows.length,
+      planFingerprint,
+      receipt,
     };
 
     context.state = transitionImportState(context.state, "dry_run_completed");
@@ -120,6 +136,20 @@ export async function importProject(options: ImportProjectOptions): Promise<Impo
     logStep("Finished", "dry run");
     logSummary(summary);
     return summary;
+  }
+
+  const preflight = runImportPreflight({
+    requestedTarget: options.target,
+    requestedProjectSlug: options.projectSlug,
+    actualPlanFingerprint: planFingerprint,
+    expectedFullPlanHash: options.expectedPlanHash ?? "",
+    expectedOperationCounts: options.expectedOperationCounts ?? planFingerprint.operationCounts,
+    manifestSourceVersion: manifest.source_version,
+    confirmation: options.confirmation ?? "",
+    targetIdentity: options.targetIdentity,
+  });
+  if (!preflight.ok) {
+    throw new Error(`Import preflight failed [${preflight.code}]: ${preflight.reason}`);
   }
 
   throw new Error(

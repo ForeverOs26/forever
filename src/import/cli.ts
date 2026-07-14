@@ -5,6 +5,9 @@ function printUsage() {
   console.log("Usage:");
   console.log("  npm run import <project-slug>");
   console.log("  npm run import <project-slug> -- --dry-run");
+  console.log(
+    "  npm run import <project-slug> -- --target=<target> --plan-hash=<sha256> --confirm=<project-slug>:<short-hash> --target-project-id=<non-secret-id>",
+  );
   console.log("");
   console.log("Examples:");
   console.log("  npm run import modeva");
@@ -18,13 +21,33 @@ async function main() {
   const args = process.argv.slice(2);
   const projectSlug = args.find((arg) => !arg.startsWith("-"));
   const dryRun = args.includes("--dry-run");
+  const option = (name: string) =>
+    args.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
 
   if (!projectSlug || projectSlug === "--help" || projectSlug === "-h") {
     printUsage();
     process.exit(projectSlug ? 0 : 1);
   }
 
-  await importProject({ projectSlug, dryRun });
+  const target = option("target");
+  const expectedPlanHash = option("plan-hash");
+  const confirmation = option("confirm");
+  const targetProjectId = option("target-project-id");
+
+  if (!dryRun && (!target || !expectedPlanHash || !confirmation)) {
+    throw new Error(
+      "Future execute requests require --target, --plan-hash, and --confirm. Execute mode remains disabled.",
+    );
+  }
+
+  await importProject({
+    projectSlug,
+    dryRun,
+    target,
+    expectedPlanHash,
+    confirmation,
+    targetIdentity: targetProjectId ? { projectId: targetProjectId } : undefined,
+  });
 }
 
 main().catch((error) => {

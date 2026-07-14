@@ -19,6 +19,13 @@ Each decision should include:
 
 ## Approved decisions
 
+### 2026-07-13 — Close RC5.4 and authorize RC5.5A without database access
+
+- **Decision:** The Owner / Architect closes RC5.4 as Completed and authorizes RC5.5. Current implementation authority is limited to RC5.5A deterministic plan fingerprinting, explicit target modelling, pure fail-closed preflight guards, a non-persistent dry-run receipt, minimal CLI/importer integration, tests, and canonical documentation.
+- **Context:** Coralina's official-source intake is resolved and its validated dry-run contains 405 operations. Before any target inspection or write can be considered, the repository needs a stable representation of write intent and an explicit fail-closed target boundary.
+- **Consequence:** RC5.5A creates no Supabase client, reads no service-role key, makes no network or database request, and keeps execute mode disabled even after successful preflight. Production is blocked unconditionally; staging is blocked until an approved non-secret identity is separately configured; local requires its committed local-only identity. RC5.5B read-only collision inspection and RC5.5C migration/transactional execution each require separate approval. Staging rehearsal and the first permanent write remain later Owner checkpoints. Factory remains A0 and does not block product work.
+- **Review trigger:** Owner / Architect review of the RC5.5A draft PR, followed by a separate decision before RC5.5B, RC5.5C, staging rehearsal, or any permanent database write.
+
 ### 2026-07-13 — Ratify Forever Factory Constitution RC1
 
 - **Decision:** Ratify `docs/FOREVER_FACTORY_CONSTITUTION.md` as Forever Factory Constitution RC1.
