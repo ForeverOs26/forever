@@ -78,6 +78,14 @@ Fable is double-gated: the router returns `stop_pending_fable_approval` unless t
 
 The router is a decision-support library only. It selects and records; it does not invoke any model, and autonomy remains A0 — every packet it routes must already be Owner-approved, and unattended execution remains disabled until A1 promotion criteria are earned and recorded.
 
+## Execution Connector (FACTORY-A1-002)
+
+A deterministic Execution Connector lives in `src/factory/execution-connector/`. It automates the transport and execution mechanics between one Owner-approved Task Packet and the existing Operator handoff, using this router as the single routing source of truth. It invents no project priorities and approves none of its own work.
+
+The connector validates the packet (id, approval state, allowed scope, stop condition, risk class, required validation profile), invokes `routeTaskPacket`, and honors every router stop state (pending Fable approval, Fable budget, pending max approval, misclassification, security or scope block). It maps the router's model string 1:1 to a provider model id (`Claude Sonnet 5.0`→`claude-sonnet-5`, `Claude Opus 4.8`→`claude-opus-4-8`, `Claude Fable 5.0`→`claude-fable-5`) and passes the exact selected effort through unchanged; an unmapped model, an unsupported model, or an unsupported effort fails closed with a precise unsupported-capability block rather than silently substituting a different model or effort, and no provider fallback model is ever configured.
+
+Execution runs through a minimal provider-neutral adapter interface. A hermetic fake adapter backs deterministic tests and the full proving cycle; a real Claude Code adapter targets the officially supported `claude --print` interface (confirmed available in-environment: model, effort, `--output-format json`, permission and tool controls) with a pure, unit-tested argument builder and an injected process runner. A deterministic run identity plus a run-state lifecycle (`approved → routed → blocked | running → succeeded | failed → handed_off`) prevents duplicate execution: an identical resubmission returns the stored result and an in-flight run fails closed. A successful, patch-producing execution is converted by the unchanged `buildOperatorHandoff`, so `allowAutomaticMerge` stays permanently false; the connector never merges, never opens a PR itself, and never starts another packet. Logs and artifacts are redacted of tokens, cookies, session URLs, environment secrets, and account identifiers, and the provider `session_id` is never surfaced (a provider-neutral execution id is used instead). See `docs/factory/tasks/FACTORY-A1-002.md`.
+
 ## Mapping review
 
 Review the model mapping quarterly and whenever a model, vendor, price, account boundary, or measured quality profile changes. Updating the mapping does not amend permanent constitutional roles or authority.
