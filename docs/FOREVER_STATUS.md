@@ -8,6 +8,8 @@ This document records current repository, product, database, website, and milest
 
 Forever Factory Constitution RC1 is active at A0 — Propose only. Operator v0.1 has completed its first isolated proving cycle: documentation-only `validate-only` reached `validated`, and the separate `dry-run` reached `dry-run-complete`. Security, TypeScript, product tests, lint, build, and Git diff gates passed while the primary `main` worktree remained unchanged. No commit, push, pull request, merge, autonomy promotion, Night Shift, browser automation, or automatic model invocation occurred. The Factory foundation is proven for bounded A0 use; Forever product development remains the primary priority, and future Factory improvements are bounded backlog work that must not delay product delivery.
 
+A deterministic model-routing library (`src/factory/`) now implements the ratified routing policy as a first step from A0 toward A1: it maps approved Task Packet classification metadata to the Sonnet/Opus/Fable worker tiers **and to a reasoning-effort level** (`low`/`medium`/`high`/`xhigh`/`max`), enforces the bounded-retry and one-tier escalation rules, double-gates Fable behind explicit Owner authorization plus declared budget, never selects `max` effort without an explicit Owner authorization record, only emits `xhigh` with a recorded justification, and emits a handoff artifact carrying the selected model, effort, and reasons whose embedded task matches the existing Operator v0.1 contract exactly (hermetically proven against `.forever-factory/task.schema.json`; the Operator contract is unchanged, effort lives only in the outer artifact). It is decision support only: it invokes no model, autonomy remains A0, and no Operator behavior changed. See `docs/factory/FACTORY_ROUTING_POLICY.md` and `docs/factory/tasks/FACTORY-A1-001.md`.
+
 ## Current Milestone
 
 RC5.5 Coralina safe execution, currently bounded to RC5.5A Target and Preflight Guards. RC5.4 is closed as Completed. See `docs/CURRENT_STAGE.md`.
@@ -87,8 +89,8 @@ No AI implementation is active. Current intelligence logic is deterministic and 
 
 ## Test Suite Status
 
-230 test files / 1,698 tests passing (`npx vitest run`), including the 3 RC5.5A test files / 21 focused tests and the full pre-existing website, Intelligence, Passport, Coralina, Modeva, and Import Engine regressions.
+232 test files / 1,746 tests (`npx vitest run`), including the 2 Factory router test files / 48 tests (model tier and effort routing) and the full pre-existing website, Intelligence, Passport, Coralina, Modeva, and Import Engine regressions. Known environment dependency: the 3 RC5.5A importer integration tests in `src/import/importer-preflight.test.ts` require the Coralina brochure and price-list documents under `forever-data/projects/coralina/source/*/*`, which are deliberately gitignored; in a fresh clone without those local documents they fail with `required_files_missing` (readiness honestly reports `blocked`). They were recorded passing on 2026-07-13 on a working copy holding the local source documents. All other tests pass in a fresh clone.
 
 ## Last Updated
 
-2026-07-13
+2026-07-14

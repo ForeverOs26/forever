@@ -35,6 +35,7 @@ Read the complete `docs/FOREVER_FACTORY_CONSTITUTION.md` when the task involves 
 | Owner-only blockers              | `docs/factory/OWNER_QUEUE.md`                                                                                        |
 | Routing and gates                | `docs/factory/FACTORY_ROUTING_POLICY.md`, `docs/factory/FACTORY_GATE_PROFILES.md`                                    |
 | Task Packet template             | `docs/factory/TASK_PACKET_TEMPLATE.md`                                                                               |
+| Deterministic model router       | `src/factory/` (`routing-table.ts`, `model-router.ts`, `operator-handoff.ts`); policy in `FACTORY_ROUTING_POLICY.md` |
 | Durable approved Task Packets    | `docs/factory/tasks/<task-id>.md` when created                                                                       |
 | Durable run reports              | `docs/factory/runs/<task-id>.md` when a packet requires retention                                                    |
 | Transient Operator state/reports | `.forever-factory/state/` and `.forever-factory/reports/` (local, generated, ignored; never the sole durable record) |
@@ -58,6 +59,7 @@ Invoke **Continue Forever** or **Продолжай Forever**, then follow `docs
 ## Current boundaries
 
 - Autonomy is A0. No unattended task origination, night execution, automatic model invocation, browser control, or automatic merge is enabled.
+- A deterministic, tested model-routing library exists at `src/factory/` (see `docs/factory/FACTORY_ROUTING_POLICY.md`). It only computes routing decisions and Operator-compatible handoff artifacts from approved Task Packet metadata; it invokes no model, and Fable selection always stops for explicit Owner authorization and declared budget.
 - Operator v0.1 can validate bounded patches locally in disposable worktrees. Its first isolated documentation-only `validate-only` and `dry-run` proving cycle completed successfully, establishing bounded A0 use without enabling production autonomy or resolving every known limitation. Auto-merge remains disabled.
 - GitHub CI enforcement, native R0–R3 gate profiles, Ledger synchronization, shared-contract locking, author/reviewer identity enforcement, semantic data gates, and approval verification remain `PLANNED` unless separately implemented and activated.
 - Until approved repository CI workflows are active, bootstrap relies on local Operator validation, manual diff review, and Owner merge authorization. Planned gates are never described as passed; once a gate is active and required, absence or failure blocks merge.
