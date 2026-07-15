@@ -1,0 +1,46 @@
+{
+  "isCurrent": true,
+  "supersededBy": null,
+  "publishing": {
+    "authorized": false,
+    "authorizationRecord": "",
+    "actions": []
+  },
+  "packet": {
+    "routing": {
+      "schemaVersion": "0.1",
+      "taskPacketId": "FACTORY-EXAMPLE-003",
+      "title": "Example approved current Task Packet for Continue Forever",
+      "approvalState": "approved",
+      "riskClass": "R0",
+      "ambiguity": "low",
+      "evidenceSensitivity": "low",
+      "gateBlindness": "low",
+      "taskScope": "Bounded documentation alignment within docs/**.",
+      "taskComplexity": "ordinary",
+      "affectedSubsystems": ["docs"],
+      "estimatedDuration": "bounded",
+      "architecturalImpact": "none",
+      "canonicalDataImpact": false,
+      "priorModelAttempts": []
+    },
+    "execution": {
+      "prompt": "Align the documentation index with the current factory state.",
+      "workingDirectory": "/repo",
+      "allowedScope": ["docs/**"],
+      "forbiddenActions": ["merge", "push", "open a pull request"],
+      "timeoutMs": 900000,
+      "expectedResultFormat": "patch",
+      "stopCondition": "Stop after producing the documentation patch.",
+      "expectedBaseCommit": "REPLACE_WITH_40_CHARACTER_COMMIT_SHA"
+    },
+    "handoff": {
+      "branchName": "factory/example-continue-forever",
+      "commitMessage": "docs: apply example continue-forever patch",
+      "createPullRequest": false,
+      "forbiddenPaths": ["docs/private/**"],
+      "validationProfile": "full",
+      "validationMode": "dry-run"
+    }
+  }
+}
