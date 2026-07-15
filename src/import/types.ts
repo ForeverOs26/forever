@@ -21,6 +21,8 @@ export type ImportState =
   | "plan_created"
   | "relationships_validated"
   | "dry_run_completed"
+  | "inspecting"
+  | "inspection_completed"
   | "executing"
   | "blocked"
   | "completed"

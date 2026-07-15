@@ -1,7 +1,7 @@
 # Forever Decisions
 
 Status: Canonical decision log
-Last updated: 2026-07-13
+Last updated: 2026-07-15
 
 ## Purpose
 
@@ -18,6 +18,13 @@ Each decision should include:
 - Review trigger, if any
 
 ## Approved decisions
+
+### 2026-07-15 — Authorize RC5.5B read-only collision inspection and hermetic validation only
+
+- **Decision:** With RC5.5A completed and merged, the Owner / Architect authorizes RC5.5B. Implementation authority is limited to a read-only target collision-inspection boundary: a narrow, select-only `CollisionInspectionReader` interface, an optional minimal read-only Supabase adapter, a deterministic collision inspector and `CollisionInspectionReport`, an explicit `--inspect-collisions` CLI/importer mode, hermetic tests, and canonical documentation.
+- **Context:** RC5.5A produces a stable plan fingerprint and a fail-closed, non-networked target preflight, but the repository still cannot see how the approved plan relates to existing target rows. A read-only inspection that classifies each planned operation against the target — without any write — is the safe next boundary before transactional execution can be considered.
+- **Consequence:** RC5.5B creates no Supabase client during dry-run, issues only bounded select queries, and never inserts, upserts, updates, deletes, runs a mutation RPC, changes schema, runs a transaction or rollback, or enables execute mode. Every report states `readOnlyConfirmed: true`, `executeEnabled: false`, and `writesPerformed: 0`; `update_required` findings never authorize the update. Production stays blocked unconditionally; staging stays unconfigured; local requires the committed `forever-local` identity. This packet does not authorize supplying or reading real credentials in the Claude Web environment or running a real database inspection from Claude Web — a real local read-only proving run is a separate Owner checkpoint after RC5.5B is reviewed and merged. RC5.5C migration/transactional execution remains separately gated, and the first permanent Coralina write remains a later Owner checkpoint.
+- **Review trigger:** Owner / Architect review of the RC5.5B change, followed by a separate decision before the real local proving run, RC5.5C, staging rehearsal, or any permanent database write.
 
 ### 2026-07-13 — Close RC5.4 and authorize RC5.5A without database access
 

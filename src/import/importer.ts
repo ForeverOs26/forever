@@ -1,6 +1,11 @@
+import {
+  createCollisionInspectionReader,
+  type CollisionInspectionReader,
+} from "./collision-reader";
+import { inspectPlanCollisions } from "./collision-inspector";
 import { loadExtractedDatasets } from "./datasets";
 import { loadManifest } from "./manifest";
-import { logStep, logSummary, logWarning, type ImportSummary } from "./logger";
+import { logCollisionReport, logStep, logSummary, logWarning, type ImportSummary } from "./logger";
 import { validateImportPlanRelationships } from "./plan-validator";
 import { createImportPlan } from "./planner";
 import { createRollbackPlan } from "./rollback";
@@ -25,6 +30,8 @@ export interface ImportProjectOptions {
   confirmation?: string;
   expectedOperationCounts?: ImportOperationCounts;
   targetIdentity?: ImportTargetIdentity;
+  inspectCollisions?: boolean;
+  collisionReader?: CollisionInspectionReader;
 }
 
 function logDryRunPlan(plan: ImportPlan) {
@@ -150,6 +157,57 @@ export async function importProject(options: ImportProjectOptions): Promise<Impo
   });
   if (!preflight.ok) {
     throw new Error(`Import preflight failed [${preflight.code}]: ${preflight.reason}`);
+  }
+
+  if (options.inspectCollisions) {
+    context.state = transitionImportState(context.state, "inspecting");
+    const reader = options.collisionReader ?? createCollisionInspectionReader();
+    const collisionReport = await inspectPlanCollisions({
+      reader,
+      target: preflight.target,
+      targetIdentity: options.targetIdentity ?? {},
+      sourceVersion: manifest.source_version,
+      planHash: planFingerprint.hash,
+      shortPlanHash: planFingerprint.shortHash,
+      operationCounts: planFingerprint.operationCounts,
+      operations: plan.operations,
+      manifest: {
+        project_slug: manifest.project_slug,
+        project_name: manifest.project_name,
+        project_type: manifest.project_type,
+        developer: manifest.developer,
+        country: manifest.country,
+        province: manifest.province,
+        location: manifest.location,
+      },
+    });
+
+    logCollisionReport(collisionReport);
+    logWarning(
+      "Read-only collision inspection only. No Supabase write was performed and execute mode remains disabled.",
+    );
+
+    const summary: ImportSummary = {
+      projectSlug: manifest.project_slug,
+      status: collisionReport.status === "blocked" ? "collision_blocked" : "collision_inspected",
+      ready: true,
+      operations: plan.operations.length,
+      buildings: plan.buildings.length,
+      units: plan.units.length,
+      prices: plan.priceHistoryRows.length,
+      skipped: plan.units.length - plan.priceHistoryRows.length,
+      planFingerprint,
+      collisionReport,
+    };
+
+    context.state = transitionImportState(
+      context.state,
+      collisionReport.status === "blocked" ? "blocked" : "inspection_completed",
+    );
+    context.state = transitionImportState(context.state, "completed");
+    logStep("Finished", "collision inspection");
+    logSummary(summary);
+    return summary;
   }
 
   throw new Error(

@@ -1,6 +1,13 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { ForeverManifest } from "./manifest";
 import type { CurrencyDecision } from "./currency-policy";
+import {
+  buildingPersistenceProjection,
+  priceHistoryPersistenceProjection,
+  projectPersistenceProjection,
+  slugify,
+  unitPersistenceProjection,
+} from "./persistence-projection";
 
 type DatabaseClient = SupabaseClient;
 type JsonObject = Record<string, unknown>;
@@ -100,38 +107,9 @@ export interface DatabaseLayer {
 
 export function createPriceHistoryPersistencePayload(unitId: string, row: PriceHistoryInput) {
   return {
-    unit_id: unitId,
-    price: row.price,
-    currency: row.currency,
-    price_source: row.priceSource,
-    source_file: row.sourceFile ?? null,
-    source_page: row.sourcePage ?? null,
-    price_list_date: row.priceListDate,
-    recorded_at: row.recordedDate,
-    metadata: {
-      source_type_code: row.sourceTypeCode,
-      unit_number: row.unitNumber,
-      building_code: row.buildingCode,
-      floor: row.floor,
-      unit_type: row.unitType,
-      bedrooms: row.bedrooms,
-      size_sqm: row.sizeSqm,
-      price_per_sqm: row.pricePerSqm,
-      availability_status: row.availabilityStatus,
-      source_row: row.sourceRow,
-      raw: row.raw,
-      currency_decision: row.currencyDecision,
-    },
+    ...priceHistoryPersistenceProjection(unitId, row),
     updated_at: new Date().toISOString(),
   };
-}
-
-function slugify(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
 }
 
 function requireEnvironment(name: string) {
@@ -144,7 +122,7 @@ function isNewSupabaseApiKey(value: string): boolean {
   return value.startsWith("sb_publishable_") || value.startsWith("sb_secret_");
 }
 
-function createSupabaseFetch(supabaseKey: string): typeof fetch {
+export function createSupabaseFetch(supabaseKey: string): typeof fetch {
   return (input, init) => {
     const headers = new Headers(
       typeof Request !== "undefined" && input instanceof Request ? input.headers : undefined,
@@ -276,19 +254,10 @@ export function createDatabaseLayer(client: DatabaseClient = createImportClient(
     async upsertProject(manifest, developer, location, projectFacts = {}) {
       void projectFacts;
       const payload = {
-        slug: manifest.project_slug,
-        name: manifest.project_name,
-        developer_id: developer.id,
-        location_id: location.id,
-        project_code: manifest.project_slug.toUpperCase(),
-        project_type: manifest.project_type,
-        location_area: manifest.location,
-        address: `${manifest.location}, ${manifest.province}, ${manifest.country}`,
-        short_description: `${manifest.project_name} imported from Forever source materials.`,
-        full_description: `${manifest.project_name} imported from Forever source materials.`,
-        is_active: true,
-        public_status: "published",
-        sales_status: "Available",
+        ...projectPersistenceProjection(manifest, {
+          developerId: developer.id,
+          locationId: location.id,
+        }),
         last_data_review_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -306,13 +275,7 @@ export function createDatabaseLayer(client: DatabaseClient = createImportClient(
 
       for (const building of buildings) {
         const payload = {
-          project_id: project.id,
-          name: building.name,
-          building_code: building.buildingCode,
-          building_type: "residential",
-          floors_count: building.floorsCount ?? null,
-          units_count: building.unitsCount ?? null,
-          metadata: building.metadata ?? {},
+          ...buildingPersistenceProjection(project.id, building),
           updated_at: new Date().toISOString(),
         };
 
@@ -343,27 +306,11 @@ export function createDatabaseLayer(client: DatabaseClient = createImportClient(
         );
 
         const payload = {
-          project_id: project.id,
-          building_id: unit.buildingCode ? buildingIds.get(unit.buildingCode) : null,
-          unit_code: unit.unitNumber,
-          unit_type: unit.unitType ?? null,
-          bedrooms: unit.bedrooms ?? null,
-          bathrooms: unit.bathrooms ?? null,
-          size_sqm: unit.sizeSqm ?? null,
-          floor: unit.floor ?? null,
-          base_price_thb: unit.currency === "THB" ? (unit.price ?? null) : null,
-          price_per_sqm: unit.pricePerSqm ?? null,
-          availability_status: unit.availabilityStatus ?? "available",
-          unit_status: unit.availabilityStatus ?? "available",
-          metadata: {
-            source_type_code: unit.sourceTypeCode,
-            currency: unit.currency,
-            source_file: unit.sourceFile,
-            source_page: unit.sourcePage,
-            source_row: unit.sourceRow,
-            price_list_date: unit.priceListDate,
-            raw: unit.raw,
-          },
+          ...unitPersistenceProjection(
+            project.id,
+            unit.buildingCode ? buildingIds.get(unit.buildingCode) : null,
+            unit,
+          ),
           updated_at: new Date().toISOString(),
         };
 

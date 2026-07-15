@@ -16,7 +16,7 @@ A deterministic Continue Forever command (`src/factory/continue-forever/`, FACTO
 
 ## Current Milestone
 
-RC5.5 Coralina safe execution, currently bounded to RC5.5A Target and Preflight Guards. RC5.4 is closed as Completed. See `docs/CURRENT_STAGE.md`.
+RC5.5 Coralina safe execution, currently bounded to RC5.5B Read-Only Target Collision Inspection. RC5.4 and RC5.5A are closed as Completed; RC5.5A is merged. RC5.5B is implemented and pending Owner review and integration. See `docs/CURRENT_STAGE.md`.
 
 RC4.4–RC4.9 completed a full, tested, architecture-only intake foundation chain (source registry → extraction pipeline → canonical project database → cross-source validation → knowledge graph → readiness). RC5.0 ran real, committed Coralina source data through that entire chain and exposed the result at an internal-only route. RC5.1 generalized that vertical slice into a project-agnostic engine and onboarded a second real project, Modeva, purely from committed repository artifacts.
 
@@ -53,6 +53,8 @@ RC4.4–RC4.9 completed a full, tested, architecture-only intake foundation chai
 - RC5.4 Coralina Official-Source Evidence: official Rhom Bho Property corporate history, corporate disclosures, and a Thailand SEC-hosted filing verify `Rhom Bho Property Public Company Limited`, `The Title Coralina Kamala`, and `Kamala, Phuket, Thailand`; official shareholder materials define AssetWise as an indirect major shareholder. Knowledge readiness is `ready`, and the Import Engine dry-run plans 405 operations with zero writes.
 - RC5.4 currency completion: Coralina's 198 selling prices use `THB` as a transparent `inferred_default` from source-verified country Thailand under rule `project_country_default_currency` v1.0.0. This is not direct price-list verification. Explicit currencies override defaults, conflicts remain unresolved, and execute-time null-to-THB coercion has been removed.
 - RC5.4 data preparation is complete with zero database writes. Execute mode has not run; the first permanent Coralina import is a separate approval checkpoint.
+- RC5.5A Target and Preflight Guards (completed, merged): deterministic canonical SHA-256 operation-plan fingerprints, typed non-persistent dry-run receipts, explicit local/staging/production targets, and pure fail-closed preflight guards. Production is blocked unconditionally, staging is unconfigured, and a valid local preflight still ends at the execute-disabled boundary with no database access.
+- RC5.5B Read-Only Target Collision Inspection (implemented, pending Owner review and integration): an explicit `--inspect-collisions` mode that, only after a successful RC5.5A local preflight, uses a narrow select-only `CollisionInspectionReader` (never the mutation-capable `DatabaseLayer`) to read only the plan-referenced project, buildings, units, and price-history rows and classify each operation as `absent`, `exact_match`, `update_required`, `duplicate_target_rows`, `identity_conflict`, or `inspection_error`. Reads are bounded and batched by parent key with no unbounded scans. Dry-run stays client- and network-free, incompatible mode combinations fail closed, and every report states `readOnlyConfirmed: true`, `executeEnabled: false`, and `writesPerformed: 0`. A real local read-only proving run remains a separate Owner checkpoint after review and merge.
 
 ## Active Tasks
 

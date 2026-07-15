@@ -11,7 +11,12 @@ export type ImportStep =
 
 export interface ImportSummary {
   projectSlug: string;
-  status?: "blocked" | "dry_run_completed" | "completed";
+  status?:
+    | "blocked"
+    | "dry_run_completed"
+    | "collision_inspected"
+    | "collision_blocked"
+    | "completed";
   ready?: boolean;
   validationIssues?: Array<{
     severity: string;
@@ -28,6 +33,7 @@ export interface ImportSummary {
   skipped: number;
   planFingerprint?: import("./plan-hash").PlanFingerprint;
   receipt?: import("./plan-hash").DryRunReceipt;
+  collisionReport?: import("./collision-inspector").CollisionInspectionReport;
 }
 
 export function logStep(step: ImportStep, detail?: string) {
@@ -40,6 +46,36 @@ export function logWarning(message: string) {
 
 export function logFailure(message: string) {
   console.error(`✖ ${message}`);
+}
+
+export function logCollisionReport(
+  report: import("./collision-inspector").CollisionInspectionReport,
+) {
+  console.log("");
+  console.log("Collision inspection report");
+  console.log(`Project: ${report.projectSlug}`);
+  console.log(`Target: ${report.approvedTarget} (${report.targetIdentity.projectId})`);
+  console.log(`Plan SHA-256: ${report.planHash}`);
+  console.log(`Plan short hash: ${report.shortPlanHash}`);
+  console.log(`Source version: ${report.sourceVersion}`);
+  console.log(`Inspected operations: ${report.totalInspectedOperations}`);
+  for (const classification of Object.keys(report.countsByClassification).sort()) {
+    const count =
+      report.countsByClassification[classification as keyof typeof report.countsByClassification];
+    if (count > 0) console.log(`  ${classification}: ${count}`);
+  }
+  console.log(`Read-only confirmed: ${report.readOnlyConfirmed}`);
+  console.log(`Execute enabled: ${report.executeEnabled}`);
+  console.log(`Writes performed: ${report.writesPerformed}`);
+  console.log(`Status: ${report.status}`);
+
+  if (report.blockingFindings.length) {
+    console.log("");
+    console.log("Blocking findings");
+    for (const item of report.blockingFindings) {
+      console.log(`${item.classification}: ${item.entity} ${item.naturalKey} - ${item.detail}`);
+    }
+  }
 }
 
 export function logSummary(summary: ImportSummary) {
