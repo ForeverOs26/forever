@@ -26,6 +26,7 @@ dist-ssr
 !.forever-factory/state/.gitkeep
 .forever-factory/worktrees/*
 !.forever-factory/worktrees/.gitkeep
+.forever-factory/CONTINUE_TASK.json
 *.local
 .env
 .env.*
