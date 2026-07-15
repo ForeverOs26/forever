@@ -5,54 +5,52 @@ Last updated: 2026-07-15
 
 ## Stage name
 
-RC5.5 Coralina safe execution, current bounded slice RC5.5B Read-Only Target Collision Inspection.
+RC5.5 Coralina safe execution, current bounded slice RC5.5C Transactional Execution and Rollback Preparation.
 
 ## Objective
 
-Add a safe, deterministic, read-only collision-inspection boundary between the RC5.5A plan fingerprint / target preflight and any future write. An explicitly requested inspection reads only the rows required to compare the approved Import Plan with the existing target, produces a deterministic collision report, proves zero writes, and terminates at the existing execute-disabled boundary. RC5.5A is closed as Completed and merged: deterministic plan fingerprints, typed dry-run receipts, and pure fail-closed preflight guards are present; Coralina's dry-run remains 405 operations (1 project, 8 buildings, 198 units, and 198 price-history rows).
+Prepare — without enabling — transaction-backed import execution: a single-transaction boundary that applies one approved plan atomically, verifies every persisted row against the shared persistence projections before commit, rolls back automatically on any failure, and returns a deterministic sanitized execution receipt. RC5.5B is closed as Completed, merged, and locally proven: the Owner's read-only proving run against the reconciled canonical local target reported Coralina as 405 `absent` operations (1 project, 8 buildings, 198 units, 198 price-history rows) with zero collisions, duplicates, identity conflicts, or inspection errors.
 
 ## Current authorization
 
-RC5.5B is authorized for code, hermetic tests, a read-only reader interface, an optional read-only Supabase adapter, CLI/importer integration, and canonical documentation only. It may build the same approved plan, re-run the RC5.5A preflight, and — only on an explicit `--inspect-collisions` request against the approved local identity — issue bounded select-only queries to classify each planned operation against the target. It may not create a Supabase client during dry-run, insert, upsert, update, delete, run a mutation RPC, change schema, run a transaction or rollback, or enable execute mode.
+RC5.5C is authorized for code, hermetic tests, and canonical documentation only: a narrow typed transaction/mutation abstraction, an Owner execution-approval artifact contract (explicit scope, short-lived, single-use, fail-closed), deterministic transaction ordering and in-transaction verification, automatic rollback semantics, a typed execution receipt, and an explicit `--execute-approved-import` CLI mode that fails closed before any transaction, database client, network access, or approval consumption when anything is missing or mismatched.
 
-This packet does not authorize supplying or reading real credentials in the Claude Web environment, running a real database inspection from Claude Web, or any production or staging access. A real local read-only proving run is a separate Owner checkpoint after RC5.5B is reviewed and merged.
+This slice does not authorize any real database execution. The live transaction runner is structurally defined but fails closed (`live_execution_disabled`) before reading any credential or creating any client. No migration runs, no real import occurs, and real database writes remain zero. The first real Coralina import remains a separate explicit Owner checkpoint with its own approval artifact and credential boundary.
 
-Production is blocked unconditionally. Staging remains blocked until an approved non-secret project identity is configured. Local preflight and inspection require the committed local-only identity. A successful collision inspection still terminates before any mutation and never enables execute mode.
+Production is blocked unconditionally. Staging remains blocked until an approved non-secret project identity is configured. Only the approved local identity passes preflight in hermetic tests. Dry-run and collision inspection behavior are unchanged.
 
 ## Active tasks
 
-| Task                                                                    | Owner             | Slice  | Status                                    |
-| ----------------------------------------------------------------------- | ----------------- | ------ | ----------------------------------------- |
-| Deterministic operation-plan SHA-256 fingerprint and dry-run receipt    | Codex             | RC5.5A | Completed and merged                      |
-| Explicit local, staging, and production target model                    | Codex             | RC5.5A | Completed and merged                      |
-| Pure fail-closed preflight and CLI/importer integration                 | Codex             | RC5.5A | Completed and merged                      |
-| Read-only `CollisionInspectionReader` and Supabase read adapter         | Claude            | RC5.5B | Implemented — pending Owner review        |
-| Deterministic collision inspector, report, and CLI/importer integration | Claude            | RC5.5B | Implemented — pending Owner review        |
-| Owner / Architect review and merge of the RC5.5B read-only boundary     | Owner / Architect | RC5.5B | Pending                                   |
-| Real local read-only proving run against the approved local target      | Owner             | RC5.5B | Pending (separate checkpoint after merge) |
+| Task                                                                      | Owner             | Slice   | Status                             |
+| ------------------------------------------------------------------------- | ----------------- | ------- | ---------------------------------- |
+| Read-only collision inspection (reader, inspector, CLI, hermetic proof)   | Claude            | RC5.5B  | Completed and merged               |
+| Real local read-only proving run against the approved local target        | Owner             | RC5.5B  | Completed (405 absent, 0 blockers) |
+| Transaction boundary, approval contract, receipt, rollback, CLI mode      | Claude            | RC5.5C  | Implemented — pending Owner review |
+| Owner / Architect review and integration of the RC5.5C preparation slice  | Owner / Architect | RC5.5C  | Pending                            |
+| First real Coralina import (live adapter, credentials, approval issuance) | Owner             | RC5.5C+ | Pending (separate checkpoint)      |
 
 ## Acceptance criteria
 
-- Dry-run behavior is unchanged: it creates no Supabase client, makes no network request, and performs no database read or write.
-- `--inspect-collisions` requires the full RC5.5A target/hash/confirmation boundary, performs only approved read queries, and stops successfully or with a structured inspection blocker.
-- Ambiguous or incompatible combinations fail closed: `--dry-run` with `--inspect-collisions`, inspection without target/hash/confirmation, production, unconfigured staging, and invalid local identity.
-- The inspector reads only the entities present in the plan, using bounded/batched reads and no unbounded table scans.
-- Findings are deterministic and stable regardless of target-row return order and are classified as `absent`, `exact_match`, `update_required`, `duplicate_target_rows`, `identity_conflict`, or `inspection_error`.
-- Multiple rows for a unique natural key, parent/identity mismatch, malformed rows, and read errors fail closed; `update_required` findings never authorize the update.
-- Every report states `readOnlyConfirmed: true`, `executeEnabled: false`, and `writesPerformed: 0`; a successful inspection never enters write execution.
-- No insert, upsert, update, delete, mutation RPC, schema change, or dependency change occurs, and no reader mutation method is reachable.
+- One transaction per approved plan; all operations apply inside it in canonical order (dependencies read first, then project, buildings, units, price history); commit only after in-transaction verification succeeds; any failure rolls back; partial success is impossible.
+- Execution requires an explicit `--execute-approved-import` request plus target, fresh plan hash, confirmation, successful RC5.5A preflight, a fresh unblocked all-`absent` RC5.5B collision report, and a valid Owner approval artifact bound to project slug, target identity, plan hash, operation count, collision-report fingerprint, issue/expiry timestamps, and a one-time-use id.
+- Approval artifacts are fail-closed when missing, malformed, expired, not yet valid, over-lifetime, reused, out of scope, or schema-unsupported. Single use is enforced atomically at the execution-attempt boundary through the asynchronous, durable-ready `consumeIfUnused` compare-and-set — of any number of concurrent attempts exactly one confirmed CAS winner can proceed; requests rejected earlier never consume, a rolled-back winner remains consumed, and a registry infrastructure failure is contained (`approval_registry_unavailable`: runner never invoked, raw error discarded, approval truthfully unconsumed). The in-memory registry is hermetic test infrastructure only; any future live implementation requires a durable atomic backing store. The raw approval id is used internally for atomic consumption only and never appears in a receipt or log: every external surface carries only a deterministic domain-separated SHA-256 digest (`forever-import-approval:v1`), or null when no format-safe id existed.
+- Runner-level failures never escape and are never misclassified: any runner-level throw or malformed runner outcome — before or after the work callback, since a runner may begin a transaction before invoking work — yields the truthful `failed_rollback_unconfirmed` outcome with neither commit nor rollback confirmed and `writesPerformed: null` (the receipt never claims zero writes when the transaction outcome is unknown); `rejected_before_transaction` is reserved exclusively for executor gates that fail before the runner is invoked. All rollback reason codes come from a closed stable-code whitelist; anything else collapses to `adapter_failure`.
+- Repeat execution fails closed: any non-`absent` target state (`exact_match`, `update_required`, mixed) is rejected before the transaction, and in-transaction state drift after inspection rolls back (`target_state_changed`).
+- The mutation surface is typed and entity-specific — no generic table access, raw SQL, generic RPC, or delete — and the write path reuses the shared RC5.5B persistence projections, preserving undefined/null `building_id` semantics and persistence-key contracts (`sourceRow` excluded).
+- Receipts and rollback reasons are deterministic, sanitized stable codes; no provider message, credential, URL, SQL text, or raw row data can appear in a receipt or the logger.
+- Dry-run remains client-, read-, network-, and write-free; collision inspection remains select-only; no service-role key is read anywhere in this slice.
 
 ## Out of scope
 
-- Owner approval-token validation, approval-record expiry, and permanent-write approval.
-- Any mutation, transaction, migration change, rollback execution, repeat-import execution, or permanent write (RC5.5C, separately gated).
-- Production or staging credentials, and any real database connection from Claude Web.
-- Operator, Factory autonomy, router, connector, Continue Forever, public website, and UI work.
+- Live transaction adapter implementation, execution credentials, and real approval issuance/storage.
+- Any real import, migration, schema change, production or staging access.
+- Repeat-import/update execution contracts (a future separately approved slice).
+- Operator, Factory autonomy, public website, and UI work.
 
 ## Next slices and checkpoints
 
-RC5.5C migration and transaction-backed execution/rollback require separate approval. A staging rehearsal and the first permanent Coralina write remain later explicit Owner checkpoints. Factory autonomy remains A0 — Propose only; A1-numbered Factory components exist, but no autonomy promotion has been authorized. Factory work does not block product work.
+The first real Coralina import requires a separate Owner checkpoint: live adapter enablement with an isolated explicit credential boundary, a real approval artifact, and a fresh collision inspection immediately before execution. A staging rehearsal remains a later explicit Owner checkpoint. Factory autonomy remains A0 — Propose only; A1-numbered Factory components exist, but no autonomy promotion has been authorized.
 
 ## Definition of done
 
-RC5.5B is complete only after focused and regression tests, TypeScript, changed-file lint, formatting, build, security/privacy/hygiene checks, human review, and integration. Completion does not authorize merge on its own, a real database inspection, execute mode, RC5.5C, staging rehearsal, or a permanent write.
+RC5.5C preparation is complete only after focused and regression tests, TypeScript, changed-file lint, formatting, build, security/privacy/hygiene checks, human review, and integration. Completion does not authorize live execution, the first permanent write, staging rehearsal, or any later slice.

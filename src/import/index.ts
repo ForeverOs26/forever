@@ -31,10 +31,61 @@ export type {
 } from "./collision-reader";
 export {
   inspectPlanCollisions,
+  fingerprintCollisionReport,
+  validateImportOperationSet,
+  comparePersistedEntityFields,
   COLLISION_CLASSIFICATIONS,
   COLLISION_REPORT_SCHEMA_VERSION,
+  IMPORT_ENTITY_EXECUTION_ORDER,
   SUPPORTED_COLLISION_ENTITIES,
 } from "./collision-inspector";
+export {
+  createLiveTransactionRunner,
+  sanitizeExecutionReason,
+  isExecutionReasonCode,
+  EXECUTION_REASON_CODES,
+  ExecutionFailure,
+} from "./execution-adapter";
+export type { ExecutionReasonCode } from "./execution-adapter";
+export type {
+  ImportExecutionTransaction,
+  ImportTransactionRunner,
+  TransactionOutcome,
+  WrittenRowRef,
+  DependencyRow,
+  ProjectWriteRow,
+  BuildingWriteRow,
+  UnitWriteRow,
+  PriceHistoryWriteRow,
+} from "./execution-adapter";
+export {
+  validateExecutionApproval,
+  safeApprovalId,
+  computeApprovalDigest,
+  InMemoryApprovalRegistry,
+  APPROVAL_ID_PATTERN,
+  APPROVAL_DIGEST_DOMAIN,
+  EXECUTION_APPROVAL_SCHEMA_VERSION,
+  EXECUTION_APPROVAL_MAX_LIFETIME_MS,
+} from "./execution-approval";
+export type {
+  ImportExecutionApproval,
+  ExecutionApprovalScope,
+  ApprovalRegistry,
+  ApprovalFailureCode,
+  ApprovalValidationResult,
+} from "./execution-approval";
+export {
+  executeApprovedImportPlan,
+  validateExecutionOrdering,
+  EXECUTION_RECEIPT_SCHEMA_VERSION,
+  LIVE_EXECUTION_ENABLED,
+} from "./transaction-executor";
+export type {
+  ExecuteApprovedImportInput,
+  ExecutionOutcome,
+  ImportExecutionReceipt,
+} from "./transaction-executor";
 export type {
   CollisionClassification,
   CollisionFinding,

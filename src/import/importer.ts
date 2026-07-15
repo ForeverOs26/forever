@@ -5,7 +5,17 @@ import {
 import { inspectPlanCollisions } from "./collision-inspector";
 import { loadExtractedDatasets } from "./datasets";
 import { loadManifest } from "./manifest";
-import { logCollisionReport, logStep, logSummary, logWarning, type ImportSummary } from "./logger";
+import { createLiveTransactionRunner, type ImportTransactionRunner } from "./execution-adapter";
+import { type ApprovalRegistry } from "./execution-approval";
+import { executeApprovedImportPlan } from "./transaction-executor";
+import {
+  logCollisionReport,
+  logExecutionReceipt,
+  logStep,
+  logSummary,
+  logWarning,
+  type ImportSummary,
+} from "./logger";
 import { validateImportPlanRelationships } from "./plan-validator";
 import { createImportPlan } from "./planner";
 import { createRollbackPlan } from "./rollback";
@@ -32,6 +42,15 @@ export interface ImportProjectOptions {
   targetIdentity?: ImportTargetIdentity;
   inspectCollisions?: boolean;
   collisionReader?: CollisionInspectionReader;
+  executeApprovedImport?: boolean;
+  /** Owner approval artifact for `executeApprovedImport`. */
+  approval?: unknown;
+  /** One-time-use approval registry; hermetic tests inject an in-memory one. */
+  approvalRegistry?: ApprovalRegistry;
+  /** Transaction runner; the default live runner fails closed (disabled). */
+  transactionRunner?: ImportTransactionRunner;
+  /** Injected clock for deterministic approval-expiry tests. */
+  executionNow?: Date;
 }
 
 function logDryRunPlan(plan: ImportPlan) {
@@ -206,6 +225,117 @@ export async function importProject(options: ImportProjectOptions): Promise<Impo
     );
     context.state = transitionImportState(context.state, "completed");
     logStep("Finished", "collision inspection");
+    logSummary(summary);
+    return summary;
+  }
+
+  if (options.executeApprovedImport) {
+    // Fail closed before anything else: without an injected hermetic runner
+    // the live factory throws (`live_execution_disabled`) before any approval
+    // consumption, database client creation, or network access.
+    const runner = options.transactionRunner ?? createLiveTransactionRunner();
+    if (!options.approvalRegistry) {
+      throw new Error(
+        "Approved execution requires an approval registry. The request fails closed before any transaction.",
+      );
+    }
+
+    // Execution always requires a fresh RC5.5B collision inspection.
+    context.state = transitionImportState(context.state, "inspecting");
+    const reader = options.collisionReader ?? createCollisionInspectionReader();
+    const manifestFields = {
+      project_slug: manifest.project_slug,
+      project_name: manifest.project_name,
+      project_type: manifest.project_type,
+      developer: manifest.developer,
+      country: manifest.country,
+      province: manifest.province,
+      location: manifest.location,
+    };
+    const collisionReport = await inspectPlanCollisions({
+      reader,
+      target: preflight.target,
+      targetIdentity: options.targetIdentity ?? {},
+      sourceVersion: manifest.source_version,
+      planHash: planFingerprint.hash,
+      shortPlanHash: planFingerprint.shortHash,
+      operationCounts: planFingerprint.operationCounts,
+      operations: plan.operations,
+      manifest: manifestFields,
+    });
+    logCollisionReport(collisionReport);
+
+    if (collisionReport.status === "blocked") {
+      const summary: ImportSummary = {
+        projectSlug: manifest.project_slug,
+        status: "collision_blocked",
+        ready: true,
+        operations: plan.operations.length,
+        buildings: plan.buildings.length,
+        units: plan.units.length,
+        prices: plan.priceHistoryRows.length,
+        skipped: plan.units.length - plan.priceHistoryRows.length,
+        planFingerprint,
+        collisionReport,
+      };
+      context.state = transitionImportState(context.state, "blocked");
+      context.state = transitionImportState(context.state, "completed");
+      logSummary(summary);
+      return summary;
+    }
+    context.state = transitionImportState(context.state, "inspection_completed");
+    context.state = transitionImportState(context.state, "executing");
+
+    const receipt = await executeApprovedImportPlan({
+      runner,
+      approval: options.approval,
+      approvalRegistry: options.approvalRegistry,
+      now: options.executionNow,
+      requestedTarget: options.target,
+      targetIdentity: options.targetIdentity ?? {},
+      manifest: manifestFields,
+      sourceVersion: manifest.source_version,
+      planFingerprint,
+      expectedPlanHash: options.expectedPlanHash ?? "",
+      expectedOperationCounts: options.expectedOperationCounts ?? planFingerprint.operationCounts,
+      confirmation: options.confirmation ?? "",
+      operations: plan.operations,
+      collisionReport,
+    });
+
+    logExecutionReceipt(receipt);
+    const status =
+      receipt.outcome === "committed"
+        ? ("execution_committed" as const)
+        : receipt.outcome === "rolled_back"
+          ? ("execution_rolled_back" as const)
+          : receipt.outcome === "failed_rollback_unconfirmed"
+            ? ("execution_failed" as const)
+            : ("execution_rejected" as const);
+
+    if (receipt.outcome === "committed") {
+      context.state = transitionImportState(context.state, "completed");
+    } else if (receipt.outcome === "rolled_back") {
+      context.state = transitionImportState(context.state, "rolling_back");
+      context.state = transitionImportState(context.state, "rolled_back");
+    } else {
+      context.state = transitionImportState(context.state, "failed");
+    }
+
+    const summary: ImportSummary = {
+      projectSlug: manifest.project_slug,
+      status,
+      ready: true,
+      operations: plan.operations.length,
+      buildings: plan.buildings.length,
+      units: plan.units.length,
+      prices: plan.priceHistoryRows.length,
+      skipped: plan.units.length - plan.priceHistoryRows.length,
+      planFingerprint,
+      collisionReport,
+      executionReceipt: receipt,
+    };
+    logStep("Finished", "approved execution attempt");
     logSummary(summary);
     return summary;
   }

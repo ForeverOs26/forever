@@ -6,9 +6,9 @@ This document defines development phases, dependencies, and sequencing. It is no
 
 ## Current Development Phase
 
-RC5.5 Coralina safe execution, currently limited to RC5.5B read-only target collision inspection. See `docs/CURRENT_STAGE.md`.
+RC5.5 Coralina safe execution, currently limited to RC5.5C transactional execution and rollback preparation. See `docs/CURRENT_STAGE.md`.
 
-RC5.4 is closed as Completed: the shared Project Knowledge Platform reports Coralina `ready`, and the Import Engine dry-run plans 405 operations with zero writes. RC5.5A is closed as Completed and merged: deterministic plan fingerprints and fail-closed, non-networked target preflight. RC5.5B adds only an explicitly requested, read-only collision inspection that compares the approved plan with the target and stops; execute mode remains disabled and zero writes occur.
+RC5.4 is closed as Completed: the shared Project Knowledge Platform reports Coralina `ready`, and the Import Engine dry-run plans 405 operations with zero writes. RC5.5A is closed as Completed and merged: deterministic plan fingerprints and fail-closed, non-networked target preflight. RC5.5B is closed as Completed, merged, and locally proven: the Owner's read-only proving run against the reconciled canonical local target reported Coralina as 405 `absent` operations with zero collisions. RC5.5C adds only hermetic transaction/rollback preparation; no real import has occurred, real database writes remain zero, and the live execution path stays disabled.
 
 ## Completed Phases
 
@@ -74,8 +74,8 @@ RC5.4 is closed as Completed: the shared Project Knowledge Platform reports Cora
 
 - RC5.5 Coralina safe execution
   - RC5.5A (completed, merged): deterministic plan hashing, explicit local/staging/production targets, pure preflight guards, and a non-persistent dry-run receipt. Production is blocked; staging is unconfigured; no database access occurs.
-  - RC5.5B (current): explicitly requested, read-only target collision inspection. A narrow select-only reader compares the approved plan with the existing target, produces a deterministic collision report, and stops at the execute-disabled boundary. No write authorization is implied; a real local read-only proving run is a separate Owner checkpoint after review and merge.
-  - RC5.5C (later, separate approval): migration and transaction-backed execution/rollback behavior.
+  - RC5.5B (completed, merged, locally proven): explicitly requested, read-only target collision inspection with proven-complete paginated reads. The Owner's local proving run against the reconciled canonical local target reported Coralina as 405 `absent` operations with no collisions, duplicates, identity conflicts, or inspection errors.
+  - RC5.5C (current, preparation only): transaction-backed execution and rollback preparation — a single-transaction boundary, Owner approval-artifact contract, deterministic ordering, in-transaction verification, automatic rollback, sanitized receipts, and an explicit `--execute-approved-import` mode. The live adapter stays disabled; no real import has occurred; real database writes remain zero.
   - Staging rehearsal and the first permanent Coralina write remain later explicit Owner checkpoints.
 
 ## Upcoming Phases
