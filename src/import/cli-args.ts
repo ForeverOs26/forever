@@ -1,7 +1,7 @@
 import type { ImportProjectOptions } from "./importer";
 
 export type ParseImportInvocationResult =
-  | { ok: true; options: ImportProjectOptions }
+  | { ok: true; options: ImportProjectOptions; approvalFile?: string }
   | { ok: false; error: string };
 
 /**
@@ -9,13 +9,15 @@ export type ParseImportInvocationResult =
  *
  * Rejects ambiguous or incompatible mode combinations before any work, so
  * misuse fails closed with a clear reason. Presence of `--inspect-collisions`
- * is required for collision inspection; the absence of `--dry-run` never
- * implies inspection.
+ * is required for collision inspection and presence of
+ * `--execute-approved-import` is required for execution; the absence of
+ * `--dry-run` never implies either mode.
  */
 export function parseImportInvocation(args: string[]): ParseImportInvocationResult {
   const projectSlug = args.find((arg) => !arg.startsWith("-"));
   const dryRun = args.includes("--dry-run");
   const inspectCollisions = args.includes("--inspect-collisions");
+  const executeApprovedImport = args.includes("--execute-approved-import");
   const option = (name: string) =>
     args.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
 
@@ -27,12 +29,14 @@ export function parseImportInvocation(args: string[]): ParseImportInvocationResu
   const expectedPlanHash = option("plan-hash");
   const confirmation = option("confirm");
   const targetProjectId = option("target-project-id");
+  const approvalFile = option("approval-file");
 
-  if (dryRun && inspectCollisions) {
+  const modeCount = [dryRun, inspectCollisions, executeApprovedImport].filter(Boolean).length;
+  if (modeCount > 1) {
     return {
       ok: false,
       error:
-        "--dry-run and --inspect-collisions are mutually exclusive. Dry-run performs no database access; collision inspection performs read-only queries.",
+        "--dry-run, --inspect-collisions, and --execute-approved-import are mutually exclusive. Choose exactly one mode.",
     };
   }
 
@@ -44,7 +48,23 @@ export function parseImportInvocation(args: string[]): ParseImportInvocationResu
     };
   }
 
-  if (!dryRun && !inspectCollisions && (!target || !expectedPlanHash || !confirmation)) {
+  if (
+    executeApprovedImport &&
+    (!target || !expectedPlanHash || !confirmation || !targetProjectId || !approvalFile)
+  ) {
+    return {
+      ok: false,
+      error:
+        "Approved execution requires --target, --plan-hash, --confirm, --target-project-id, and --approval-file. The request fails closed before any transaction, database client, network access, or approval consumption.",
+    };
+  }
+
+  if (
+    !dryRun &&
+    !inspectCollisions &&
+    !executeApprovedImport &&
+    (!target || !expectedPlanHash || !confirmation)
+  ) {
     return {
       ok: false,
       error:
@@ -58,10 +78,12 @@ export function parseImportInvocation(args: string[]): ParseImportInvocationResu
       projectSlug,
       dryRun,
       inspectCollisions,
+      executeApprovedImport,
       target,
       expectedPlanHash,
       confirmation,
       targetIdentity: targetProjectId ? { projectId: targetProjectId } : undefined,
     },
+    approvalFile,
   };
 }

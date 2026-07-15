@@ -16,6 +16,10 @@ export interface ImportSummary {
     | "dry_run_completed"
     | "collision_inspected"
     | "collision_blocked"
+    | "execution_committed"
+    | "execution_rolled_back"
+    | "execution_rejected"
+    | "execution_failed"
     | "completed";
   ready?: boolean;
   validationIssues?: Array<{
@@ -34,6 +38,7 @@ export interface ImportSummary {
   planFingerprint?: import("./plan-hash").PlanFingerprint;
   receipt?: import("./plan-hash").DryRunReceipt;
   collisionReport?: import("./collision-inspector").CollisionInspectionReport;
+  executionReceipt?: import("./transaction-executor").ImportExecutionReceipt;
 }
 
 export function logStep(step: ImportStep, detail?: string) {
@@ -76,6 +81,29 @@ export function logCollisionReport(
       console.log(`${item.classification}: ${item.entity} ${item.naturalKey} - ${item.detail}`);
     }
   }
+}
+
+export function logExecutionReceipt(
+  receipt: import("./transaction-executor").ImportExecutionReceipt,
+) {
+  console.log("");
+  console.log("Execution receipt");
+  console.log(`Project: ${receipt.projectSlug}`);
+  console.log(`Target: ${receipt.target} (${receipt.targetIdentity.projectId})`);
+  console.log(`Plan SHA-256: ${receipt.planHash}`);
+  if (receipt.collisionReportFingerprint) {
+    console.log(`Collision report fingerprint: ${receipt.collisionReportFingerprint}`);
+  }
+  if (receipt.approvalDigest) console.log(`Approval digest: ${receipt.approvalDigest}`);
+  console.log(`Approval consumed: ${receipt.approvalConsumed}`);
+  console.log(`Outcome: ${receipt.outcome}`);
+  console.log(`Commit confirmed: ${receipt.commitConfirmed}`);
+  console.log(`Rollback confirmed: ${receipt.rollbackConfirmed}`);
+  console.log(`Operations attempted: ${receipt.totalOperationsAttempted}`);
+  console.log(`Operations applied: ${receipt.totalOperationsApplied}`);
+  console.log(`Execute enabled: ${receipt.executeEnabled}`);
+  console.log(`Writes performed: ${receipt.writesPerformed ?? "unconfirmed"}`);
+  if (receipt.reasonCodes.length) console.log(`Reasons: ${receipt.reasonCodes.join(",")}`);
 }
 
 export function logSummary(summary: ImportSummary) {

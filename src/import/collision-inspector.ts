@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { BuildingInput, PriceHistoryInput, UnitInput } from "./database";
 import type { ImportTarget, ImportTargetIdentity } from "./import-targets";
 import type { ImportOperationCounts } from "./plan-hash";
@@ -346,7 +348,18 @@ function payloadMatchesEntity(operation: ImportOperation): boolean {
   }
 }
 
-function validateOperationSet(input: InspectPlanCollisionsInput): string | null {
+/**
+ * Shared plan-contract validation used by both the RC5.5B collision inspector
+ * and the RC5.5C transaction executor: planner natural keys, per-entity and
+ * total operation counts, entity/payload agreement, duplicate planner keys,
+ * unsupported entities, and database persistence-key uniqueness. Returns a
+ * deterministic reason string, or null when the operation set is valid.
+ */
+export function validateImportOperationSet(input: {
+  operations: ImportOperation[];
+  operationCounts: ImportOperationCounts;
+  manifest: ProjectManifestFields;
+}): string | null {
   const { operations, operationCounts, manifest } = input;
   const slug = manifest.project_slug;
 
@@ -467,7 +480,7 @@ export async function inspectPlanCollisions(
 ): Promise<CollisionInspectionReport> {
   assertReadOnlyReader(input.reader);
 
-  const operationSetError = validateOperationSet(input);
+  const operationSetError = validateImportOperationSet(input);
   if (operationSetError) {
     const findings = input.operations.map((operation) =>
       finding(operation.entity, operation, "inspection_error", 0, "operation_set_invalid"),
@@ -1250,3 +1263,44 @@ function buildReport(
     status,
   };
 }
+
+// ---------------------------------------------------------------------------
+// RC5.5C shared surfaces
+// ---------------------------------------------------------------------------
+
+/**
+ * Deterministic SHA-256 fingerprint of a collision report. The report itself
+ * contains no timestamps or volatile values, so the fingerprint is stable for
+ * identical inspections and binds an Owner execution approval to the exact
+ * inspected target state.
+ */
+export function fingerprintCollisionReport(report: CollisionInspectionReport): string {
+  return createHash("sha256").update(canonicalJsonString(report)).digest("hex");
+}
+
+const COMPARABLE_FIELDS_BY_ENTITY: Partial<Record<ImportEntityType, ComparableField[]>> = {
+  project: PROJECT_FIELDS,
+  building: BUILDING_FIELDS,
+  unit: UNIT_FIELDS,
+  unit_price_history: PRICE_FIELDS,
+};
+
+/**
+ * Compares an expected persistence projection against a persisted row using
+ * the exact stable-field contract of the collision inspector. Returns the
+ * sorted list of differing fields. Shared with the RC5.5C in-transaction
+ * verification step so the inspector and the execution path can never drift.
+ */
+export function comparePersistedEntityFields(
+  entity: ImportEntityType,
+  expected: Record<string, unknown>,
+  actual: Record<string, unknown>,
+): string[] {
+  const fields = COMPARABLE_FIELDS_BY_ENTITY[entity];
+  if (!fields) return ["entity_not_comparable"];
+  return changedFieldsFor(fields, expected, actual);
+}
+
+/** Canonical execution order index per entity (dependencies before children). */
+export const IMPORT_ENTITY_EXECUTION_ORDER: Readonly<Record<ImportEntityType, number>> =
+  ENTITY_ORDER;

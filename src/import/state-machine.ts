@@ -9,7 +9,7 @@ const transitions: Record<ImportState, ImportState[]> = {
   relationships_validated: ["dry_run_completed", "inspecting", "executing", "failed"],
   dry_run_completed: ["completed"],
   inspecting: ["inspection_completed", "blocked", "failed"],
-  inspection_completed: ["completed"],
+  inspection_completed: ["completed", "executing"],
   executing: ["completed", "rolling_back", "failed"],
   blocked: ["completed"],
   rolling_back: ["rolled_back", "failed"],
