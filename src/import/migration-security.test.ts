@@ -205,7 +205,7 @@ describe("RC5.5D migration security: functions", () => {
         "GRANT USAGE ON SCHEMA forever_execution TO forever_import_executor;",
         "GRANT EXECUTE ON FUNCTION forever_execution.forever_execute_approved_import(JSONB) TO forever_import_executor;",
         // Migration role → owner membership, required to reassign ownership.
-        "GRANT forever_import_execution_owner TO CURRENT_USER;",
+        "GRANT forever_import_execution_owner TO postgres;",
         // Owner: exactly the target-capability allowlist (USAGE public; SELECT on
         // dependency tables; SELECT + INSERT on the four import tables).
         "GRANT USAGE ON SCHEMA public TO forever_import_execution_owner;",
@@ -580,15 +580,21 @@ describe("RC5.5D migration security: dedicated execution-boundary owner (review 
   });
 
   it("owner is a member of no broad role; only the migration role is a member of the owner", () => {
-    // The only membership grant involving the owner is `owner TO CURRENT_USER`
+    // The only membership grant involving the owner is `owner TO postgres`
     // (migration-role → owner, for ownership reassignment). No broad role is ever
     // granted TO the owner, and the owner is granted TO no broad identity.
-    expect(sql).toContain("GRANT forever_import_execution_owner TO CURRENT_USER;");
+    const ownerMembershipGrants =
+      code.match(/GRANT\s+forever_import_execution_owner\s+TO\s+\w+\s*;/gi) ?? [];
+    expect(ownerMembershipGrants).toEqual([
+      "GRANT forever_import_execution_owner TO postgres;",
+    ]);
+    expect(sql).not.toContain("GRANT forever_import_execution_owner TO CURRENT_USER;");
+    expect(sql).not.toContain("GRANT forever_import_execution_owner TO SESSION_USER;");
     expect(code).not.toMatch(
       /GRANT\s+(service_role|anon|authenticated|postgres|supabase_admin|pg_\w+)\s+TO forever_import_execution_owner/i,
     );
     expect(code).not.toMatch(
-      /GRANT forever_import_execution_owner TO (service_role|anon|postgres)/i,
+      /GRANT forever_import_execution_owner TO (service_role|anon)/i,
     );
   });
 

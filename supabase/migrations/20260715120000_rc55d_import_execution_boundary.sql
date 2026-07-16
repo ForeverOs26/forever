@@ -279,7 +279,7 @@ END $$;
 -- the owner a member of anything, so the owner gains no privilege and no SET ROLE
 -- path from this grant. The audit checks the owner's OWN memberships (member =
 -- owner), which stay empty.
-GRANT forever_import_execution_owner TO CURRENT_USER;
+GRANT forever_import_execution_owner TO postgres;
 
 -- Never let future objects in this schema default to PUBLIC execute/select.
 ALTER DEFAULT PRIVILEGES IN SCHEMA forever_import REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
