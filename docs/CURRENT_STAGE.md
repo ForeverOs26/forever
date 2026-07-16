@@ -1,56 +1,82 @@
 # Forever Current Stage
 
 Status: Canonical active-stage document
-Last updated: 2026-07-15
+Last updated: 2026-07-17
 
 ## Stage name
 
-RC5.5 Coralina safe execution, current bounded slice RC5.5C Transactional Execution and Rollback Preparation.
+RC5.5 Coralina safe execution, post-RC5.5D canonical-application closure and preparation for one supervised first Coralina import.
 
-## Objective
+## Current milestone
 
-Prepare — without enabling — transaction-backed import execution: a single-transaction boundary that applies one approved plan atomically, verifies every persisted row against the shared persistence projections before commit, rolls back automatically on any failure, and returns a deterministic sanitized execution receipt. RC5.5B is closed as Completed, merged, and locally proven: the Owner's read-only proving run against the reconciled canonical local target reported Coralina as 405 `absent` operations (1 project, 8 buildings, 198 units, 198 price-history rows) with zero collisions, duplicates, identity conflicts, or inspection errors.
+RC5.5D is completed, reviewed, integrated, canonically applied, and verified. Migration `20260715120000` is recorded exactly once in the canonical migration history; the history contains 12 rows in total.
 
-## Current authorization
+Canonical verification passed for the complete RC5.5D boundary:
 
-RC5.5C is authorized for code, hermetic tests, and canonical documentation only: a narrow typed transaction/mutation abstraction, an Owner execution-approval artifact contract (explicit scope, short-lived, single-use, fail-closed), deterministic transaction ordering and in-transaction verification, automatic rollback semantics, a typed execution receipt, and an explicit `--execute-approved-import` CLI mode that fails closed before any transaction, database client, network access, or approval consumption when anything is missing or mismatched.
+- 2 RC5.5D roles;
+- 2 schemas;
+- 2 boundary tables;
+- 6 routines;
+- 10 dedicated policies;
+- ownership, grants, role attributes, and exact policy definitions; and
+- effective `postgres` membership in `forever_import_execution_owner`, with `MEMBER=true`, `USAGE=true`, and `SET=true`.
 
-This slice does not authorize any real database execution. The live transaction runner is structurally defined but fails closed (`live_execution_disabled`) before reading any credential or creating any client. No migration runs, no real import occurs, and real database writes remain zero. The first real Coralina import remains a separate explicit Owner checkpoint with its own approval artifact and credential boundary.
+The apparent membership-verifier failure was a temporary untracked verifier defect: PostgreSQL 17 legitimately retained two distinguishable owner-to-postgres membership rows. No migration retry, repair, `GRANT`, or `REVOKE` is required. The manual logical backup was completed and verified before canonical application.
 
-Production is blocked unconditionally. Staging remains blocked until an approved non-secret project identity is configured. Only the approved local identity passes preflight in hermetic tests. Dry-run and collision inspection behavior are unchanged.
+## Current authorization and safety state
+
+RC5.5D closure does not authorize an import. Current state remains:
+
+- live capability is disabled;
+- no executor credential has been provisioned for live use;
+- no real approval has been issued;
+- Coralina has not been imported;
+- RC5.5E has not started;
+- production and staging execution remain blocked; and
+- Factory autonomy remains A0 - Propose only.
+
+Approval issuance remains a separate Owner checkpoint. Actual live execution is another separate Owner checkpoint and is not implied by approval issuance.
 
 ## Active tasks
 
-| Task                                                                      | Owner             | Slice   | Status                             |
-| ------------------------------------------------------------------------- | ----------------- | ------- | ---------------------------------- |
-| Read-only collision inspection (reader, inspector, CLI, hermetic proof)   | Claude            | RC5.5B  | Completed and merged               |
-| Real local read-only proving run against the approved local target        | Owner             | RC5.5B  | Completed (405 absent, 0 blockers) |
-| Transaction boundary, approval contract, receipt, rollback, CLI mode      | Claude            | RC5.5C  | Implemented — pending Owner review |
-| Owner / Architect review and integration of the RC5.5C preparation slice  | Owner / Architect | RC5.5C  | Pending                            |
-| First real Coralina import (live adapter, credentials, approval issuance) | Owner             | RC5.5C+ | Pending (separate checkpoint)      |
+| Task | Owner | Status |
+| --- | --- | --- |
+| RC5.5D implementation, review, integration, canonical application, and verification | Owner / Architect | Completed |
+| Fresh read-only Coralina collision inspection against the canonical target | Owner | Next checkpoint - not started |
+| Prepare the exact short-lived approval payload from the fresh inspection | Owner / Architect | Next checkpoint - not issued |
+| Issue a real approval | Owner | Pending separate authorization |
+| Provision isolated executor credentials for live use | Owner | Pending separate authorization |
+| Enable and perform one supervised first Coralina import | Owner | Pending separate authorization |
+| Staging rehearsal | Owner | Later checkpoint |
+| RC5.5E | Owner / Architect | Later checkpoint - not started |
 
-## Acceptance criteria
+## Next checkpoint
 
-- One transaction per approved plan; all operations apply inside it in canonical order (dependencies read first, then project, buildings, units, price history); commit only after in-transaction verification succeeds; any failure rolls back; partial success is impossible.
-- Execution requires an explicit `--execute-approved-import` request plus target, fresh plan hash, confirmation, successful RC5.5A preflight, a fresh unblocked all-`absent` RC5.5B collision report, and a valid Owner approval artifact bound to project slug, target identity, plan hash, operation count, collision-report fingerprint, issue/expiry timestamps, and a one-time-use id.
-- Approval artifacts are fail-closed when missing, malformed, expired, not yet valid, over-lifetime, reused, out of scope, or schema-unsupported. Single use is enforced atomically at the execution-attempt boundary through the asynchronous, durable-ready `consumeIfUnused` compare-and-set — of any number of concurrent attempts exactly one confirmed CAS winner can proceed; requests rejected earlier never consume, a rolled-back winner remains consumed, and a registry infrastructure failure is contained (`approval_registry_unavailable`: runner never invoked, raw error discarded, approval truthfully unconsumed). The in-memory registry is hermetic test infrastructure only; any future live implementation requires a durable atomic backing store. The raw approval id is used internally for atomic consumption only and never appears in a receipt or log: every external surface carries only a deterministic domain-separated SHA-256 digest (`forever-import-approval:v1`), or null when no format-safe id existed.
-- Runner-level failures never escape and are never misclassified: any runner-level throw or malformed runner outcome — before or after the work callback, since a runner may begin a transaction before invoking work — yields the truthful `failed_rollback_unconfirmed` outcome with neither commit nor rollback confirmed and `writesPerformed: null` (the receipt never claims zero writes when the transaction outcome is unknown); `rejected_before_transaction` is reserved exclusively for executor gates that fail before the runner is invoked. All rollback reason codes come from a closed stable-code whitelist; anything else collapses to `adapter_failure`.
-- Repeat execution fails closed: any non-`absent` target state (`exact_match`, `update_required`, mixed) is rejected before the transaction, and in-transaction state drift after inspection rolls back (`target_state_changed`).
-- The mutation surface is typed and entity-specific — no generic table access, raw SQL, generic RPC, or delete — and the write path reuses the shared RC5.5B persistence projections, preserving undefined/null `building_id` semantics and persistence-key contracts (`sourceRow` excluded).
-- Receipts and rollback reasons are deterministic, sanitized stable codes; no provider message, credential, URL, SQL text, or raw row data can appear in a receipt or the logger.
-- Dry-run remains client-, read-, network-, and write-free; collision inspection remains select-only; no service-role key is read anywhere in this slice.
+Prepare for one supervised first Coralina import by beginning with a fresh read-only collision inspection of the canonical target, then prepare the exact approval payload from that fresh evidence. This preparation does not issue an approval, provision a credential, enable live capability, or execute the import.
+
+After preparation, the Owner must authorize each consequential step separately:
+
+1. issuance of the real short-lived approval;
+2. isolated executor credential provisioning and actual live execution of the one supervised import.
+
+A staging rehearsal and RC5.5E remain later checkpoints.
+
+## Acceptance criteria for the next checkpoint
+
+- The collision inspection is fresh, read-only, complete, and bound to the current plan and target identity.
+- Coralina remains absent or any changed target state is classified explicitly; no partial result is treated as approval-ready.
+- The approval payload is prepared from the fresh inspection and exact approved request, but is not issued.
+- No credential is provisioned and live capability remains disabled.
+- No database mutation, Coralina import, staging rehearsal, or RC5.5E work occurs without its separate Owner authorization.
+- Factory autonomy remains A0.
 
 ## Out of scope
 
-- Live transaction adapter implementation, execution credentials, and real approval issuance/storage.
-- Any real import, migration, schema change, production or staging access.
-- Repeat-import/update execution contracts (a future separately approved slice).
-- Operator, Factory autonomy, public website, and UI work.
-
-## Next slices and checkpoints
-
-The first real Coralina import requires a separate Owner checkpoint: live adapter enablement with an isolated explicit credential boundary, a real approval artifact, and a fresh collision inspection immediately before execution. A staging rehearsal remains a later explicit Owner checkpoint. Factory autonomy remains A0 — Propose only; A1-numbered Factory components exist, but no autonomy promotion has been authorized.
+- Issuing a real approval under the preparation checkpoint.
+- Provisioning executor credentials under the preparation checkpoint.
+- Enabling live capability or performing the supervised import without separate Owner authorization.
+- Staging rehearsal, production execution, RC5.5E, update/upsert behavior, automatic retries, or disaster-recovery automation.
 
 ## Definition of done
 
-RC5.5C preparation is complete only after focused and regression tests, TypeScript, changed-file lint, formatting, build, security/privacy/hygiene checks, human review, and integration. Completion does not authorize live execution, the first permanent write, staging rehearsal, or any later slice.
+The next preparation checkpoint is complete when a fresh read-only collision report and an exact approval payload are ready for Owner review, while approval issuance, credential provisioning, live execution, staging rehearsal, and RC5.5E remain unperformed and separately gated.

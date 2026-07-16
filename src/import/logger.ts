@@ -95,6 +95,7 @@ export function logExecutionReceipt(
     console.log(`Collision report fingerprint: ${receipt.collisionReportFingerprint}`);
   }
   if (receipt.approvalDigest) console.log(`Approval digest: ${receipt.approvalDigest}`);
+  if (receipt.executionId) console.log(`Execution id: ${receipt.executionId}`);
   console.log(`Approval consumed: ${receipt.approvalConsumed}`);
   console.log(`Outcome: ${receipt.outcome}`);
   console.log(`Commit confirmed: ${receipt.commitConfirmed}`);

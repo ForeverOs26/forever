@@ -6,9 +6,9 @@ This document defines development phases, dependencies, and sequencing. It is no
 
 ## Current Development Phase
 
-RC5.5 Coralina safe execution, currently limited to RC5.5C transactional execution and rollback preparation. See `docs/CURRENT_STAGE.md`.
+RC5.5 Coralina safe execution, after RC5.5D canonical-application closure and now limited to preparation for one supervised first Coralina import. See `docs/CURRENT_STAGE.md`.
 
-RC5.4 is closed as Completed: the shared Project Knowledge Platform reports Coralina `ready`, and the Import Engine dry-run plans 405 operations with zero writes. RC5.5A is closed as Completed and merged: deterministic plan fingerprints and fail-closed, non-networked target preflight. RC5.5B is closed as Completed, merged, and locally proven: the Owner's read-only proving run against the reconciled canonical local target reported Coralina as 405 `absent` operations with zero collisions. RC5.5C adds only hermetic transaction/rollback preparation; no real import has occurred, real database writes remain zero, and the live execution path stays disabled.
+RC5.4 is closed as Completed: the shared Project Knowledge Platform reports Coralina `ready`, and the Import Engine dry-run plans 405 operations with zero writes. RC5.5A is closed as Completed and merged: deterministic plan fingerprints and fail-closed, non-networked target preflight. RC5.5B is closed as Completed, merged, and locally proven: the Owner's read-only proving run against the reconciled canonical local target reported Coralina as 405 `absent` operations with zero collisions. RC5.5C is closed as Completed, reviewed, integrated, and merged: hermetic transaction/rollback preparation with the live runner disabled. RC5.5D is completed, reviewed, integrated, canonically applied, and verified. Migration `20260715120000` is recorded exactly once among 12 migration-history rows, and the verified canonical boundary contains 2 roles, 2 schemas, 2 boundary tables, 6 routines, and 10 dedicated policies. Ownership, grants, role attributes, policy definitions, and effective membership (`MEMBER=true`, `USAGE=true`, `SET=true`) passed; no repair or migration retry is required.
 
 ## Completed Phases
 
@@ -75,8 +75,10 @@ RC5.4 is closed as Completed: the shared Project Knowledge Platform reports Cora
 - RC5.5 Coralina safe execution
   - RC5.5A (completed, merged): deterministic plan hashing, explicit local/staging/production targets, pure preflight guards, and a non-persistent dry-run receipt. Production is blocked; staging is unconfigured; no database access occurs.
   - RC5.5B (completed, merged, locally proven): explicitly requested, read-only target collision inspection with proven-complete paginated reads. The Owner's local proving run against the reconciled canonical local target reported Coralina as 405 `absent` operations with no collisions, duplicates, identity conflicts, or inspection errors.
-  - RC5.5C (current, preparation only): transaction-backed execution and rollback preparation — a single-transaction boundary, Owner approval-artifact contract, deterministic ordering, in-transaction verification, automatic rollback, sanitized receipts, and an explicit `--execute-approved-import` mode. The live adapter stays disabled; no real import has occurred; real database writes remain zero.
-  - Staging rehearsal and the first permanent Coralina write remain later explicit Owner checkpoints.
+  - RC5.5C (completed, reviewed, integrated, and merged): transaction-backed execution and rollback preparation — a single-transaction boundary, Owner approval-artifact contract, deterministic ordering, in-transaction verification, automatic rollback, sanitized receipts, and an explicit `--execute-approved-import` mode. The live adapter stays disabled; no real import has occurred; real database writes remain zero.
+  - RC5.5D (completed, reviewed, integrated, canonically applied, and verified): migration `20260715120000` is recorded exactly once. The complete canonical boundary and security state passed, including the exact ownership and capability allowlists, 10 dedicated policy definitions, and effective `postgres` membership capabilities. The pre-application manual logical backup was completed and verified. No retry, repair, `GRANT`, or `REVOKE` is required.
+  - Next checkpoint: prepare for one supervised first Coralina import, beginning with a fresh read-only collision inspection and preparation of the exact approval payload. No approval has been issued, executor credentials have not been provisioned for live use, live capability remains disabled, and Coralina has not been imported.
+  - Real approval issuance and actual live execution each require separate Owner authorization. Staging rehearsal and RC5.5E remain later explicit Owner checkpoints. Factory autonomy remains A0.
 
 ## Upcoming Phases
 

@@ -69,6 +69,11 @@ export interface ImportExecutionReceipt {
   shortPlanHash: string;
   collisionReportFingerprint: string | null;
   /**
+   * Display-safe server execution id (RC5.5D server path only, committed
+   * outcomes only). Null/absent on every other path and outcome.
+   */
+  executionId?: string | null;
+  /**
    * Domain-separated SHA-256 digest of the approval id — never the raw id.
    * Null when the artifact carried no format-safe id to digest.
    */
@@ -172,7 +177,7 @@ export function validateExecutionOrdering(operations: ImportOperation[]): string
 
 function collisionGate(
   report: CollisionInspectionReport,
-  input: ExecuteApprovedImportInput,
+  input: Pick<ExecutionGateInput, "planFingerprint" | "manifest" | "operations">,
 ): string | null {
   if (report.schemaVersion !== "1") return "collision_report_unsupported";
   if (report.planHash !== input.planFingerprint.hash) return "collision_report_stale_plan";
@@ -252,21 +257,44 @@ function priceVerificationKey(row: Record<string, unknown>): string {
 }
 
 /**
- * RC5.5C transaction-backed execution of one approved import plan.
- *
- * Everything runs fail-closed: the request is rejected before any transaction
- * unless the operation set, execution ordering, RC5.5A preflight, RC5.5B
- * collision report (fresh, unblocked, all-absent), and the Owner approval
- * artifact all validate exactly. Inside the single transaction, every planned
- * operation is applied in canonical order and then verified against the shared
- * persistence projections before commit; any mismatch or failure rolls the
- * whole transaction back. Partial success is impossible.
+ * The full RC5.5C pre-transaction gate pipeline, shared verbatim by the
+ * RC5.5C transaction executor and the RC5.5D server-boundary executor so the
+ * two paths can never drift: operation-set contract, execution ordering,
+ * RC5.5A preflight, RC5.5B collision gate (fresh, unblocked, all-absent), and
+ * Owner approval validation — in exactly that order, with exactly the RC5.5C
+ * stable rejection codes. Performs no adapter call and consumes nothing.
  */
-export async function executeApprovedImportPlan(
-  input: ExecuteApprovedImportInput,
-): Promise<ImportExecutionReceipt> {
+export interface ExecutionGateInput {
+  approval: unknown;
+  requestedTarget?: string;
+  targetIdentity: ImportTargetIdentity;
+  manifest: ProjectManifestFields;
+  sourceVersion: string;
+  planFingerprint: PlanFingerprint;
+  expectedPlanHash: string;
+  expectedOperationCounts: ImportOperationCounts;
+  confirmation: string;
+  operations: ImportOperation[];
+  collisionReport: CollisionInspectionReport;
+}
+
+export type ExecutionGateOutcome =
+  | {
+      ok: true;
+      approval: import("./execution-approval").ImportExecutionApproval;
+      target: string;
+      collisionReportFingerprint: string;
+      approvalDigest: string;
+    }
+  | {
+      ok: false;
+      code: string;
+      collisionReportFingerprint: string | null;
+      candidateApprovalDigest: string | null;
+    };
+
+export function evaluateExecutionGates(input: ExecutionGateInput, now: Date): ExecutionGateOutcome {
   const slug = input.manifest.project_slug;
-  const now = input.now ?? new Date();
   // The raw approval id never reaches a receipt or log: only a deterministic
   // domain-separated digest is exposed, and only when the artifact carried a
   // format-safe id at all — otherwise null, so a hostile or secret-shaped id
@@ -279,20 +307,13 @@ export async function executeApprovedImportPlan(
     candidateSafeId === null ? null : computeApprovalDigest(candidateSafeId);
 
   let collisionReportFingerprint: string | null = null;
-  let approvalConsumed = false;
+  const reject = (code: string): ExecutionGateOutcome => ({
+    ok: false,
+    code,
+    collisionReportFingerprint,
+    candidateApprovalDigest,
+  });
 
-  const reject = (code: string): ImportExecutionReceipt =>
-    buildReceipt(input, {
-      outcome: "rejected_before_transaction",
-      reasonCodes: [code],
-      collisionReportFingerprint,
-      approvalDigest: candidateApprovalDigest,
-      approvalConsumed,
-      attempted: 0,
-      applied: 0,
-    });
-
-  // ----- Pre-transaction gates (no adapter call, no approval consumption) ---
   const operationSetError = validateImportOperationSet({
     operations: input.operations,
     operationCounts: input.planFingerprint.operationCounts,
@@ -330,7 +351,59 @@ export async function executeApprovedImportPlan(
   };
   const approvalResult = validateExecutionApproval(input.approval, scope, now);
   if (!approvalResult.ok) return reject(approvalResult.code);
-  const approval = approvalResult.approval;
+
+  return {
+    ok: true,
+    approval: approvalResult.approval,
+    target: preflight.target,
+    collisionReportFingerprint,
+    approvalDigest: computeApprovalDigest(approvalResult.approval.approvalId),
+  };
+}
+
+/**
+ * RC5.5C transaction-backed execution of one approved import plan.
+ *
+ * Everything runs fail-closed: the request is rejected before any transaction
+ * unless the operation set, execution ordering, RC5.5A preflight, RC5.5B
+ * collision report (fresh, unblocked, all-absent), and the Owner approval
+ * artifact all validate exactly. Inside the single transaction, every planned
+ * operation is applied in canonical order and then verified against the shared
+ * persistence projections before commit; any mismatch or failure rolls the
+ * whole transaction back. Partial success is impossible.
+ */
+export async function executeApprovedImportPlan(
+  input: ExecuteApprovedImportInput,
+): Promise<ImportExecutionReceipt> {
+  const now = input.now ?? new Date();
+
+  const gates = evaluateExecutionGates(input, now);
+  if (!gates.ok) {
+    return buildReceipt(input, {
+      outcome: "rejected_before_transaction",
+      reasonCodes: [gates.code],
+      collisionReportFingerprint: gates.collisionReportFingerprint,
+      approvalDigest: gates.candidateApprovalDigest,
+      approvalConsumed: false,
+      attempted: 0,
+      applied: 0,
+    });
+  }
+  const approval = gates.approval;
+  const collisionReportFingerprint = gates.collisionReportFingerprint;
+  const slug = input.manifest.project_slug;
+  let approvalConsumed = false;
+
+  const reject = (code: string): ImportExecutionReceipt =>
+    buildReceipt(input, {
+      outcome: "rejected_before_transaction",
+      reasonCodes: [code],
+      collisionReportFingerprint,
+      approvalDigest: gates.approvalDigest,
+      approvalConsumed,
+      attempted: 0,
+      applied: 0,
+    });
 
   // Single use, enforced ATOMICALLY at the execution-attempt boundary: the
   // durable-ready asynchronous compare-and-set below is the only reuse gate,
@@ -593,31 +666,49 @@ export async function executeApprovedImportPlan(
   });
 }
 
-function buildReceipt(
-  input: ExecuteApprovedImportInput,
-  details: {
-    outcome: ExecutionOutcome;
-    reasonCodes: string[];
-    collisionReportFingerprint: string | null;
-    approvalDigest: string | null;
-    approvalConsumed: boolean;
-    attempted: number;
-    applied: number;
-  },
+export interface ExecutionReceiptContext {
+  projectSlug: string;
+  requestedTarget?: string;
+  targetIdentity: ImportTargetIdentity;
+  planFingerprint: PlanFingerprint;
+}
+
+export interface ExecutionReceiptDetails {
+  outcome: ExecutionOutcome;
+  reasonCodes: string[];
+  collisionReportFingerprint: string | null;
+  approvalDigest: string | null;
+  approvalConsumed: boolean;
+  attempted: number;
+  applied: number;
+  executionId?: string | null;
+}
+
+/**
+ * Shared truthful receipt assembly for the RC5.5C transaction executor and
+ * the RC5.5D server-boundary executor: `writesPerformed` is the exact applied
+ * count for `committed`, 0 for `rolled_back` and `rejected_before_transaction`,
+ * and null for `failed_rollback_unconfirmed` (the receipt never claims zero
+ * writes when the transaction outcome is unknown).
+ */
+export function buildImportExecutionReceipt(
+  context: ExecutionReceiptContext,
+  details: ExecutionReceiptDetails,
 ): ImportExecutionReceipt {
   const committed = details.outcome === "committed";
   const writesPerformed =
     details.outcome === "failed_rollback_unconfirmed" ? null : committed ? details.applied : 0;
   return {
     schemaVersion: EXECUTION_RECEIPT_SCHEMA_VERSION,
-    projectSlug: input.manifest.project_slug,
-    target: input.requestedTarget ?? "",
-    targetIdentity: { projectId: input.targetIdentity.projectId ?? "" },
-    planHash: input.planFingerprint.hash,
-    shortPlanHash: input.planFingerprint.shortHash,
+    projectSlug: context.projectSlug,
+    target: context.requestedTarget ?? "",
+    targetIdentity: { projectId: context.targetIdentity.projectId ?? "" },
+    planHash: context.planFingerprint.hash,
+    shortPlanHash: context.planFingerprint.shortHash,
     collisionReportFingerprint: details.collisionReportFingerprint,
+    executionId: details.executionId ?? null,
     approvalDigest: details.approvalDigest,
-    operationCounts: input.planFingerprint.operationCounts,
+    operationCounts: context.planFingerprint.operationCounts,
     totalOperationsAttempted: details.attempted,
     totalOperationsApplied: committed ? details.applied : 0,
     outcome: details.outcome,
@@ -628,4 +719,19 @@ function buildReceipt(
     reasonCodes: [...new Set(details.reasonCodes)].sort(),
     approvalConsumed: details.approvalConsumed,
   };
+}
+
+function buildReceipt(
+  input: ExecuteApprovedImportInput,
+  details: ExecutionReceiptDetails,
+): ImportExecutionReceipt {
+  return buildImportExecutionReceipt(
+    {
+      projectSlug: input.manifest.project_slug,
+      requestedTarget: input.requestedTarget,
+      targetIdentity: input.targetIdentity,
+      planFingerprint: input.planFingerprint,
+    },
+    details,
+  );
 }
