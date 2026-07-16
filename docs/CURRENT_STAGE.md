@@ -1,66 +1,82 @@
 # Forever Current Stage
 
 Status: Canonical active-stage document
-Last updated: 2026-07-15
+Last updated: 2026-07-17
 
 ## Stage name
 
-RC5.5 Coralina safe execution, current bounded slice RC5.5D Live Execution Boundary Preparation.
+RC5.5 Coralina safe execution, post-RC5.5D canonical-application closure and preparation for one supervised first Coralina import.
 
-## Objective
+## Current milestone
 
-Prepare — without activating — the server-side database transaction boundary the future first real Coralina import must use: a committed-but-NOT-applied migration defining one atomic PostgreSQL execution function with durable one-time approval storage and durable receipts, a typed versioned bounded server request contract, an isolated live execution credential boundary, an effective-privilege & PUBLIC-ACL audit contract, and a typed live adapter over a single fixed direct-PostgreSQL statement that stays disabled by default. A real import must never be implemented as multiple independent Supabase REST insert calls; approval consumption, fresh-state verification, all entity writes, persisted-row verification, and receipt creation must all commit together or all roll back together.
+RC5.5D is completed, reviewed, integrated, canonically applied, and verified. Migration `20260715120000` is recorded exactly once in the canonical migration history; the history contains 12 rows in total.
 
-RC5.5C is closed as Completed, reviewed, integrated, and merged. RC5.5B remains locally proven: the Owner's read-only proving run against the reconciled canonical local target (Supabase project `abtvsrcnfwlbawvrjeed`) reported Coralina as 405 `absent` operations (1 project, 8 buildings, 198 units, 198 price-history rows) with zero collisions, duplicates, identity conflicts, or inspection errors. Coralina remains absent from the target; no real import has occurred; real database writes remain zero.
+Canonical verification passed for the complete RC5.5D boundary:
 
-## Current authorization
+- 2 RC5.5D roles;
+- 2 schemas;
+- 2 boundary tables;
+- 6 routines;
+- 10 dedicated policies;
+- ownership, grants, role attributes, and exact policy definitions; and
+- effective `postgres` membership in `forever_import_execution_owner`, with `MEMBER=true`, `USAGE=true`, and `SET=true`.
 
-RC5.5D is authorized for code, a committed-but-not-applied migration, hermetic tests, and canonical documentation only:
+The apparent membership-verifier failure was a temporary untracked verifier defect: PostgreSQL 17 legitimately retained two distinguishable owner-to-postgres membership rows. No migration retry, repair, `GRANT`, or `REVOKE` is required. The manual logical backup was completed and verified before canonical application.
 
-- One server-side execution boundary: a private `forever_import` schema (durable approval/receipt tables + internal functions) and a SEPARATE dedicated closed schema `forever_execution` holding the single callable wrapper `forever_execution.forever_execute_approved_import(jsonb)` — NOT in `public` — SECURITY DEFINER, pinned empty `search_path`, no dynamic SQL, with PUBLIC/anon/authenticated/`service_role` execution all revoked and the schema's default function EXECUTE for PUBLIC reversed. `service_role` is deliberately NOT an execution principal. The ONE execution principal is `forever_import_executor`, a dedicated least-privilege LOGIN role whose two required grants are USAGE on the `forever_execution` schema plus EXECUTE on the one wrapper. Its direct `public` grants are revoked as defensive hygiene, but a direct REVOKE does NOT override a PUBLIC-derived grant (every role is implicitly part of PUBLIC, and a stock database grants `public` USAGE to PUBLIC), so the executor MAY still hold effective `public` USAGE — the migration does not claim otherwise and deliberately does not globally revoke public USAGE from PUBLIC (a separate Owner decision). It has no direct table access, no direct private-schema USAGE, no internal-function EXECUTE, no service*role membership, NOINHERIT, and no ambient authority; because the wrapper is SECURITY DEFINER it performs the import as its owner while the executor holds no table privileges of its own, and wrapper isolation relies on the closed `forever_execution` schema, not on the executor's `public` reachability. Because PostgreSQL effective privileges are the union of direct, inherited, and PUBLIC-granted rights and ownership confers authority beyond ACL, direct GRANT/REVOKE enumeration is not sufficient proof: an effective-privilege & PUBLIC-ACL audit module (`src/import/effective-privilege-audit.ts`) of read-only single-SELECT catalog checks — measuring the executor's effective privileges via `has_schema_privilege`/`has_function_privilege`/`has_table_privilege`/`has_sequence_privilege`/`has_database_privilege` (role and object resolved to OIDs, fail-closed on absence) and inspecting the PUBLIC grantee (OID 0) through the ACL catalogs (`pg_namespace.nspacl`/`pg_proc.proacl` via `aclexplode` over `COALESCE(acl, acldefault(...))`, never passing `'public'` as a role), plus ownership (`pg_database`/`pg_namespace`/`pg_class`/`pg_proc`) and sequence checks, with the table-privilege, sequence, CREATE, schema-USAGE, and EXECUTE-on-ANY-routine checks (functions, procedures, aggregates, window routines; SECURITY DEFINER and SECURITY INVOKER alike — the executor may hold EXECUTE on no routine except exactly the wrapper) spanning the ENTIRE non-system database surface; every non-system schema is explicitly classified as approved*required*surface / explicitly_prohibited_surface / unexpected_surface (a newly introduced schema is unexpected and blocks readiness until the Owner classifies it); and the COMPLETE execution chain is validated — the SECURITY DEFINER wrapper owner and every internal-routine owner must not be a superuser, BYPASSRLS holder, or broad platform role (postgres/service_role/supabase\_\*/pg_read_all_data/…), and the executor must be a dedicated LOGIN role with no ambient authority or SET ROLE path; the whole chain is bound to ONE EXACT dedicated NOLOGIN owner role `forever_import_execution_owner` (created by the migration, which reassigns the two boundary schemas, two tables, and six routines to it), proven to own exactly the boundary inventory and nothing else, to have an empty direct-and-recursive membership/SET ROLE closure, and to hold only the exact target-capability allowlist (USAGE on public; SELECT on the two dependency tables; SELECT + INSERT on the four UUID-keyed import tables; no UPDATE/DELETE/TRUNCATE and no sequence privilege). The audit proves this two-sided (review 10): POSITIVE required-capability checks prove the owner actually holds USAGE on public and SELECT/INSERT on each exact target table (so readiness can never be true for an inoperable boundary), alongside the negative allowlist. Because the six target tables have RLS enabled with SELECT-only policies and no INSERT policy, the migration adds owner-scoped RLS policies (SELECT on all six, INSERT on the four import tables, `TO forever_import_execution_owner` only, `USING/WITH CHECK (true)`, no UPDATE/DELETE, no broad role) — safe because the NOLOGIN owner is reachable only through the request-validating SECURITY DEFINER wrapper — and (review 11) the policy state is DETERMINISTIC and proven EXACTLY: the migration normalizes each of the ten dedicated per-table policies (six `forever_import_owner_select` policies and four `forever_import_owner_insert` policies, one per exact table) with`DROP POLICY IF EXISTS`+ exact`CREATE POLICY ... AS PERMISSIVE`(never`IF NOT EXISTS`, which would preserve a same-name policy with drifted semantics; only the ten uniquely-named RC5.5D policies are ever dropped, never an unrelated application policy), and the runtime audit proves each policy's exact name, table, command, `polpermissive`, EXACT role set by oid-array equality (`polroles = {owner}`, so extra roles, PUBLIC, and empty sets all fail) and exact constant-true expressions via `pg*get_expr` under tight normalization; every policy on the six target tables applicable to the owner — directly, via PUBLIC (`polroles`OID 0, invisible to a`pg_roles`join), or via any transitive membership — is classified as exactly one of required_execution_policy / approved_preexisting_read_policy / unexpected_policy (the six pre-existing PUBLIC website SELECT policies are individually enumerated with complete expected definitions; all are permissive SELECT-only so they can neither widen nor block the owner's audited access), and any unclassified applicable policy, definition drift, applicable RESTRICTIVE policy, applicable UPDATE/DELETE/ALL policy, or PUBLIC write policy blocks readiness fail-closed — all without granting BYPASSRLS or target-table ownership (every schema not on the explicit system allowlist`pg_catalog`/`information_schema`/`pg_toast`/`pg_temp\_\_`/`pg\*toast_temp\*\*`, so Supabase/extension schemas like `auth`/`storage`/`extensions`are audited and a deceptive name like`pg_catalog_evil` is not excluded) — MUST run against the real target after migration application and before approval issuance. Any unexpected effective privilege, ownership, role membership, or second executor-reachable SECURITY DEFINER function blocks readiness; a PUBLIC-derived public-schema USAGE (or database TEMP) is classified explicitly as blocking pending a separate Owner-approved target-ACL reconciliation (option B), never silently assumed absent.
-- Durable approval consumption with approved-request binding: digest-only storage (never a raw approval id or token) PLUS the immutable canonical approved request body and a digest of that body computed inside PostgreSQL; CHECK constraints structurally bind every scope column to the stored body; registration validates the full request with the same shared server-side validator the execution path uses. At execution the incoming request must be structurally identical to the stored approved request (and match the PostgreSQL-recomputed digest) BEFORE any durable consumption and before any write — the server never trusts a client-supplied fingerprint or plan hash as proof of payload identity, so a self-consistent malicious client that alters any entity field, reorders arrays, adds or removes an entity, or recomputes its own fingerprint fails closed (`approval_request_mismatch`). CHECK-enforced formats and max one-hour lifetime, database-time expiry, and an in-transaction row-lock compare-and-set with exactly one concurrent winner. A rolled-back import rolls the consumption back too, so no falsely consumed durable approval can exist; the client-side registry additionally burns the artifact at the attempt boundary and nothing retries automatically.
-- A typed versioned server request bounded to the approved plan (exact entity set, exact counts, 1000-operation and payload-size ceilings, no unknown properties, no duplicate natural or persistence keys, no raw local paths, no credentials, deterministic canonical form and domain-separated fingerprint), built exclusively from the shared RC5.5B/RC5.5C projections and validators.
-- An isolated execution credential boundary that authenticates the future live transport as the dedicated least-privilege principal over an approved IPv4-capable route: it reads ONLY the dedicated `FOREVER_IMPORT_EXECUTOR_DATABASE_URL` (a PostgreSQL connection string for the `forever_import_executor` role) — never `SUPABASE_SERVICE_ROLE_KEY`, and never during dry-run or inspection — and strictly parses it into one of two approved routes: the **direct** route `db.<ref>.supabase.co:5432` (IPv6, or IPv4 with the paid add-on) or the **Supavisor session** route `aws-<n>-<region>.pooler.supabase.com:5432` (IPv4 without any add-on), the latter deriving the dedicated role (fixed username prefix) and project ref (username suffix) independently per Supabase's pooler contract. It rejects Supabase API keys, HTTPS URLs, foreign roles, deceptive/foreign hosts, the transaction-mode pooler port 6543, and any structural deviation; fails closed when unconfigured; and cannot leak the connection string/password through JSON, enumeration, spread, or inspection. Before transport creation and before any network access, the derived project ref must equal the canonical Forever project `abtvsrcnfwlbawvrjeed`, the role must be the dedicated executor (never service_role/postgres/anon/authenticated), any bound pooler region must match, and all must agree with the approved target configuration and the request's target identity; the request's self-declared identity alone proves nothing, any mismatch fails closed, and no raw connection string ever reaches a receipt or error. The current IPv4-only Owner environment (which reproduced Supabase's `LegacyDbConfigIpv6Error` on the direct endpoint) has an approved route via the Supavisor session pooler, with no IPv4 add-on purchase required. The accepted HTTPS endpoint-identity parser and canonical-ref constant are retained as the shared definition of project identity.
-- A typed live adapter over a single-purpose direct-PostgreSQL transport (`ApprovedImportDatabaseTransport` with one method `executeApprovedImport(request)`) that runs exactly one fixed parameterized statement `SELECT forever_execution.forever_execute_approved_import($1::jsonb)` — the approved request is the only bound parameter; no caller supplies a schema, table, function name, or SQL, no generic database client escapes, and it is NOT PostgREST. Invalid requests are rejected before the credential provider or any transport exists, raw provider errors are discarded, only exact whitelisted stable reason codes survive, timeout/network ambiguity maps to `failed_rollback_unconfirmed` with `writesPerformed: null`, and nothing retries or reissues an approval.
+## Current authorization and safety state
 
-This slice does not authorize applying the migration, connecting to any real database, issuing a real approval, enabling live execution, or performing any database write. The adapter requires an injected capability that is false by default AND an explicitly injected transport (the repository default fails closed); `executeEnabled` remains false everywhere; the ordinary CLI cannot reach the server path at all. Approval issuance (the `register_import_approval` function is granted to no role), migration application, and the first real Coralina import remain separate explicit Owner checkpoints.
+RC5.5D closure does not authorize an import. Current state remains:
 
-Production is blocked unconditionally. Staging remains blocked until an approved non-secret project identity is configured. Only the approved local identity passes preflight in hermetic tests. Dry-run and collision inspection behavior are unchanged.
+- live capability is disabled;
+- no executor credential has been provisioned for live use;
+- no real approval has been issued;
+- Coralina has not been imported;
+- RC5.5E has not started;
+- production and staging execution remain blocked; and
+- Factory autonomy remains A0 - Propose only.
+
+Approval issuance remains a separate Owner checkpoint. Actual live execution is another separate Owner checkpoint and is not implied by approval issuance.
 
 ## Active tasks
 
-| Task                                                                          | Owner             | Slice   | Status                             |
-| ----------------------------------------------------------------------------- | ----------------- | ------- | ---------------------------------- |
-| Transaction boundary, approval contract, receipt, rollback, CLI mode          | Claude            | RC5.5C  | Completed and merged               |
-| Server-side atomic boundary migration (committed, NOT applied)                | Claude            | RC5.5D  | Implemented — pending Owner review |
-| Durable approval storage, request contract, credential boundary, adapter      | Claude            | RC5.5D  | Implemented — pending Owner review |
-| Owner / Architect review and integration of the RC5.5D preparation slice      | Owner / Architect | RC5.5D  | Pending                            |
-| Migration application to the canonical local target                           | Owner             | RC5.5D+ | Pending (separate checkpoint)      |
-| Approval issuance and the first real Coralina import (capability + rehearsal) | Owner             | RC5.5D+ | Pending (separate checkpoint)      |
+| Task | Owner | Status |
+| --- | --- | --- |
+| RC5.5D implementation, review, integration, canonical application, and verification | Owner / Architect | Completed |
+| Fresh read-only Coralina collision inspection against the canonical target | Owner | Next checkpoint - not started |
+| Prepare the exact short-lived approval payload from the fresh inspection | Owner / Architect | Next checkpoint - not issued |
+| Issue a real approval | Owner | Pending separate authorization |
+| Provision isolated executor credentials for live use | Owner | Pending separate authorization |
+| Enable and perform one supervised first Coralina import | Owner | Pending separate authorization |
+| Staging rehearsal | Owner | Later checkpoint |
+| RC5.5E | Owner / Architect | Later checkpoint - not started |
 
-## Acceptance criteria
+## Next checkpoint
 
-- The future live path is ONE server-side PostgreSQL transaction: request validation, atomic durable approval consumption, independent fresh-state verification, canonical-order writes (project → buildings → units → price history), full persisted-row verification (counts, stable fields, relationships, persistence-key uniqueness, no extra writes), and durable receipt creation either all commit together or all roll back together; partial import is impossible; no client-side multi-request transaction simulation exists.
-- The migration is committed but not applied; static security tests pin the privilege model: private schema, revoked PUBLIC/anon/authenticated, single SECURITY DEFINER wrapper with pinned empty `search_path`, grants only to the execution roles, issuance function granted to no role, no dynamic SQL, digest-only approval storage, CHECK-enforced bounds, and durable `(project_slug, plan_hash)` receipt uniqueness that permanently blocks re-importing an already-imported plan.
-- Durable approvals admit exactly one concurrent winner, evaluate expiry on database time only, never store raw secret or token material, never leak an approval id through any external surface, and are never left falsely consumed by a rolled-back import. The server independently proves the executed payload is the Owner-approved payload: the immutable stored request body and its PostgreSQL-computed digest are compared before consumption and before any write, covering every entity and stable field, array order, operation counts, project slug, target identity, plan hash, collision fingerprint, approval digest, and schema version.
-- The server request is deterministic, versioned, bounded, and fingerprinted; unknown properties, count mismatches, duplicate keys, unresolved parents, oversized payloads, raw local paths, credential material, and fingerprint tampers all fail closed with stable codes; it reuses the shared RC5.5B/RC5.5C projections and validators with no second persistence-mapping implementation.
-- The credential boundary is isolated from dry-run and inspection, is invoked only after every local pre-network gate passes, fails closed when execution credentials are absent or merely publishable, and cannot expose credentials to logger, receipts, errors, or tests. The execution endpoint is identity-bound: only the canonical Forever Supabase project (`abtvsrcnfwlbawvrjeed`) passes, deceptive/legacy/malformed endpoints and target-identity disagreements fail closed with zero transport creation and zero network calls, and no raw URL, key, or header appears in any receipt or error.
-- The adapter performs exactly one fixed direct-PostgreSQL statement (`SELECT forever_execution.forever_execute_approved_import($1::jsonb)`, not a PostgREST RPC), never retries, never reissues or reuses an approval, discards raw provider errors, accepts only exact whitelisted stable reason codes, cross-checks every committed-result field against the request, and maps every ambiguity (timeout, transport throw, malformed/partial/unknown response) truthfully to `failed_rollback_unconfirmed` with `writesPerformed: null`.
-- The RC5.5C gate pipeline (operation set, ordering, RC5.5A preflight, fresh unblocked all-`absent` RC5.5B collision report, scope-bound single-use Owner approval) is reused verbatim by the server path; repeat and recovery behavior is fail-closed (same request, same approval, different approval for an already-imported plan, registry unavailable, stale collision fingerprint, changed plan hash, changed target state, client restart) with no automatic retry, no update/upsert, and no automatic rollback of a committed import.
-- Live execution remains disabled everywhere: capability false by default, default transport factory fails closed, `LIVE_SERVER_EXECUTION_ENABLED` and `executeEnabled` false, no real credential exists in the repository, the ordinary CLI cannot perform a real write, and hermetic tests (including the 405-operation Coralina-shaped commit and rollback-at-every-stage suite with zero partial durable state) use fakes and static SQL fixtures only.
+Prepare for one supervised first Coralina import by beginning with a fresh read-only collision inspection of the canonical target, then prepare the exact approval payload from that fresh evidence. This preparation does not issue an approval, provision a credential, enable live capability, or execute the import.
+
+After preparation, the Owner must authorize each consequential step separately:
+
+1. issuance of the real short-lived approval;
+2. isolated executor credential provisioning and actual live execution of the one supervised import.
+
+A staging rehearsal and RC5.5E remain later checkpoints.
+
+## Acceptance criteria for the next checkpoint
+
+- The collision inspection is fresh, read-only, complete, and bound to the current plan and target identity.
+- Coralina remains absent or any changed target state is classified explicitly; no partial result is treated as approval-ready.
+- The approval payload is prepared from the fresh inspection and exact approved request, but is not issued.
+- No credential is provisioned and live capability remains disabled.
+- No database mutation, Coralina import, staging rehearsal, or RC5.5E work occurs without its separate Owner authorization.
+- Factory autonomy remains A0.
 
 ## Out of scope
 
-- Applying the migration; connecting to any real Supabase project; issuing or storing a real approval; enabling the live capability; performing any real import or database write.
-- Update/upsert execution, automatic retries, and disaster-recovery automation (each a future separately approved contract).
-- Production or staging credentials and access.
-- Operator, Factory autonomy, public website, and UI work.
-- RC5.5E and all later slices.
-
-## Next slices and checkpoints
-
-The first real Coralina import requires separate Owner checkpoints, in order: Owner review and integration of RC5.5D; applying the migration to the canonical local target; issuing a real short-lived approval through the (currently ungranted) registration path; explicitly enabling the live capability with an injected transport for one Owner-supervised rehearsal against the proven-fresh local target. A staging rehearsal remains a later explicit Owner checkpoint. Factory autonomy remains A0 — Propose only.
+- Issuing a real approval under the preparation checkpoint.
+- Provisioning executor credentials under the preparation checkpoint.
+- Enabling live capability or performing the supervised import without separate Owner authorization.
+- Staging rehearsal, production execution, RC5.5E, update/upsert behavior, automatic retries, or disaster-recovery automation.
 
 ## Definition of done
 
-RC5.5D preparation is complete only after focused and regression tests, TypeScript, changed-file lint, formatting, build, security/privacy/hygiene checks, human review, and integration. Completion does not authorize applying the migration, issuing an approval, enabling live execution, the first permanent write, staging rehearsal, or any later slice.
+The next preparation checkpoint is complete when a fresh read-only collision report and an exact approval payload are ready for Owner review, while approval issuance, credential provisioning, live execution, staging rehearsal, and RC5.5E remain unperformed and separately gated.

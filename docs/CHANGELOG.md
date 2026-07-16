@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-07-17 - RC5.5D repository closure
+
+- RC5.5D completed, reviewed, integrated, canonically applied, and verified. Migration `20260715120000` is recorded exactly once among 12 canonical migration-history rows. The verified boundary contains 2 RC5.5D roles, 2 schemas, 2 boundary tables, 6 routines, and 10 dedicated policies; ownership, grants, role attributes, exact policy definitions, and effective `postgres` membership (`MEMBER=true`, `USAGE=true`, `SET=true`) passed. The manual logical backup was completed and verified before application, and no migration retry, repair, `GRANT`, or `REVOKE` is required.
+- Closure did not issue an approval, provision executor credentials, enable live capability, execute a Coralina import, begin RC5.5E, or change Factory autonomy from A0. The next checkpoint is preparation for one supervised first Coralina import, beginning with a fresh read-only collision inspection and exact approval-payload preparation. Approval issuance and actual live execution each remain separately Owner-authorized; staging rehearsal and RC5.5E remain later checkpoints.
+
 ## v0.1.0
 
 - FDB-001 completed.

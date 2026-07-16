@@ -1,7 +1,7 @@
 # Forever Decisions
 
 Status: Canonical decision log
-Last updated: 2026-07-15
+Last updated: 2026-07-17
 
 ## Purpose
 
@@ -18,6 +18,13 @@ Each decision should include:
 - Review trigger, if any
 
 ## Approved decisions
+
+### 2026-07-17 - Close RC5.5D after canonical application and verification
+
+- **Decision:** Close RC5.5D as completed, reviewed, integrated, canonically applied, and verified. Migration `20260715120000` is recorded exactly once among 12 canonical migration-history rows. The verified boundary contains 2 RC5.5D roles, 2 schemas, 2 boundary tables, 6 routines, and 10 dedicated policies; ownership, grants, role attributes, exact policy definitions, and effective `postgres` membership (`MEMBER=true`, `USAGE=true`, `SET=true`) all passed. The pre-application manual logical backup was completed and verified.
+- **Context:** Canonical application succeeded. A temporary untracked post-verifier incorrectly required exactly one physical owner-to-postgres membership row, while PostgreSQL 17 legitimately retained two distinguishable rows with the required effective capabilities. No canonical repair, retry, `GRANT`, or `REVOKE` is required.
+- **Consequence:** Application closure does not issue approval or activate execution. Live capability remains disabled; executor credentials have not been provisioned for live use; no real approval has been issued; Coralina has not been imported; RC5.5E has not started; and Factory autonomy remains A0. The next checkpoint is preparation for one supervised first Coralina import, beginning with a fresh read-only collision inspection and exact approval-payload preparation. Actual approval issuance and actual live execution each require separate Owner authorization. Staging rehearsal and RC5.5E remain later checkpoints.
+- **Review trigger:** Owner review of the fresh collision evidence and prepared approval payload, followed by separate Owner decisions for approval issuance and for actual live execution.
 
 ### 2026-07-15 — Close RC5.5C as merged and authorize RC5.5D live-execution-boundary preparation only
 
