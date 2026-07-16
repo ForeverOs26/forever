@@ -60,6 +60,22 @@ function normalizeDate(value: string | null) {
   return `${normalizedYear}-${month}-${day}`;
 }
 
+/**
+ * Persistence-facing `source_file` values are filenames, never provenance
+ * paths. The tracked extraction datasets and source manifest retain the full
+ * source path; the canonical import plan carries only the deterministic final
+ * path segment required by the RC5.5D execution contract.
+ */
+export function canonicalSourceFilename(sourceFile: string | null | undefined) {
+  if (sourceFile == null) return undefined;
+
+  const filename = sourceFile.split(/[\\/]/).at(-1) ?? "";
+  if (!filename || filename.includes("/") || filename.includes("\\")) {
+    throw new Error("source_file_canonicalization_failed");
+  }
+  return filename;
+}
+
 function extractProjectFacts(brochure: unknown): Record<string, Json> {
   if (!brochure || typeof brochure !== "object") return {};
   const data = brochure as Record<string, unknown>;
@@ -125,7 +141,7 @@ function mapPriceListUnits(priceList: ExtractedPriceList | null): UnitInput[] {
         sizeSqm: parseNumber(sourceBackedFactValue(row.size_sqm)),
         floor: parseNumber(sourceBackedFactValue(row.floor)),
         availabilityStatus: normalizeStatus(sourceBackedFactValue(row.availability_status)),
-        sourceFile: row.unit_number?.source_file ?? undefined,
+        sourceFile: canonicalSourceFilename(row.unit_number?.source_file),
         sourcePage: row.unit_number?.page_number ?? undefined,
         sourceRow: row.source_row ?? null,
         raw: {
@@ -154,7 +170,7 @@ function sourcePageFromUnitPlan(row: ExtractedUnitPlanRow) {
 function mapUnitPlanUnits(unitPlans: ExtractedUnitPlans | null): UnitInput[] {
   return getUnitPlanRows(unitPlans)
     .map((row): UnitInput | null => {
-      const sourceFile = sourceFileFromUnitPlan(row);
+      const sourceFile = canonicalSourceFilename(sourceFileFromUnitPlan(row));
       if (!sourceFile) return null;
 
       const unitNumber = sourceBackedScalar(row.unit_number);
@@ -213,7 +229,9 @@ function mapPriceHistory(
       if (!unitNumber) return null;
 
       const price = parseNumber(sourceBackedFactValue(row.price));
-      const sourceFile = row.price?.source_file ?? row.unit_number?.source_file ?? undefined;
+      const sourceFile = canonicalSourceFilename(
+        row.price?.source_file ?? row.unit_number?.source_file,
+      );
       const currencyDecision = decideCurrency({
         priceEvidence: [currencyEvidenceFromFact(row.currency)],
         countryEvidence,
