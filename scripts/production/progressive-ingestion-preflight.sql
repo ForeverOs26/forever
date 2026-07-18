@@ -206,16 +206,19 @@ END
 $check$;
 
 \echo '[strict_currency_writers] database functions inserting price history'
-SELECT n.nspname AS schema_name, p.proname AS function_name,
+SELECT n.nspname AS schema_name,
+       p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS routine_signature,
        p.prosrc ~* 'insert[[:space:]]+into[[:space:]]+public[.]unit_price_history[^;]*currency' AS supplies_currency
 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.prosrc ~* 'insert[[:space:]]+into[[:space:]]+public[.]unit_price_history';
+WHERE p.prokind IN ('f', 'p')
+  AND p.prosrc ~* 'insert[[:space:]]+into[[:space:]]+public[.]unit_price_history';
 
 DO $check$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_proc p
-    WHERE p.prosrc ~* 'insert[[:space:]]+into[[:space:]]+public[.]unit_price_history'
+    WHERE p.prokind IN ('f', 'p')
+      AND p.prosrc ~* 'insert[[:space:]]+into[[:space:]]+public[.]unit_price_history'
       AND p.prosrc !~* 'insert[[:space:]]+into[[:space:]]+public[.]unit_price_history[^;]*currency'
   ) THEN
     RAISE EXCEPTION '[strict_currency_writers] a database writer does not explicitly supply currency';
