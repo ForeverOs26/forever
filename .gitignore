@@ -63,6 +63,11 @@ forever-data/projects/coralina/evidence/*
 !forever-data/projects/coralina/extracted/
 forever-data/projects/coralina/extracted/*
 !forever-data/projects/coralina/extracted/.gitkeep
+!forever-data/projects/coralina/progressive/
+!forever-data/projects/coralina/progressive/payload.json
+!forever-data/projects/coralina/progressive/validation-summary.json
+!forever-data/projects/coralina/progressive/SOURCE_INVENTORY.md
+!forever-data/projects/coralina/progressive/PAYLOAD_SUMMARY.md
 !forever-data/projects/coralina/source/
 forever-data/projects/coralina/source/*
 !forever-data/projects/coralina/source/*/

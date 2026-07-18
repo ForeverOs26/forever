@@ -1,0 +1,37 @@
+{
+  "schema_version": "1",
+  "payload": "forever-data/projects/coralina/progressive/payload.json",
+  "batch_fingerprint": "9ceb05d2daa5c2a174d37d4d92fb49c4bc39294fa1b5ab402a10ab526230631c",
+  "counts": {
+    "projects": 1,
+    "buildings": 8,
+    "units": 198,
+    "prices": 198,
+    "media": 0,
+    "documents": 0,
+    "warnings": 6,
+    "ingestion_batches": 1
+  },
+  "expected_database_delta": {
+    "projects": 1,
+    "buildings": 8,
+    "units": 198,
+    "unit_price_history": 198,
+    "project_media": 0,
+    "documents": 0,
+    "ingestion_warnings": 6,
+    "ingestion_batches": 1
+  },
+  "validations": {
+    "source_rows_equal_units": true,
+    "source_rows_equal_prices": true,
+    "unique_unit_codes": true,
+    "unique_building_codes": true,
+    "all_units_have_buildings": true,
+    "all_prices_have_units": true,
+    "all_prices_numeric": true,
+    "all_prices_inferred_thb": true,
+    "canonical_ids_null": true,
+    "draft_nonpublished_intent": true
+  }
+}
