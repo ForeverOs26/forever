@@ -14,6 +14,10 @@ const strictMigration = readFileSync(
   "utf8",
 );
 const legacyWriter = readFileSync("src/import/persistence-projection.ts", "utf8");
+const arrayAggRegression = readFileSync(
+  "scripts/production/tests/progressive-ingestion-array-agg-regression.sql",
+  "utf8",
+);
 
 describe("progressive production preflight", () => {
   it("is transactionally read-only, rerunnable, and stops on named failures", () => {
@@ -30,6 +34,16 @@ describe("progressive production preflight", () => {
     expect(preflight).toContain("to_regprocedure('public.set_updated_at()')");
     expect(preflight).toContain("to_regprocedure('public.forever_progressive_ingest(jsonb)')");
     expect(preflight).not.toMatch(/regprocedure\s*::\s*regclass/i);
+  });
+
+  it("inspects only ordinary routines and never asks for aggregate function definitions", () => {
+    expect(preflight).toMatch(/p\.prokind IN \('f', 'p'\)/);
+    expect(preflight).toContain("pg_get_function_identity_arguments(p.oid)");
+    expect(preflight).not.toContain("pg_get_functiondef");
+    expect(arrayAggRegression).toContain("p.prokind = 'a'");
+    expect(arrayAggRegression).toContain("n.nspname = 'pg_catalog'");
+    expect(arrayAggRegression).toContain("p.proname = 'array_agg'");
+    expect(arrayAggRegression).toContain("SQLSTATE '42809'");
   });
 
   it("covers every required rollout check", () => {
