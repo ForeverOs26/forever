@@ -264,12 +264,45 @@ describe("RC5.5B collision inspector — strict row validation", () => {
 });
 
 describe("RC5.5B collision inspector — classifications", () => {
-  it("reports absent rows and reads nothing beyond the project when it is absent", async () => {
+  it("reports an absent project but still verifies both prerequisites", async () => {
     const emptyReader = new FakeCollisionReader({ projects: [] });
     const report = await inspectPlanCollisions(baseInput(EXACT_OPS, emptyReader));
     expect(report.countsByClassification.absent).toBe(4);
     expect(report.status).toBe("changes_detected");
-    expect(emptyReader.calls).toEqual(["readProjectRows"]);
+    expect(report.prerequisitesStatus).toBe("ready");
+    expect(report.projectAnchorStatus).toBe("absent_prerequisites_ready");
+    expect(emptyReader.calls).toEqual([
+      "readProjectRows",
+      "readDeveloperRows",
+      "readLocationRows",
+    ]);
+  });
+
+  it("distinguishes an absent project with missing prerequisites", async () => {
+    const emptyReader = new FakeCollisionReader({ projects: [], developers: [], locations: [] });
+    const report = await inspectPlanCollisions(baseInput(EXACT_OPS, emptyReader));
+    expect(report.status).toBe("blocked");
+    expect(report.prerequisitesStatus).toBe("missing");
+    expect(report.projectAnchorStatus).toBe("absent_prerequisites_missing");
+    expect(report.dependencies.map((item) => item.classification)).toEqual(["absent", "absent"]);
+  });
+
+  it("classifies duplicate and null-slug dependencies independently", async () => {
+    const report = await inspectPlanCollisions(
+      baseInput(
+        EXACT_OPS,
+        new FakeCollisionReader({
+          projects: [],
+          developers: [developerRow(), developerRow({ id: "dev-2" })],
+          locations: [locationRow({ slug: null })],
+        }),
+      ),
+    );
+    expect(report.prerequisitesStatus).toBe("blocked");
+    expect(report.dependencies).toEqual([
+      expect.objectContaining({ dependency: "developer", classification: "ambiguous" }),
+      expect.objectContaining({ dependency: "location", classification: "invalid_or_null_natural_key" }),
+    ]);
   });
 
   it("blocks on multiple target rows for a unique unit natural key", async () => {
@@ -498,7 +531,11 @@ describe("RC5.5B collision inspector — bounded reads and invariants", () => {
     const report = await inspectPlanCollisions(baseInput(operations, emptyReader));
     expect(report.totalInspectedOperations).toBe(405);
     expect(report.countsByClassification.absent).toBe(405);
-    expect(emptyReader.calls).toEqual(["readProjectRows"]);
+    expect(emptyReader.calls).toEqual([
+      "readProjectRows",
+      "readDeveloperRows",
+      "readLocationRows",
+    ]);
   });
 });
 

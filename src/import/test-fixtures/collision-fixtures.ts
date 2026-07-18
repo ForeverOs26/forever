@@ -269,14 +269,14 @@ export class FakeCollisionReader implements CollisionInspectionReader {
     this.calls.push("readDeveloperRows");
     this.callLog.push({ method: "readDeveloperRows", slug });
     if (this.config.throwOn?.developer) throw new Error(this.config.throwOn.developer);
-    return this.config.developers ?? [developerRow()];
+    return this.config.developers ?? [developerRow({ slug })];
   }
 
   async readLocationRows(slug: string): Promise<TargetLocationRow[]> {
     this.calls.push("readLocationRows");
     this.callLog.push({ method: "readLocationRows", slug });
     if (this.config.throwOn?.location) throw new Error(this.config.throwOn.location);
-    return this.config.locations ?? [locationRow()];
+    return this.config.locations ?? [locationRow({ slug })];
   }
 
   async readBuildingRows(projectId: string, buildingCodes: string[]): Promise<TargetBuildingRow[]> {
