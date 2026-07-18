@@ -8,6 +8,7 @@ import { ProjectFloorPlans } from "./ProjectFloorPlans";
 import { ProjectGallery } from "./ProjectGallery";
 import { ProjectHero } from "./ProjectHero";
 import { ProjectInvestmentAnalysis } from "./ProjectInvestmentAnalysis";
+import { ProjectInventory } from "./ProjectInventory";
 import { ProjectMasterPlan } from "./ProjectMasterPlan";
 import { ProjectTrustSummary } from "./ProjectTrustSummary";
 import { ProjectUnitPlans } from "./ProjectUnitPlans";
@@ -24,6 +25,7 @@ export function ProjectDetailEngine({ project }: ProjectDetailEngineProps) {
       <ProjectTrustSummary project={project} />
       <ForeverIntelligenceSection project={project} />
       <ProjectInvestmentAnalysis project={project} />
+      <ProjectInventory project={project} />
       <ProjectGallery project={project} />
       <ProjectFloorPlans project={project} />
       <ProjectMasterPlan project={project} />

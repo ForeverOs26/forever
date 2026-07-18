@@ -68,6 +68,8 @@ export type ProjectDetailCore = {
   area: string;
   isFeatured: boolean;
   isActive: boolean;
+  /** A local/demo-only record, never a published project. */
+  isDemoPreview?: boolean;
   /**
    * Raw source names shown as unverified fallbacks when no canonical link
    * exists. Optional so existing adapters/fixtures that predate progressive

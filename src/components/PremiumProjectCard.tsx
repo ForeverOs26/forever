@@ -71,14 +71,20 @@ export function PremiumProjectCard({ project }: PremiumProjectCardProps) {
         className="relative block aspect-[16/10] overflow-hidden bg-secondary"
         aria-label={`Open ${project.name} passport`}
       >
-        <img
-          src={project.image}
-          alt={`${project.name} in ${project.location}`}
-          width={1024}
-          height={768}
-          loading="lazy"
-          className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.035]"
-        />
+        {project.image ? (
+          <img
+            src={project.image}
+            alt={`${project.name} in ${project.location}`}
+            width={1024}
+            height={768}
+            loading="lazy"
+            className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.035]"
+          />
+        ) : (
+          <div className="flex h-full items-end bg-gradient-to-br from-secondary via-muted to-background p-4 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Media preview pending
+          </div>
+        )}
         <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
 
         <div className="absolute left-3 right-3 top-3 flex items-start justify-between gap-3">
