@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const migration = readFileSync(
-  "supabase/migrations/20260718100000_coralina_prerequisite_execution_boundary.sql",
+  "docs/legacy-controlled-sql/20260718100000_coralina_prerequisite_execution_boundary.sql",
   "utf8",
 );
 

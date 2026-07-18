@@ -152,7 +152,10 @@ describe("AtomicFileLockStore — corrupt durable terminal state", () => {
 });
 
 describe("AtomicFileLockStore — real cross-process concurrency", () => {
-  const jitiBin = join(process.cwd(), "node_modules", ".bin", "jiti");
+  // Node must receive the JavaScript entry point directly. On Windows the
+  // extensionless .bin/jiti file is a POSIX shell shim and cannot be parsed by
+  // process.execPath, causing both workers to exit before reporting outcomes.
+  const jitiBin = join(process.cwd(), "node_modules", "jiti", "lib", "jiti-cli.mjs");
   const modulePath = join(process.cwd(), "src", "factory", "continue-forever", "atomic-lock.ts");
 
   function runWorker(workerPath: string, args: string[]): Promise<{ code: number; out: string }> {
