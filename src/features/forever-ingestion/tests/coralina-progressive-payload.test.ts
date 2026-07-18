@@ -11,6 +11,18 @@ import { FakeIngestExecutor } from "./fake-ingest-executor";
 const payloadPath = "forever-data/projects/coralina/progressive/payload.json";
 const payloadBytes = readFileSync(payloadPath);
 const payload = JSON.parse(payloadBytes.toString("utf8")) as ProgressiveBatch;
+const sessionTemplate = readFileSync(
+  "scripts/coralina/coralina-progressive-session.template.sql",
+  "utf8",
+);
+const sessionGenerator = readFileSync(
+  "scripts/coralina/New-CoralinaProgressiveSession.ps1",
+  "utf8",
+);
+const roleBoundaryRegression = readFileSync(
+  "scripts/coralina/tests/coralina-temp-payload-role-boundary-postgres17.sql",
+  "utf8",
+);
 
 describe("Coralina permanent Progressive payload", () => {
   it("matches the RPC contract and its deterministic fingerprint", () => {
@@ -69,5 +81,31 @@ describe("Coralina permanent Progressive payload", () => {
     conflicting.batch_fingerprint = "0".repeat(64);
     conflicting.project.name = "Conflicting Coralina";
     await expect(executor.ingest(conflicting)).rejects.toThrow("project_slug_exists");
+  });
+
+  it("uses one tracked owner-to-service_role payload transfer for rollback and commit", () => {
+    expect(sessionGenerator).toContain("[ValidateSet('Rollback', 'Commit')]");
+    expect(sessionGenerator).toContain("coralina-progressive-session.template.sql");
+    expect(sessionGenerator).toContain("Get-FileHash -Algorithm SHA256");
+    expect(sessionTemplate).toContain("CREATE TEMP TABLE pg_temp.coralina_exact_payload");
+    expect(sessionTemplate).toContain("INSERT INTO pg_temp.coralina_exact_payload");
+    expect(sessionTemplate).toContain("REVOKE ALL ON TABLE pg_temp.coralina_exact_payload");
+    expect(sessionTemplate).toContain("FROM PUBLIC, anon, authenticated, service_role");
+    expect(sessionTemplate).toContain("GRANT SELECT ON TABLE pg_temp.coralina_exact_payload TO service_role");
+    expect(sessionTemplate).toContain("SET LOCAL ROLE service_role");
+    expect(sessionTemplate).toContain("FROM pg_temp.coralina_exact_payload");
+    expect(sessionTemplate).toContain("__TRANSACTION_END__");
+    expect(sessionTemplate).toContain("__POST_TRANSACTION_CHECK__");
+    expect(sessionTemplate).not.toContain("SECURITY DEFINER");
+  });
+
+  it("permanently reproduces the PostgreSQL 17.6 ownership distinction", () => {
+    expect(roleBoundaryRegression).toContain("CREATE TEMP TABLE coralina_old_payload");
+    expect(roleBoundaryRegression).toContain("EXCEPTION WHEN insufficient_privilege");
+    expect(roleBoundaryRegression).toContain("SET LOCAL ROLE service_role");
+    expect(roleBoundaryRegression).toContain("observed->>'caller' = 'service_role'");
+    expect(roleBoundaryRegression).toContain("SET LOCAL ROLE anon");
+    expect(roleBoundaryRegression).toContain("SET LOCAL ROLE authenticated");
+    expect(roleBoundaryRegression).toContain("relpersistence = 't'");
   });
 });
