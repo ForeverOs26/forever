@@ -6,9 +6,9 @@ This document defines development phases, dependencies, and sequencing. It is no
 
 ## Current Development Phase
 
-RC5.5 Coralina safe execution, after RC5.5D canonical-application closure and now limited to preparation for one supervised first Coralina import. See `docs/CURRENT_STAGE.md`.
+Ordinary new-project persistence now uses the generic Progressive draft importer. See `docs/CURRENT_STAGE.md`.
 
-RC5.4 is closed as Completed: the shared Project Knowledge Platform reports Coralina `ready`, and the Import Engine dry-run plans 405 operations with zero writes. RC5.5A is closed as Completed and merged: deterministic plan fingerprints and fail-closed, non-networked target preflight. RC5.5B is closed as Completed, merged, and locally proven: the Owner's read-only proving run against the reconciled canonical local target reported Coralina as 405 `absent` operations with zero collisions. RC5.5C is closed as Completed, reviewed, integrated, and merged: hermetic transaction/rollback preparation with the live runner disabled. RC5.5D is completed, reviewed, integrated, canonically applied, and verified. Migration `20260715120000` is recorded exactly once among 12 migration-history rows, and the verified canonical boundary contains 2 roles, 2 schemas, 2 boundary tables, 6 routines, and 10 dedicated policies. Ownership, grants, role attributes, policy definitions, and effective membership (`MEMBER=true`, `USAGE=true`, `SET=true`) passed; no repair or migration retry is required.
+RC5.5D is completed, reviewed, integrated, canonically applied, and verified as exceptional maintenance capability. Ordinary imports no longer use its approval/receipt workflow or repeated platform certification. The normal sequence is payload validation → duplicate check → one atomic Progressive RPC transaction → exact graph verification → `COMMIT` → short post-commit verification. The next checkpoint is Owner-authorized Coralina draft import through that generic importer; Coralina has not yet been imported, no production connection occurred during simplification, publication is separate, and Factory remains A0.
 
 ## Completed Phases
 
@@ -72,13 +72,16 @@ RC5.4 is closed as Completed: the shared Project Knowledge Platform reports Cora
 
 ## Active safe-execution phase
 
+RC5.5C and RC5.5D are completed historical and exceptional maintenance capabilities for schema, migration, RPC, RLS, grant, existing-data mutation, or partial-state recovery work. They are not the ordinary new-project import workflow.
+
+Ordinary new-project import is R2 pending independent review and Owner approval: one generic Progressive draft importer and visible Windows launcher perform validation, duplicate protection, one atomic RPC transaction, exact graph verification, commit, and a short post-commit check. Ordinary imports do not require `pg_stat_ssl`, platform recertification, rollback rehearsal, strict RC5.5D approval/receipt flow, project-specific launchers, or repeated infrastructure audits. The next checkpoint is Owner-authorized Coralina draft import through the generic importer. Coralina has not been imported; publication remains later and separate; Factory remains A0.
+
 - RC5.5 Coralina safe execution
   - RC5.5A (completed, merged): deterministic plan hashing, explicit local/staging/production targets, pure preflight guards, and a non-persistent dry-run receipt. Production is blocked; staging is unconfigured; no database access occurs.
   - RC5.5B (completed, merged, locally proven): explicitly requested, read-only target collision inspection with proven-complete paginated reads. The Owner's local proving run against the reconciled canonical local target reported Coralina as 405 `absent` operations with no collisions, duplicates, identity conflicts, or inspection errors.
   - RC5.5C (completed, reviewed, integrated, and merged): transaction-backed execution and rollback preparation — a single-transaction boundary, Owner approval-artifact contract, deterministic ordering, in-transaction verification, automatic rollback, sanitized receipts, and an explicit `--execute-approved-import` mode. The live adapter stays disabled; no real import has occurred; real database writes remain zero.
   - RC5.5D (completed, reviewed, integrated, canonically applied, and verified): migration `20260715120000` is recorded exactly once. The complete canonical boundary and security state passed, including the exact ownership and capability allowlists, 10 dedicated policy definitions, and effective `postgres` membership capabilities. The pre-application manual logical backup was completed and verified. No retry, repair, `GRANT`, or `REVOKE` is required.
-  - Next checkpoint: prepare for one supervised first Coralina import, beginning with a fresh read-only collision inspection and preparation of the exact approval payload. No approval has been issued, executor credentials have not been provisioned for live use, live capability remains disabled, and Coralina has not been imported.
-  - Real approval issuance and actual live execution each require separate Owner authorization. Staging rehearsal and RC5.5E remain later explicit Owner checkpoints. Factory autonomy remains A0.
+  - Historical execution preparation is retained only for exceptional maintenance. The ordinary next checkpoint is Owner-authorized Coralina draft import through the generic importer; Coralina has not been imported, publication remains separate, and Factory stays A0.
 
 ## Upcoming Phases
 

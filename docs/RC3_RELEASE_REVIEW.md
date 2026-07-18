@@ -24,7 +24,6 @@ Reviewed sources:
 - `docs/IMPORT_ENGINE_QA_AUDIT.md`
 - `docs/IMPORT_ENGINE_MODEVA_DRY_RUN.md`
 - `docs/IMPORT_ENGINE_MODEVA_REAL_RUN.md`
-- `docs/CORALINA_IMPORT_VALIDATION.md`
 - `src/import/`
 - relevant Supabase migrations for buildings, units, and unit price history
 
