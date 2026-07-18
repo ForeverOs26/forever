@@ -6,7 +6,11 @@ This document defines development phases, dependencies, and sequencing. It is no
 
 ## Current Development Phase
 
-Ordinary new-project persistence now uses the generic Progressive draft importer. See `docs/CURRENT_STAGE.md`.
+One shared Forever Navigator presents through two shells: the website Navigator (`/navigator`) and Booth Mode (`/booth`). Both consume a single Navigator Core so NAV-001 remains the shared source of truth and Booth Mode is a presentation/employee workflow shell, not a second product. See `docs/CURRENT_STAGE.md`.
+
+Coralina's production draft import is completed as an unpublished draft (1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch); the local website preview is completed and Coralina stays unpublished. The next product checkpoint is Fast Intake v1 with a 15-minute draft target. Factory remains A0.
+
+Ordinary new-project persistence uses the generic Progressive draft importer. See `docs/CURRENT_STAGE.md`.
 
 RC5.5D is completed, reviewed, integrated, canonically applied, and verified as exceptional maintenance capability. Ordinary imports no longer use its approval/receipt workflow or repeated platform certification. The normal sequence is payload validation → duplicate check → one atomic Progressive RPC transaction → exact graph verification → `COMMIT` → short post-commit verification. The next checkpoint is Owner-authorized Coralina draft import through that generic importer; Coralina has not yet been imported, no production connection occurred during simplification, publication is separate, and Factory remains A0.
 

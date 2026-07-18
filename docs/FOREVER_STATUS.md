@@ -10,6 +10,10 @@ Forever Factory Constitution RC1 is active at A0 - Propose only. The bounded Fac
 
 ## Current Milestone
 
+One shared Forever Navigator now presents through two shells — website (`/navigator`) and Booth Mode (`/booth`) — over a single Navigator Core. NAV-001 is the shared Navigator source of truth; its approved Screens 00–08 questions, order, DecisionProfile, Forever Story, RecommendationPath, advisor invitation, and confirmation/edit behavior are unchanged. Website and Booth consume the same core question definitions, DecisionProfile derivation, Forever Story generation, RecommendationPath, and one deterministic project-match evaluator, so identical answers produce identical results in either mode. Booth Mode is a presentation/employee workflow shell, not a second product: it reuses ProjectService, the universal `/projects/<slug>` Project Detail route, and the existing lead-service contract, and introduces no schema, migration, RLS, or new backend. The local website preview is completed; Coralina remains unpublished and appears only through the existing local development demo preview.
+
+Coralina's production draft import is completed as a draft only: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, and 1 ingestion batch. Coralina remains unpublished; publication is a separate, later action. The next product checkpoint is Fast Intake v1 with a 15-minute draft target. Factory autonomy remains A0.
+
 The ordinary new-project persistence path is simplified to one generic Progressive draft importer. Its normal workflow is payload validation → duplicate check → one atomic Progressive RPC transaction → exact graph verification → `COMMIT` → short post-commit verification.
 
 RC5.5D remains completed, canonically applied, and verified, but is historical or exceptional maintenance capability rather than the ordinary import workflow. Schema, migration, RPC, RLS, grant, existing-data mutation, and partial-state recovery work use that separate maintenance path.
