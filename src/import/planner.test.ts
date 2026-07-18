@@ -39,7 +39,12 @@ describe("canonical import source filenames", () => {
     expect(plan.units.every((unit) => isSafeSourceFileName(unit.sourceFile!))).toBe(true);
     expect(plan.priceHistoryRows.every((row) => isSafeSourceFileName(row.sourceFile!))).toBe(true);
 
-    const firstPriceFact = datasets.priceList?.unit_inventory[0]?.price;
+    const unitInventory = datasets.priceList?.unit_inventory;
+    expect(unitInventory).toBeDefined();
+    if (!unitInventory) {
+      throw new Error("Coralina price-list fixture must include unit_inventory");
+    }
+    const firstPriceFact = unitInventory[0]?.price;
     expect(firstPriceFact?.source_file).toBe(CORALINA_SOURCE_PATH);
     expect(
       plan.buildings.every((building) =>

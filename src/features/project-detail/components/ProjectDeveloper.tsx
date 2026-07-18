@@ -9,7 +9,27 @@ type ProjectDeveloperProps = {
 export function ProjectDeveloper({ project }: ProjectDeveloperProps) {
   const developer = project.developer;
 
-  if (!developer) return null;
+  if (!developer) {
+    const rawName = project.core.developerNameRaw;
+    if (!rawName) return null;
+    return (
+      <Section eyebrow="Developer" title={rawName} className="pt-0">
+        <div className="rounded-3xl border border-border/60 bg-card p-6 sm:p-8">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/15 text-accent">
+              <Building2 className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="font-serif text-2xl text-foreground">{rawName}</div>
+              <p className="text-sm text-muted-foreground">
+                Developer as stated by the source. Not yet verified by Forever.
+              </p>
+            </div>
+          </div>
+        </div>
+      </Section>
+    );
+  }
 
   return (
     <Section eyebrow="Developer" title={developer.name} className="pt-0">

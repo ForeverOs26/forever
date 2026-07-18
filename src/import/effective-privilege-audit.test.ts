@@ -487,7 +487,7 @@ describe("RC5.5D effective-privilege audit: evaluator and PUBLIC-inheritance", (
     expect(result.failedUnexpected).toContain(checkName);
   });
 
-  it("the approved wrapper remains the sole allowed privileged callable surface", () => {
+  it("only the two approved wrappers remain allowed privileged callable surfaces", () => {
     const observed = allPassing();
     observed.executor_can_execute_wrapper = true;
     observed.executor_no_routine_execute_outside_wrapper = false;
@@ -555,15 +555,16 @@ describe("RC5.5D effective-privilege audit: dedicated execution owner (review 9)
   it("exposes the exact owner role and boundary inventories", () => {
     expect(EXECUTION_OWNER_ROLE).toBe("forever_import_execution_owner");
     expect([...BOUNDARY_OWNED_SCHEMAS]).toEqual(["forever_import", "forever_execution"]);
-    expect(BOUNDARY_ROUTINES).toHaveLength(6);
-    expect(BOUNDARY_RELATIONS).toHaveLength(2);
+    expect(BOUNDARY_ROUTINES).toHaveLength(10);
+    expect(BOUNDARY_RELATIONS).toHaveLength(4);
     expect(BOUNDARY_SEQUENCES).toHaveLength(0); // UUID keys, no sequences
-    // Exactly one SECURITY DEFINER routine (the wrapper) in the inventory.
+    // Exactly the two externally callable wrappers are SECURITY DEFINER.
     expect(BOUNDARY_ROUTINES.filter((r) => r.securityDefiner).map((r) => r.name)).toEqual([
       "forever_execute_approved_import",
+      "forever_execute_approved_prerequisites",
     ]);
-    // The target allowlist is read-only on dependencies, SELECT+INSERT on imports.
-    expect(OWNER_TARGET_RELATION_PRIVILEGES["public.developers"]).toEqual(["SELECT"]);
+    // Prerequisites and import targets are insert-only beyond their reads.
+    expect(OWNER_TARGET_RELATION_PRIVILEGES["public.developers"]).toEqual(["SELECT", "INSERT"]);
     expect(OWNER_TARGET_RELATION_PRIVILEGES["public.projects"]).toEqual(["SELECT", "INSERT"]);
     for (const privs of Object.values(OWNER_TARGET_RELATION_PRIVILEGES)) {
       expect(privs).not.toContain("UPDATE");
@@ -900,14 +901,16 @@ describe("RC5.5D RLS exact required-policy inventory (review 11)", () => {
     "forever_import_owner_select_unit_price_history",
   ];
   const EXPECTED_INSERT_NAMES = [
+    "forever_import_owner_insert_developers",
+    "forever_import_owner_insert_locations",
     "forever_import_owner_insert_projects",
     "forever_import_owner_insert_buildings",
     "forever_import_owner_insert_units",
     "forever_import_owner_insert_unit_price_history",
   ];
 
-  it("declares exactly the ten dedicated per-table policies", () => {
-    expect(REQUIRED_RLS_POLICIES).toHaveLength(10);
+  it("declares exactly the twelve dedicated per-table policies", () => {
+    expect(REQUIRED_RLS_POLICIES).toHaveLength(12);
     const selects = REQUIRED_RLS_POLICIES.filter((p) => p.command === "SELECT");
     const inserts = REQUIRED_RLS_POLICIES.filter((p) => p.command === "INSERT");
     expect(selects.map((p) => p.name).sort()).toEqual([...EXPECTED_SELECT_NAMES].sort());

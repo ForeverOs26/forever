@@ -301,6 +301,11 @@ const WRAPPER_PREDICATE = `
   AND p.proname = '${EXECUTION_WRAPPER_NAME}'
   AND pg_catalog.pg_get_function_identity_arguments(p.oid) = '${EXECUTION_WRAPPER_ARGS}'
 `;
+const WRAPPER_ALLOWLIST_PREDICATE = `
+  n.nspname = '${EXECUTION_SCHEMA}'
+  AND pg_catalog.pg_get_function_identity_arguments(p.oid) = '${EXECUTION_WRAPPER_ARGS}'
+  AND p.proname IN ('${EXECUTION_WRAPPER_NAME}', 'forever_execute_approved_prerequisites')
+`;
 
 /**
  * SQL predicate selecting NON-system schemas for a `pg_namespace` alias, derived
@@ -388,12 +393,44 @@ export const BOUNDARY_ROUTINES: readonly BoundaryRoutine[] = Object.freeze([
     purpose: "external wrapper (the only executor-callable surface)",
   },
   {
+    schema: "forever_execution",
+    name: "forever_execute_approved_prerequisites",
+    identityArgs: "request jsonb",
+    prokind: "f",
+    securityDefiner: true,
+    purpose: "single-use canonical prerequisite wrapper",
+  },
+  {
     schema: "forever_import",
     name: "run_approved_import",
     identityArgs: "request jsonb",
     prokind: "f",
     securityDefiner: false,
     purpose: "internal atomic execution routine",
+  },
+  {
+    schema: "forever_import",
+    name: "run_approved_prerequisites",
+    identityArgs: "request jsonb",
+    prokind: "f",
+    securityDefiner: false,
+    purpose: "internal atomic prerequisite execution routine",
+  },
+  {
+    schema: "forever_import",
+    name: "validate_prerequisite_request",
+    identityArgs: "request jsonb",
+    prokind: "f",
+    securityDefiner: false,
+    purpose: "shared prerequisite request validator",
+  },
+  {
+    schema: "forever_import",
+    name: "register_prerequisite_approval",
+    identityArgs: "p_issued_at timestamp with time zone, p_expires_at timestamp with time zone, p_request jsonb",
+    prokind: "f",
+    securityDefiner: false,
+    purpose: "prerequisite approval registration",
   },
   {
     schema: "forever_import",
@@ -434,6 +471,8 @@ export const BOUNDARY_ROUTINES: readonly BoundaryRoutine[] = Object.freeze([
 export const BOUNDARY_RELATIONS: readonly { schema: string; name: string }[] = Object.freeze([
   { schema: "forever_import", name: "import_execution_approvals" },
   { schema: "forever_import", name: "import_execution_receipts" },
+  { schema: "forever_import", name: "prerequisite_execution_approvals" },
+  { schema: "forever_import", name: "prerequisite_execution_receipts" },
 ]);
 
 /**
@@ -451,8 +490,8 @@ export const BOUNDARY_SEQUENCES: readonly { schema: string; name: string }[] = O
  */
 export const OWNER_TARGET_RELATION_PRIVILEGES: Readonly<Record<string, readonly string[]>> =
   Object.freeze({
-    "public.developers": Object.freeze(["SELECT"]),
-    "public.locations": Object.freeze(["SELECT"]),
+    "public.developers": Object.freeze(["SELECT", "INSERT"]),
+    "public.locations": Object.freeze(["SELECT", "INSERT"]),
     "public.projects": Object.freeze(["SELECT", "INSERT"]),
     "public.buildings": Object.freeze(["SELECT", "INSERT"]),
     "public.units": Object.freeze(["SELECT", "INSERT"]),
@@ -1141,10 +1180,7 @@ export const EFFECTIVE_PRIVILEGE_AUDIT: readonly EffectivePrivilegeCheck[] = Obj
           FROM pg_catalog.pg_proc p
           JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
           WHERE n.nspname = '${EXECUTION_SCHEMA}'
-            AND NOT (
-              p.proname = '${EXECUTION_WRAPPER_NAME}'
-              AND pg_catalog.pg_get_function_identity_arguments(p.oid) = '${EXECUTION_WRAPPER_ARGS}'
-            )
+            AND NOT (${WRAPPER_ALLOWLIST_PREDICATE})
             AND pg_catalog.has_function_privilege(r.oid, p.oid, 'EXECUTE')
         )
         FROM ${ROLE} WHERE ${ROLE_WHERE}
@@ -1287,11 +1323,7 @@ export const EFFECTIVE_PRIVILEGE_AUDIT: readonly EffectivePrivilegeCheck[] = Obj
           JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
           WHERE p.prokind IN ('f','p','a','w')
             AND ${NON_SYSTEM_N}
-            AND NOT (
-              n.nspname = '${EXECUTION_SCHEMA}'
-              AND p.proname = '${EXECUTION_WRAPPER_NAME}'
-              AND pg_catalog.pg_get_function_identity_arguments(p.oid) = '${EXECUTION_WRAPPER_ARGS}'
-            )
+            AND NOT (${WRAPPER_ALLOWLIST_PREDICATE})
             AND pg_catalog.has_function_privilege(r.oid, p.oid, 'EXECUTE')
         )
         FROM ${ROLE} WHERE ${ROLE_WHERE}
@@ -1311,11 +1343,7 @@ export const EFFECTIVE_PRIVILEGE_AUDIT: readonly EffectivePrivilegeCheck[] = Obj
           JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
           WHERE p.prosecdef = true
             AND ${NON_SYSTEM_N}
-            AND NOT (
-              n.nspname = '${EXECUTION_SCHEMA}'
-              AND p.proname = '${EXECUTION_WRAPPER_NAME}'
-              AND pg_catalog.pg_get_function_identity_arguments(p.oid) = '${EXECUTION_WRAPPER_ARGS}'
-            )
+            AND NOT (${WRAPPER_ALLOWLIST_PREDICATE})
             AND pg_catalog.has_function_privilege(r.oid, p.oid, 'EXECUTE')
         )
         FROM ${ROLE} WHERE ${ROLE_WHERE}
