@@ -17,7 +17,7 @@ RC5.3 is a focused data-completion pass: resolve `developer` and `country` for C
 - `forever-data/projects/coralina/source/**` (every committed file under every asset folder)
 - `src/features/coralina-integration/data/coralina-facts.ts` and sibling data files
 - `src/features/coralina-knowledge/{definition,facts,sources,profile,identity}.ts`
-- `docs/CORALINA_FINAL_BLOCKERS.md`, `docs/CORALINA_READINESS_AUDIT.md`, `docs/CORALINA_EXTRACTION_REPORT.md`, `docs/CORALINA_CLASSIFICATION_REPORT.md`, `docs/CORALINA_METADATA_FIX_REPORT.md`, `docs/CORALINA_IMPORT_VALIDATION.md`
+- `docs/CORALINA_FINAL_BLOCKERS.md`, `docs/CORALINA_READINESS_AUDIT.md`, `docs/CORALINA_EXTRACTION_REPORT.md`, `docs/CORALINA_CLASSIFICATION_REPORT.md`, and `docs/CORALINA_METADATA_FIX_REPORT.md`
 
 ## What was checked
 

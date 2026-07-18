@@ -1,7 +1,7 @@
 # Forever Decisions
 
 Status: Canonical decision log
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 
 ## Purpose
 
@@ -18,6 +18,13 @@ Each decision should include:
 - Review trigger, if any
 
 ## Approved decisions
+
+### 2026-07-18 - One generic Progressive importer for ordinary new-project drafts
+
+- **Decision:** Ordinary new-project persistence uses one generic Progressive draft importer. Its normal workflow is payload validation → duplicate check → one atomic Progressive RPC transaction → exact graph verification → `COMMIT` → short post-commit verification. The visible Windows launcher is a convenience entrypoint to the same importer. Publication remains a separate action.
+- **Context:** The earlier Coralina-specific ordinary-import launchers and repeated operational certification duplicated a generic Progressive write path without adding normal-path safety. The existing RC5.5D boundary remains valuable for exceptional maintenance but is not required for a new draft import.
+- **Consequence:** Ordinary imports do not require platform recertification, production rollback rehearsal, strict RC5.5D approval/receipt flow, `pg_stat_ssl`, project-specific production launchers, or repeated preflight/postflight infrastructure audits. Schema, migration, RPC, RLS, grant, existing-data mutation, and partial-state recovery work uses the separate exceptional maintenance path. This shared write pathway is R2: independent review and Owner approval are required before merge. Coralina has not been imported and no production connection occurred during simplification; Factory remains A0.
+- **Review trigger:** Before any exceptional maintenance action, or if the generic importer needs to support a persistence behavior beyond an ordinary new-project draft.
 
 ### 2026-07-17 - Close RC5.5D after canonical application and verification
 

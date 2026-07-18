@@ -1,7 +1,7 @@
 /**
  * Static contract tests over the progressive-ingestion migration draft.
  *
- * These are TEXT-LEVEL assertions (the prerequisite-execution.test.ts
+ * These are TEXT-LEVEL assertions (the focused Progressive ingestion tests
  * pattern): they prove the draft's security and behavior contract without
  * connecting to any database. No database execution is claimed.
  */

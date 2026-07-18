@@ -1,5 +1,61 @@
 # Forever draft-import simplification report
 
+## R2 integration record
+
+- Branch: `codex/draft-import-simplification`
+- Primary refactor commit: `964c600 refactor(operations): simplify draft project imports`
+- Pull request: opened from this branch after the Ledger integration commit; independent review and Owner approval are required before merge because this is an R2 shared write pathway.
+- Production connection: none during simplification.
+- Coralina import: not performed outside the disposable PostgreSQL 17.6 validation database.
+
+## Canonical Ledger updates
+
+- `docs/CURRENT_STAGE.md` sets the next checkpoint to Owner-authorized Coralina draft import through the generic importer, with publication later and separate.
+- `docs/ROADMAP.md` classifies RC5.5C/RC5.5D as historical or exceptional maintenance capability and records the normal generic-import sequence.
+- `docs/FOREVER_STATUS.md` records the R2 review/Owner-approval gate, no production connection, no Coralina production import, and Factory A0.
+- `docs/DECISIONS.md` records the durable generic-import decision and the separate exceptional-maintenance boundary.
+
+## Complete changed-file list
+
+- `FOREVER_DRAFT_IMPORT_SIMPLIFICATION_REPORT_FINAL.md`
+- `Import Forever Project Draft.cmd`
+- `docs/CURRENT_STAGE.md`
+- `docs/CORALINA_RC5_3_EVIDENCE_AUDIT.md`
+- `docs/DECISIONS.md`
+- `docs/DRAFT_PROJECT_IMPORTS.md`
+- `docs/FOREVER_STATUS.md`
+- `docs/ROADMAP.md`
+- `docs/RC3_RELEASE_REVIEW.md`
+- `docs/progressive-ingestion/README.md`
+- `scripts/import/Import-ForeverProjectDraft.ps1`
+- `scripts/import/Start-ForeverProjectDraftImport.ps1`
+- `scripts/import/tests/fixtures/rollback-check.json`
+- `src/features/forever-ingestion/tests/draft-importer.test.ts`
+- `src/features/forever-ingestion/tests/migration-contract.test.ts`
+
+## Complete deleted-file list
+
+- `PROGRESSIVE_PRODUCTION_VERIFICATION_HARNESS_FINAL_REPORT.md`
+- `docs/CORALINA_IMPORT_VALIDATION.md`
+- `docs/legacy-controlled-sql/20260718100000_coralina_prerequisite_execution_boundary.sql`
+- `docs/legacy-controlled-sql/README.md`
+- `docs/progressive-ingestion/FOREVER_PROGRESSIVE_INGESTION_INTEGRATION_REPORT_FINAL.md`
+- `scripts/coralina/New-CoralinaProgressiveSession.ps1`
+- `scripts/coralina/coralina-progressive-session.template.sql`
+- `scripts/coralina/tests/coralina-temp-payload-role-boundary-postgres17.sql`
+- `scripts/production/progressive-ingestion-baseline.sql`
+- `scripts/production/progressive-ingestion-postflight.sql`
+- `scripts/production/progressive-ingestion-preflight.sql`
+- `scripts/production/progressive-ingestion-smoke.sql`
+- `scripts/production/progressive-ingestion-zero-residue.sql`
+- `scripts/production/tests/progressive-ingestion-harness-postgres17-regression.sql`
+- `scripts/production/tests/verify-progressive-ingestion-harness.ps1`
+- `scripts/production/verify-progressive-ingestion-production.ps1`
+- `src/features/forever-ingestion/tests/coralina-progressive-payload.test.ts`
+- `src/features/forever-ingestion/tests/production-harness.test.ts`
+- `src/features/forever-ingestion/tests/production-preflight.test.ts`
+- `src/import/prerequisite-execution.test.ts`
+
 ## Outcome
 
 The ordinary import path is now one generic PowerShell importer:

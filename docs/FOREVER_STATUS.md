@@ -10,6 +10,12 @@ Forever Factory Constitution RC1 is active at A0 - Propose only. The bounded Fac
 
 ## Current Milestone
 
+The ordinary new-project persistence path is simplified to one generic Progressive draft importer. Its normal workflow is payload validation → duplicate check → one atomic Progressive RPC transaction → exact graph verification → `COMMIT` → short post-commit verification.
+
+RC5.5D remains completed, canonically applied, and verified, but is historical or exceptional maintenance capability rather than the ordinary import workflow. Schema, migration, RPC, RLS, grant, existing-data mutation, and partial-state recovery work use that separate maintenance path.
+
+No production connection occurred during this simplification and Coralina has not been imported. Publication remains a later separate action. Factory autonomy remains A0.
+
 RC5.5D Live Execution Boundary Preparation is completed, reviewed, integrated, canonically applied, and verified.
 
 - Migration `20260715120000` is recorded exactly once; canonical migration history contains 12 rows total.
@@ -19,7 +25,7 @@ RC5.5D Live Execution Boundary Preparation is completed, reviewed, integrated, c
 - The manual logical backup was completed and verified before application.
 - No migration retry, repair, `GRANT`, or `REVOKE` is required.
 
-The current safety boundary is unchanged by application: live capability remains disabled, executor credentials have not been provisioned for live use, no real approval has been issued, Coralina has not been imported, RC5.5E has not started, and Factory autonomy remains A0.
+The retained RC5.5D boundary remains disabled for ordinary imports; it exists for exceptional maintenance only. Coralina has not been imported and Factory autonomy remains A0.
 
 ## Completed Milestones
 
@@ -36,20 +42,22 @@ The current safety boundary is unchanged by application: live capability remains
 
 ## Current Tasks and Authorization Boundary
 
-The next checkpoint is preparation for one supervised first Coralina import. It begins with a fresh read-only collision inspection of the canonical target and preparation of the exact approval payload from that fresh evidence.
+The next checkpoint is Owner-authorized Coralina draft import through the generic importer. Independent review and Owner approval are required before merge because this is an R2 shared write pathway. The importer creates a draft only; publication remains separately authorized.
 
-This checkpoint does not authorize approval issuance, credential provisioning, or execution. Real approval issuance and actual live execution each require separate Owner authorization. Staging rehearsal and RC5.5E remain later checkpoints.
+Ordinary imports must not trigger platform recertification, a production rollback rehearsal, strict RC5.5D approval/receipt flow, `pg_stat_ssl`, project-specific production launchers, or repeated preflight/postflight infrastructure audits.
+
+The retained RC5.5D approval and execution controls apply only when exceptional maintenance scope requires them. They are not prerequisites to the ordinary generic draft importer.
 
 ## Blockers and Gates
 
 - Coralina has no knowledge-readiness blocker; RC5.4 resolved `developer` and `country` from official sources.
-- Coralina still has an execution gate: the fresh read-only inspection and approval-payload preparation must precede any separate authorization to issue approval or execute.
+- Coralina awaits Owner authorization to use the generic draft importer after this R2 PR receives independent review.
 - Modeva's Project Knowledge Platform readiness remains separately blocked by the absence of a committed developer package, even though Modeva itself is already live from FDB-003C.
 - Future project onboarding requires committed source material under `forever-data/projects/{project_slug}/`.
 
 ## Database Status
 
-Modeva remains imported and validated with 7 buildings, 289 units, and 289 unit price-history rows. RC5.5D migration `20260715120000` exists exactly once in the canonical database, and the complete live boundary inventory and security state passed verification. Coralina has not been imported. Live execution is disabled and no executor credential has been provisioned for live use.
+Modeva remains imported and validated with 7 buildings, 289 units, and 289 unit price-history rows. RC5.5D migration `20260715120000` exists exactly once in the canonical database as part of the exceptional-maintenance boundary. Coralina has not been imported.
 
 ## Website and Architecture Status
 
@@ -61,8 +69,10 @@ No AI implementation is active in the product. Intelligence and project-knowledg
 
 ## Validation Status
 
-RC5.5D canonical application verification passed against the real target. This repository-closure update is documentation-only; focused tests and the production build are not required to be rerun. Documentation consistency and Git hygiene validation govern this closure commit.
+The generic importer focused tests, disposable PostgreSQL 17.6 import/duplicate/rollback checks, Progressive Ingestion focused tests, TypeScript check, and production build passed during simplification. The final R2 integration also requires Ledger/reference consistency, diff hygiene, and changed-diff secret scanning.
+
+RC5.5D canonical application verification remains historical evidence for exceptional maintenance. Documentation consistency and Git hygiene govern this R2 integration.
 
 ## Last Updated
 
-2026-07-17
+2026-07-18
