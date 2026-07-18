@@ -6,12 +6,24 @@ export type ProjectMediaRow = Database["public"]["Tables"]["project_media"]["Row
 export type UnitRow = Database["public"]["Tables"]["units"]["Row"];
 export type InvestmentDataRow = Database["public"]["Tables"]["investment_data"]["Row"];
 
-export type ProjectDetailRecord = ProjectRow & {
-  developer: DeveloperRow | null;
-  media: ProjectMediaRow[] | null;
-  units: UnitRow[] | null;
-  investment: InvestmentDataRow[] | null;
+/**
+ * Progressive-ingestion columns on `projects`. Hand-maintained until the
+ * generated Database types are refreshed after the progressive-ingestion
+ * migration is applied; optional so pre-migration rows keep working.
+ */
+export type ProgressiveProjectColumns = {
+  developer_name_raw?: string | null;
+  location_name_raw?: string | null;
+  field_provenance?: Record<string, unknown> | null;
 };
+
+export type ProjectDetailRecord = ProjectRow &
+  ProgressiveProjectColumns & {
+    developer: DeveloperRow | null;
+    media: ProjectMediaRow[] | null;
+    units: UnitRow[] | null;
+    investment: InvestmentDataRow[] | null;
+  };
 
 export type ProjectDetailMediaType =
   | "cover"
@@ -56,6 +68,13 @@ export type ProjectDetailCore = {
   area: string;
   isFeatured: boolean;
   isActive: boolean;
+  /**
+   * Raw source names shown as unverified fallbacks when no canonical link
+   * exists. Optional so existing adapters/fixtures that predate progressive
+   * ingestion keep compiling; the database mapper always sets them.
+   */
+  developerNameRaw?: string;
+  locationNameRaw?: string;
 };
 
 export type ProjectDetailPricing = {

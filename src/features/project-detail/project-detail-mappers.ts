@@ -244,6 +244,8 @@ export function mapProjectDetail(row: ProjectDetailRecord): ProjectDetail {
       area: text(row.area_range),
       isFeatured: row.is_featured,
       isActive: row.is_active,
+      developerNameRaw: text(row.developer_name_raw),
+      locationNameRaw: text(row.location_name_raw),
     },
     pricing: {
       startingPriceTHB,
