@@ -6,19 +6,19 @@ type ProjectInventoryProps = {
   project: ProjectDetail;
 };
 
-function buildingCodeFor(unit: ProjectDetail["units"][number]): string | null {
-  const match = /^CK([A-Z])\d+/i.exec(unit.code);
-  return match?.[1]?.toUpperCase() ?? null;
-}
-
 export function ProjectInventory({ project }: ProjectInventoryProps) {
   const buildings = new Map<string, number>();
   for (const unit of project.units) {
-    const code = buildingCodeFor(unit);
-    if (code) buildings.set(code, (buildings.get(code) ?? 0) + 1);
+    if (unit.buildingCode) {
+      buildings.set(unit.buildingCode, (buildings.get(unit.buildingCode) ?? 0) + 1);
+    }
   }
 
-  if (buildings.size === 0) return null;
+  if (buildings.size === 0) {
+    return project.units.length > 0 ? (
+      <Section eyebrow="Inventory" title={`${project.units.length} residences`} className="pt-0" />
+    ) : null;
+  }
 
   return (
     <Section eyebrow="Inventory" title={`${buildings.size} buildings · ${project.units.length} residences`} className="pt-0">

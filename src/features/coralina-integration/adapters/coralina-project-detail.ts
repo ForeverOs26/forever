@@ -38,9 +38,18 @@ function toMediaItem(asset: AssetLike, type: string): ProjectDetailMediaItem {
 }
 
 function toUnit(unit: ForeverUnit): ProjectDetailUnit {
+  const buildingCode =
+    unit.source?.raw &&
+    typeof unit.source.raw === "object" &&
+    "building" in unit.source.raw &&
+    typeof unit.source.raw.building === "string"
+      ? unit.source.raw.building
+      : undefined;
+
   return {
     id: unit.id,
     code: unit.code,
+    buildingCode,
     type: unit.unitType,
     bedrooms: unit.bedrooms ?? null,
     bathrooms: unit.bathrooms ?? null,

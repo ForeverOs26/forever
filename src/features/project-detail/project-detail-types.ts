@@ -142,6 +142,8 @@ export type ProjectDetailMedia = {
 export type ProjectDetailUnit = {
   id: string;
   code: string;
+  /** Explicit building identifier when the source supplies one. */
+  buildingCode?: string;
   type: string;
   bedrooms: number | null;
   bathrooms: number | null;

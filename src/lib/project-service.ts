@@ -152,13 +152,12 @@ export const ProjectService = {
       .order("created_at", { ascending: true });
 
     if (filters.featuredOnly) query = query.eq("is_featured", true);
-    if (filters.limit) query = query.limit(filters.limit);
-
     const { data, error } = await query;
     if (error) throw error;
     const projects = (data ?? []).map((row) => mapToProperty(row as unknown as ProjectWithRelations));
     const previews = await listDemoPreviewProperties();
-    return [...projects, ...previews].slice(0, filters.limit);
+    const combined = [...projects, ...previews];
+    return filters.limit === undefined ? combined : combined.slice(0, filters.limit);
   },
 
   /** Single active project by slug, or `null` if not found / inactive. */

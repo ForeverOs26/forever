@@ -15,20 +15,22 @@ export type ConstructionStatus =
   | "Under Construction"
   | "Nearing Completion"
   | "Ready"
-  | "Sold Out";
+  | "Sold Out"
+  | "Not available";
 
-export type SalesStatus = "Available" | "Selling" | "Sold Out";
+export type SalesStatus = "Available" | "Selling" | "Sold Out" | "Not available";
 
-export type MarketPosition = "Below market" | "In line with market" | "Slight premium";
+export type MarketPosition = "Below market" | "In line with market" | "Slight premium" | "Not available";
 
-export type RentalDemand = "Low" | "Moderate" | "High" | "Very High";
+export type RentalDemand = "Low" | "Moderate" | "High" | "Very High" | "Not available";
 
 export type ForeverVerdict =
   | "Strong Buy"
   | "Excellent Long-Term Investment"
   | "Ideal Family Residence"
   | "Lifestyle Purchase"
-  | "Wait for Better Pricing";
+  | "Wait for Better Pricing"
+  | "Not available";
 
 export type Property = {
   // Core Information

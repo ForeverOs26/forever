@@ -11,19 +11,23 @@ import type { ProjectDetail } from "./project-detail-types";
 
 export const DEMO_PREVIEW_SLUG = "coralina";
 
-export function isDemoPreviewEnabled(): boolean {
-  return import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_PREVIEW !== "false";
+const loadDemoPreviewAdapter = import.meta.env.DEV
+  ? () => import("@/features/coralina-integration/adapters/coralina-project-detail")
+  : undefined;
+
+export function isDemoPreviewEnabled(
+  env: Pick<ImportMetaEnv, "DEV"> & { VITE_ENABLE_DEMO_PREVIEW?: string } = import.meta.env,
+): boolean {
+  return env.DEV && env.VITE_ENABLE_DEMO_PREVIEW !== "false";
 }
 
 export async function getDemoPreviewProjectDetail(slug: string): Promise<ProjectDetail | null> {
   if (!isDemoPreviewEnabled() || slug !== DEMO_PREVIEW_SLUG) return null;
 
-  // The Coralina adapter is generated from the committed canonical import
-  // payload/source facts. Dynamic loading keeps that local-only preview data
-  // out of the normal published-project read path.
-  const { buildCoralinaProjectDetail } = await import(
-    "@/features/coralina-integration/adapters/coralina-project-detail"
-  );
+  if (!loadDemoPreviewAdapter) return null;
+
+  // The adapter is compiled only in local Vite development builds.
+  const { buildCoralinaProjectDetail } = await loadDemoPreviewAdapter();
   const project = buildCoralinaProjectDetail();
 
   return {
@@ -55,8 +59,8 @@ export function mapProjectDetailToProperty(project: ProjectDetail): Property {
     developer: project.developer?.name ?? "",
     location: project.location.area || project.core.location,
     propertyType: "Residence",
-    constructionStatus: "Planning",
-    status: "Available",
+    constructionStatus: "Not available",
+    status: "Not available",
     tagline: project.core.tagline,
     description: project.core.description,
     highlights: project.core.highlights,
@@ -73,17 +77,15 @@ export function mapProjectDetailToProperty(project: ProjectDetail): Property {
     trustScore: project.trust.trustScore,
     trustNote: project.trust.trustNote,
     investmentValue: project.investment.investmentValue,
-    marketPosition: "In line with market",
-    // The preview has no Forever verdict; this field is retained only for the
-    // legacy card contract and is never presented as a verified assessment.
-    verdict: (project.trust.verdict || "Lifestyle Purchase") as Property["verdict"],
+    marketPosition: "Not available",
+    verdict: "Not available",
     distanceToBeach: project.location.distanceToBeach,
     distanceToAirport: project.location.distanceToAirport,
     nearbySchools: project.location.nearbySchools,
     nearbyHospitals: project.location.nearbyHospitals,
     lifestyle: project.location.lifestyle,
     rentalYield: project.investment.rentalYield,
-    rentalDemand: "Moderate",
+    rentalDemand: "Not available",
     capitalGrowthEstimate: project.investment.capitalGrowthEstimate,
     startDate: "",
     completionDate: "",
