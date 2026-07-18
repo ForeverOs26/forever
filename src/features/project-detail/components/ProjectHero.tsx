@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import {
+  FlaskConical,
   ArrowLeft,
   BookOpen,
   Building2,
@@ -57,6 +58,12 @@ export function ProjectHero({ project }: ProjectHeroProps) {
           <div className="grid gap-8 pb-8 text-primary-foreground lg:grid-cols-[minmax(0,1fr)_360px] lg:items-end lg:pb-12">
             <div className="max-w-4xl">
               <div className="mb-5 flex flex-wrap items-center gap-3">
+                {project.core.isDemoPreview ? (
+                  <span className="inline-flex items-center gap-2 rounded-full border border-amber-200/40 bg-amber-100/15 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.16em] text-amber-50 backdrop-blur-sm">
+                    <FlaskConical className="h-3.5 w-3.5" />
+                    Internal demo preview — production draft
+                  </span>
+                ) : null}
                 {project.trust.foreverVerified ? <ForeverVerified /> : null}
                 {project.core.status ? (
                   <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.16em] backdrop-blur-sm">

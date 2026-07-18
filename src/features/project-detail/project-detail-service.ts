@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { mapProjectDetail } from "./project-detail-mappers";
+import { getDemoPreviewProjectDetail } from "./demo-preview";
 import type { ProjectDetail, ProjectDetailRecord } from "./project-detail-types";
 
 export const PROJECT_DETAIL_SELECT = `
@@ -12,6 +13,9 @@ export const PROJECT_DETAIL_SELECT = `
 
 export const ProjectDetailService = {
   async getBySlug(slug: string): Promise<ProjectDetail | null> {
+    const demoPreview = await getDemoPreviewProjectDetail(slug);
+    if (demoPreview) return demoPreview;
+
     const { data, error } = await supabase
       .from("projects")
       .select(PROJECT_DETAIL_SELECT)
