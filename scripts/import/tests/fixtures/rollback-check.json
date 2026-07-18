@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "mode": "create",
+  "project": {
+    "slug": "rollback-check",
+    "name": "Rollback Check",
+    "publish": false
+  },
+  "buildings": [],
+  "units": [],
+  "prices": [],
+  "media": [],
+  "warnings": [],
+  "batch_fingerprint": "b9dc7cd82450a45ddc950a39e51f56188ce525857c93d4c3f61d86b3c8cbb26e"
+}
