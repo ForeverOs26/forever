@@ -13,6 +13,21 @@ SELECT current_database() AS database_name,
        current_setting('server_version_num') AS postgresql_version_num;
 
 DO $check$
+DECLARE database_owner text;
+BEGIN
+  SELECT pg_catalog.pg_get_userbyid(d.datdba) INTO database_owner
+  FROM pg_catalog.pg_database d
+  WHERE d.datname = current_database();
+  IF current_user IS DISTINCT FROM database_owner THEN
+    RAISE EXCEPTION '[owner_gate] current role % is not database owner %', current_user, database_owner;
+  END IF;
+  IF current_setting('server_version_num')::integer <> 170006 THEN
+    RAISE EXCEPTION '[postgres_version] PostgreSQL 17.6 required, found %', current_setting('server_version');
+  END IF;
+END
+$check$;
+
+DO $check$
 BEGIN
   IF to_regclass('supabase_migrations.schema_migrations') IS NULL THEN
     RAISE EXCEPTION '[migration_history] supabase_migrations.schema_migrations is missing';
