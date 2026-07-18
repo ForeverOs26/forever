@@ -18,6 +18,14 @@ const arrayAggRegression = readFileSync(
   "scripts/production/tests/progressive-ingestion-array-agg-regression.sql",
   "utf8",
 );
+const postflight = readFileSync(
+  "scripts/production/progressive-ingestion-postflight.sql",
+  "utf8",
+);
+const searchPathRegression = readFileSync(
+  "scripts/production/tests/progressive-rpc-search-path-postgres17-regression.sql",
+  "utf8",
+);
 
 describe("progressive production preflight", () => {
   it("is transactionally read-only, rerunnable, and stops on named failures", () => {
@@ -78,5 +86,35 @@ describe("progressive production preflight", () => {
     expect(progressiveMigration).not.toContain("prerequisite_execution");
     expect(progressiveMigration).not.toContain("forever_import.");
     expect(progressiveMigration).not.toContain("forever_execution.");
+  });
+
+  it("fails closed on the canonical PostgreSQL 17.6 empty RPC search_path", () => {
+    expect(postflight).toContain(
+      "to_regprocedure('public.forever_progressive_ingest(jsonb)')",
+    );
+    expect(postflight).toContain(
+      "search_path_entries IS DISTINCT FROM ARRAY['search_path=\"\"']::text[]",
+    );
+    expect(postflight).toContain(
+      "pg_catalog.split_part(config.entry, '=', 1) = 'search_path'",
+    );
+    expect(postflight).not.toContain("proconfig @> ARRAY['search_path=']");
+    expect(postflight).toContain("p.prosecdef");
+    expect(postflight).toContain("'service_role'");
+    expect(postflight).toContain("'anon'");
+    expect(postflight).toContain("'authenticated'");
+    expect(postflight).toContain("acl.grantee = 0");
+  });
+
+  it("covers positive, unsafe, missing, and duplicate search_path catalog shapes", () => {
+    expect(searchPathRegression).toContain("SET search_path = ''");
+    expect(searchPathRegression).toContain("ARRAY['search_path=\"\"']::text[]");
+    expect(searchPathRegression).toContain("search_path_unset");
+    expect(searchPathRegression).toContain("SET search_path = public");
+    expect(searchPathRegression).toContain("SET search_path = pg_catalog, public");
+    expect(searchPathRegression).toContain(
+      "ARRAY['search_path=\"\"', 'search_path=\"\"']::text[]",
+    );
+    expect(searchPathRegression).toContain("ROLLBACK;");
   });
 });
