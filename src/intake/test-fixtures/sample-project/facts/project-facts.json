@@ -1,0 +1,44 @@
+{
+  "name": {
+    "value": "Sample Marina Project",
+    "source_type": "official_project_material",
+    "source_ref": "facts/project-facts.json",
+    "confidence": "high",
+    "status": "official_source"
+  },
+  "developer": {
+    "value": "Sample Developer Co., Ltd.",
+    "source_type": "official_project_material",
+    "source_ref": "facts/project-facts.json",
+    "confidence": "high",
+    "status": "official_source"
+  },
+  "location": {
+    "value": "Kamala, Phuket, Thailand",
+    "source_type": "official_project_material",
+    "source_ref": "facts/project-facts.json",
+    "confidence": "high",
+    "status": "official_source"
+  },
+  "location_area": {
+    "value": "Kamala",
+    "source_type": "official_project_material",
+    "source_ref": "facts/project-facts.json",
+    "confidence": "high",
+    "status": "official_source"
+  },
+  "country": {
+    "value": "Thailand",
+    "source_type": "official_project_material",
+    "source_ref": "facts/project-facts.json",
+    "confidence": "high",
+    "status": "official_source"
+  },
+  "project_type": {
+    "value": "Residential",
+    "source_type": "official_project_material",
+    "source_ref": "facts/project-facts.json",
+    "confidence": "medium",
+    "status": "official_source"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "schema_version": "1",
+  "mode": "create",
+  "project": {
+    "slug": "graph",
+    "name": "Graph",
+    "publish": false
+  },
+  "buildings": [
+    {
+      "building_code": "A"
+    }
+  ],
+  "units": [
+    {
+      "unit_code": "A-1"
+    },
+    {
+      "unit_code": "A-2"
+    }
+  ],
+  "prices": [
+    {
+      "unit_code": "A-1",
+      "price": 1000
+    }
+  ],
+  "warnings": [
+    {
+      "entity": "project",
+      "code": "x",
+      "severity": "info",
+      "message": "m"
+    }
+  ],
+  "batch_fingerprint": "abc3d800ad5ff7ad1dcedd7f3d13f56f63d7094b58c4ce5c57d18e97ed9c46dd"
+}

@@ -5,7 +5,7 @@ Last updated: 2026-07-19
 
 ## Stage name
 
-Shared Forever Navigator (website + Booth Mode) canonical, with Fast Intake v1 as the next product checkpoint after ordinary new-project draft import simplification and RC5.5D canonical-application closure.
+Fast Intake v1 canonical on `main`, with the first measured real-project pilot as the next product checkpoint. Shared Forever Navigator (website + Booth Mode), ordinary new-project draft import simplification, and RC5.5D canonical-application closure remain canonical and unchanged.
 
 ## Shared Navigator (website + Booth Mode) — canonical
 
@@ -29,6 +29,37 @@ RC5.5D remains completed, canonically applied, and verified as an exceptional ma
 
 The Coralina production draft import through that generic importer is completed: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch. Coralina remains an unpublished draft; publication is a later, separate action. The local website preview of Coralina is completed.
 
+## Fast Intake v1 — canonical
+
+Fast Intake v1 is implemented, independently Windows-validated, and canonical
+on `main`. It is a bounded, local, owner-only preparation-and-validation tool.
+The local owner command is `npm.cmd run intake -- ...` in Windows PowerShell and
+`cmd.exe`, and `npm run intake -- ...` in Bash, Linux, and macOS. It turns
+project source materials (a folder
+and/or ZIP archives) into a deterministic, validated, unpublished Progressive
+draft payload for the existing ordinary draft importer. It reuses the existing
+Progressive builder, fingerprint, currency policy, provenance and warning
+model, and the ordinary `-ValidateOnly` invariants, with a hardened
+untrusted-ZIP boundary, journaled crash-recoverable transactional artifact
+output, per-project locking, and strengthened anti-fabrication guards.
+
+Scope honesty: Fast Intake v1 consumes only already-structured artifacts (an
+extracted price-list JSON and a `project-facts.json`). Raw PDFs, spreadsheets,
+images, and videos are inventoried and classified only — it does not yet
+transform an ordinary raw developer dossier into structured units/prices by
+itself, and the 15-minute target applies when compatible structured artifacts
+already exist. Raw-document extraction/OCR/spreadsheet parsing is a later Fast
+Intake stage.
+
+Fast Intake prepares and validates an unpublished Progressive draft. It creates
+no database client, makes no production connection or network request, executes
+no database import, creates no lead, and performs no production write or
+publication. It writes local managed artifacts only, under
+`forever-data/projects/<slug>/` and a gitignored temporary workspace. It does not add schema,
+migration, RPC, RLS, grants, or backend services, does not create a
+website/admin UI, and does not expand Factory autonomy. Coralina remains an
+unpublished draft and Factory autonomy remains A0. See `docs/FAST_INTAKE_V1.md`.
+
 ## Current authorization and safety state
 
 Current state remains:
@@ -42,23 +73,24 @@ The ordinary draft importer does not authorize publication. Schema, migration, R
 
 ## Active tasks
 
-| Task                                                                | Owner             | Status                                |
-| ------------------------------------------------------------------- | ----------------- | ------------------------------------- |
-| RC5.5D exceptional maintenance capability                           | Owner / Architect | Completed and retained                |
-| Generic Progressive draft-import simplification                     | Codex / Owner     | Completed                             |
-| Owner-authorized Coralina draft import through the generic importer | Owner             | Completed - draft only, unpublished   |
-| Shared Navigator: website + Booth Mode over one Navigator Core      | Codex / Owner     | Completed and canonical on `main`     |
-| Fast Intake v1 with a 15-minute draft target                        | Owner             | Next product checkpoint - not started |
-| Publication of any imported draft                                   | Owner             | Later, separate action                |
+| Task                                                                | Owner             | Status                                                                |
+| ------------------------------------------------------------------- | ----------------- | --------------------------------------------------------------------- |
+| RC5.5D exceptional maintenance capability                           | Owner / Architect | Completed and retained                                                |
+| Generic Progressive draft-import simplification                     | Codex / Owner     | Completed                                                             |
+| Owner-authorized Coralina draft import through the generic importer | Owner             | Completed - draft only, unpublished                                   |
+| Shared Navigator: website + Booth Mode over one Navigator Core      | Codex / Owner     | Completed and canonical on `main`                                     |
+| Fast Intake v1 with a 15-minute draft target                        | Codex / Owner     | Implemented, independently Windows-validated, and canonical on `main` |
+| Publication of any imported draft                                   | Owner             | Later, separate action                                                |
 
 ## Next checkpoint
 
-Fast Intake v1: target a validated, unpublished draft graph through the ordinary generic importer within 15 minutes, while preserving the existing no-publication and no-schema-change boundaries.
+Run Fast Intake v1 on one new non-sensitive real project with compatible structured artifacts, measure the complete local preparation-and-validation time against the 15-minute target, and record gaps before starting the separate raw-document extraction stage. This pilot must not automatically import or publish the project.
 
 ## Acceptance criteria for the next checkpoint
 
-- A new project's source material can target a validated, unpublished draft graph through the ordinary generic importer within 15 minutes.
-- The intake path performs no publication and requires no schema, migration, RPC, RLS, or grant work.
+- One new non-sensitive real project with compatible structured artifacts is prepared and validated locally as an unpublished Progressive draft.
+- Complete local preparation-and-validation time is measured against the 15-minute target and any gaps are recorded before the separate raw-document extraction stage begins.
+- The pilot performs no automatic import or publication and requires no schema, migration, RPC, RLS, or grant work.
 - Shared Navigator behavior at `/navigator` and `/booth` remains canonical over one NAV-001 Navigator Core, with Booth still unlinked from normal public navigation unless separately authorized.
 - Factory autonomy remains A0 throughout.
 
@@ -71,4 +103,4 @@ Fast Intake v1: target a validated, unpublished draft graph through the ordinary
 
 ## Definition of done
 
-The next checkpoint is complete when Fast Intake v1 proves the 15-minute validated-unpublished-draft target with no publication action, no schema/migration/RLS/backend change, and Factory autonomy remaining A0.
+The next checkpoint is complete when the real-project pilot records its complete local preparation-and-validation time and gaps against the 15-minute target, with no automatic import, no publication action, no schema/migration/RLS/backend change, and Factory autonomy remaining A0.

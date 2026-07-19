@@ -1,0 +1,35 @@
+{
+  "schema_version": "1",
+  "mode": "create",
+  "project": {
+    "slug": "single",
+    "name": "Single",
+    "publish": false
+  },
+  "buildings": [
+    {
+      "building_code": "A"
+    }
+  ],
+  "units": [
+    {
+      "unit_code": "A-1",
+      "building_code": "A"
+    }
+  ],
+  "prices": [
+    {
+      "unit_code": "A-1",
+      "price": 1000000
+    }
+  ],
+  "warnings": [
+    {
+      "entity": "project",
+      "code": "one",
+      "severity": "info",
+      "message": "single-element regression case"
+    }
+  ],
+  "batch_fingerprint": "acad0bc466ede9c14c2650e1a9de25cba7058c441c2fbeacb712964f5dfb5388"
+}

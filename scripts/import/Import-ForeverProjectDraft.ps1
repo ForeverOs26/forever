@@ -31,15 +31,19 @@ function Get-ObjectProperty($Object, [string]$Name) {
   return $property.Value
 }
 
-function Test-JsonArray($Value) {
-  return $null -ne $Value -and $Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]
-}
-
 function Get-ArrayCount($Object, [string]$Name) {
-  $value = Get-ObjectProperty $Object $Name
-  if ($null -eq $value) { return 0 }
-  if (-not (Test-JsonArray $value)) { throw "payload.$Name must be an array." }
-  return @($value).Count
+  # Reads PSObject.Properties[$Name].Value directly in this scope. Returning the
+  # value through a helper-function boundary sends it down the pipeline, which
+  # enumerates a one-element JSON array into its scalar element and made valid
+  # single-item payloads fail with "must be an array". A missing property stays
+  # 0; explicit null, strings, numbers, booleans, and scalar objects reject.
+  if ($null -eq $Object) { return 0 }
+  $property = $Object.PSObject.Properties[$Name]
+  if ($null -eq $property) { return 0 }
+  $value = $property.Value
+  if ($null -eq $value) { throw "payload.$Name must be an array." }
+  if ($value -is [string] -or $value -isnot [System.Collections.IList]) { throw "payload.$Name must be an array." }
+  return $value.Count
 }
 
 function ConvertTo-NativeArgument([string]$Value) {
@@ -118,12 +122,12 @@ catch { throw "Payload is not valid JSON: $($_.Exception.Message)" }
 $projectPayload = Get-ObjectProperty $payload 'project'
 $slug = [string](Get-ObjectProperty $projectPayload 'slug')
 $fingerprint = [string](Get-ObjectProperty $payload 'batch_fingerprint')
-if ([string]::IsNullOrWhiteSpace($slug) -or $slug -notmatch '^[a-z0-9][a-z0-9-]*$') { throw 'payload.project.slug must be a lowercase slug.' }
+if ([string]::IsNullOrWhiteSpace($slug) -or $slug -cnotmatch '^[a-z0-9][a-z0-9-]*$') { throw 'payload.project.slug must be a lowercase slug.' }
 if ([string](Get-ObjectProperty $payload 'schema_version') -ne '1') { throw 'payload.schema_version must be "1".' }
 if ([string](Get-ObjectProperty $payload 'mode') -ne 'create') { throw 'Draft project imports require payload.mode="create".' }
 if ($null -eq $projectPayload -or (Get-ObjectProperty $projectPayload 'publish') -ne $false) { throw 'Draft project imports require payload.project.publish=false.' }
 if ([string]::IsNullOrWhiteSpace([string](Get-ObjectProperty $projectPayload 'name'))) { throw 'payload.project.name is required.' }
-if ($fingerprint -notmatch '^[0-9a-f]{64}$') { throw 'payload.batch_fingerprint must be a lowercase SHA-256 hexadecimal value.' }
+if ($fingerprint -cnotmatch '^[0-9a-f]{64}$') { throw 'payload.batch_fingerprint must be a lowercase SHA-256 hexadecimal value.' }
 
 $counts = [ordered]@{
   projects = 1
@@ -138,7 +142,7 @@ $counts = [ordered]@{
 if ($counts.documents -ne 0) { throw 'payload.documents is not supported by public.forever_progressive_ingest; import documents separately.' }
 
 $payloadHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $PayloadPath).Hash.ToLowerInvariant()
-Write-Output "DRAFT_PAYLOAD_VALID|slug=$slug|sha256=$payloadHash|buildings=$($counts.buildings)|units=$($counts.units)|prices=$($counts.prices)|warnings=$($counts.warnings)"
+Write-Output "DRAFT_PAYLOAD_VALID|slug=$slug|sha256=$payloadHash|buildings=$($counts.buildings)|units=$($counts.units)|prices=$($counts.prices)|media=$($counts.media)|documents=$($counts.documents)|warnings=$($counts.warnings)"
 if ($ValidateOnly) { return }
 
 if ([string]::IsNullOrWhiteSpace($HostName)) { throw 'HostName is required for an import.' }

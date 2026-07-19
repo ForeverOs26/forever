@@ -9,6 +9,7 @@
     "build:dev": "vite build --mode development",
     "import": "jiti src/import/cli.ts",
     "ingest": "jiti src/features/forever-ingestion/cli.ts",
+    "intake": "node src/intake/run-cli.mjs",
     "factory:continue": "jiti src/factory/continue-forever/cli.ts",
     "preview": "vite preview",
     "lint": "eslint .",

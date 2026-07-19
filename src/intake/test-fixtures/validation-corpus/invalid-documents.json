@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "mode": "create",
+  "project": {
+    "slug": "p",
+    "name": "P",
+    "publish": false
+  },
+  "documents": [
+    {
+      "url": "x"
+    }
+  ],
+  "batch_fingerprint": "8a34e3eca4745a8c07059311ed6e12bf5555c551edec8a3b79852216eb545720"
+}

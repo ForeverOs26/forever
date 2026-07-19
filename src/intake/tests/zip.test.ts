@@ -1,0 +1,262 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import {
+  assertSafeEntryName,
+  DEFAULT_ZIP_LIMITS,
+  extractZip,
+  readZipEntries,
+  safeJoinInside,
+  ZipCollisionError,
+  ZipError,
+  ZipIntegrityError,
+  ZipLimitError,
+  ZipTraversalError,
+  ZipUnsupportedError,
+} from "../zip";
+import { makeZip, SYMLINK_EXTERNAL_ATTRS } from "./zip-writer";
+
+describe("Fast Intake ZIP reader — round trip", () => {
+  let work: string;
+  beforeEach(() => {
+    work = mkdtempSync(join(tmpdir(), "intake-zip-"));
+  });
+  afterEach(() => {
+    rmSync(work, { recursive: true, force: true });
+  });
+
+  it("round-trips STORED and DEFLATE entries and verifies CRC", () => {
+    const zip = makeZip([
+      { name: "a.txt", data: "stored-content", method: 0 },
+      { name: "nested/b.json", data: '{"k":1}', method: 8 },
+      { name: "dir/", directory: true },
+    ]);
+    const entries = readZipEntries(zip);
+    expect(entries.map((e) => e.name).sort()).toEqual(["a.txt", "dir/", "nested/b.json"]);
+    const dest = join(work, "out");
+    const written = extractZip(zip, dest);
+    expect(readFileSync(join(dest, "a.txt"), "utf8")).toBe("stored-content");
+    expect(readFileSync(join(dest, "nested", "b.json"), "utf8")).toBe('{"k":1}');
+    expect(written.map((f) => f.relativePath).sort()).toEqual(["a.txt", "nested/b.json"]);
+  });
+});
+
+describe("Fast Intake ZIP path safety (assertSafeEntryName)", () => {
+  const bad = [
+    "../escape.txt",
+    "..\\escape.txt",
+    "a/../../b",
+    "a/..\\b",
+    "/etc/passwd",
+    "\\leading-backslash",
+    "C:\\Windows\\x",
+    "c:/windows/x",
+    "\\\\server\\share\\x",
+    "//server/share/x",
+    "with\0nul.txt",
+    "bad<name>.txt",
+    "pipe|name.txt",
+    "question?.txt",
+    "star*.txt",
+    'quote".txt',
+    "CON",
+    "nul.txt",
+    "COM1.dat",
+    "LPT9",
+    "trailingdot.",
+    "trailingspace ",
+    "a/CON/b.txt",
+    ".",
+    "..",
+  ];
+  for (const name of bad) {
+    it(`rejects ${JSON.stringify(name)}`, () => {
+      expect(() => assertSafeEntryName(name)).toThrow(ZipError);
+    });
+  }
+
+  it("accepts safe nested names with spaces and hyphens", () => {
+    expect(() => assertSafeEntryName("price-list/Price List V2.json")).not.toThrow();
+    expect(() => assertSafeEntryName("a/b/c.txt")).not.toThrow();
+  });
+
+  it("rejects an over-long path", () => {
+    expect(() => assertSafeEntryName("a/".repeat(3000) + "x.txt", 4096)).toThrow(ZipLimitError);
+  });
+
+  it("safeJoinInside keeps resolved paths inside the destination", () => {
+    // Platform-native expectations: on Windows "/dest" resolves under the
+    // current drive and the joined path uses backslashes.
+    const dest = resolve("/dest");
+    expect(() => safeJoinInside(dest, "../x")).toThrow(ZipTraversalError);
+    expect(safeJoinInside(dest, "a/b.txt")).toBe(join(dest, "a", "b.txt"));
+  });
+});
+
+describe("Fast Intake ZIP archive validation and limits", () => {
+  let work: string;
+  beforeEach(() => {
+    work = mkdtempSync(join(tmpdir(), "intake-zip-"));
+  });
+  afterEach(() => {
+    rmSync(work, { recursive: true, force: true });
+  });
+
+  it("rejects a traversal entry before writing anything", () => {
+    const zip = makeZip([
+      { name: "safe.txt", data: "ok" },
+      { name: "../escape.txt", data: "evil" },
+    ]);
+    const dest = join(work, "out");
+    expect(() => extractZip(zip, dest)).toThrow(ZipTraversalError);
+    expect(existsSync(join(work, "escape.txt"))).toBe(false);
+    expect(existsSync(dest)).toBe(false);
+  });
+
+  it("rejects an encrypted entry", () => {
+    const zip = makeZip([{ name: "secret.txt", data: "x", flags: 0x1 }]);
+    expect(() => extractZip(zip, join(work, "out"))).toThrow(ZipUnsupportedError);
+  });
+
+  it("rejects an unsupported compression method", () => {
+    const zip = makeZip([
+      { name: "imploded.bin", method: 6, rawStored: Buffer.from("x"), data: "x" },
+    ]);
+    expect(() => extractZip(zip, join(work, "out"))).toThrow(ZipUnsupportedError);
+  });
+
+  it("rejects a symlink-like entry", () => {
+    const zip = makeZip([
+      { name: "link", data: "../target", externalAttributes: SYMLINK_EXTERNAL_ATTRS },
+    ]);
+    expect(() => extractZip(zip, join(work, "out"))).toThrow(ZipUnsupportedError);
+  });
+
+  it("rejects duplicate normalized entries", () => {
+    const zip = makeZip([
+      { name: "dir/a.txt", data: "1" },
+      { name: "dir/a.txt", data: "2" },
+    ]);
+    expect(() => extractZip(zip, join(work, "out"))).toThrow(ZipCollisionError);
+  });
+
+  it("rejects a case-insensitive collision", () => {
+    const zip = makeZip([
+      { name: "Readme.txt", data: "1" },
+      { name: "README.TXT", data: "2" },
+    ]);
+    expect(() => extractZip(zip, join(work, "out"))).toThrow(ZipCollisionError);
+  });
+
+  it("rejects a case-insensitive collision in implicit directory segments", () => {
+    const zip = makeZip([
+      { name: "Floor-A/one.txt", data: "1" },
+      { name: "floor-a/two.txt", data: "2" },
+    ]);
+    expect(() => extractZip(zip, join(work, "out"))).toThrow(ZipCollisionError);
+  });
+
+  it("rejects a file/directory collision", () => {
+    const zip = makeZip([
+      { name: "a", data: "file" },
+      { name: "a/b.txt", data: "under-a" },
+    ]);
+    expect(() => extractZip(zip, join(work, "out"))).toThrow(ZipCollisionError);
+  });
+
+  it("rejects an oversized single file", () => {
+    const zip = makeZip([{ name: "big.bin", data: Buffer.alloc(2048, 1), method: 0 }]);
+    expect(() =>
+      extractZip(zip, join(work, "out"), { ...DEFAULT_ZIP_LIMITS, maxFileBytes: 1024 }),
+    ).toThrow(ZipLimitError);
+  });
+
+  it("rejects excessive total expanded size", () => {
+    const zip = makeZip([
+      { name: "a.bin", data: Buffer.alloc(1024, 1), method: 0 },
+      { name: "b.bin", data: Buffer.alloc(1024, 2), method: 0 },
+    ]);
+    expect(() =>
+      extractZip(zip, join(work, "out"), { ...DEFAULT_ZIP_LIMITS, maxTotalBytes: 1500 }),
+    ).toThrow(ZipLimitError);
+  });
+
+  it("rejects an excessive entry count", () => {
+    const zip = makeZip([
+      { name: "a.txt", data: "1" },
+      { name: "b.txt", data: "2" },
+      { name: "c.txt", data: "3" },
+    ]);
+    expect(() =>
+      extractZip(zip, join(work, "out"), { ...DEFAULT_ZIP_LIMITS, maxEntries: 2 }),
+    ).toThrow(ZipLimitError);
+  });
+
+  it("rejects a compression-ratio bomb", () => {
+    // 2 MiB of zeros deflates to a few KiB → ratio far above the default 200.
+    const zip = makeZip([{ name: "bomb.bin", data: Buffer.alloc(2 * 1024 * 1024, 0), method: 8 }]);
+    expect(() => extractZip(zip, join(work, "out"))).toThrow(ZipLimitError);
+  });
+
+  it("rejects a ZIP64 sentinel size", () => {
+    const zip = makeZip([{ name: "a.txt", data: "hello", method: 0 }]);
+    // Patch the central-directory uncompressed size to the ZIP64 sentinel.
+    const eocd = zip.length - 22;
+    const cdOffset = zip.readUInt32LE(eocd + 16);
+    zip.writeUInt32LE(0xffffffff, cdOffset + 24);
+    expect(() => extractZip(zip, join(work, "out"))).toThrow(ZipUnsupportedError);
+  });
+
+  it("rejects a malformed / truncated archive", () => {
+    const zip = makeZip([{ name: "a.txt", data: "hello" }]);
+    const truncated = zip.subarray(0, zip.length - 10);
+    expect(() => extractZip(truncated, join(work, "out"))).toThrow(ZipError);
+  });
+});
+
+describe("Fast Intake ZIP extraction integrity and cleanup", () => {
+  let work: string;
+  beforeEach(() => {
+    work = mkdtempSync(join(tmpdir(), "intake-zip-"));
+  });
+  afterEach(() => {
+    rmSync(work, { recursive: true, force: true });
+  });
+
+  it("rejects a CRC mismatch and cleans partial extraction", () => {
+    const zip = makeZip([
+      { name: "good.txt", data: "good", method: 0 },
+      { name: "corrupt.txt", data: "content", method: 0, crcOverride: 0xdeadbeef },
+    ]);
+    const dest = join(work, "out");
+    expect(() => extractZip(zip, dest)).toThrow(ZipIntegrityError);
+    // The workspace directory was removed entirely after the mid-extraction failure.
+    expect(existsSync(dest)).toBe(false);
+  });
+
+  it("rejects a stored size mismatch", () => {
+    const zip = makeZip([{ name: "s.bin", data: "abc", method: 0 }]);
+    // Corrupt the central-directory uncompressed size so it disagrees with compressed.
+    const eocd = zip.length - 22;
+    const cdOffset = zip.readUInt32LE(eocd + 16);
+    zip.writeUInt32LE(99, cdOffset + 24);
+    expect(() => extractZip(zip, join(work, "out"))).toThrow(ZipIntegrityError);
+  });
+
+  it("leaves no workspace subdirectory after a validation failure", () => {
+    const zip = makeZip([{ name: "../evil.txt", data: "x" }]);
+    const dest = join(work, "out");
+    expect(() => extractZip(zip, dest)).toThrow(ZipTraversalError);
+    expect(readdirSync(work).length).toBe(0);
+  });
+
+  it("refuses to merge extraction into a pre-existing destination", () => {
+    const zip = makeZip([{ name: "new.txt", data: "new" }]);
+    const dest = join(work, "out");
+    mkdirSync(dest);
+    expect(() => extractZip(zip, dest)).toThrow(ZipCollisionError);
+    expect(readdirSync(dest)).toEqual([]);
+  });
+});

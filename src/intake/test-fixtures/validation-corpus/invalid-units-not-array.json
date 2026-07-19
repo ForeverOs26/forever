@@ -1,0 +1,13 @@
+{
+  "schema_version": "1",
+  "mode": "create",
+  "project": {
+    "slug": "p",
+    "name": "P",
+    "publish": false
+  },
+  "units": {
+    "unit_code": "A-1"
+  },
+  "batch_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

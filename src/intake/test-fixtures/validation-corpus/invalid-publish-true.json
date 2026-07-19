@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "mode": "create",
+  "project": {
+    "slug": "p",
+    "name": "P",
+    "publish": true
+  },
+  "batch_fingerprint": "d857ba39eaaa9056166d16f083d8a0df48310e059418c6491c1afb8775742d34"
+}
