@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "mode": "create",
+  "project": {
+    "slug": "zeroed",
+    "name": "Zeroed",
+    "publish": false
+  },
+  "buildings": [],
+  "units": [],
+  "prices": [],
+  "media": [],
+  "warnings": [],
+  "batch_fingerprint": "c25ca7a21460804f6173633ed2dba163a6963f1a894674375885e3efa9b73cb9"
+}

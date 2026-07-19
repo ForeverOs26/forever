@@ -3,6 +3,14 @@
     "powershell": "accept",
     "typescript": "accept"
   },
+  "valid-zero-arrays": {
+    "powershell": "accept",
+    "typescript": "accept"
+  },
+  "valid-one-element-arrays": {
+    "powershell": "accept",
+    "typescript": "accept"
+  },
   "valid-with-graph": {
     "powershell": "accept",
     "typescript": "accept"
@@ -35,6 +43,18 @@
     "powershell": "reject",
     "typescript": "reject"
   },
+  "invalid-units-not-array": {
+    "powershell": "reject",
+    "typescript": "reject"
+  },
+  "invalid-prices-not-array": {
+    "powershell": "reject",
+    "typescript": "reject"
+  },
+  "invalid-warnings-not-array": {
+    "powershell": "reject",
+    "typescript": "reject"
+  },
   "invalid-fingerprint-format": {
     "powershell": "reject",
     "typescript": "reject"
@@ -45,6 +65,7 @@
   },
   "tampered-fingerprint": {
     "powershell": "accept",
-    "typescript": "reject"
+    "typescript": "reject",
+    "note": "Intentional stricter-only asymmetry: the TypeScript importer-compatibility guard recomputes the fingerprint from content; PowerShell -ValidateOnly checks only its format. Never a parity failure."
   }
 }

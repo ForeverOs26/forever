@@ -1,18 +1,20 @@
 /**
  * Fast Intake v1 — owner-only local CLI entry point.
  *
- * Usage (jiti-executed, never part of the web bundle; no browser, no Supabase
- * credentials, no database client, no network, no write to production, no
- * publication):
+ * Never part of the web bundle; no browser, no Supabase credentials, no
+ * database client, no network, no production write (only local generated
+ * artifacts are written), no publication.
  *
- *   npm run intake -- --project <slug> --name "<name>" \
- *     --source "<folder-or-zip>" [--source "<another-folder-or-zip>"]
+ * Windows PowerShell and cmd.exe (single line; `npm.cmd` because `npm.ps1`
+ * may be blocked by a normal execution policy):
  *
- * Examples:
- *   npm run intake -- --project marina-bay --name "Marina Bay" \
- *     --source "C:\\forever-incoming\\Marina Bay"
- *   npm run intake -- --project marina-bay --name "Marina Bay" \
- *     --source "C:\\incoming\\brochure.zip" --source "C:\\incoming\\price-list.zip"
+ *   npm.cmd run intake -- --project marina-bay --name "Marina Bay" --source "C:\forever-incoming\Marina Bay"
+ *
+ * Bash / Linux / macOS:
+ *
+ *   npm run intake -- --project marina-bay --name "Marina Bay" --source "/path/to/source"
+ *
+ * Repeat --source for multiple folders and/or .zip archives.
  */
 
 import { parseIntakeInvocation } from "./cli-args";
@@ -22,7 +24,10 @@ import type { IntakeCategory } from "./types";
 function printUsage(): void {
   console.log("Usage:");
   console.log(
-    '  npm run intake -- --project <slug> --name "<name>" --source "<folder-or-zip>" [--source "<another>"]',
+    '  Windows (PowerShell or cmd.exe):  npm.cmd run intake -- --project <slug> --name "<name>" --source "<folder-or-zip>" [--source "<another>"]',
+  );
+  console.log(
+    '  Bash/Linux/macOS:                 npm run intake -- --project <slug> --name "<name>" --source "<folder-or-zip>" [--source "<another>"]',
   );
   console.log("");
   console.log("Options:");
@@ -94,7 +99,7 @@ function printSummary(result: RunIntakeResult, verbose: boolean): void {
   console.log(`  ${s.artifacts.intake_summary}`);
   if (result.wrotePayload) console.log(`  ${s.artifacts.payload}`);
   console.log(line);
-  console.log("Next — validate again (no database, no write):");
+  console.log("Next — validate again (no database, no production write):");
   console.log(`  ${s.next_command}`);
   console.log("Then — separately authorized draft import:");
   console.log(`  ${importCommand()}`);

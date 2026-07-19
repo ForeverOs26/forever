@@ -47,6 +47,20 @@ export {
   IntakeLockError,
 } from "./run";
 export {
+  commitArtifacts,
+  reconcileProject,
+  generationComplete,
+  readJournal,
+  journalPath,
+  acquireProjectLock,
+  releaseProjectLock,
+  IntakeRecoveryError,
+  IntakeCrashSimulation,
+  JOURNAL_FILENAME,
+  LOCK_DIRNAME,
+  STALE_LOCK_MS,
+} from "./txn";
+export {
   readZipEntries,
   readZipEntryData,
   extractZip,

@@ -31,15 +31,19 @@ function Get-ObjectProperty($Object, [string]$Name) {
   return $property.Value
 }
 
-function Test-JsonArray($Value) {
-  return $null -ne $Value -and $Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]
-}
-
 function Get-ArrayCount($Object, [string]$Name) {
-  $value = Get-ObjectProperty $Object $Name
+  # Reads PSObject.Properties[$Name].Value directly in this scope. Returning the
+  # value through a helper-function boundary sends it down the pipeline, which
+  # enumerates a one-element JSON array into its scalar element and made valid
+  # single-item payloads fail with "must be an array". Missing and null stay 0;
+  # strings, numbers, booleans, and scalar objects are rejected.
+  if ($null -eq $Object) { return 0 }
+  $property = $Object.PSObject.Properties[$Name]
+  if ($null -eq $property) { return 0 }
+  $value = $property.Value
   if ($null -eq $value) { return 0 }
-  if (-not (Test-JsonArray $value)) { throw "payload.$Name must be an array." }
-  return @($value).Count
+  if ($value -is [string] -or $value -isnot [System.Collections.IList]) { throw "payload.$Name must be an array." }
+  return $value.Count
 }
 
 function ConvertTo-NativeArgument([string]$Value) {
@@ -118,12 +122,12 @@ catch { throw "Payload is not valid JSON: $($_.Exception.Message)" }
 $projectPayload = Get-ObjectProperty $payload 'project'
 $slug = [string](Get-ObjectProperty $projectPayload 'slug')
 $fingerprint = [string](Get-ObjectProperty $payload 'batch_fingerprint')
-if ([string]::IsNullOrWhiteSpace($slug) -or $slug -notmatch '^[a-z0-9][a-z0-9-]*$') { throw 'payload.project.slug must be a lowercase slug.' }
+if ([string]::IsNullOrWhiteSpace($slug) -or $slug -cnotmatch '^[a-z0-9][a-z0-9-]*$') { throw 'payload.project.slug must be a lowercase slug.' }
 if ([string](Get-ObjectProperty $payload 'schema_version') -ne '1') { throw 'payload.schema_version must be "1".' }
 if ([string](Get-ObjectProperty $payload 'mode') -ne 'create') { throw 'Draft project imports require payload.mode="create".' }
 if ($null -eq $projectPayload -or (Get-ObjectProperty $projectPayload 'publish') -ne $false) { throw 'Draft project imports require payload.project.publish=false.' }
 if ([string]::IsNullOrWhiteSpace([string](Get-ObjectProperty $projectPayload 'name'))) { throw 'payload.project.name is required.' }
-if ($fingerprint -notmatch '^[0-9a-f]{64}$') { throw 'payload.batch_fingerprint must be a lowercase SHA-256 hexadecimal value.' }
+if ($fingerprint -cnotmatch '^[0-9a-f]{64}$') { throw 'payload.batch_fingerprint must be a lowercase SHA-256 hexadecimal value.' }
 
 $counts = [ordered]@{
   projects = 1

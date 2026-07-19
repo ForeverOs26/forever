@@ -20,7 +20,7 @@
  * two runs for the same slug safe; different slugs are independent.
  */
 
-import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { join, resolve } from "node:path";
 
@@ -30,6 +30,15 @@ import { buildInventory } from "./inventory";
 import { normalizeToBatch } from "./normalize";
 import { assertPathBoundaries, assertSafeSlug, removeManagedDir } from "./paths";
 import { IntakeConflictError } from "./sanitize";
+import {
+  acquireProjectLock,
+  commitArtifacts,
+  IntakeCrashSimulation,
+  IntakeRecoveryError,
+  reconcileProject,
+  releaseProjectLock,
+  type TxnHooks,
+} from "./txn";
 import {
   DraftValidationError,
   validateDraftPayload,
@@ -108,8 +117,10 @@ export interface RunIntakeOptions {
   now?: Date;
   /** Injected monotonic clock (ms) for deterministic elapsed in tests. */
   monotonic?: () => number;
-  /** Test-only hook to inject a failure at a named stage. */
+  /** Test-only hook to inject a failure at a named pipeline stage. */
   failAfter?: RunStage;
+  /** Test-only hooks for the transaction/reconciliation filesystem transitions. */
+  txnHooks?: TxnHooks;
   verbose?: boolean;
 }
 
@@ -161,82 +172,14 @@ function throwIfFailStage(options: RunIntakeOptions, stage: RunStage): void {
   }
 }
 
-/** Remove leftover staging / backup directories from a crashed prior run. */
-function cleanupStaleArtifacts(projectDir: string): void {
-  if (!existsSync(projectDir)) return;
-  for (const name of readdirSync(projectDir)) {
-    if (
-      name.startsWith(".intake-staging-") ||
-      name.startsWith("intake.bak-") ||
-      name.startsWith("progressive.bak-")
-    ) {
-      try {
-        removeManagedDir(join(projectDir, name), [projectDir]);
-      } catch {
-        // Never let stale-cleanup abort a run.
-      }
-    }
-  }
-}
-
-/**
- * Atomically replace the canonical `intake/` and `progressive/` directories with
- * the staged ones, using same-filesystem renames and a backup-and-restore
- * rollback so a failure preserves the previous set byte-for-byte.
- */
-export function commitArtifacts(stagingDir: string, projectDir: string, uid: string): void {
-  const canonicalIntake = join(projectDir, "intake");
-  const canonicalProgressive = join(projectDir, "progressive");
-  const stagedIntake = join(stagingDir, "intake");
-  const stagedProgressive = join(stagingDir, "progressive");
-  const backupIntake = join(projectDir, `intake.bak-${uid}`);
-  const backupProgressive = join(projectDir, `progressive.bak-${uid}`);
-
-  const restores: Array<[string, string]> = [];
-  const placed: string[] = [];
-  try {
-    if (existsSync(canonicalIntake)) {
-      renameSync(canonicalIntake, backupIntake);
-      restores.push([backupIntake, canonicalIntake]);
-    }
-    if (existsSync(canonicalProgressive)) {
-      renameSync(canonicalProgressive, backupProgressive);
-      restores.push([backupProgressive, canonicalProgressive]);
-    }
-    renameSync(stagedIntake, canonicalIntake);
-    placed.push(canonicalIntake);
-    renameSync(stagedProgressive, canonicalProgressive);
-    placed.push(canonicalProgressive);
-  } catch (error) {
-    // Roll back: remove anything we placed, then restore the backups.
-    for (const dir of placed) {
-      try {
-        removeManagedDir(dir, [projectDir]);
-      } catch {
-        /* best effort */
-      }
-    }
-    for (const [backup, original] of restores) {
-      if (existsSync(original)) {
-        try {
-          removeManagedDir(original, [projectDir]);
-        } catch {
-          /* best effort */
-        }
-      }
-      renameSync(backup, original);
-    }
-    throw error;
-  }
-  // Success: drop the backups.
-  for (const [backup] of restores) {
-    try {
-      removeManagedDir(backup, [projectDir]);
-    } catch {
-      /* best effort */
-    }
-  }
-}
+// The journaled commit and startup reconciliation live in ./txn; re-exported
+// here for the transactional tests and for API continuity.
+export {
+  commitArtifacts,
+  reconcileProject,
+  IntakeRecoveryError,
+  IntakeCrashSimulation,
+} from "./txn";
 
 export async function runIntake(options: RunIntakeOptions): Promise<RunIntakeResult> {
   const monotonic = options.monotonic ?? (() => performance.now());
@@ -258,7 +201,6 @@ export async function runIntake(options: RunIntakeOptions): Promise<RunIntakeRes
   };
   const workspaceDir = resolve(join(workspaceRoot, `${options.projectSlug}-${uid}`));
   const stagingDir = join(projectDir, `.intake-staging-${uid}`);
-  const lockDir = join(projectDir, ".intake.lock");
 
   const elapsed = () => {
     const ms = Math.max(0, monotonic() - start);
@@ -267,24 +209,26 @@ export async function runIntake(options: RunIntakeOptions): Promise<RunIntakeRes
   const targetSeconds = options.targetSeconds ?? INTAKE_TARGET_SECONDS;
 
   let lockAcquired = false;
+  let simulatedCrash = false;
   try {
     // Fail closed on unsafe slug / path overlaps BEFORE creating anything.
     assertSafeSlug(options.projectSlug);
     assertPathBoundaries({ outRoot, projectDir, workspaceDir, sources: options.sources });
 
     mkdirSync(projectDir, { recursive: true });
-    try {
-      mkdirSync(lockDir); // exclusive: fails if a concurrent run holds it
-      lockAcquired = true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-        throw new IntakeLockError(
-          `intake_locked: another run for "${options.projectSlug}" is active`,
-        );
-      }
-      throw error;
+    // Exclusive per-project lock (with safe stale-lock reclaim): two same-slug
+    // runs can never reconcile or commit concurrently.
+    if (!acquireProjectLock(projectDir)) {
+      throw new IntakeLockError(
+        `intake_locked: another run for "${options.projectSlug}" is active`,
+      );
     }
-    cleanupStaleArtifacts(projectDir);
+    lockAcquired = true;
+
+    // Startup reconciliation: deterministically finish or roll back any
+    // interrupted transaction BEFORE this run stages anything. Fails closed
+    // when no complete previous generation can be identified safely.
+    reconcileProject(projectDir, options.txnHooks);
 
     // ---- Preparation: everything in memory / staging, canonical untouched. ---
     const inventory = buildInventory({
@@ -384,12 +328,19 @@ export async function runIntake(options: RunIntakeOptions): Promise<RunIntakeRes
     };
     atomicWriteJson(staged.intake_summary, summary);
 
-    // ---- Commit: atomic swap of the whole set. ------------------------------
+    // ---- Commit: journaled atomic swap of the whole set. --------------------
     throwIfFailStage(options, "commit");
-    commitArtifacts(stagingDir, projectDir, uid);
+    commitArtifacts(stagingDir, projectDir, uid, options.txnHooks);
 
     return { status, exitCode: 0, summary, wrotePayload: true, artifacts };
   } catch (error) {
+    // A simulated crash must behave like a real one: no failure record, no
+    // rollback, no cleanup — the state is left for the next run's
+    // reconciliation, exactly as a process death would leave it.
+    if (error instanceof IntakeCrashSimulation) {
+      simulatedCrash = true;
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     const { ms, seconds } = elapsed();
     const summary: IntakeSummary = {
@@ -454,29 +405,28 @@ export async function runIntake(options: RunIntakeOptions): Promise<RunIntakeRes
           ? 3
           : error instanceof IntakeLockError
             ? 4
-            : 1;
+            : error instanceof IntakeRecoveryError
+              ? 5
+              : 1;
     return { status: "BLOCKED", exitCode, summary, wrotePayload: false, artifacts };
   } finally {
     // Remove temporary staging + workspace, then release the lock. Each guard
-    // confines removal to its managed tree.
-    try {
-      removeManagedDir(stagingDir, [projectDir]);
-    } catch {
-      /* staging may never have been created */
-    }
-    try {
-      removeManagedDir(workspaceDir, [resolve(workspaceRoot)]);
-    } catch {
-      // The workspace is always constructed strictly inside workspaceRoot, so a
-      // containment failure here means it was never created; never fall back to
-      // an unguarded remover.
-    }
-    if (lockAcquired) {
+    // confines removal to its managed tree. A simulated crash skips ALL of
+    // this — a dead process cleans nothing.
+    if (!simulatedCrash) {
       try {
-        removeManagedDir(lockDir, [projectDir]);
+        removeManagedDir(stagingDir, [projectDir]);
       } catch {
-        /* best effort */
+        /* staging may never have been created */
       }
+      try {
+        removeManagedDir(workspaceDir, [resolve(workspaceRoot)]);
+      } catch {
+        // The workspace is always constructed strictly inside workspaceRoot, so a
+        // containment failure here means it was never created; never fall back to
+        // an unguarded remover.
+      }
+      if (lockAcquired) releaseProjectLock(projectDir);
     }
   }
 }

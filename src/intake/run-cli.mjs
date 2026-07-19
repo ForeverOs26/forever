@@ -10,7 +10,11 @@
  * `factory:continue`).
  *
  * It creates no database client, makes no network request, and performs no
- * write of its own — it only loads the TypeScript CLI, which does the work.
+ * production write — it only loads the TypeScript CLI, which writes local
+ * generated artifacts and nothing else.
+ *
+ * On Windows invoke it as `npm.cmd run intake -- ...` (PowerShell may block
+ * `npm.ps1` under a normal execution policy); on bash, `npm run intake -- ...`.
  */
 
 import { createJiti } from "jiti";

@@ -29,17 +29,18 @@ RC5.5D remains completed, canonically applied, and verified as an exceptional ma
 
 The Coralina production draft import through that generic importer is completed: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch. Coralina remains an unpublished draft; publication is a later, separate action. The local website preview of Coralina is completed.
 
-## Fast Intake v1 (open PR, not yet canonical)
+## Fast Intake v1 (open PR #85, not yet canonical)
 
-Fast Intake v1 is implemented in an open PR and is pending independent review and
-Owner merge; it is not yet canonical on `main`. It is a bounded, local, owner-only
-preparation-and-validation tool (`npm run intake`) that turns project source
-materials (a folder and/or ZIP archives) into a deterministic, validated,
-unpublished Progressive draft payload for the existing ordinary draft importer. It
-reuses the existing Progressive builder, fingerprint, currency policy, provenance
-and warning model, and the ordinary `-ValidateOnly` invariants, with a hardened
-untrusted-ZIP boundary, transactional artifact output, per-project locking, and
-strengthened anti-fabrication guards.
+Fast Intake v1 is implemented in the open, unmerged PR #85 and is pending
+independent review and Owner merge; it is not yet canonical on `main`. It is a
+bounded, local, owner-only preparation-and-validation tool (`npm run intake`;
+on Windows, `npm.cmd run intake`) that turns project source materials (a folder
+and/or ZIP archives) into a deterministic, validated, unpublished Progressive
+draft payload for the existing ordinary draft importer. It reuses the existing
+Progressive builder, fingerprint, currency policy, provenance and warning
+model, and the ordinary `-ValidateOnly` invariants, with a hardened
+untrusted-ZIP boundary, journaled crash-recoverable transactional artifact
+output, per-project locking, and strengthened anti-fabrication guards.
 
 Scope honesty: Fast Intake v1 consumes only already-structured artifacts (an
 extracted price-list JSON and a `project-facts.json`). Raw PDFs, spreadsheets,
@@ -50,8 +51,10 @@ already exist. Raw-document extraction/OCR/spreadsheet parsing is a later Fast
 Intake stage.
 
 No production execution occurred: Fast Intake creates no database client, makes no
-network request, performs no write, and performs no publication. It does not add
-schema, migration, RPC, RLS, grants, or backend services, does not create a
+network request, performs no production write (its only writes are the local
+generated artifacts under `forever-data/projects/<slug>/` and a gitignored
+temporary workspace), and performs no publication. It does not add schema,
+migration, RPC, RLS, grants, or backend services, does not create a
 website/admin UI, and does not expand Factory autonomy. Coralina remains an
 unpublished draft and Factory autonomy remains A0. See `docs/FAST_INTAKE_V1.md`.
 

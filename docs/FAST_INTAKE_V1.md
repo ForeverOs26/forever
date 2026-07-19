@@ -1,7 +1,8 @@
 # Fast Intake v1
 
-Status: Implemented in an open PR, pending independent review and Owner merge.
-Not yet canonical on `main`.
+Status: Implemented in the open, unmerged PR
+[#85](https://github.com/ForeverOs26/forever/pull/85), pending independent
+review and Owner merge. Not yet canonical on `main`.
 
 Fast Intake v1 is a bounded, local, owner-only tool. It turns normal project
 source materials into a deterministic, validated, **unpublished** Progressive
@@ -9,8 +10,11 @@ draft payload ready for the existing ordinary draft importer. It performs
 **preparation and validation only**.
 
 It never connects to production, never creates a database client, never makes a
-network request, never executes a database import, and never publishes. No
-production database, lead, publication, or write is touched by running it.
+network request, never executes a database import, and never publishes. It
+performs **no production write** — its only writes are the local generated
+artifacts under `forever-data/projects/<slug>/` and its gitignored temporary
+workspace. No production database, lead, or publication is touched by running
+it.
 
 ## What Fast Intake v1 does — and does NOT — do yet
 
@@ -47,21 +51,43 @@ fails solely because a run exceeds the target.
 ## Command
 
 The operator needs only a project slug, a project name, and one or more source
-paths (folders and/or `.zip` archives).
+paths (folders and/or `.zip` archives). Repeat `--source` for multiple sources;
+paths with spaces are supported.
 
-One source directory:
+### Windows PowerShell
 
-```
-npm run intake -- --project marina-bay --name "Marina Bay" \
-  --source "C:\forever-incoming\Marina Bay"
-```
-
-Multiple ZIP sources (Windows paths with spaces are supported):
+Use `npm.cmd` — a normal execution policy may block `npm.ps1`, so plain `npm`
+is not guaranteed to work in PowerShell. Single line:
 
 ```
-npm run intake -- --project marina-bay --name "Marina Bay" \
-  --source "C:\forever-incoming\Marina Bay brochure.zip" \
+npm.cmd run intake -- --project marina-bay --name "Marina Bay" --source "C:\forever-incoming\Marina Bay"
+```
+
+Multiple ZIP sources (PowerShell backtick continuation, if a single line is too
+long):
+
+```
+npm.cmd run intake -- --project marina-bay --name "Marina Bay" `
+  --source "C:\forever-incoming\Marina Bay brochure.zip" `
   --source "C:\forever-incoming\Marina Bay price list.zip"
+```
+
+### Windows cmd.exe
+
+The same single-line `npm.cmd` command:
+
+```
+npm.cmd run intake -- --project marina-bay --name "Marina Bay" --source "C:\forever-incoming\Marina Bay"
+```
+
+(For continuation in cmd.exe use the caret `^`, never a backslash.)
+
+### Bash / Linux / macOS
+
+```
+npm run intake -- --project marina-bay --name "Marina Bay" \
+  --source "/path/to/Marina Bay brochure.zip" \
+  --source "/path/to/Marina Bay price list.zip"
 ```
 
 Optional flags: `--out-root <dir>` (default `forever-data/projects`),
@@ -69,12 +95,10 @@ Optional flags: `--out-root <dir>` (default `forever-data/projects`),
 `--target-seconds <n>` (default 900), `--verbose` (list every classified file and
 warning; off by default so the summary stays readable).
 
-The command works exactly as written from a clean PowerShell, cmd.exe, or bash
-process. `npm run intake` executes the committed bootstrap
-`src/intake/run-cli.mjs`, which configures the repository's `@/*` alias
-resolution internally — no hidden environment variable (`JITI_TSCONFIG_PATHS`,
-`JITI_ALIAS`), no shell-specific prefix, no Supabase variables, and no database
-credentials are required.
+`npm run intake` executes the committed Node bootstrap `src/intake/run-cli.mjs`,
+which configures the repository's `@/*` alias resolution internally — no hidden
+environment variable (`JITI_TSCONFIG_PATHS`, `JITI_ALIAS`), no Supabase
+variables, and no database credentials are required in any shell.
 
 ## Accepted input
 
@@ -134,15 +158,39 @@ Operational metadata is NOT claimed deterministic and never affects the payload
 or fingerprint: `intake_started_at`, elapsed times in `intake-summary.json`, and
 the operator-reference `local_only_path` entries.
 
-**Transactional output.** All artifacts are built in a unique staging directory
-inside the destination project directory, validated there, and only then swapped
-into place atomically (backup-and-restore renames). A failure at any stage —
-inventory, extraction, hashing, normalization, any artifact write, validation,
-or the final swap — removes the staging directory and preserves the previous
-canonical five-file set byte-for-byte; old and new artifacts are never mixed. A
-per-project `.intake.lock` (exclusive directory creation) blocks a concurrent
-run for the same slug; different slugs are independent. Stale staging/backup
-directories from a crashed run are removed on the next run.
+**Recoverable transactional output.** All artifacts are built in a unique
+staging directory inside the destination project directory and validated there.
+The commit is a journaled state machine recorded durably in
+`.intake-txn.json` (in the project directory):
+
+```
+validated → intake_backed_up → backed_up → intake_installed
+          → progressive_installed → committed
+```
+
+Each rename (canonical → managed backup, staged → canonical) advances the
+journal. Only a transaction that reached `committed` keeps the new generation.
+An in-process failure rolls back immediately; a hard crash between renames is
+reconciled deterministically at the start of the next run, under the
+per-project lock: an interrupted transaction is rolled back to the previous
+generation (or, if already committed, finished), a missing/incomplete canonical
+set is restored from its managed backup (the backup is renamed into place,
+never deleted first), and managed staging/backup residue is removed only after
+positive evidence that the canonical five-artifact set is complete and
+consistent (the summary's validation fingerprint must match the payload's batch
+fingerprint). The only complete surviving generation is never deleted; an
+irreconcilable state (unreadable journal with backups present, ambiguous
+multiple backups) fails closed with exit code 5 and touches nothing.
+
+A "complete generation" is the full five-artifact logical set — the four
+`intake/` files plus `progressive/payload.json` — belonging to one transaction;
+a set with only `intake/` or only `progressive/`, or with mismatched
+fingerprints, is treated as incomplete.
+
+A per-project `.intake.lock` (exclusive directory creation, with a recorded
+owner pid) blocks a concurrent run for the same slug; a lock whose owner is
+provably dead — or a metadata-less lock older than one hour — is reclaimed
+safely. Different slugs are independent.
 
 ## Classification categories
 
@@ -227,21 +275,31 @@ algorithm, currency policy, and dependency resolution are not reimplemented.
 At the end of intake the generated payload is validated automatically through
 the same draft-only invariants as
 `scripts/import/Import-ForeverProjectDraft.ps1 -ValidateOnly` — with no database
-credentials, no client, no network, and no write. The port additionally
-recomputes and verifies the content fingerprint (stricter than PowerShell,
-never more lenient). An invalid payload fails closed with a non-zero exit code,
-and a failed regeneration never replaces a previously valid payload.
+credentials, no client, no network, and no production write.
 
-Parity with the PowerShell boundary is pinned by a shared corpus of valid and
-invalid payloads at `src/intake/test-fixtures/validation-corpus/`:
+The TypeScript boundary is an **importer-compatibility guard: never more
+permissive than PowerShell `-ValidateOnly`**. It may be stricter — it
+additionally recomputes the batch fingerprint from content, while PowerShell
+checks only the fingerprint's format — so a well-formatted-but-wrong
+fingerprint is rejected by TypeScript and accepted by PowerShell. That is the
+one recorded, intentional stricter-only asymmetry; complete equality is not
+claimed. An invalid payload fails closed with a non-zero exit code, and a
+failed regeneration never replaces a previously valid payload.
+
+The compatibility claim is pinned by a shared corpus of valid and invalid
+payloads at `src/intake/test-fixtures/validation-corpus/` (including
+zero-element, one-element, and multi-element array graphs, and non-array
+buildings/units/prices/warnings):
 
 - the TypeScript half runs in CI (`src/intake/tests/validation-parity.test.ts`)
   and enforces that TypeScript never accepts a payload the PowerShell boundary
-  rejects;
-- the PowerShell half runs on Windows via
-  `scripts/import/tests/Compare-DraftValidationParity.ps1`, which drives the
-  real `-ValidateOnly` over the same corpus and fails on any mismatch. It stops
-  before any database argument or password.
+  rejects; where PowerShell is available it also launches the live harness;
+- the PowerShell half, `scripts/import/tests/Compare-DraftValidationParity.ps1`,
+  runs each corpus payload through a REAL child PowerShell process
+  (`-NoProfile -File … -ValidateOnly`), captures stdout/stderr and the true
+  child exit code (never in-process `$LASTEXITCODE`), and requires accepted
+  cases to both exit 0 AND print the `DRAFT_PAYLOAD_VALID|` marker. It needs no
+  database host, no password, no psql, and makes no network request.
 
 Fast Intake does **not** run the import. Validate again later with:
 
@@ -268,8 +326,10 @@ password is printed or requested during Fast Intake preparation.
   a later, separate Owner action.
 - `BLOCKED` — the payload cannot safely pass the ordinary importer boundary
   (malformed structured JSON, duplicate unit identifiers, validation failure,
-  lock contention, unsafe paths). Non-zero exit code; the previous canonical
-  artifact set is not replaced. Missing media alone never blocks.
+  lock contention, unsafe paths, or an irreconcilable crash-recovery state).
+  Non-zero exit code (2 validation, 3 conflict, 4 locked, 5 unrecoverable
+  state, 1 otherwise); the previous canonical artifact set is not replaced.
+  Missing media alone never blocks.
 
 Follows: SAVE FIRST → DISPLAY AVAILABLE DATA → ENRICH LATER → VERIFY
 SELECTIVELY → PUBLISH DELIBERATELY.
