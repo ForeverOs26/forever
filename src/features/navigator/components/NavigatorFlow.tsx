@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 
 import { projectListQuery } from "@/lib/project-service";
 import ChoiceGroup from "./ChoiceGroup";
@@ -542,7 +543,10 @@ function RecommendationScreen({
                       <h4>{project.name}</h4>
                       {project.location ? <span>{project.location}</span> : null}
                       {reasons.length > 0 ? (
-                        <ul aria-label={`Why ${project.name} is shown`} className="mt-2 flex flex-wrap gap-2">
+                        <ul
+                          aria-label={`Why ${project.name} is shown`}
+                          className="mt-2 flex flex-wrap gap-2"
+                        >
                           {reasons.map((reason) => (
                             <li
                               key={reason.kind}
@@ -659,6 +663,7 @@ function AdvisorInvitationScreen({
 
 function ConfirmationScreen({ onStartAgain }: { onStartAgain: () => void }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     headingRef.current?.focus();
@@ -683,11 +688,6 @@ function ConfirmationScreen({ onStartAgain }: { onStartAgain: () => void }) {
             </SerifHeading>
           </div>
 
-          <div className="navigator-confirmation__id">
-            <p>Temporary Forever ID</p>
-            <strong>FVR-RC1-0001</strong>
-          </div>
-
           <ul className="navigator-confirmation__status" aria-label="Completion status">
             <li>
               <span aria-hidden="true">✓</span>
@@ -706,7 +706,7 @@ function ConfirmationScreen({ onStartAgain }: { onStartAgain: () => void }) {
       </ScreenFrame>
       <PrimaryActionBar
         primaryLabel="Request Private Advisory"
-        onPrimary={() => undefined}
+        onPrimary={() => navigate({ to: "/contact" })}
         secondaryLabel="Start Again"
         onSecondary={onStartAgain}
       />
@@ -806,9 +806,7 @@ export function NavigatorFlow() {
             concerns={concerns}
             note={freeNote}
             onContinue={beginStoryGeneration}
-            onNoteChange={(nextNote) =>
-              setAnswers((current) => ({ ...current, note: nextNote }))
-            }
+            onNoteChange={(nextNote) => setAnswers((current) => ({ ...current, note: nextNote }))}
             onToggleConcern={(concern) => {
               setAnswers((current) => ({
                 ...current,

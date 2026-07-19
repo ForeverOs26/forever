@@ -21,9 +21,7 @@ export const Route = createFileRoute("/")({
 });
 
 function HomePage() {
-  const { data: featured } = useSuspenseQuery(
-    projectListQuery({ featuredOnly: true, limit: 3 }),
-  );
+  const { data: featured } = useSuspenseQuery(projectListQuery({ featuredOnly: true, limit: 3 }));
   return (
     <SiteShell>
       {/* 1. Hero */}
@@ -47,13 +45,13 @@ function HomePage() {
               Make Confident Real Estate Decisions in Phuket
             </h1>
             <p className="mt-8 max-w-xl text-base leading-relaxed text-primary-foreground/85 sm:text-lg">
-              Forever combines verified project data, Forever Passport records, and
-              Forever Intelligence so buyers can understand a property before they act.
+              Forever combines verified project data, Forever Passport records, and Forever
+              Intelligence so buyers can understand a property before they act.
             </p>
             <div className="mt-10 flex flex-wrap gap-3">
               <Button asChild size="lg">
-                <Link to="/contact">
-                  Request Private Advisory <ArrowRight className="h-4 w-4" />
+                <Link to="/navigator">
+                  Start the Forever Navigator <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
               <Button
@@ -65,6 +63,14 @@ function HomePage() {
                 <Link to="/projects">
                   <Play className="h-4 w-4" /> Explore Projects
                 </Link>
+              </Button>
+              <Button
+                asChild
+                size="lg"
+                variant="outline"
+                className="border-primary-foreground/40 bg-transparent text-primary-foreground hover:bg-primary-foreground hover:text-foreground"
+              >
+                <Link to="/contact">Request Private Advisory</Link>
               </Button>
             </div>
           </div>
@@ -144,9 +150,8 @@ function HomePage() {
         <div className="grid gap-10 lg:grid-cols-12">
           <div className="lg:col-span-5">
             <p className="text-base text-muted-foreground sm:text-lg">
-              A concise, jargon-free guide to ownership structures, freehold and
-              leasehold, taxes, rental yields, due diligence, and the questions to ask
-              before choosing a project.
+              A concise, jargon-free guide to ownership structures, freehold and leasehold, taxes,
+              rental yields, due diligence, and the questions to ask before choosing a project.
             </p>
             <div className="mt-8">
               <Button asChild>
@@ -222,8 +227,8 @@ function HomePage() {
         <div className="grid gap-12 lg:grid-cols-12">
           <div className="lg:col-span-5">
             <p className="text-base text-muted-foreground sm:text-lg">
-              Tell us what you are trying to decide. We will prepare a focused advisory
-              response based on your goals, budget, and risk profile.
+              Tell us what you are trying to decide. We will prepare a focused advisory response
+              based on your goals, budget, and risk profile.
             </p>
             <dl className="mt-10 space-y-6 text-sm">
               <div>

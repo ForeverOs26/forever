@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   hasLeadValidationErrors,
+  isDemoLeadModeEnabled,
   submitLead,
   validateLead,
   type LeadValidationErrors,
@@ -73,12 +74,20 @@ export function ContactForm({
         <p className="mt-2 text-sm text-muted-foreground">
           A member of our private client team will be in touch within one business day.
         </p>
+        {import.meta.env.DEV && isDemoLeadModeEnabled() && (
+          <p className="mt-4 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            Local demo mode — this request was validated but not saved.
+          </p>
+        )}
       </div>
     );
   }
 
   return (
-    <form onSubmit={onSubmit} className="grid gap-5 rounded-2xl border border-border/60 bg-card p-6 sm:p-8">
+    <form
+      onSubmit={onSubmit}
+      className="grid gap-5 rounded-2xl border border-border/60 bg-card p-6 sm:p-8"
+    >
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="grid gap-2">
           <Label htmlFor="firstName">First name</Label>
@@ -166,6 +175,11 @@ export function ContactForm({
       {formError && (
         <p className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           {formError}
+        </p>
+      )}
+      {import.meta.env.DEV && isDemoLeadModeEnabled() && (
+        <p className="rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          Local demo mode — submissions are validated but not saved.
         </p>
       )}
       <Button type="submit" size="lg" className="justify-self-start" disabled={submitting}>

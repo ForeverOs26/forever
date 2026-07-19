@@ -59,6 +59,26 @@ export function hasLeadValidationErrors(errors: LeadValidationErrors): boolean {
   return Object.keys(errors).length > 0;
 }
 
+/**
+ * Local-development-only no-write lead demo mode.
+ *
+ * When enabled, `submitLead` runs the normal validation and payload build but
+ * stops before the network write, so a local presentation can complete the
+ * real lead flow end to end without creating a real lead. This mirrors the
+ * demo-preview boundary: every call site guards with a literal
+ * `import.meta.env.DEV`, which Vite replaces with `false` in production
+ * builds, so the branch (and this helper) is eliminated from the production
+ * bundle and production lead behavior is unchanged.
+ *
+ * Set `VITE_DEMO_LEAD_MODE="false"` in `.env` to restore real lead writes
+ * during local development.
+ */
+export function isDemoLeadModeEnabled(
+  env: Pick<ImportMetaEnv, "DEV"> & { VITE_DEMO_LEAD_MODE?: string } = import.meta.env,
+): boolean {
+  return env.DEV && env.VITE_DEMO_LEAD_MODE !== "false";
+}
+
 export async function submitLead(values: LeadFormValues): Promise<void> {
   const errors = validateLead(values);
   if (hasLeadValidationErrors(errors)) {
@@ -79,6 +99,13 @@ export async function submitLead(values: LeadFormValues): Promise<void> {
     status: "new",
     source: clean(values.source) || "contact_form",
   };
+
+  if (import.meta.env.DEV && isDemoLeadModeEnabled()) {
+    // Local demo mode: the flow completes normally, but nothing is written
+    // and no network call is made.
+    console.info("[LeadService] Demo mode — lead validated locally, nothing saved:", payload.name);
+    return;
+  }
 
   const { error } = await supabase.from("leads").insert(payload);
   if (error) {
