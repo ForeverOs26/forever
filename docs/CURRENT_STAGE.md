@@ -5,7 +5,7 @@ Last updated: 2026-07-19
 
 ## Stage name
 
-Forever Partner Demo v1 is canonical and ready for presentation. The partner presentation is the immediate product checkpoint; the measured Fast Intake v1 real-project pilot follows immediately after partner feedback. Shared Forever Navigator (website + Booth Mode), Fast Intake v1, ordinary new-project draft import simplification, and RC5.5D canonical-application closure remain canonical and unchanged.
+Rainpalm Fast Intake Pilot 01 completed successfully: the measured Rainpalm Villas structured-input pilot completed locally in 39.834 seconds (`target_met=true`) without import or publication. The active development checkpoint is to design the smallest source-backed Structured Input Preparation stage. Partner Demo v1 remains canonical and presentation-ready, with its presentation pending scheduling in parallel; it does not block current development. Shared Forever Navigator (website + Booth Mode), Fast Intake v1, ordinary new-project draft import simplification, and RC5.5D canonical-application closure remain canonical and unchanged.
 
 Completed prerequisites for this stage:
 
@@ -99,28 +99,32 @@ The ordinary draft importer does not authorize publication. Schema, migration, R
 | Owner-authorized Coralina draft import through the generic importer | Owner             | Completed - draft only, unpublished                                   |
 | Shared Navigator: website + Booth Mode over one Navigator Core      | Codex / Owner     | Completed and canonical on `main`                                     |
 | Fast Intake v1 with a 15-minute draft target                        | Codex / Owner     | Implemented, independently Windows-validated, and canonical on `main` |
+| Rainpalm Fast Intake Pilot 01                                       | Codex / Owner     | Completed successfully — 39.834s, unpublished validated partial draft |
 | Partner Demo v1 (runbook, launcher, no-write lead demo mode)        | Claude / Owner    | Completed and canonical on `main`                                     |
-| Present Partner Demo v1 to the partner                              | Owner             | Immediate next checkpoint                                             |
+| Structured Input Preparation design                                 | Codex / Owner     | Active development checkpoint; design only                            |
+| Present Partner Demo v1 to the partner                              | Owner             | Parallel pending business checkpoint; scheduling dependent            |
 | Publication of any imported draft                                   | Owner             | Later, separate action                                                |
 
-## Next checkpoint
+## Active development checkpoint
 
-Present Forever Partner Demo v1 to the partner using `docs/PARTNER_DEMO_V1.md`, collect structured feedback, and classify every item as one of:
+Design the smallest reliable, source-backed Structured Input Preparation process that converts an ordinary developer project dossier into compatible `project-facts.json` and extracted price-list JSON. This is a design checkpoint only; do not implement it in this PR.
 
-- demo blocker;
-- product improvement;
-- future roadmap idea;
-- commercial/partnership decision.
+The design must preserve exact source references, provenance, confidence, and missing-fact handling. It must not infer facts from filenames or introduce an unsupported currency, price, date, developer, location, or project fact. It must not automatically import or publish anything.
 
-## Following checkpoint
+## Parallel pending business checkpoint
 
-After partner feedback is collected and classified: run the measured Fast Intake v1 pilot on one new non-sensitive real project with compatible structured artifacts, measure the complete local preparation-and-validation time against the 15-minute target, and record gaps before starting the separate raw-document extraction stage. This pilot must not automatically import or publish the project.
+Present Forever Partner Demo v1 when the partner is available, using `docs/PARTNER_DEMO_V1.md`, collect structured feedback, and classify every item as one of: demo blocker; product improvement; future roadmap idea; or commercial/partnership decision. This presentation remains pending scheduling and does not block Structured Input Preparation design.
 
-## Acceptance criteria for the next checkpoint
+## Following development checkpoint
 
-- The partner presentation is delivered from the canonical runbook without exposing repository, database, PowerShell, import, or test internals.
-- No production lead, import, publication, or production write occurs during the presentation.
-- Partner feedback is recorded and classified into the four categories above.
+After the Structured Input Preparation design is reviewed and approved, implement its smallest validated slice. Do not prematurely build a large OCR or computer-vision platform. The Rainpalm pilot prepared and validated an unpublished draft only; Rainpalm was neither imported nor published.
+
+## Acceptance criteria for the active development checkpoint
+
+- The design defines the smallest reliable source-backed path to compatible `project-facts.json` and extracted price-list JSON from an ordinary developer dossier.
+- Exact source references, provenance, confidence, and missing-fact handling are retained.
+- No filename-based fact inference or unsupported currency, price, date, developer, location, or project fact is permitted.
+- The design authorizes neither automatic import nor publication.
 - Shared Navigator behavior at `/navigator` and `/booth` remains canonical over one NAV-001 Navigator Core, with Booth still unlinked from normal public navigation unless separately authorized.
 - Coralina remains an unpublished draft and Factory autonomy remains A0 throughout.
 
@@ -133,6 +137,4 @@ After partner feedback is collected and classified: run the measured Fast Intake
 
 ## Definition of done
 
-The next checkpoint is complete when the partner presentation has been delivered from the canonical runbook and the resulting feedback is recorded and classified (demo blocker / product improvement / future roadmap idea / commercial-partnership decision), with no production lead, import, publication, or production write, and Factory autonomy remaining A0.
-
-The following checkpoint (the measured Fast Intake v1 real-project pilot) is complete when the pilot records its complete local preparation-and-validation time and gaps against the 15-minute target, with no automatic import, no publication action, no schema/migration/RLS/backend change, and Factory autonomy remaining A0.
+The active checkpoint is complete when the Structured Input Preparation design is reviewed and approved with the stated source-backed, provenance, confidence, missing-fact, anti-fabrication, and no-auto-import/publication controls. The partner presentation remains a parallel pending business checkpoint; when delivered, its feedback is classified as demo blocker / product improvement / future roadmap idea / commercial-partnership decision, with no production lead, import, publication, or production write. Factory autonomy remains A0.

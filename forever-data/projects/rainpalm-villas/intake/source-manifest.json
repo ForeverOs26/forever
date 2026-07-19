@@ -1,0 +1,51 @@
+{
+  "intake_schema_version": "1",
+  "project_slug": "rainpalm-villas",
+  "intake_started_at": "2026-07-19T14:46:57.235Z",
+  "source_roots": [
+    {
+      "id": "root-0",
+      "kind": "directory",
+      "name": "facts",
+      "local_only_path": "C:\\forever-incoming\\Rainpalm\\facts"
+    },
+    {
+      "id": "root-1",
+      "kind": "directory",
+      "name": "price-list",
+      "local_only_path": "C:\\forever-incoming\\Rainpalm\\price-list"
+    }
+  ],
+  "file_count": 2,
+  "duplicate_count": 0,
+  "files": [
+    {
+      "logical_path": "root-0/project-facts.json",
+      "original_filename": "project-facts.json",
+      "extension": ".json",
+      "category": "project-facts",
+      "byte_size": 1315,
+      "sha256": "1e47032269fe2cd48ed93f436075915a05e1be7380d2afc58ce793e55d5c795b",
+      "duplicate_group": "1e47032269fe2cd48ed93f436075915a05e1be7380d2afc58ce793e55d5c795b",
+      "duplicate_primary": true,
+      "archive_origin": null,
+      "extraction_support": "structured",
+      "supported": true,
+      "warning_codes": []
+    },
+    {
+      "logical_path": "root-1/price-list.json",
+      "original_filename": "price-list.json",
+      "extension": ".json",
+      "category": "price-list",
+      "byte_size": 43890,
+      "sha256": "6ce4a187711f1fdcc26eed84689a0ef0f7a461262a4630b895c251781d10a73f",
+      "duplicate_group": "6ce4a187711f1fdcc26eed84689a0ef0f7a461262a4630b895c251781d10a73f",
+      "duplicate_primary": true,
+      "archive_origin": null,
+      "extraction_support": "structured",
+      "supported": true,
+      "warning_codes": []
+    }
+  ]
+}

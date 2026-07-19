@@ -1,0 +1,65 @@
+{
+  "intake_schema_version": "1",
+  "status": "PARTIAL_READY_WITH_WARNINGS",
+  "project_slug": "rainpalm-villas",
+  "project_name": "Rainpalm Villas",
+  "elapsed_ms": 94,
+  "elapsed_seconds": 0.094,
+  "target_seconds": 900,
+  "target_met": true,
+  "source_file_count": 2,
+  "duplicate_count": 0,
+  "classified_counts": {
+    "brochure": 0,
+    "price-list": 1,
+    "payment-plan": 0,
+    "project-facts": 1,
+    "developer-profile": 0,
+    "master-plan": 0,
+    "floor-plan": 0,
+    "unit-plan": 0,
+    "furniture-package": 0,
+    "map-location": 0,
+    "legal-document": 0,
+    "photo": 0,
+    "video": 0,
+    "archive": 0,
+    "unknown": 0
+  },
+  "extracted_fact_counts": {
+    "buildings": 0,
+    "units": 21,
+    "prices": 14
+  },
+  "planned_graph_counts": {
+    "projects": 1,
+    "buildings": 0,
+    "units": 21,
+    "prices": 14,
+    "media": 0,
+    "warnings": 12,
+    "batches": 1
+  },
+  "validation": {
+    "ok": true,
+    "fingerprint": "2ef6931168fc7b4c5c6cbba3e398f398de4b6ab9e5b7546962f570fcfded9781",
+    "fingerprint_verified": true,
+    "payload_sha256": "c95fb84744d9c067a003284be3fd8de5a2a84a2f9cf03a36b2c78b72d283a9b7",
+    "source_manifest_sha256": "a9fa626cfb372ebb271757bb5315ab0cbb49d63c9a719b445e0b66e414ecb979",
+    "classification_sha256": "ab0b2aea8689c5508817ae44369f4328eca7301bda5cf9a95e1de49a61668533",
+    "extracted_facts_sha256": "628aa5625c7e7ed1b84fe92f20343ee8c68ee4bbe439c0787908c0cf568e616c",
+    "marker": "DRAFT_PAYLOAD_VALID|slug=rainpalm-villas|sha256=c95fb84744d9c067a003284be3fd8de5a2a84a2f9cf03a36b2c78b72d283a9b7|buildings=0|units=21|prices=14|media=0|documents=0|warnings=12",
+    "error": null
+  },
+  "blocking_issues": [],
+  "warnings": [],
+  "unsupported_files": [],
+  "artifacts": {
+    "source_manifest": "C:\\forever\\forever-data\\projects\\rainpalm-villas\\intake\\source-manifest.json",
+    "classification": "C:\\forever\\forever-data\\projects\\rainpalm-villas\\intake\\classification.json",
+    "extracted_facts": "C:\\forever\\forever-data\\projects\\rainpalm-villas\\intake\\extracted-facts.json",
+    "intake_summary": "C:\\forever\\forever-data\\projects\\rainpalm-villas\\intake\\intake-summary.json",
+    "payload": "C:\\forever\\forever-data\\projects\\rainpalm-villas\\progressive\\payload.json"
+  },
+  "next_command": "powershell.exe -NoProfile -File scripts/import/Import-ForeverProjectDraft.ps1 -Project rainpalm-villas -ValidateOnly"
+}
