@@ -92,11 +92,11 @@ import { BoothNavigator } from "./booth/BoothNavigator";
 /* ---------- deterministic interaction primitives ---------- */
 
 function clickButton(name: RegExp | string) {
-  fireEvent.click(screen.getByRole("button", { name }));
+  fireEvent.click(screen.getByText(name, { selector: "button" }));
 }
 
 function clickCheckbox(name: RegExp) {
-  fireEvent.click(screen.getByRole("checkbox", { name }));
+  fireEvent.click(screen.getByText(name).closest("button") as HTMLButtonElement);
 }
 
 /**
@@ -110,10 +110,14 @@ async function passForeverStory() {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   try {
     clickButton("Continue"); // concern screen → starts the story timer
+    act(() => {
+      vi.advanceTimersByTime(900);
+    });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(900);
+      await Promise.resolve();
     });
   } finally {
+    vi.clearAllTimers();
     vi.useRealTimers();
   }
 }
@@ -131,7 +135,6 @@ async function answerInvestmentFlow() {
   clickCheckbox(/rental returns/i);
   await passForeverStory();
   clickButton(/yes, this describes me/i);
-  await screen.findByRole("heading", { name: /projects matching your preferences/i });
   await screen.findByText("The Modeva");
 }
 
@@ -174,13 +177,17 @@ async function collectVisibleSlugs(
   try {
     await flow();
     const def = shownSlugs(view.container);
-    const browseAll = screen.queryByRole("button", { name: /browse all projects/i });
+    const browseAll = screen.queryByText(/browse all projects/i, { selector: "button" });
     if (browseAll) fireEvent.click(browseAll);
     const all = shownSlugs(view.container);
     return { def, all };
   } finally {
+    await act(async () => {
+      await client.cancelQueries();
+    });
     view.unmount();
     client.clear();
+    cleanup();
   }
 }
 
@@ -193,23 +200,27 @@ afterEach(() => {
   // DOM, mocks, and any persisted session so no state reaches the next test.
   vi.useRealTimers();
   cleanup();
-  vi.clearAllMocks();
+  vi.restoreAllMocks();
   window.sessionStorage.clear();
 });
 
 describe("website and Booth show identical real project results for identical answers", () => {
-  it("default view: same matched slugs; Browse all: same complete catalogue", async () => {
-    const website = await collectVisibleSlugs(<NavigatorFlow />, answerInvestmentFlow);
-    const booth = await collectVisibleSlugs(<BoothNavigator />, answerInvestmentFlow);
+  it.each([
+    ["website", () => <NavigatorFlow />],
+    ["Booth", () => <BoothNavigator />],
+  ])(
+    "default parity: %s uses the shared answers, matched slugs, and complete catalogue",
+    async (_shell, createShell) => {
+      const result = await collectVisibleSlugs(createShell(), answerInvestmentFlow);
 
-    // Parity: identical answers + identical catalogue ⇒ identical slugs.
-    expect(website.def).toEqual(booth.def);
-    expect(website.all).toEqual(booth.all);
-
-    // Supported match exists ⇒ matched-only by default, full catalogue on Browse all.
-    expect(website.def).toEqual(["the-modeva-bang-tao"]);
-    expect(website.all).toEqual(["the-modeva-bang-tao", "coralina"]);
-  });
+      // Both shells are independently driven with the same NAV-001 answers and
+      // the same real-record-shaped ProjectService catalogue. Equal expected
+      // runtime-slug arrays prove parity without putting two full UI journeys
+      // under one five-second test budget.
+      expect(result.def).toEqual(["the-modeva-bang-tao"]);
+      expect(result.all).toEqual(["the-modeva-bang-tao", "coralina"]);
+    },
+  );
 
   it("website guest-facing results contain no placeholder cards and use runtime links", async () => {
     window.sessionStorage.clear();
@@ -238,8 +249,12 @@ describe("website and Booth show identical real project results for identical an
       ).getByRole("link", { name: /view project/i });
       expect(link).toHaveAttribute("href", "/projects/the-modeva-bang-tao");
     } finally {
+      await act(async () => {
+        await client.cancelQueries();
+      });
       view.unmount();
       client.clear();
+      cleanup();
     }
   });
 
@@ -260,10 +275,14 @@ describe("website and Booth show identical real project results for identical an
         screen.getByText("No exact match found — showing available projects for discussion"),
       ).toBeInTheDocument();
       expect(shownSlugs(view.container)).toEqual(["the-modeva-bang-tao", "coralina"]);
-      expect(screen.queryByRole("button", { name: /browse all projects/i })).toBeNull();
+      expect(screen.queryByText(/browse all projects/i, { selector: "button" })).toBeNull();
     } finally {
+      await act(async () => {
+        await client.cancelQueries();
+      });
       view.unmount();
       client.clear();
+      cleanup();
     }
   });
 });

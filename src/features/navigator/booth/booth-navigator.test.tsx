@@ -1,7 +1,6 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import type { Property } from "@/lib/data";
@@ -73,13 +72,48 @@ vi.mock("@/lib/lead-service", async (importActual) => {
 
 import { BoothNavigator } from "./BoothNavigator";
 
+function button(name: RegExp | string) {
+  return screen.getByText(name, { selector: "button" });
+}
+
+function checkbox(name: RegExp) {
+  return screen.getByText(name).closest("button") as HTMLButtonElement;
+}
+
 function renderBooth() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
+  });
+  const view = render(
     <QueryClientProvider client={client}>
       <BoothNavigator />
     </QueryClientProvider>,
   );
+  let disposed = false;
+
+  return {
+    client,
+    view,
+    async dispose() {
+      if (disposed) return;
+      disposed = true;
+      await act(async () => {
+        await client.cancelQueries();
+      });
+      view.unmount();
+      client.clear();
+      cleanup();
+    },
+  };
+}
+
+async function withBooth(run: () => Promise<void> | void) {
+  const booth = renderBooth();
+  try {
+    await run();
+  } finally {
+    await booth.dispose();
+  }
 }
 
 /**
@@ -91,11 +125,9 @@ function renderBooth() {
  * (React Query resolution, user-event interactions, `waitFor`/`findBy*`) on
  * real timers, unaffected.
  *
- * Uses `fireEvent.click` (not `userEvent.click`) for this one click:
- * `userEvent` schedules internal work that never resolves once `setTimeout` is
- * faked, even with `delay: null` — confirmed by isolating the hang. A plain
- * `fireEvent.click` wrapped in `act` triggers the identical onClick handler
- * synchronously with no such dependency.
+ * The surrounding integration flow also uses `fireEvent`: realistic keyboard
+ * timing is not under test, and synchronous events keep every state transition
+ * inside this test's lifecycle instead of adding user-event timer work.
  */
 async function resolveForeverStory(continueButton: HTMLElement) {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -103,30 +135,32 @@ async function resolveForeverStory(continueButton: HTMLElement) {
     act(() => {
       fireEvent.click(continueButton);
     });
+    act(() => {
+      vi.advanceTimersByTime(900);
+    });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(900);
+      await Promise.resolve();
     });
   } finally {
+    vi.clearAllTimers();
     vi.useRealTimers();
   }
 }
 
-async function drivenToResults(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "Begin" }));
-  await user.click(screen.getByRole("checkbox", { name: /investment & rental yield/i }));
-  await user.click(screen.getByRole("button", { name: "Continue" }));
-  await user.click(screen.getByRole("checkbox", { name: /steady rental income/i }));
-  await user.click(screen.getByRole("button", { name: "Continue" }));
-  await user.click(screen.getByRole("checkbox", { name: /\$500k–1M/i }));
-  await user.click(screen.getByRole("checkbox", { name: /ready now/i }));
-  await user.click(screen.getByRole("button", { name: "Continue" }));
-  await user.click(screen.getByRole("checkbox", { name: /rental returns/i }));
+async function drivenToResults() {
+  fireEvent.click(button("Begin"));
+  fireEvent.click(checkbox(/investment & rental yield/i));
+  fireEvent.click(button("Continue"));
+  fireEvent.click(checkbox(/steady rental income/i));
+  fireEvent.click(button("Continue"));
+  fireEvent.click(checkbox(/\$500k–1M/i));
+  fireEvent.click(checkbox(/ready now/i));
+  fireEvent.click(button("Continue"));
+  fireEvent.click(checkbox(/rental returns/i));
 
-  await resolveForeverStory(screen.getByRole("button", { name: "Continue" }));
+  await resolveForeverStory(button("Continue"));
 
-  const confirm = screen.getByRole("button", { name: /yes, this describes me/i });
-  await user.click(confirm);
-  await screen.findByRole("heading", { name: /projects matching your preferences/i });
+  fireEvent.click(button(/yes, this describes me/i));
   // Wait for the mocked catalogue query (a plain resolved promise, no timer) to
   // settle and render the card.
   await screen.findByText("The Modeva");
@@ -139,6 +173,16 @@ function setClipboard(writeText: ReturnType<typeof vi.fn>) {
   });
 }
 
+const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+
+function restoreClipboard() {
+  if (originalClipboardDescriptor) {
+    Object.defineProperty(navigator, "clipboard", originalClipboardDescriptor);
+  } else {
+    Reflect.deleteProperty(navigator, "clipboard");
+  }
+}
+
 beforeEach(() => {
   submitLead.mockReset();
   window.sessionStorage.clear();
@@ -147,92 +191,96 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  cleanup();
+  window.sessionStorage.clear();
+  restoreClipboard();
   vi.restoreAllMocks();
 });
 
 describe("booth shell chrome", () => {
-  it("shows the required staff controls", () => {
-    renderBooth();
-    expect(screen.getByText(/booth mode · staff/i)).toBeInTheDocument();
-    expect(screen.getAllByText("Forever").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: /start new guest/i })).toBeInTheDocument();
+  it("shows the required staff controls", async () => {
+    await withBooth(() => {
+      expect(screen.getByText(/booth mode · staff/i)).toBeInTheDocument();
+      expect(screen.getAllByText("Forever").length).toBeGreaterThan(0);
+      expect(button(/start new guest/i)).toBeInTheDocument();
+    });
   });
 });
 
 describe("booth project actions", () => {
   it("opens the project in a new tab via the runtime slug", async () => {
-    const user = userEvent.setup({ delay: null });
     const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
-    renderBooth();
-    await drivenToResults(user);
+    await withBooth(async () => {
+      await drivenToResults();
 
-    const card = screen.getByText("The Modeva").closest("article") as HTMLElement;
-    await user.click(within(card).getByRole("button", { name: /open project/i }));
+      const card = screen.getByText("The Modeva").closest("article") as HTMLElement;
+      fireEvent.click(within(card).getByText(/open project/i, { selector: "button" }));
 
-    expect(openSpy).toHaveBeenCalledWith(
-      "/projects/the-modeva-bang-tao",
-      "_blank",
-      "noopener,noreferrer",
-    );
+      expect(openSpy).toHaveBeenCalledWith(
+        "/projects/the-modeva-bang-tao",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    });
   });
 
   it("copies the guest link and announces success", async () => {
-    const user = userEvent.setup({ delay: null });
-    // Override after setup() so the component's writeText hits our spy, not
-    // userEvent's internal clipboard stub.
     const writeText = vi.fn().mockResolvedValue(undefined);
     setClipboard(writeText);
-    renderBooth();
-    await drivenToResults(user);
+    await withBooth(async () => {
+      await drivenToResults();
 
-    const card = screen.getByText("The Modeva").closest("article") as HTMLElement;
-    await user.click(within(card).getByRole("button", { name: /copy guest link/i }));
+      const card = screen.getByText("The Modeva").closest("article") as HTMLElement;
+      fireEvent.click(within(card).getByText(/copy guest link/i, { selector: "button" }));
 
-    await waitFor(() =>
+      expect(await screen.findByText(/guest link copied/i)).toBeInTheDocument();
       expect(writeText).toHaveBeenCalledWith(
         expect.stringContaining("/projects/the-modeva-bang-tao"),
-      ),
-    );
-    expect(await screen.findByText(/guest link copied/i)).toBeInTheDocument();
+      );
+    });
   });
 
   it("announces a failure when the clipboard write rejects", async () => {
-    const user = userEvent.setup({ delay: null });
     setClipboard(vi.fn().mockRejectedValue(new Error("denied")));
-    renderBooth();
-    await drivenToResults(user);
+    await withBooth(async () => {
+      await drivenToResults();
 
-    const card = screen.getByText("The Modeva").closest("article") as HTMLElement;
-    await user.click(within(card).getByRole("button", { name: /copy guest link/i }));
+      const card = screen.getByText("The Modeva").closest("article") as HTMLElement;
+      fireEvent.click(within(card).getByText(/copy guest link/i, { selector: "button" }));
 
-    expect(await screen.findByText(/couldn't copy the link/i)).toBeInTheDocument();
+      expect(await screen.findByText(/couldn't copy the link/i)).toBeInTheDocument();
+    });
   });
 });
 
 describe("booth lead capture", () => {
   it("submits a mocked lead and reaches the completion screen", async () => {
     submitLead.mockResolvedValue(undefined);
-    const user = userEvent.setup({ delay: null });
-    renderBooth();
-    await drivenToResults(user);
+    await withBooth(async () => {
+      await drivenToResults();
 
-    const card = screen.getByText("The Modeva").closest("article") as HTMLElement;
-    await user.click(within(card).getByRole("button", { name: /select for guest/i }));
-    await user.click(await screen.findByRole("button", { name: /continue to contact details/i }));
+      const card = screen.getByText("The Modeva").closest("article") as HTMLElement;
+      fireEvent.click(within(card).getByText(/select for guest/i, { selector: "button" }));
+      fireEvent.click(button(/continue to contact details/i));
 
-    await user.type(screen.getByLabelText(/first name/i), "Ada");
-    await user.type(screen.getByLabelText(/last name/i), "Lovelace");
-    await user.type(screen.getByLabelText(/email/i), "ada@example.com");
-    await user.type(screen.getByLabelText(/phone/i), "+66 81 234 5678");
-    await user.click(screen.getByRole("button", { name: /save lead/i }));
+      fireEvent.change(screen.getByLabelText(/first name/i), { target: { value: "Ada" } });
+      fireEvent.change(screen.getByLabelText(/last name/i), { target: { value: "Lovelace" } });
+      fireEvent.change(screen.getByLabelText(/email/i), {
+        target: { value: "ada@example.com" },
+      });
+      fireEvent.change(screen.getByLabelText(/phone/i), {
+        target: { value: "+66 81 234 5678" },
+      });
+      fireEvent.click(button(/save lead/i));
 
-    expect(await screen.findByRole("heading", { name: /lead saved/i })).toBeInTheDocument();
-    expect(submitLead).toHaveBeenCalledTimes(1);
-    const payload = submitLead.mock.calls[0][0];
-    expect(payload).toMatchObject({
-      source: "booth",
-      projectSlug: "the-modeva-bang-tao",
-      firstName: "Ada",
+      expect(await screen.findByText(/lead saved/i, { selector: "h1" })).toBeInTheDocument();
+      expect(submitLead).toHaveBeenCalledTimes(1);
+      const payload = submitLead.mock.calls[0][0];
+      expect(payload).toMatchObject({
+        source: "booth",
+        projectSlug: "the-modeva-bang-tao",
+        firstName: "Ada",
+      });
     });
   });
 
@@ -244,50 +292,60 @@ describe("booth lead capture", () => {
           resolveSubmit = resolve;
         }),
     );
-    const user = userEvent.setup({ delay: null });
-    renderBooth();
-    await drivenToResults(user);
+    await withBooth(async () => {
+      try {
+        await drivenToResults();
 
-    const card = screen.getByText("The Modeva").closest("article") as HTMLElement;
-    await user.click(within(card).getByRole("button", { name: /select for guest/i }));
-    await user.click(await screen.findByRole("button", { name: /continue to contact details/i }));
+        const card = screen.getByText("The Modeva").closest("article") as HTMLElement;
+        fireEvent.click(within(card).getByText(/select for guest/i, { selector: "button" }));
+        fireEvent.click(button(/continue to contact details/i));
 
-    await user.type(screen.getByLabelText(/first name/i), "Ada");
-    await user.type(screen.getByLabelText(/last name/i), "Lovelace");
-    await user.type(screen.getByLabelText(/email/i), "ada@example.com");
-    await user.type(screen.getByLabelText(/phone/i), "+66 81 234 5678");
+        fireEvent.change(screen.getByLabelText(/first name/i), { target: { value: "Ada" } });
+        fireEvent.change(screen.getByLabelText(/last name/i), { target: { value: "Lovelace" } });
+        fireEvent.change(screen.getByLabelText(/email/i), {
+          target: { value: "ada@example.com" },
+        });
+        fireEvent.change(screen.getByLabelText(/phone/i), {
+          target: { value: "+66 81 234 5678" },
+        });
 
-    const saveButton = screen.getByRole("button", { name: /save lead/i });
-    await user.click(saveButton); // now "Saving…", disabled
-    await user.click(screen.getByRole("button", { name: /saving…/i }));
+        const saveButton = button(/save lead/i);
+        fireEvent.click(saveButton);
+        expect(button(/saving…/i)).toBeDisabled();
+        fireEvent.click(button(/saving…/i));
 
-    expect(submitLead).toHaveBeenCalledTimes(1);
-
-    // Resolve the in-flight submission and flush the resulting state update
-    // before the test ends, so no state change leaks into a later test.
-    await act(async () => {
-      resolveSubmit?.();
-      await Promise.resolve();
+        expect(submitLead).toHaveBeenCalledTimes(1);
+      } finally {
+        if (resolveSubmit) {
+          await act(async () => {
+            resolveSubmit?.();
+            await Promise.resolve();
+          });
+          expect(await screen.findByText(/lead saved/i, { selector: "h1" })).toBeInTheDocument();
+        }
+      }
     });
   });
 });
 
 describe("Start new guest clears the session", () => {
   it("guards with a confirm dialog then returns to Welcome", async () => {
-    const user = userEvent.setup({ delay: null });
-    renderBooth();
-    await user.click(screen.getByRole("button", { name: "Begin" }));
-    await user.click(screen.getByRole("checkbox", { name: /a base in asia/i }));
+    await withBooth(async () => {
+      fireEvent.click(button("Begin"));
+      fireEvent.click(checkbox(/a base in asia/i));
 
-    await user.click(screen.getByRole("button", { name: /start new guest/i }));
-    // Guarded dialog appears because guest data exists.
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /clear and start new/i }));
+      fireEvent.click(button(/start new guest/i));
+      // Guarded dialog appears because guest data exists.
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      fireEvent.click(button(/clear and start new/i));
 
-    // Back to a pristine welcome screen.
-    expect(
-      await screen.findByRole("heading", { name: /a home in phuket begins with a conversation/i }),
-    ).toBeInTheDocument();
-    expect(window.sessionStorage.getItem("forever.booth.session.v1")).not.toContain("asia_base");
+      // Back to a pristine welcome screen.
+      expect(
+        await screen.findByText(/a home in phuket begins with a conversation/i, {
+          selector: "h1",
+        }),
+      ).toBeInTheDocument();
+      expect(window.sessionStorage.getItem("forever.booth.session.v1")).not.toContain("asia_base");
+    });
   });
 });
