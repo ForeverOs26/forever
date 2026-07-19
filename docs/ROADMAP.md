@@ -6,7 +6,7 @@ This document defines development phases, dependencies, and sequencing. It is no
 
 ## Current Development Phase
 
-Forever Partner Demo v1 is canonical and ready for presentation, pending scheduling. Completed prerequisites: Navigator canonical, Booth canonical, Coralina local preview complete, Fast Intake v1 canonical, the ordinary Progressive draft import canonical, and the Owner-brought-forward Rainpalm Fast Intake Pilot 01. The recorded product order is: partner presentation → structured partner feedback classified as demo blocker / product improvement / future roadmap idea / commercial-partnership decision, alongside the next Fast Intake design checkpoint for structured-input preparation → the later, separate raw-document extraction stage. Coralina remains unpublished and Factory remains A0. See `docs/PARTNER_DEMO_V1.md`, `docs/CURRENT_STAGE.md`, and `docs/FAST_INTAKE_PILOT_01_RAINPALM.md`.
+Rainpalm Fast Intake Pilot 01 completed successfully. Partner Demo v1 is canonical and ready for presentation, pending scheduling as a parallel business checkpoint; it does not block development. The active development checkpoint is the Structured Input Preparation design: determine the smallest reliable, source-backed process from ordinary developer materials to compatible `project-facts.json` and extracted price-list JSON. The design preserves exact source references, provenance, confidence, missing-fact handling, no filename-based fact inference, and no unsupported currency, price, date, developer, location, or project fact. It authorizes neither automatic import nor publication. After review and approval, implement the smallest validated slice without prematurely building a large OCR/computer-vision platform; raw-document extraction remains a later, separate stage. When the partner presentation is delivered, classify feedback as demo blocker / product improvement / future roadmap idea / commercial-partnership decision. Coralina remains unpublished and Factory remains A0. See `docs/PARTNER_DEMO_V1.md`, `docs/CURRENT_STAGE.md`, and `docs/FAST_INTAKE_PILOT_01_RAINPALM.md`.
 
 A shared Forever Navigator over two shells — the website Navigator (`/navigator`) and Booth Mode (`/booth`) — is canonical on `main`. Both shells consume a single Navigator Core, NAV-001 remains the shared source of truth, and Booth Mode is a presentation/employee workflow shell rather than a second product. Booth is intentionally not linked from normal public navigation. See `docs/CURRENT_STAGE.md`.
 
@@ -14,7 +14,7 @@ Coralina's production draft import is completed as an unpublished draft (1 proje
 
 Ordinary new-project persistence uses the generic Progressive draft importer. See `docs/CURRENT_STAGE.md`.
 
-RC5.5D is completed, reviewed, integrated, canonically applied, and verified as exceptional maintenance capability. Ordinary imports no longer use its approval/receipt workflow or repeated platform certification. The normal sequence is payload validation → duplicate check → one atomic Progressive RPC transaction → exact graph verification → `COMMIT` → short post-commit verification. The Coralina production draft import through that generic importer is completed (1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch); Coralina remains an unpublished draft, publication is separate, and Factory remains A0. Fast Intake v1 is canonical. The immediate product checkpoint is the Partner Demo v1 presentation and its structured feedback; the measured, non-sensitive real-project Fast Intake pilot (compatible structured artifacts, no automatic import or publication) follows immediately after that feedback.
+RC5.5D is completed, reviewed, integrated, canonically applied, and verified as exceptional maintenance capability. Ordinary imports no longer use its approval/receipt workflow or repeated platform certification. The normal sequence is payload validation → duplicate check → one atomic Progressive RPC transaction → exact graph verification → `COMMIT` → short post-commit verification. The Coralina production draft import through that generic importer is completed (1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch); Coralina remains an unpublished draft, publication is separate, and Factory remains A0. Fast Intake v1 is canonical. Rainpalm Pilot 01 is completed; the immediate development checkpoint is Structured Input Preparation design, while Partner Demo v1 presentation and its structured feedback remain pending in parallel.
 
 ## Completed Phases
 
@@ -92,23 +92,25 @@ Ordinary new-project import is completed and proven: one generic Progressive dra
   - RC5.5B (completed, merged, locally proven): explicitly requested, read-only target collision inspection with proven-complete paginated reads. The Owner's local proving run against the reconciled canonical local target reported Coralina as 405 `absent` operations with no collisions, duplicates, identity conflicts, or inspection errors.
   - RC5.5C (completed, reviewed, integrated, and merged): transaction-backed execution and rollback preparation — a single-transaction boundary, Owner approval-artifact contract, deterministic ordering, in-transaction verification, automatic rollback, sanitized receipts, and an explicit `--execute-approved-import` mode. The live adapter stays disabled; no real import has occurred; real database writes remain zero.
   - RC5.5D (completed, reviewed, integrated, canonically applied, and verified): migration `20260715120000` is recorded exactly once. The complete canonical boundary and security state passed, including the exact ownership and capability allowlists, 10 dedicated policy definitions, and effective `postgres` membership capabilities. The pre-application manual logical backup was completed and verified. No retry, repair, `GRANT`, or `REVOKE` is required.
-  - Historical execution preparation is retained only for exceptional maintenance. The Coralina draft import through the generic importer is completed as an unpublished draft; publication remains separate, and Factory stays A0. Fast Intake v1 is canonical; its measured real-project pilot is the ordinary next checkpoint.
+  - Historical execution preparation is retained only for exceptional maintenance. The Coralina draft import through the generic importer is completed as an unpublished draft; publication remains separate, and Factory stays A0. Fast Intake v1 is canonical; Rainpalm Pilot 01 is completed and its evidence supports the active Structured Input Preparation design checkpoint.
 
 ## Upcoming Phases
 
-- Partner Demo v1 presentation (immediate checkpoint)
-  - Present Forever Partner Demo v1 from `docs/PARTNER_DEMO_V1.md`.
-  - Collect structured partner feedback and classify it as demo blocker, product improvement, future roadmap idea, or commercial/partnership decision.
-  - Apply focused corrections for confirmed demo blockers only.
-
-- Rainpalm Fast Intake Pilot 01 (completed; Owner brought it forward)
+- Rainpalm Fast Intake Pilot 01 (completed)
   - Measured local structured-input preparation and validation: 39.834 seconds, target met.
   - Unpublished validated partial draft only; no database import, publication, or production write.
   - See `docs/FAST_INTAKE_PILOT_01_RAINPALM.md` for source integrity, warnings, and gaps.
 
-- Structured-input preparation stage (next Fast Intake design checkpoint)
-  - Design the smallest source-backed preparation path from an ordinary dossier to `project-facts.json` and extracted price-list JSON.
-  - Preserve provenance and anti-fabrication controls; do not implement without separate authorization.
+- Structured Input Preparation design (active development checkpoint)
+  - Design the smallest reliable source-backed preparation path from an ordinary developer dossier to `project-facts.json` and extracted price-list JSON.
+  - Preserve exact source references, provenance, confidence, missing-fact handling, anti-fabrication controls, and no filename-based fact inference.
+  - Do not introduce unsupported currency, price, date, developer, location, or project facts; do not automatically import or publish.
+  - After review and approval, implement the smallest validated slice without prematurely building a large OCR/computer-vision platform.
+
+- Partner Demo v1 presentation (parallel pending business checkpoint)
+  - Present Forever Partner Demo v1 from `docs/PARTNER_DEMO_V1.md` when partner scheduling permits.
+  - Collect structured partner feedback and classify it as demo blocker, product improvement, future roadmap idea, or commercial/partnership decision.
+  - This presentation does not block Structured Input Preparation design.
 
 - Raw-document extraction stage (later, separate)
   - Raw PDF/spreadsheet/image extraction for Fast Intake after the structured-input preparation design is approved.
