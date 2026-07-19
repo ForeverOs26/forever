@@ -1,9 +1,11 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { validateDraftPayloadFile } from "../validate-draft";
+import { fingerprintBatch } from "@/features/forever-ingestion/build-batch";
+
+import { validateDraftPayload, validateDraftPayloadFile } from "../validate-draft";
 
 /**
  * TypeScript importer-compatibility guard: the TypeScript validation boundary
@@ -18,6 +20,10 @@ const expected = JSON.parse(readFileSync(join(CORPUS, "expected.json"), "utf8"))
   string,
   { powershell: "accept" | "reject"; typescript: "accept" | "reject"; note?: string }
 >;
+const arrayShapes = JSON.parse(readFileSync(join(CORPUS, "array-shapes.json"), "utf8")) as {
+  fields: string[];
+  shapes: Array<{ name: string; is_array: boolean; value: unknown }>;
+};
 
 function tsVerdict(name: string): "accept" | "reject" {
   try {
@@ -31,7 +37,7 @@ function tsVerdict(name: string): "accept" | "reject" {
 describe("Draft validation importer-compatibility (TypeScript vs PowerShell -ValidateOnly)", () => {
   it("has an expected verdict for every corpus payload and vice versa", () => {
     const files = readdirSync(CORPUS)
-      .filter((f) => f.endsWith(".json") && f !== "expected.json")
+      .filter((f) => f.endsWith(".json") && !["expected.json", "array-shapes.json"].includes(f))
       .map((f) => f.replace(/\.json$/, ""))
       .sort();
     expect(files).toEqual(Object.keys(expected).sort());
@@ -57,10 +63,38 @@ describe("Draft validation importer-compatibility (TypeScript vs PowerShell -Val
     });
   }
 
+  it("uses the shared corpus to preserve every array shape and reject every scalar/null shape", () => {
+    const base = JSON.parse(readFileSync(join(CORPUS, "valid-minimal.json"), "utf8")) as Record<
+      string,
+      unknown
+    >;
+    for (const field of arrayShapes.fields) {
+      for (const shape of arrayShapes.shapes) {
+        const payload = structuredClone(base);
+        payload[field] = structuredClone(shape.value);
+        const { batch_fingerprint: _old, ...body } = payload;
+        payload.batch_fingerprint = fingerprintBatch(body as never);
+        const shouldAccept = shape.is_array && (field !== "documents" || shape.name === "zero");
+        let accepted = true;
+        try {
+          const result = validateDraftPayload(payload, "array-shape-corpus");
+          if (shouldAccept) {
+            expect(result.counts[field as keyof typeof result.counts]).toBe(
+              (shape.value as unknown[]).length,
+            );
+          }
+        } catch {
+          accepted = false;
+        }
+        expect(accepted, `${field}/${shape.name}`).toBe(shouldAccept);
+      }
+    }
+  });
+
   it(
     "runs the LIVE PowerShell boundary via the child-process harness when PowerShell is available",
-    { timeout: 180_000 },
-    () => {
+    { timeout: 300_000 },
+    async () => {
       const pwsh = ["pwsh", "powershell"].find((bin) => {
         try {
           return (
@@ -81,12 +115,38 @@ describe("Draft validation importer-compatibility (TypeScript vs PowerShell -Val
         return;
       }
       const harness = resolve("scripts/import/tests/Compare-DraftValidationParity.ps1");
-      const result = spawnSync(pwsh, ["-NoProfile", "-File", harness], {
-        encoding: "utf8",
-        timeout: 150_000,
-      });
-      console.log(result.stdout);
-      if (result.status !== 0) console.error(result.stderr);
+      const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>(
+        (complete) => {
+          const child = spawn(pwsh, ["-NoProfile", "-File", harness], {
+            windowsHide: true,
+          });
+          let stdout = "";
+          let stderr = "";
+          child.stdout.setEncoding("utf8");
+          child.stderr.setEncoding("utf8");
+          child.stdout.on("data", (chunk: string) => {
+            stdout += chunk;
+          });
+          child.stderr.on("data", (chunk: string) => {
+            stderr += chunk;
+          });
+          const timer = setTimeout(() => child.kill(), 270_000);
+          child.once("close", (status) => {
+            clearTimeout(timer);
+            complete({ status, stdout, stderr });
+          });
+          child.once("error", (error) => {
+            clearTimeout(timer);
+            complete({ status: null, stdout, stderr: `${stderr}\n${error.message}` });
+          });
+        },
+      );
+      const outputLines = result.stdout.split(/\r?\n/).filter(Boolean);
+      console.log(outputLines.at(-1));
+      if (result.status !== 0) {
+        console.error(result.stdout);
+        console.error(result.stderr);
+      }
       expect(result.stdout).toContain("PowerShell validation parity OK");
       expect(result.status).toBe(0);
     },

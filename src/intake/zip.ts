@@ -317,6 +317,7 @@ function validateEntries(
 
   const exactPaths = new Set<string>();
   const lowerPaths = new Set<string>();
+  const canonicalCase = new Map<string, string>();
   const filePaths = new Set<string>();
   const dirPaths = new Set<string>();
   let totalUncompressed = 0;
@@ -325,6 +326,29 @@ function validateEntries(
     // Path safety + containment (throws before any write).
     safeJoinInside(destDir, entry.name, limits.maxPathLength);
     const normalized = entry.name.split("\\").join("/").replace(/\/+$/, "");
+
+    // Windows resolves every segment case-insensitively. Check both explicit
+    // entry names and implicit ancestor directories so `A/x` and `a/y` cannot
+    // merge into one on-disk tree.
+    const parts = normalized.split("/");
+    for (let index = 1; index <= parts.length; index += 1) {
+      const partial = parts.slice(0, index).join("/");
+      const lower = partial.toLowerCase();
+      const prior = canonicalCase.get(lower);
+      if (prior !== undefined && prior !== partial) {
+        throw new ZipCollisionError(`zip_case_insensitive_collision: ${entry.name}`);
+      }
+      canonicalCase.set(lower, partial);
+    }
+    if (exactPaths.has(normalized)) {
+      throw new ZipCollisionError(`zip_duplicate_entry: ${entry.name}`);
+    }
+    const normalizedLower = normalized.toLowerCase();
+    if (lowerPaths.has(normalizedLower)) {
+      throw new ZipCollisionError(`zip_case_insensitive_collision: ${entry.name}`);
+    }
+    exactPaths.add(normalized);
+    lowerPaths.add(normalizedLower);
 
     if (isSymlink(entry)) {
       throw new ZipUnsupportedError(`zip_symlink_entry_rejected: ${entry.name}`);
@@ -361,16 +385,6 @@ function validateEntries(
         );
       }
 
-      // Duplicate + case-insensitive collisions.
-      if (exactPaths.has(normalized)) {
-        throw new ZipCollisionError(`zip_duplicate_entry: ${entry.name}`);
-      }
-      const lower = normalized.toLowerCase();
-      if (lowerPaths.has(lower)) {
-        throw new ZipCollisionError(`zip_case_insensitive_collision: ${entry.name}`);
-      }
-      exactPaths.add(normalized);
-      lowerPaths.add(lower);
       filePaths.add(normalized);
       // Every ancestor of this file is a directory.
       const parts = normalized.split("/");
@@ -449,11 +463,13 @@ export function extractZip(
   destDir: string,
   limits: ZipLimits = DEFAULT_ZIP_LIMITS,
 ): ExtractedZipFile[] {
+  if (existsSync(resolve(destDir))) {
+    throw new ZipCollisionError(`zip_destination_exists: ${resolve(destDir)}`);
+  }
   rejectZip64(buffer);
   const entries = readZipEntries(buffer);
   validateEntries(buffer, entries, limits, destDir);
 
-  const createdDest = !existsSync(resolve(destDir));
   const written: ExtractedZipFile[] = [];
   try {
     mkdirSync(destDir, { recursive: true });
@@ -482,12 +498,10 @@ export function extractZip(
     return written;
   } catch (error) {
     // Clean partial extraction data after any failure.
-    if (createdDest) {
-      try {
-        removeManagedDir(destDir, [dirname(resolve(destDir))]);
-      } catch {
-        // Never mask the original error with a cleanup error.
-      }
+    try {
+      removeManagedDir(destDir, [dirname(resolve(destDir))]);
+    } catch {
+      // Never mask the original error with a cleanup error.
     }
     throw error;
   }

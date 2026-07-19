@@ -31,7 +31,8 @@ import {
   rmSync,
   statSync,
 } from "node:fs";
-import { join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { join, resolve } from "node:path";
 
 import { atomicWriteJson } from "./fs-utils";
 import { IntakePathError, removeManagedDir } from "./paths";
@@ -61,6 +62,15 @@ export type TxnPhase =
   | "intake_installed"
   | "progressive_installed"
   | "committed";
+
+const TXN_PHASES: ReadonlySet<string> = new Set([
+  "validated",
+  "intake_backed_up",
+  "backed_up",
+  "intake_installed",
+  "progressive_installed",
+  "committed",
+]);
 
 export interface TxnJournal {
   intake_txn_version: "1";
@@ -115,7 +125,19 @@ export function readJournal(projectDir: string): TxnJournal | "unreadable" | nul
   if (!existsSync(path)) return null;
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as TxnJournal;
-    if (parsed.intake_txn_version !== "1" || typeof parsed.txn_id !== "string" || !parsed.phase) {
+    if (
+      parsed.intake_txn_version !== "1" ||
+      typeof parsed.txn_id !== "string" ||
+      !TXN_PHASES.has(parsed.phase) ||
+      typeof parsed.staging_dir !== "string" ||
+      typeof parsed.canonical_intake !== "string" ||
+      typeof parsed.canonical_progressive !== "string" ||
+      typeof parsed.backup_intake !== "string" ||
+      typeof parsed.backup_progressive !== "string" ||
+      typeof parsed.had_previous_intake !== "boolean" ||
+      typeof parsed.had_previous_progressive !== "boolean" ||
+      parsed.staged_validated !== true
+    ) {
       return "unreadable";
     }
     return parsed;
@@ -155,16 +177,55 @@ export function generationComplete(intakeDir: string, progressiveDir: string): b
     if (!existsSync(join(progressiveDir, name))) return false;
   }
   try {
+    const manifestPath = join(intakeDir, "source-manifest.json");
+    const classificationPath = join(intakeDir, "classification.json");
+    const factsPath = join(intakeDir, "extracted-facts.json");
+    const payloadPath = join(progressiveDir, "payload.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+    const classification = JSON.parse(readFileSync(classificationPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    const facts = JSON.parse(readFileSync(factsPath, "utf8")) as Record<string, unknown>;
     const summary = JSON.parse(readFileSync(join(intakeDir, "intake-summary.json"), "utf8")) as {
-      validation?: { fingerprint?: string };
+      intake_schema_version?: unknown;
+      project_slug?: unknown;
+      project_name?: unknown;
+      validation?: {
+        fingerprint?: unknown;
+        payload_sha256?: unknown;
+        source_manifest_sha256?: unknown;
+        classification_sha256?: unknown;
+        extracted_facts_sha256?: unknown;
+      };
     };
-    const payload = JSON.parse(readFileSync(join(progressiveDir, "payload.json"), "utf8")) as {
-      batch_fingerprint?: string;
+    const payload = JSON.parse(readFileSync(payloadPath, "utf8")) as {
+      batch_fingerprint?: unknown;
+      project?: { slug?: unknown; name?: unknown };
     };
+    const sha256 = (path: string): string =>
+      createHash("sha256").update(readFileSync(path)).digest("hex");
+    const slug = payload.project?.slug;
     return (
+      manifest.intake_schema_version === "1" &&
+      classification.intake_schema_version === "1" &&
+      facts.intake_schema_version === "1" &&
+      summary.intake_schema_version === "1" &&
+      typeof slug === "string" &&
+      slug.length > 0 &&
+      manifest.project_slug === slug &&
+      classification.project_slug === slug &&
+      facts.project_slug === slug &&
+      summary.project_slug === slug &&
+      typeof payload.project?.name === "string" &&
+      summary.project_name === payload.project.name &&
       typeof summary.validation?.fingerprint === "string" &&
       summary.validation.fingerprint.length > 0 &&
-      summary.validation.fingerprint === payload.batch_fingerprint
+      summary.validation.fingerprint === payload.batch_fingerprint &&
+      summary.validation.payload_sha256 === sha256(payloadPath) &&
+      summary.validation.source_manifest_sha256 === sha256(manifestPath) &&
+      summary.validation.classification_sha256 === sha256(classificationPath) &&
+      summary.validation.extracted_facts_sha256 === sha256(factsPath)
     );
   } catch {
     return false;
@@ -195,6 +256,26 @@ function restoreSlot(projectDir: string, backup: string, canonical: string): voi
   if (!existsSync(backup)) return;
   if (existsSync(canonical)) removeManagedDir(canonical, [projectDir]);
   renameSync(backup, canonical);
+}
+
+function assertTrustedJournalPaths(projectDir: string, journal: TxnJournal): void {
+  if (!/^[A-Za-z0-9-]+$/.test(journal.txn_id)) {
+    throw new IntakeRecoveryError("intake_recovery_journal_paths_untrusted: invalid txn_id");
+  }
+  const expected = {
+    staging_dir: join(projectDir, `.intake-staging-${journal.txn_id}`),
+    canonical_intake: join(projectDir, "intake"),
+    canonical_progressive: join(projectDir, "progressive"),
+    backup_intake: join(projectDir, `intake.bak-${journal.txn_id}`),
+    backup_progressive: join(projectDir, `progressive.bak-${journal.txn_id}`),
+  };
+  for (const [field, expectedPath] of Object.entries(expected)) {
+    if (resolve(journal[field as keyof typeof expected] as string) !== resolve(expectedPath)) {
+      throw new IntakeRecoveryError(
+        `intake_recovery_journal_paths_untrusted: ${field} does not name its managed project path`,
+      );
+    }
+  }
 }
 
 export interface ReconcileResult {
@@ -251,8 +332,21 @@ export function reconcileProject(projectDir: string, hooks?: TxnHooks): Reconcil
   }
 
   if (journal) {
+    assertTrustedJournalPaths(projectDir, journal);
     const backupIntake = journal.backup_intake;
     const backupProgressive = journal.backup_progressive;
+    const expectedBackupNames = new Set([
+      `intake.bak-${journal.txn_id}`,
+      `progressive.bak-${journal.txn_id}`,
+    ]);
+    const unexpectedBackups = [...entries.backupIntakes, ...entries.backupProgressives].filter(
+      (name) => !expectedBackupNames.has(name),
+    );
+    if (unexpectedBackups.length > 0) {
+      throw new IntakeRecoveryError(
+        "intake_recovery_ambiguous_backups: journal does not identify every managed backup. Inspect the project directory manually.",
+      );
+    }
 
     if (journal.phase === "committed") {
       // Case D: keep the new generation only when it is verifiably complete.
@@ -271,6 +365,11 @@ export function reconcileProject(projectDir: string, hooks?: TxnHooks): Reconcil
       ) {
         restoreSlot(projectDir, backupIntake, canonicalIntake);
         restoreSlot(projectDir, backupProgressive, canonicalProgressive);
+        if (!generationComplete(canonicalIntake, canonicalProgressive)) {
+          throw new IntakeRecoveryError(
+            "intake_recovery_backup_restore_failed: restored committed fallback is incomplete",
+          );
+        }
         deleteStaging();
         removeJournal(projectDir);
         return { action: "restored_backup" };
@@ -280,24 +379,43 @@ export function reconcileProject(projectDir: string, hooks?: TxnHooks): Reconcil
       );
     }
 
-    // Every phase before `committed` rolls back to the previous generation.
-    // Per-slot rule, safe for every crash window (the journal is written AFTER
-    // each rename, so the filesystem may be one step ahead of the phase):
-    //  - a backup exists            → the previous lives there: restore it
-    //                                 (removing any staged-installed canonical);
-    //  - no backup, had_previous    → the canonical slot still IS the previous:
-    //                                 leave it untouched;
-    //  - no backup, no previous     → any canonical content is staged-installed:
-    //                                 remove it (roll back to nothing).
-    const rollbackSlot = (backup: string, canonical: string, hadPrevious: boolean): void => {
-      if (existsSync(backup)) {
-        restoreSlot(projectDir, backup, canonical);
-      } else if (!hadPrevious && existsSync(canonical)) {
-        removeManagedDir(canonical, [projectDir]);
+    // Every phase before `committed` rolls back. Before removing or replacing
+    // either canonical slot, prove that the two old slots form one complete,
+    // hash-bound generation. This prevents a partial or mixed backup from
+    // destroying the only complete state.
+    if (journal.had_previous_intake !== journal.had_previous_progressive) {
+      throw new IntakeRecoveryError(
+        "intake_recovery_previous_generation_incomplete: only one previous canonical slot was recorded",
+      );
+    }
+    if (journal.had_previous_intake) {
+      const oldIntake = existsSync(backupIntake) ? backupIntake : canonicalIntake;
+      const oldProgressive = existsSync(backupProgressive)
+        ? backupProgressive
+        : canonicalProgressive;
+      if (!generationComplete(oldIntake, oldProgressive)) {
+        throw new IntakeRecoveryError(
+          "intake_recovery_previous_generation_unverified: refusing to replace canonical slots with an incomplete or mixed backup",
+        );
       }
-    };
-    rollbackSlot(backupIntake, canonicalIntake, journal.had_previous_intake);
-    rollbackSlot(backupProgressive, canonicalProgressive, journal.had_previous_progressive);
+      if (existsSync(backupIntake)) restoreSlot(projectDir, backupIntake, canonicalIntake);
+      if (existsSync(backupProgressive)) {
+        restoreSlot(projectDir, backupProgressive, canonicalProgressive);
+      }
+      if (!generationComplete(canonicalIntake, canonicalProgressive)) {
+        throw new IntakeRecoveryError(
+          "intake_recovery_previous_generation_restore_failed: restored generation is incomplete",
+        );
+      }
+    } else {
+      if (existsSync(backupIntake) || existsSync(backupProgressive)) {
+        throw new IntakeRecoveryError(
+          "intake_recovery_unexpected_backup: journal recorded no previous generation",
+        );
+      }
+      if (existsSync(canonicalIntake)) removeManagedDir(canonicalIntake, [projectDir]);
+      if (existsSync(canonicalProgressive)) removeManagedDir(canonicalProgressive, [projectDir]);
+    }
     deleteStaging();
     removeJournal(projectDir);
     return { action: "rolled_back" };
@@ -325,14 +443,26 @@ export function reconcileProject(projectDir: string, hooks?: TxnHooks): Reconcil
   }
 
   // Cases B, C, F: canonical is missing or incomplete and a managed backup
-  // exists — the backup holds the previous generation. Restore it (never
-  // deleting the backup first), then clean staging.
+  // exists. Prove the candidate pair is one complete generation BEFORE either
+  // canonical slot is removed, then restore by rename.
   const backupIntake = entries.backupIntakes[0] ? join(projectDir, entries.backupIntakes[0]) : null;
   const backupProgressive = entries.backupProgressives[0]
     ? join(projectDir, entries.backupProgressives[0])
     : null;
+  const oldIntake = backupIntake ?? canonicalIntake;
+  const oldProgressive = backupProgressive ?? canonicalProgressive;
+  if (!generationComplete(oldIntake, oldProgressive)) {
+    throw new IntakeRecoveryError(
+      "intake_recovery_backup_incomplete_or_mixed: no uniquely identifiable complete previous generation",
+    );
+  }
   if (backupIntake) restoreSlot(projectDir, backupIntake, canonicalIntake);
   if (backupProgressive) restoreSlot(projectDir, backupProgressive, canonicalProgressive);
+  if (!generationComplete(canonicalIntake, canonicalProgressive)) {
+    throw new IntakeRecoveryError(
+      "intake_recovery_backup_restore_failed: restored generation is incomplete",
+    );
+  }
   deleteStaging();
   return { action: "restored_backup" };
 }
@@ -420,6 +550,11 @@ export function commitArtifacts(
   // best-effort — residue is finished safely by the next run's reconciliation.
   try {
     hit(hooks, "after-mark-committed");
+    if (!generationComplete(canonicalIntake, canonicalProgressive)) {
+      throw new IntakeRecoveryError(
+        "intake_commit_generation_incomplete: refusing to delete the previous generation",
+      );
+    }
     hit(hooks, "before-delete-backup-intake");
     if (existsSync(backupIntake)) removeManagedDir(backupIntake, [projectDir]);
     hit(hooks, "before-delete-backup-progressive");
@@ -442,7 +577,10 @@ export const STALE_LOCK_MS = 60 * 60 * 1000;
 export interface LockMeta {
   pid: number;
   created_at: string;
+  owner_token?: string;
 }
+
+const ownedLockTokens = new Map<string, string>();
 
 function pidAlive(pid: number): boolean {
   try {
@@ -463,13 +601,32 @@ function pidAlive(pid: number): boolean {
 export function acquireProjectLock(projectDir: string): boolean {
   const lockDir = join(projectDir, LOCK_DIRNAME);
   const metaPath = join(lockDir, "meta.json");
+  const ownerToken = randomUUID();
+  const resolvedProjectDir = resolve(projectDir);
+  const ownerKey =
+    process.platform === "win32" ? resolvedProjectDir.toLowerCase() : resolvedProjectDir;
   const tryTake = (): boolean => {
+    let created = false;
     try {
       mkdirSync(lockDir);
-      atomicWriteJson(metaPath, { pid: process.pid, created_at: new Date().toISOString() });
+      created = true;
+      atomicWriteJson(metaPath, {
+        pid: process.pid,
+        created_at: new Date().toISOString(),
+        owner_token: ownerToken,
+      });
+      ownedLockTokens.set(ownerKey, ownerToken);
       return true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+      if (created) {
+        try {
+          removeManagedDir(lockDir, [projectDir]);
+        } catch {
+          // Preserve the metadata-write error; the fresh meta-less lock will
+          // fail closed and become age-reclaimable if cleanup itself failed.
+        }
+      }
       throw error;
     }
   };
@@ -477,12 +634,16 @@ export function acquireProjectLock(projectDir: string): boolean {
 
   // Contended: decide staleness from the recorded owner.
   let stale = false;
+  let observedMeta: string | null = null;
+  let observedMtime: number | null = null;
   try {
-    const meta = JSON.parse(readFileSync(metaPath, "utf8")) as LockMeta;
+    observedMeta = readFileSync(metaPath, "utf8");
+    const meta = JSON.parse(observedMeta) as LockMeta;
     stale = Number.isInteger(meta.pid) && !pidAlive(meta.pid);
   } catch {
     try {
-      stale = Date.now() - statSync(lockDir).mtimeMs > STALE_LOCK_MS;
+      observedMtime = statSync(lockDir).mtimeMs;
+      stale = Date.now() - observedMtime > STALE_LOCK_MS;
     } catch {
       // Lock vanished between checks; retry the take below.
       stale = true;
@@ -490,6 +651,16 @@ export function acquireProjectLock(projectDir: string): boolean {
   }
   if (!stale) return false;
   try {
+    // Re-check the observed owner immediately before deletion. If another
+    // process replaced or refreshed the lock, leave it untouched.
+    if (observedMeta !== null && readFileSync(metaPath, "utf8") !== observedMeta) return false;
+    if (
+      observedMeta === null &&
+      observedMtime !== null &&
+      statSync(lockDir).mtimeMs !== observedMtime
+    ) {
+      return false;
+    }
     removeManagedDir(join(projectDir, LOCK_DIRNAME), [projectDir]);
   } catch {
     return false;
@@ -498,9 +669,20 @@ export function acquireProjectLock(projectDir: string): boolean {
 }
 
 export function releaseProjectLock(projectDir: string): void {
+  const resolvedProjectDir = resolve(projectDir);
+  const ownerKey =
+    process.platform === "win32" ? resolvedProjectDir.toLowerCase() : resolvedProjectDir;
+  const ownerToken = ownedLockTokens.get(ownerKey);
+  if (!ownerToken) return;
   try {
+    const meta = JSON.parse(
+      readFileSync(join(projectDir, LOCK_DIRNAME, "meta.json"), "utf8"),
+    ) as LockMeta;
+    if (meta.pid !== process.pid || meta.owner_token !== ownerToken) return;
     removeManagedDir(join(projectDir, LOCK_DIRNAME), [projectDir]);
   } catch {
     // Best effort; a leftover lock with a dead pid is reclaimed next run.
+  } finally {
+    ownedLockTokens.delete(ownerKey);
   }
 }

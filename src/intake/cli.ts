@@ -92,12 +92,17 @@ function printSummary(result: RunIntakeResult, verbose: boolean): void {
   }
 
   console.log(line);
+  if (result.status === "BLOCKED") {
+    console.log("Canonical payload: unchanged (no payload was written or replaced).");
+    console.log(line);
+    return;
+  }
   console.log("Artifacts:");
   console.log(`  ${s.artifacts.source_manifest}`);
   console.log(`  ${s.artifacts.classification}`);
   console.log(`  ${s.artifacts.extracted_facts}`);
   console.log(`  ${s.artifacts.intake_summary}`);
-  if (result.wrotePayload) console.log(`  ${s.artifacts.payload}`);
+  console.log(`  ${s.artifacts.payload}`);
   console.log(line);
   console.log("Next — validate again (no database, no production write):");
   console.log(`  ${s.next_command}`);

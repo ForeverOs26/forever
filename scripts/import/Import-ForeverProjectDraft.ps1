@@ -35,13 +35,13 @@ function Get-ArrayCount($Object, [string]$Name) {
   # Reads PSObject.Properties[$Name].Value directly in this scope. Returning the
   # value through a helper-function boundary sends it down the pipeline, which
   # enumerates a one-element JSON array into its scalar element and made valid
-  # single-item payloads fail with "must be an array". Missing and null stay 0;
-  # strings, numbers, booleans, and scalar objects are rejected.
+  # single-item payloads fail with "must be an array". A missing property stays
+  # 0; explicit null, strings, numbers, booleans, and scalar objects reject.
   if ($null -eq $Object) { return 0 }
   $property = $Object.PSObject.Properties[$Name]
   if ($null -eq $property) { return 0 }
   $value = $property.Value
-  if ($null -eq $value) { return 0 }
+  if ($null -eq $value) { throw "payload.$Name must be an array." }
   if ($value -is [string] -or $value -isnot [System.Collections.IList]) { throw "payload.$Name must be an array." }
   return $value.Count
 }
@@ -142,7 +142,7 @@ $counts = [ordered]@{
 if ($counts.documents -ne 0) { throw 'payload.documents is not supported by public.forever_progressive_ingest; import documents separately.' }
 
 $payloadHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $PayloadPath).Hash.ToLowerInvariant()
-Write-Output "DRAFT_PAYLOAD_VALID|slug=$slug|sha256=$payloadHash|buildings=$($counts.buildings)|units=$($counts.units)|prices=$($counts.prices)|warnings=$($counts.warnings)"
+Write-Output "DRAFT_PAYLOAD_VALID|slug=$slug|sha256=$payloadHash|buildings=$($counts.buildings)|units=$($counts.units)|prices=$($counts.prices)|media=$($counts.media)|documents=$($counts.documents)|warnings=$($counts.warnings)"
 if ($ValidateOnly) { return }
 
 if ([string]::IsNullOrWhiteSpace($HostName)) { throw 'HostName is required for an import.' }

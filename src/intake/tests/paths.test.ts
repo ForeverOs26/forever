@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -51,6 +51,21 @@ describe("Fast Intake path safety", () => {
     expect(() => boundaries({ sources: ["/data/ws/slug-1"] })).toThrow(IntakePathError);
     // source / output overlap
     expect(() => boundaries({ sources: ["/data/out/slug/sub"] })).toThrow(IntakePathError);
+    // output / workspace overlap
+    expect(() => boundaries({ workspaceDir: "/data/out/slug/work" })).toThrow(IntakePathError);
+    expect(() => boundaries({ projectDir: "/data/ws/slug-1/project" })).toThrow(IntakePathError);
+  });
+
+  it("rejects a drive/filesystem root as the output root", () => {
+    const driveRoot = resolve("/");
+    expect(() =>
+      assertPathBoundaries({
+        outRoot: driveRoot,
+        projectDir: join(driveRoot, "project"),
+        workspaceDir: join(driveRoot, "workspace", "run"),
+        sources: [join(driveRoot, "source")],
+      }),
+    ).toThrow(IntakePathError);
   });
 });
 
@@ -94,4 +109,19 @@ describe("Fast Intake removeManagedDir guards", () => {
     expect(() => removeManagedDir(parent, [parent])).toThrow(IntakePathError);
     expect(existsSync(parent)).toBe(true);
   });
+
+  it.skipIf(process.platform !== "win32")(
+    "refuses a Windows junction that redirects a managed child outside its parent",
+    () => {
+      const managed = join(base, "managed");
+      const outside = join(base, "outside");
+      const junction = join(managed, "redirected-child");
+      mkdirSync(managed, { recursive: true });
+      mkdirSync(outside, { recursive: true });
+      writeFileSync(join(outside, "keep.txt"), "keep");
+      symlinkSync(outside, junction, "junction");
+      expect(() => removeManagedDir(junction, [managed])).toThrow(IntakePathError);
+      expect(existsSync(join(outside, "keep.txt"))).toBe(true);
+    },
+  );
 });

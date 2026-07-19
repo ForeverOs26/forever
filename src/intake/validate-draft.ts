@@ -49,7 +49,7 @@ export interface DraftValidationResult {
 
 function requireArrayCount(payload: Record<string, unknown>, key: string): number {
   const value = payload[key];
-  if (value === undefined || value === null) return 0;
+  if (value === undefined) return 0;
   if (!Array.isArray(value)) throw new DraftValidationError(`payload.${key} must be an array.`);
   return value.length;
 }
@@ -120,7 +120,8 @@ export function validateDraftPayload(
 
   const marker =
     `DRAFT_PAYLOAD_VALID|slug=${slug}|sha256=${payloadSha256}` +
-    `|buildings=${counts.buildings}|units=${counts.units}|prices=${counts.prices}|warnings=${counts.warnings}`;
+    `|buildings=${counts.buildings}|units=${counts.units}|prices=${counts.prices}` +
+    `|media=${counts.media}|documents=${counts.documents}|warnings=${counts.warnings}`;
 
   return {
     ok: true,

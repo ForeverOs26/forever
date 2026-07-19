@@ -131,10 +131,17 @@ export function parsePositivePrice(value: unknown): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function isUsableExtractedFact<T>(fact: Fact<T> | undefined): fact is Fact<T> & { value: T } {
+  return Boolean(
+    fact &&
+    isUsableFactValue(fact.value) &&
+    isUsableConfidence(fact.confidence) &&
+    isUsableFactValue(fact.source_file),
+  );
+}
+
 function factValue<T>(fact: Fact<T> | undefined): T | null {
-  return fact && fact.source_file && fact.value != null && fact.confidence !== "none"
-    ? fact.value
-    : null;
+  return isUsableExtractedFact(fact) ? fact.value : null;
 }
 
 function nulledFact(source: Fact | undefined): Fact {
@@ -170,9 +177,36 @@ export function sanitizePriceList(priceList: ExtractedPriceList | null): Sanitiz
   let skippedRows = 0;
   let invalidPrices = 0;
   let unsupportedCurrencies = 0;
+  let invalidSourceFacts = 0;
+
+  let priceListDate = priceList.price_list_date;
+  if (priceListDate?.value != null) {
+    if (!isUsableExtractedFact(priceListDate) || !isValidIsoDate(priceListDate.value)) {
+      priceListDate = nulledFact(priceListDate) as Fact<string>;
+      warnings.push({
+        entity: "price",
+        field: "price_list_date",
+        code: "price_list_date_invalid",
+        severity: "warning",
+        message: "The price-list date was malformed or lacked usable provenance and was not used.",
+      });
+    }
+  }
 
   for (const row of priceList.unit_inventory) {
-    const unitCode = factValue(row.unit_number);
+    let nextRow: ExtractedPriceListRow = { ...row };
+    for (const key of Object.keys(nextRow) as Array<keyof ExtractedPriceListRow>) {
+      if (key === "source_row") continue;
+      const candidate = nextRow[key];
+      if (!candidate || typeof candidate !== "object" || !("value" in candidate)) continue;
+      const fact = candidate as Fact;
+      if (fact.value != null && fact.confidence !== "none" && !isUsableExtractedFact(fact)) {
+        invalidSourceFacts += 1;
+        (nextRow as Record<string, unknown>)[key] = nulledFact(fact);
+      }
+    }
+
+    const unitCode = factValue(nextRow.unit_number);
     if (unitCode == null || !isUsableFactValue(unitCode)) {
       skippedRows += 1;
       continue;
@@ -181,23 +215,21 @@ export function sanitizePriceList(priceList: ExtractedPriceList | null): Sanitiz
     seenUnitCodes.set(code, (seenUnitCodes.get(code) ?? 0) + 1);
     if ((seenUnitCodes.get(code) ?? 0) > 1) duplicates.add(code);
 
-    let nextRow: ExtractedPriceListRow = row;
-
     // Prices must be strictly positive and numeric to be a fact.
-    const rawPrice = factValue(row.price);
+    const rawPrice = factValue(nextRow.price);
     if (rawPrice != null && parsePositivePrice(rawPrice) == null) {
       invalidPrices += 1;
-      nextRow = { ...nextRow, price: nulledFact(row.price) as Fact<string | number> };
+      nextRow = { ...nextRow, price: nulledFact(nextRow.price) as Fact<string | number> };
     }
 
     // Only supported ISO currencies are kept as source-stated currency.
-    const rawCurrency = factValue(row.currency);
+    const rawCurrency = factValue(nextRow.currency);
     if (
       rawCurrency != null &&
       !SUPPORTED_CURRENCIES.has(String(rawCurrency).trim().toUpperCase())
     ) {
       unsupportedCurrencies += 1;
-      nextRow = { ...nextRow, currency: nulledFact(row.currency) as Fact<string> };
+      nextRow = { ...nextRow, currency: nulledFact(nextRow.currency) as Fact<string> };
     }
 
     rows.push(nextRow);
@@ -237,9 +269,18 @@ export function sanitizePriceList(priceList: ExtractedPriceList | null): Sanitiz
       payload: { rows: unsupportedCurrencies },
     });
   }
+  if (invalidSourceFacts > 0) {
+    warnings.push({
+      entity: "project",
+      code: "source_fact_invalid",
+      severity: "warning",
+      message: `${invalidSourceFacts} extracted fact(s) had a placeholder value, unsupported confidence, or missing source reference and were not used.`,
+      payload: { facts: invalidSourceFacts },
+    });
+  }
 
   return {
-    priceList: { ...priceList, unit_inventory: rows },
+    priceList: { ...priceList, price_list_date: priceListDate, unit_inventory: rows },
     warnings,
     skippedRows,
   };

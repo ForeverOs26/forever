@@ -120,26 +120,20 @@ describe("Fast Intake transactional output", () => {
     expect(readFileSync(good.artifacts.payload, "utf8")).toBe(payload);
   });
 
-  it("rolls back a partially applied commit, restoring the previous set", () => {
+  it("rolls back a partially applied commit, restoring the previous set", async () => {
+    const src = copyFixture("rollback-source");
+    const good = await run({ projectSlug: "rollback", projectName: "Rollback", sources: [src] });
+    expect(good.exitCode).toBe(0);
     const projectDir = join(base, "out", "rollback");
-    mkdirSync(join(projectDir, "intake"), { recursive: true });
-    mkdirSync(join(projectDir, "progressive"), { recursive: true });
-    writeFileSync(join(projectDir, "intake", "intake-summary.json"), "V1-INTAKE");
-    writeFileSync(join(projectDir, "progressive", "payload.json"), "V1-PAYLOAD");
+    const before = snapshot(projectDir);
 
     // Staged set has intake/ but a MISSING progressive/, so the second rename fails.
     const stagingDir = join(projectDir, ".intake-staging-x");
-    mkdirSync(join(stagingDir, "intake"), { recursive: true });
-    writeFileSync(join(stagingDir, "intake", "intake-summary.json"), "V2-INTAKE");
+    cpSync(join(projectDir, "intake"), join(stagingDir, "intake"), { recursive: true });
 
     expect(() => commitArtifacts(stagingDir, projectDir, "x")).toThrow();
-    // The previous canonical set is fully restored.
-    expect(readFileSync(join(projectDir, "intake", "intake-summary.json"), "utf8")).toBe(
-      "V1-INTAKE",
-    );
-    expect(readFileSync(join(projectDir, "progressive", "payload.json"), "utf8")).toBe(
-      "V1-PAYLOAD",
-    );
+    // The complete previous five-artifact generation is byte-for-byte restored.
+    expect(snapshot(projectDir)).toEqual(before);
   });
 });
 
@@ -170,6 +164,8 @@ describe("Fast Intake concurrency and stale cleanup", () => {
   it("removes stale staging/backup directories from a crashed prior run", async () => {
     const src = copyFixture("sample-project");
     const projectDir = join(base, "out", "stale");
+    const first = await run({ projectSlug: "stale", projectName: "Stale", sources: [src] });
+    expect(first.exitCode).toBe(0);
     mkdirSync(join(projectDir, ".intake-staging-old"), { recursive: true });
     mkdirSync(join(projectDir, "intake.bak-old"), { recursive: true });
     const result = await run({ projectSlug: "stale", projectName: "Stale", sources: [src] });

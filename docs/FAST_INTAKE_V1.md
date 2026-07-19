@@ -1,8 +1,8 @@
 # Fast Intake v1
 
-Status: Implemented in the open, unmerged PR
-[#85](https://github.com/ForeverOs26/forever/pull/85), pending independent
-review and Owner merge. Not yet canonical on `main`.
+Status: Implemented and independently Windows-validated in the open, unmerged
+PR [#85](https://github.com/ForeverOs26/forever/pull/85), pending Owner merge.
+Not yet canonical on `main`.
 
 Fast Intake v1 is a bounded, local, owner-only tool. It turns normal project
 source materials into a deterministic, validated, **unpublished** Progressive
@@ -123,14 +123,14 @@ directories. Every extracted file's CRC-32 and declared sizes are verified.
 
 Conservative resource limits (all configurable in code, enforced fail-closed):
 
-| Limit | Default |
-| --- | --- |
-| Archive size | 2 GiB |
-| Entry count | 100,000 |
-| Single expanded file | 1 GiB |
-| Total expanded size | 8 GiB |
-| Compression ratio (files > 1 MiB) | 200× |
-| Normalized path length | 4,096 chars |
+| Limit                             | Default     |
+| --------------------------------- | ----------- |
+| Archive size                      | 2 GiB       |
+| Entry count                       | 100,000     |
+| Single expanded file              | 1 GiB       |
+| Total expanded size               | 8 GiB       |
+| Compression ratio (files > 1 MiB) | 200×        |
+| Normalized path length            | 4,096 chars |
 
 ## Generated artifacts
 
@@ -177,20 +177,27 @@ generation (or, if already committed, finished), a missing/incomplete canonical
 set is restored from its managed backup (the backup is renamed into place,
 never deleted first), and managed staging/backup residue is removed only after
 positive evidence that the canonical five-artifact set is complete and
-consistent (the summary's validation fingerprint must match the payload's batch
-fingerprint). The only complete surviving generation is never deleted; an
-irreconcilable state (unreadable journal with backups present, ambiguous
-multiple backups) fails closed with exit code 5 and touches nothing.
+consistent. All five files must parse; all four intake artifacts and the
+payload must identify the same project; summary and payload names and batch
+fingerprints must match; and the summary must contain matching SHA-256 hashes
+for the manifest, classification, extracted facts, and payload. The only
+complete surviving generation is never deleted. An irreconcilable state
+(unreadable or path-untrusted journal, incomplete/mixed backup, or ambiguous
+multiple backups) fails closed with exit code 5 and does not delete or replace
+any candidate generation.
 
 A "complete generation" is the full five-artifact logical set — the four
 `intake/` files plus `progressive/payload.json` — belonging to one transaction;
-a set with only `intake/` or only `progressive/`, or with mismatched
-fingerprints, is treated as incomplete.
+a set with only `intake/` or only `progressive/`, a zero-byte/malformed file,
+an older artifact mixed into a newer transaction, or mismatched project
+identity, fingerprint, or artifact hashes is treated as incomplete.
 
 A per-project `.intake.lock` (exclusive directory creation, with a recorded
-owner pid) blocks a concurrent run for the same slug; a lock whose owner is
-provably dead — or a metadata-less lock older than one hour — is reclaimed
-safely. Different slugs are independent.
+owner pid and unique owner token) blocks a concurrent run for the same slug; a
+lock whose owner is provably dead — or a metadata-less/unreadable lock older
+than one hour — is reclaimed after its metadata is rechecked. A releasing
+process deletes only the lock token it acquired. Different slugs are
+independent.
 
 ## Classification categories
 
@@ -231,11 +238,33 @@ present source reference, and a valid ISO `source_date` when one is given:
 
 ```json
 {
-  "name":     { "value": "Marina Bay", "source_ref": "facts/project-facts.json", "confidence": "high", "status": "official_source" },
-  "developer":{ "value": "Dev Co",     "source_ref": "facts/project-facts.json", "confidence": "high", "status": "official_source" },
-  "location": { "value": "Kamala, Phuket, Thailand", "source_ref": "facts/project-facts.json", "confidence": "high" },
-  "country":  { "value": "Thailand",   "source_ref": "facts/project-facts.json", "confidence": "high" },
-  "project_type": { "value": "Residential", "source_ref": "facts/project-facts.json", "confidence": "medium" }
+  "name": {
+    "value": "Marina Bay",
+    "source_ref": "facts/project-facts.json",
+    "confidence": "high",
+    "status": "official_source"
+  },
+  "developer": {
+    "value": "Dev Co",
+    "source_ref": "facts/project-facts.json",
+    "confidence": "high",
+    "status": "official_source"
+  },
+  "location": {
+    "value": "Kamala, Phuket, Thailand",
+    "source_ref": "facts/project-facts.json",
+    "confidence": "high"
+  },
+  "country": {
+    "value": "Thailand",
+    "source_ref": "facts/project-facts.json",
+    "confidence": "high"
+  },
+  "project_type": {
+    "value": "Residential",
+    "source_ref": "facts/project-facts.json",
+    "confidence": "medium"
+  }
 }
 ```
 
@@ -249,12 +278,15 @@ placeholder. Missing information stays `null`/omitted and becomes an explicit
 warning — never `"Not available"`, `"Unknown"`, `0`, an empty string, or a demo
 placeholder.
 
-Price-list rows are sanitized before the canonical builder sees them: rows with
-no usable unit identifier are skipped (warned); zero, negative, or non-numeric
-prices are omitted (warned); currencies outside the supported ISO set are not
-used (warned); a malformed country value is not used for currency inference
-(warned); and **duplicate unit identifiers are a blocking conflict** — the run
-ends BLOCKED rather than importing an ambiguous inventory. The CLI project name
+Price-list rows are sanitized before the canonical builder sees them: every
+positive fact requires a non-placeholder value, `high`/`medium`/`low`
+confidence, and a non-empty source reference; malformed price-list dates are
+not used (warned); rows with no usable unit identifier are skipped (warned);
+zero, negative, or non-numeric prices are omitted (warned); currencies outside
+the supported ISO set are not used (warned); a malformed country value is not
+used for currency inference (warned); and **duplicate unit identifiers are a
+blocking conflict** — the run ends BLOCKED rather than importing an ambiguous
+inventory. The CLI project name
 may supply the display name, but when a source-backed name differs the conflict
 is recorded explicitly (`project_name_source_differs`).
 
@@ -287,9 +319,12 @@ claimed. An invalid payload fails closed with a non-zero exit code, and a
 failed regeneration never replaces a previously valid payload.
 
 The compatibility claim is pinned by a shared corpus of valid and invalid
-payloads at `src/intake/test-fixtures/validation-corpus/` (including
-zero-element, one-element, and multi-element array graphs, and non-array
-buildings/units/prices/warnings):
+payloads at `src/intake/test-fixtures/validation-corpus/`. The live 65-case
+matrix covers zero-, one-, and three-element arrays for buildings, units,
+prices, media, documents, and warnings, plus explicit null, scalar object,
+string, number, and boolean rejection for every field. Non-empty documents are
+recognized as arrays and then rejected at the separate unsupported-documents
+boundary:
 
 - the TypeScript half runs in CI (`src/intake/tests/validation-parity.test.ts`)
   and enforces that TypeScript never accepts a payload the PowerShell boundary
@@ -304,7 +339,7 @@ buildings/units/prices/warnings):
 Fast Intake does **not** run the import. Validate again later with:
 
 ```
-powershell -NoProfile -File scripts/import/Import-ForeverProjectDraft.ps1 -Project <slug> -ValidateOnly
+powershell.exe -NoProfile -File scripts/import/Import-ForeverProjectDraft.ps1 -Project <slug> -ValidateOnly
 ```
 
 Then, as a separately authorized action, run the ordinary draft import
@@ -329,6 +364,7 @@ password is printed or requested during Fast Intake preparation.
   lock contention, unsafe paths, or an irreconcilable crash-recovery state).
   Non-zero exit code (2 validation, 3 conflict, 4 locked, 5 unrecoverable
   state, 1 otherwise); the previous canonical artifact set is not replaced.
+  The CLI does not print validation/import next steps for a blocked run.
   Missing media alone never blocks.
 
 Follows: SAVE FIRST → DISPLAY AVAILABLE DATA → ENRICH LATER → VERIFY

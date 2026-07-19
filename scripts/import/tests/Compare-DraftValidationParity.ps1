@@ -98,6 +98,71 @@ foreach ($property in $expected.PSObject.Properties) {
   }
 }
 
+# Shared generated matrix: all six importer arrays must preserve zero/one/many
+# counts. Explicit null and every scalar shape must fail with the array-type
+# diagnostic. Non-empty documents are arrays, but reject at the separate
+# ordinary-importer documents boundary.
+$arrayCorpus = Get-Content -Raw -LiteralPath (Join-Path $CorpusDir 'array-shapes.json') | ConvertFrom-Json
+$validBasePath = Join-Path $CorpusDir 'valid-minimal.json'
+$validBaseText = Get-Content -Raw -LiteralPath $validBasePath
+$tempDir = Join-Path ([IO.Path]::GetTempPath()) ("forever-array-corpus-{0}" -f [Guid]::NewGuid().ToString('N'))
+[IO.Directory]::CreateDirectory($tempDir) | Out-Null
+try {
+  foreach ($field in $arrayCorpus.fields) {
+    foreach ($shape in $arrayCorpus.shapes) {
+      $valueJson = switch ([string]$shape.name) {
+        'zero' { '[]' }
+        'one' { '[{}]' }
+        'multi' { '[{},{},{}]' }
+        'null' { 'null' }
+        'object' { '{}' }
+        'string' { '"not-an-array"' }
+        'number' { '7' }
+        'boolean' { 'true' }
+        default { throw "Unknown shared array shape: $($shape.name)" }
+      }
+      $caseName = "array-{0}-{1}" -f $field, $shape.name
+      $casePath = Join-Path $tempDir ($caseName + '.json')
+      $trimmed = $validBaseText.TrimEnd()
+      $payloadText = $trimmed.Substring(0, $trimmed.Length - 1) + ",`n  `"$field`": $valueJson`n}`n"
+      [IO.File]::WriteAllText($casePath, $payloadText, [Text.UTF8Encoding]::new($false))
+      $result = Invoke-ValidateOnly $casePath
+      $hasMarker = $result.Stdout -match 'DRAFT_PAYLOAD_VALID\|'
+      $arrayCount = switch ([string]$shape.name) {
+        'zero' { 0 }
+        'one' { 1 }
+        'multi' { 3 }
+        default { $null }
+      }
+      $isDocumentContent = $field -eq 'documents' -and $shape.is_array -and $arrayCount -gt 0
+      $want = if ($shape.is_array -and -not $isDocumentContent) { 'accept' } else { 'reject' }
+      $verdict = if ($result.ExitCode -eq 0 -and $hasMarker) { 'accept' } else { 'reject' }
+      $problem = $null
+      if ($verdict -ne $want) {
+        $problem = "expected $want, got $verdict (exit $($result.ExitCode))"
+      } elseif (-not $shape.is_array -and ($result.Stdout + $result.Stderr) -notmatch "payload\.$field must be an array") {
+        $problem = 'scalar/null did not reach the fail-closed array-type boundary'
+      } elseif ($want -eq 'accept') {
+        $count = $arrayCount
+        if ($result.Stdout -notmatch "\|${field}=${count}(\||`r?`$)") {
+          $problem = "accepted array did not retain count $count in the validation marker"
+        }
+      }
+      if ($problem) { $failures += "${caseName}: $problem" }
+      $rows += [pscustomobject]@{
+        Case = $caseName
+        Expected = $want
+        PowerShell = $verdict
+        ExitCode = $result.ExitCode
+        Marker = $hasMarker
+        Match = ($null -eq $problem)
+      }
+    }
+  }
+} finally {
+  if ([IO.Directory]::Exists($tempDir)) { [IO.Directory]::Delete($tempDir, $true) }
+}
+
 $rows | Format-Table -AutoSize | Out-String | Write-Output
 if ($failures.Count -gt 0) {
   foreach ($failure in $failures) { Write-Output "MISMATCH: $failure" }

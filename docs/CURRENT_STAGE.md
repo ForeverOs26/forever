@@ -31,8 +31,8 @@ The Coralina production draft import through that generic importer is completed:
 
 ## Fast Intake v1 (open PR #85, not yet canonical)
 
-Fast Intake v1 is implemented in the open, unmerged PR #85 and is pending
-independent review and Owner merge; it is not yet canonical on `main`. It is a
+Fast Intake v1 is implemented and independently Windows-validated in the open,
+unmerged PR #85 and is pending Owner merge; it is not yet canonical on `main`. It is a
 bounded, local, owner-only preparation-and-validation tool (`npm run intake`;
 on Windows, `npm.cmd run intake`) that turns project source materials (a folder
 and/or ZIP archives) into a deterministic, validated, unpublished Progressive
@@ -71,14 +71,14 @@ The ordinary draft importer does not authorize publication. Schema, migration, R
 
 ## Active tasks
 
-| Task                                                                | Owner             | Status                                |
-| ------------------------------------------------------------------- | ----------------- | ------------------------------------- |
-| RC5.5D exceptional maintenance capability                           | Owner / Architect | Completed and retained                |
-| Generic Progressive draft-import simplification                     | Codex / Owner     | Completed                             |
-| Owner-authorized Coralina draft import through the generic importer | Owner             | Completed - draft only, unpublished   |
-| Shared Navigator: website + Booth Mode over one Navigator Core      | Codex / Owner     | Completed and canonical on `main`     |
-| Fast Intake v1 with a 15-minute draft target                        | Codex / Owner     | Implemented in an open PR - pending independent review and Owner merge; not yet canonical on `main` |
-| Publication of any imported draft                                   | Owner             | Later, separate action                |
+| Task                                                                | Owner             | Status                                                                                                            |
+| ------------------------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+| RC5.5D exceptional maintenance capability                           | Owner / Architect | Completed and retained                                                                                            |
+| Generic Progressive draft-import simplification                     | Codex / Owner     | Completed                                                                                                         |
+| Owner-authorized Coralina draft import through the generic importer | Owner             | Completed - draft only, unpublished                                                                               |
+| Shared Navigator: website + Booth Mode over one Navigator Core      | Codex / Owner     | Completed and canonical on `main`                                                                                 |
+| Fast Intake v1 with a 15-minute draft target                        | Codex / Owner     | Implemented and independently Windows-validated in open PR #85 - pending Owner merge; not yet canonical on `main` |
+| Publication of any imported draft                                   | Owner             | Later, separate action                                                                                            |
 
 ## Next checkpoint
 

@@ -160,9 +160,13 @@ describe("in-process failure injection at every commit transition", () => {
 
 describe("crash-like states (no in-process rollback) recovered by reconciliation", () => {
   const CRASH_POINTS: TxnFailpoint[] = [
+    "before-backup-intake",
     "after-backup-intake",
+    "before-backup-progressive",
     "after-backup-progressive",
+    "before-install-intake",
     "after-install-intake",
+    "before-install-progressive",
     "after-install-progressive",
     "before-mark-committed",
   ];
@@ -200,6 +204,29 @@ describe("crash-like states (no in-process rollback) recovered by reconciliation
     );
     expect(residue(projectDir)).toEqual([]);
   });
+
+  for (const point of [
+    "before-delete-backup-intake",
+    "before-delete-backup-progressive",
+  ] as TxnFailpoint[]) {
+    it(`crashAt "${point}" → reconciliation keeps the complete new generation`, async () => {
+      const { projectDir, before } = await seed(`cr-${point}`);
+      mutateSource();
+      await expect(
+        run({ projectSlug: `cr-${point}`, txnHooks: { crashAt: point } }),
+      ).rejects.toThrow(IntakeCrashSimulation);
+      rmSync(join(projectDir, LOCK_DIRNAME), { recursive: true, force: true });
+      reconcileProject(projectDir);
+      const after = hashes(projectDir);
+      expect(after[join("progressive", "payload.json")]).not.toBe(
+        before[join("progressive", "payload.json")],
+      );
+      expect(generationComplete(join(projectDir, "intake"), join(projectDir, "progressive"))).toBe(
+        true,
+      );
+      expect(residue(projectDir)).toEqual([]);
+    });
+  }
 
   it("a full fresh run after a crash reclaims the dead-pid lock and recovers by itself", async () => {
     const { projectDir } = await seed("cr-full");
@@ -272,6 +299,54 @@ describe("reconciliation failure injection", () => {
     expect(clean.exitCode).toBe(0);
     expect(residue(projectDir)).toEqual([]);
   });
+
+  it('crashAt "during-reconcile" leaves the complete canonical generation untouched', async () => {
+    const { projectDir, before } = await seed("rc-crash-reconcile");
+    await expect(
+      run({ projectSlug: "rc-crash-reconcile", txnHooks: { crashAt: "during-reconcile" } }),
+    ).rejects.toThrow(IntakeCrashSimulation);
+    expect(hashes(projectDir)).toEqual(before);
+    rmSync(join(projectDir, LOCK_DIRNAME), { recursive: true, force: true });
+  });
+
+  it('crashAt "during-staging-cleanup" preserves staging until the next reconciliation', async () => {
+    const { projectDir, before } = await seed("rc-crash-staging");
+    mkdirSync(join(projectDir, ".intake-staging-stale"), { recursive: true });
+    await expect(
+      run({
+        projectSlug: "rc-crash-staging",
+        txnHooks: { crashAt: "during-staging-cleanup" },
+      }),
+    ).rejects.toThrow(IntakeCrashSimulation);
+    expect(hashes(projectDir)).toEqual(before);
+    expect(existsSync(join(projectDir, ".intake-staging-stale"))).toBe(true);
+    rmSync(join(projectDir, LOCK_DIRNAME), { recursive: true, force: true });
+    reconcileProject(projectDir);
+    expect(residue(projectDir)).toEqual([]);
+  });
+
+  it('crashAt "during-backup-cleanup" preserves committed residue until the next reconciliation', async () => {
+    const { projectDir } = await seed("rc-crash-backup");
+    mutateSource();
+    const committed = await run({
+      projectSlug: "rc-crash-backup",
+      txnHooks: { failAt: "before-delete-backup-intake" },
+    });
+    expect(committed.exitCode).toBe(0);
+    await expect(
+      run({
+        projectSlug: "rc-crash-backup",
+        txnHooks: { crashAt: "during-backup-cleanup" },
+      }),
+    ).rejects.toThrow(IntakeCrashSimulation);
+    expect(generationComplete(join(projectDir, "intake"), join(projectDir, "progressive"))).toBe(
+      true,
+    );
+    expect(existsSync(journalPath(projectDir))).toBe(true);
+    rmSync(join(projectDir, LOCK_DIRNAME), { recursive: true, force: true });
+    reconcileProject(projectDir);
+    expect(residue(projectDir)).toEqual([]);
+  });
 });
 
 describe("startup reconciliation cases (constructed filesystem states)", () => {
@@ -293,6 +368,17 @@ describe("startup reconciliation cases (constructed filesystem states)", () => {
     });
     mkdirSync(join(projectDir, "intake"), { recursive: true });
     writeFileSync(join(projectDir, "intake", "intake-summary.json"), "{}");
+    reconcileProject(projectDir);
+    expect(hashes(projectDir)).toEqual(before);
+    expect(residue(projectDir)).toEqual([]);
+  });
+
+  it("only progressive canonical present + complete backup set → previous generation restored", async () => {
+    const { projectDir, before } = await seed("case-c-progressive");
+    renameSync(join(projectDir, "intake"), join(projectDir, "intake.bak-x"));
+    cpSync(join(projectDir, "progressive"), join(projectDir, "progressive.bak-x"), {
+      recursive: true,
+    });
     reconcileProject(projectDir);
     expect(hashes(projectDir)).toEqual(before);
     expect(residue(projectDir)).toEqual([]);
@@ -349,9 +435,11 @@ describe("startup reconciliation cases (constructed filesystem states)", () => {
     expect(existsSync(join(projectDir, "intake.bak-x"))).toBe(true);
     expect(existsSync(journalPath(projectDir))).toBe(true);
     // A full run reports the documented recovery exit code.
+    const beforeRun = readdirSync(projectDir).sort();
     const blocked = await run({ projectSlug: "case-g" });
     expect(blocked.status).toBe("BLOCKED");
     expect(blocked.exitCode).toBe(5);
+    expect(readdirSync(projectDir).sort()).toEqual(beforeRun);
   });
 
   it("Case G: ambiguous multiple backups for one slot → fail closed", async () => {
@@ -362,6 +450,46 @@ describe("startup reconciliation cases (constructed filesystem states)", () => {
     expect(() => reconcileProject(projectDir)).toThrow(IntakeRecoveryError);
     expect(existsSync(join(projectDir, "intake.bak-1"))).toBe(true);
     expect(existsSync(join(projectDir, "intake.bak-2"))).toBe(true);
+  });
+
+  it("complete canonical plus ambiguous backups → fail closed without deleting either", async () => {
+    const { projectDir, before } = await seed("case-g3");
+    mkdirSync(join(projectDir, "intake.bak-1"), { recursive: true });
+    mkdirSync(join(projectDir, "intake.bak-2"), { recursive: true });
+    expect(() => reconcileProject(projectDir)).toThrow(IntakeRecoveryError);
+    expect(hashes(projectDir)).toEqual(before);
+    expect(existsSync(join(projectDir, "intake.bak-1"))).toBe(true);
+    expect(existsSync(join(projectDir, "intake.bak-2"))).toBe(true);
+  });
+
+  it("an incomplete backup candidate fails closed before any canonical slot is removed", async () => {
+    const { projectDir } = await seed("case-incomplete-backup");
+    renameSync(join(projectDir, "intake"), join(projectDir, "intake.bak-x"));
+    rmSync(join(projectDir, "intake.bak-x", "classification.json"));
+    expect(() => reconcileProject(projectDir)).toThrow(IntakeRecoveryError);
+    expect(existsSync(join(projectDir, "intake.bak-x"))).toBe(true);
+    expect(existsSync(join(projectDir, "progressive", "payload.json"))).toBe(true);
+    expect(existsSync(join(projectDir, "intake"))).toBe(false);
+  });
+
+  it("a journal that references paths outside its managed transaction fails closed", async () => {
+    const { projectDir, before } = await seed("case-untrusted-journal");
+    atomicWriteJson(journalPath(projectDir), {
+      intake_txn_version: "1",
+      txn_id: "x",
+      phase: "validated",
+      staging_dir: join(base, "outside-staging"),
+      canonical_intake: join(projectDir, "intake"),
+      canonical_progressive: join(projectDir, "progressive"),
+      backup_intake: join(projectDir, "intake.bak-x"),
+      backup_progressive: join(projectDir, "progressive.bak-x"),
+      had_previous_intake: true,
+      had_previous_progressive: true,
+      staged_validated: true,
+    });
+    expect(() => reconcileProject(projectDir)).toThrow(IntakeRecoveryError);
+    expect(hashes(projectDir)).toEqual(before);
+    expect(existsSync(journalPath(projectDir))).toBe(true);
   });
 
   it("never deletes the only complete generation: committed journal but broken canonical → backup restored", async () => {
@@ -387,6 +515,47 @@ describe("startup reconciliation cases (constructed filesystem states)", () => {
     reconcileProject(projectDir);
     expect(hashes(projectDir)).toEqual(before);
     expect(residue(projectDir)).toEqual([]);
+  });
+});
+
+describe("five-artifact generation completeness", () => {
+  it("rejects zero-byte, malformed, missing, and mixed-generation artifacts", async () => {
+    const { projectDir } = await seed("complete-a");
+    const { projectDir: otherDir } = await seed("complete-b");
+    expect(generationComplete(join(projectDir, "intake"), join(projectDir, "progressive"))).toBe(
+      true,
+    );
+
+    const classification = join(projectDir, "intake", "classification.json");
+    const original = readFileSync(classification);
+    writeFileSync(classification, "");
+    expect(generationComplete(join(projectDir, "intake"), join(projectDir, "progressive"))).toBe(
+      false,
+    );
+    writeFileSync(classification, "{ malformed");
+    expect(generationComplete(join(projectDir, "intake"), join(projectDir, "progressive"))).toBe(
+      false,
+    );
+    writeFileSync(classification, original);
+    cpSync(join(otherDir, "intake", "classification.json"), classification, { force: true });
+    expect(generationComplete(join(projectDir, "intake"), join(projectDir, "progressive"))).toBe(
+      false,
+    );
+    rmSync(classification);
+    expect(generationComplete(join(projectDir, "intake"), join(projectDir, "progressive"))).toBe(
+      false,
+    );
+  });
+
+  it("requires summary and payload to identify the same project", async () => {
+    const { projectDir } = await seed("identity-mismatch");
+    const summaryPath = join(projectDir, "intake", "intake-summary.json");
+    const summary = JSON.parse(readFileSync(summaryPath, "utf8"));
+    summary.project_name = "Another Project";
+    atomicWriteJson(summaryPath, summary);
+    expect(generationComplete(join(projectDir, "intake"), join(projectDir, "progressive"))).toBe(
+      false,
+    );
   });
 });
 
@@ -449,5 +618,18 @@ describe("same-slug concurrency and stale locks", () => {
     utimesSync(lockDir, old, old);
     const result = await run({ projectSlug: "stale-age" });
     expect(result.exitCode).toBe(0);
+  });
+
+  it("treats fresh malformed lock metadata as live and does not delete another slug's lock", async () => {
+    const { projectDir } = await seed("malformed-lock");
+    const other = join(base, "out", "other-project");
+    mkdirSync(join(projectDir, LOCK_DIRNAME), { recursive: true });
+    mkdirSync(join(other, LOCK_DIRNAME), { recursive: true });
+    writeFileSync(join(projectDir, LOCK_DIRNAME, "meta.json"), "{ malformed");
+    writeFileSync(join(other, LOCK_DIRNAME, "meta.json"), "{ malformed");
+    const blocked = await run({ projectSlug: "malformed-lock" });
+    expect(blocked.exitCode).toBe(4);
+    expect(existsSync(join(projectDir, LOCK_DIRNAME))).toBe(true);
+    expect(existsSync(join(other, LOCK_DIRNAME))).toBe(true);
   });
 });

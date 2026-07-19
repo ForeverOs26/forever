@@ -127,4 +127,29 @@ describe("Fast Intake price-list sanitization", () => {
     expect(result.warnings).toHaveLength(0);
     expect(result.priceList?.unit_inventory).toHaveLength(1);
   });
+
+  it("rejects unsupported confidence and missing source references across row facts", () => {
+    const result = sanitizePriceList(
+      priceList([
+        {
+          unit_number: F("A-1"),
+          building: { value: "Invented", source_file: "pl.json", confidence: "bogus" },
+          floor: { value: "9", source_file: "   ", confidence: "high" },
+          price: F("1000"),
+        },
+      ]),
+    );
+    const row = result.priceList?.unit_inventory?.[0];
+    expect(row?.building?.value).toBeNull();
+    expect(row?.floor?.value).toBeNull();
+    expect(result.warnings.map((warning) => warning.code)).toContain("source_fact_invalid");
+  });
+
+  it("does not use a malformed price-list date", () => {
+    const input = priceList([{ unit_number: F("A-1"), price: F("1000") }]);
+    input.price_list_date = F("2026-02-30") as never;
+    const result = sanitizePriceList(input);
+    expect(result.priceList?.price_list_date?.value).toBeNull();
+    expect(result.warnings.map((warning) => warning.code)).toContain("price_list_date_invalid");
+  });
 });

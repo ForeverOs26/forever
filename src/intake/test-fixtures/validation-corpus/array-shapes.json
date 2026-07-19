@@ -1,0 +1,13 @@
+{
+  "fields": ["buildings", "units", "prices", "media", "documents", "warnings"],
+  "shapes": [
+    { "name": "zero", "is_array": true, "value": [] },
+    { "name": "one", "is_array": true, "value": [{}] },
+    { "name": "multi", "is_array": true, "value": [{}, {}, {}] },
+    { "name": "null", "is_array": false, "value": null },
+    { "name": "object", "is_array": false, "value": {} },
+    { "name": "string", "is_array": false, "value": "not-an-array" },
+    { "name": "number", "is_array": false, "value": 7 },
+    { "name": "boolean", "is_array": false, "value": true }
+  ]
+}

@@ -12,8 +12,8 @@
  *    the workspace root itself.
  */
 
-import { rmSync } from "node:fs";
-import { isAbsolute, parse, relative, resolve } from "node:path";
+import { existsSync, realpathSync, rmSync } from "node:fs";
+import { basename, dirname, isAbsolute, parse, relative, resolve } from "node:path";
 
 export class IntakePathError extends Error {
   constructor(message: string) {
@@ -24,15 +24,37 @@ export class IntakePathError extends Error {
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
+/** Resolve existing ancestors through symlinks/junctions, including for a not-yet-created child. */
+function boundaryPath(path: string): string {
+  const absolute = resolve(path);
+  let cursor = absolute;
+  const missing: string[] = [];
+  while (!existsSync(cursor)) {
+    const parent = dirname(cursor);
+    if (parent === cursor) break;
+    missing.unshift(basename(cursor));
+    cursor = parent;
+  }
+  const realAncestor = existsSync(cursor) ? realpathSync.native(cursor) : cursor;
+  return resolve(realAncestor, ...missing);
+}
+
+function pathKey(path: string): string {
+  const canonical = boundaryPath(path);
+  return process.platform === "win32" ? canonical.toLowerCase() : canonical;
+}
+
 /** True when `child` resolves strictly inside `parent` (never equal). */
 export function isStrictlyInside(child: string, parent: string): boolean {
-  const rel = relative(resolve(parent), resolve(child));
+  const canonicalParent = boundaryPath(parent);
+  const canonicalChild = boundaryPath(child);
+  const rel = relative(canonicalParent, canonicalChild);
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
 /** True when two paths resolve to the same location. */
 export function isSamePath(a: string, b: string): boolean {
-  return resolve(a) === resolve(b);
+  return pathKey(a) === pathKey(b);
 }
 
 /** A slug that is a single safe path segment; it can never escape the out-root. */
@@ -47,7 +69,7 @@ export function assertSafeSlug(slug: string): void {
 
 /** True when `p` resolves to a filesystem root or drive root (e.g. `/`, `C:\`). */
 export function isFilesystemRoot(p: string): boolean {
-  const resolved = resolve(p);
+  const resolved = boundaryPath(p);
   return parse(resolved).root === resolved;
 }
 
@@ -66,11 +88,18 @@ export function assertPathBoundaries(input: {
   const projectDir = resolve(input.projectDir);
   const workspaceDir = resolve(input.workspaceDir);
 
-  if (!isStrictlyInside(projectDir, outRoot) && projectDir !== outRoot) {
+  if (!isStrictlyInside(projectDir, outRoot)) {
     throw new IntakePathError(`intake_project_dir_escapes_out_root: ${projectDir}`);
   }
-  if (isFilesystemRoot(workspaceDir) || isFilesystemRoot(projectDir)) {
+  if (isFilesystemRoot(outRoot) || isFilesystemRoot(workspaceDir) || isFilesystemRoot(projectDir)) {
     throw new IntakePathError("intake_managed_dir_is_filesystem_root");
+  }
+  if (
+    isSamePath(projectDir, workspaceDir) ||
+    isStrictlyInside(projectDir, workspaceDir) ||
+    isStrictlyInside(workspaceDir, projectDir)
+  ) {
+    throw new IntakePathError("intake_output_workspace_overlap");
   }
 
   for (const source of input.sources) {
@@ -101,18 +130,19 @@ export function removeManagedDir(
   allowedParents: string[],
   forbidden: string[] = [],
 ): void {
-  const resolved = resolve(target);
-  if (isFilesystemRoot(resolved)) {
-    throw new IntakePathError(`intake_refuse_remove_root: ${resolved}`);
+  const lexicalTarget = resolve(target);
+  const canonicalTarget = boundaryPath(target);
+  if (isFilesystemRoot(canonicalTarget)) {
+    throw new IntakePathError(`intake_refuse_remove_root: ${canonicalTarget}`);
   }
   for (const bad of forbidden) {
-    if (isSamePath(resolved, bad)) {
-      throw new IntakePathError(`intake_refuse_remove_protected: ${resolved}`);
+    if (isSamePath(canonicalTarget, bad)) {
+      throw new IntakePathError(`intake_refuse_remove_protected: ${canonicalTarget}`);
     }
   }
-  const contained = allowedParents.some((parent) => isStrictlyInside(resolved, parent));
+  const contained = allowedParents.some((parent) => isStrictlyInside(canonicalTarget, parent));
   if (!contained) {
-    throw new IntakePathError(`intake_refuse_remove_outside_managed_tree: ${resolved}`);
+    throw new IntakePathError(`intake_refuse_remove_outside_managed_tree: ${canonicalTarget}`);
   }
-  rmSync(resolved, { recursive: true, force: true });
+  rmSync(lexicalTarget, { recursive: true, force: true });
 }

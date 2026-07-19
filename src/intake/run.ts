@@ -20,7 +20,8 @@
  * two runs for the same slug safe; different slugs are independent.
  */
 
-import { existsSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { join, resolve } from "node:path";
 
@@ -28,7 +29,7 @@ import { extractStructured } from "./extract";
 import { atomicWriteJson } from "./fs-utils";
 import { buildInventory } from "./inventory";
 import { normalizeToBatch } from "./normalize";
-import { assertPathBoundaries, assertSafeSlug, removeManagedDir } from "./paths";
+import { assertPathBoundaries, assertSafeSlug, IntakePathError, removeManagedDir } from "./paths";
 import { IntakeConflictError } from "./sanitize";
 import {
   acquireProjectLock,
@@ -96,6 +97,8 @@ export const SUBSTANTIVE_WARNING_CODES: ReadonlySet<string> = new Set([
   "location_match_requires_confirmation",
   "multiple_price-list",
   "multiple_project-facts",
+  "price_list_date_invalid",
+  "source_fact_invalid",
 ]);
 
 export class IntakeLockError extends Error {
@@ -148,7 +151,11 @@ function emptyCategoryCounts(): Record<IntakeCategory, number> {
 }
 
 function validateOnlyCommand(slug: string): string {
-  return `powershell -NoProfile -File scripts/import/Import-ForeverProjectDraft.ps1 -Project ${slug} -ValidateOnly`;
+  return `powershell.exe -NoProfile -File scripts/import/Import-ForeverProjectDraft.ps1 -Project ${slug} -ValidateOnly`;
+}
+
+function sha256File(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 export function importCommand(): string {
@@ -315,6 +322,9 @@ export async function runIntake(options: RunIntakeOptions): Promise<RunIntakeRes
         fingerprint: validation.fingerprint,
         fingerprint_verified: validation.fingerprintVerified,
         payload_sha256: validation.payloadSha256,
+        source_manifest_sha256: sha256File(staged.source_manifest),
+        classification_sha256: sha256File(staged.classification),
+        extracted_facts_sha256: sha256File(staged.extracted_facts),
         marker: validation.marker,
         error: null,
       },
@@ -370,6 +380,9 @@ export async function runIntake(options: RunIntakeOptions): Promise<RunIntakeRes
         fingerprint: "",
         fingerprint_verified: false,
         payload_sha256: "",
+        source_manifest_sha256: "",
+        classification_sha256: "",
+        extracted_facts_sha256: "",
         marker: "",
         error: message,
       },
@@ -386,7 +399,12 @@ export async function runIntake(options: RunIntakeOptions): Promise<RunIntakeRes
     // first-run BLOCKED summary. A lock-blocked run writes NOTHING into the
     // canonical directories — another run owns them right now; the terminal
     // summary and exit code 4 are its record.
-    if (!(error instanceof IntakeLockError)) {
+    if (
+      lockAcquired &&
+      !(error instanceof IntakeLockError) &&
+      !(error instanceof IntakeRecoveryError) &&
+      !(error instanceof IntakePathError)
+    ) {
       try {
         if (existsSync(artifacts.payload)) {
           atomicWriteJson(join(intakeDir, "intake-failure.json"), summary);

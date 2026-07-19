@@ -242,6 +242,9 @@ export interface IntakeSummary {
     fingerprint: string;
     fingerprint_verified: boolean;
     payload_sha256: string;
+    source_manifest_sha256: string;
+    classification_sha256: string;
+    extracted_facts_sha256: string;
     marker: string;
     error: string | null;
   };
