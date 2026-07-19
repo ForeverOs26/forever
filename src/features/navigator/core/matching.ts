@@ -87,23 +87,54 @@ function hasFactualValue(value: string | null | undefined): value is string {
   return typeof value === "string" && !isUnavailableValue(value);
 }
 
-/** Matches a plain quantified percentage figure, e.g. "6%", "6.5 %". */
-const YIELD_PERCENT_PATTERN = /(\d+(?:\.\d+)?)\s*%/;
+/**
+ * Sign characters that disqualify a percentage token: any plus or any
+ * minus/hyphen/dash variant (ASCII `+`/`-`, Unicode minus `−`, en/em dash,
+ * figure dash, horizontal bar, non-breaking hyphen, and full-width / small
+ * forms). A token carrying any of these immediately before its digits (with
+ * optional whitespace) is treated as signed and rejected — a negative yield is
+ * never read as its positive magnitude, and a range separator like `6%–8%`
+ * produces a second, signed token that also trips the ambiguity guard below.
+ */
+const SIGN_CHARS = "+\\-\\u2010-\\u2015\\u2212\\uFE58\\uFE62\\uFE63\\uFF0B\\uFF0D";
+
+/**
+ * One percentage token: an optional (rejected) leading sign, optional
+ * whitespace, a number, optional whitespace, and `%`. Global so we can count
+ * every token in the string and reject anything but exactly one.
+ */
+const PERCENT_TOKEN = new RegExp(`([${SIGN_CHARS}])?\\s*(\\d+(?:\\.\\d+)?)\\s*%`, "g");
 
 /**
  * Parses an actually usable, quantified positive yield percentage out of a
  * free-text rental-yield field, or `null` when the field is absent, a
- * sentinel, unparseable, zero, or otherwise not a concrete figure. This is
- * deliberately conservative: it never infers or invents a number, and
- * non-quantified promotional copy ("Strong rental potential") yields `null`
- * exactly like an unavailable sentinel does.
+ * sentinel, unparseable, zero, negative, signed, ambiguous, or out of range.
+ *
+ * Fail-closed rules — anything uncertain returns `null` and produces no reason:
+ *   • the sentinel guard runs first (`Not available`, `N/A`, empty, …);
+ *   • there must be exactly ONE percentage token (zero → no figure; two or
+ *     more → an ambiguous range / list such as `6%–8%`, `6% to 8%`,
+ *     `6% and 8%`);
+ *   • the token must be UNSIGNED — any leading `+` or minus/dash sign
+ *     (`-6%`, `− 6%`, `–6%`, `+6%`) is rejected, so a negative yield is never
+ *     mistaken for its positive magnitude;
+ *   • the value must be `> 0` and `<= 100` (rejects `0%` and implausible
+ *     figures like `1000% guaranteed`).
+ *
+ * It never infers or invents a number; non-quantified promotional copy
+ * ("Strong rental potential") returns `null` exactly like a sentinel.
  */
 export function extractQuantifiedYieldPercent(value: string | null | undefined): number | null {
   if (!hasFactualValue(value)) return null;
-  const match = YIELD_PERCENT_PATTERN.exec(value);
-  if (!match) return null;
-  const amount = Number(match[1]);
-  if (!Number.isFinite(amount) || amount <= 0) return null;
+
+  const tokens = [...value.matchAll(PERCENT_TOKEN)];
+  if (tokens.length !== 1) return null; // no figure, or an ambiguous range/list
+
+  const [, sign, digits] = tokens[0];
+  if (sign) return null; // any signed value (negative or positive) is rejected
+
+  const amount = Number(digits);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 100) return null;
   return amount;
 }
 

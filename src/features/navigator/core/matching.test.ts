@@ -161,16 +161,33 @@ describe("evaluateMatch — only source-backed reasons", () => {
     );
   });
 
-  it("emits no investment reason for a zero or negative quantified yield", () => {
-    const profile = deriveDecisionProfile(investorAnswers);
-    expect(
-      evaluateMatch(profile, property({ rentalYield: "0%" })).map((r) => r.kind),
-    ).not.toContain("purpose_evidence");
-  });
+  it.each([
+    ["0%"], // zero
+    ["-6%"], // ASCII hyphen-minus
+    ["- 6%"], // sign with whitespace
+    ["−6%"], // U+2212 minus sign
+    ["− 6%"], // U+2212 minus with whitespace
+    ["–6%"], // U+2013 en dash used as sign
+    ["—6%"], // U+2014 em dash used as sign
+    ["from -6%"], // negative embedded in copy
+    ["-6% to 8%"], // negative + range
+    ["6%–8%"], // ambiguous en-dash range
+    ["6% to 8%"], // ambiguous worded range
+    ["6% and 8%"], // ambiguous list
+    ["1000% guaranteed"], // implausible / above 100%
+    ["+6%"], // explicitly rejected: signed values are not accepted
+  ])(
+    "emits no investment reason for the zero/negative/ambiguous yield %j",
+    (yieldText) => {
+      const profile = deriveDecisionProfile(investorAnswers);
+      const project = property({ rentalYield: yieldText });
+      expect(evaluateMatch(profile, project).map((r) => r.kind)).not.toContain("purpose_evidence");
+    },
+  );
 
   it("still emits the investment reason for a valid quantified positive yield", () => {
     const profile = deriveDecisionProfile(investorAnswers);
-    for (const value of ["6%", "6.5%", "Up to 6% net", "6 %"]) {
+    for (const value of ["6%", "6.5%", "Up to 6% net", "6 %", "100%"]) {
       expect(evaluateMatch(profile, property({ rentalYield: value })).map((r) => r.kind)).toContain(
         "purpose_evidence",
       );
@@ -221,24 +238,51 @@ describe("isUnavailableValue — the reusable sentinel guard", () => {
 });
 
 describe("extractQuantifiedYieldPercent — conservative yield parsing", () => {
-  it("parses a plain quantified percentage", () => {
+  it("parses a plain single unsigned percentage", () => {
     expect(extractQuantifiedYieldPercent("6%")).toBe(6);
     expect(extractQuantifiedYieldPercent("6.5%")).toBe(6.5);
+    expect(extractQuantifiedYieldPercent("6 %")).toBe(6);
     expect(extractQuantifiedYieldPercent("Up to 6% net")).toBe(6);
+    expect(extractQuantifiedYieldPercent("100%")).toBe(100);
   });
 
   it("returns null for sentinels, empty values, and non-quantified text", () => {
     expect(extractQuantifiedYieldPercent("Not available")).toBeNull();
     expect(extractQuantifiedYieldPercent("N/A")).toBeNull();
     expect(extractQuantifiedYieldPercent("")).toBeNull();
+    expect(extractQuantifiedYieldPercent("   ")).toBeNull();
     expect(extractQuantifiedYieldPercent(null)).toBeNull();
     expect(extractQuantifiedYieldPercent(undefined)).toBeNull();
     expect(extractQuantifiedYieldPercent("Strong rental potential")).toBeNull();
   });
 
-  it("returns null for a zero or unparseable figure", () => {
+  it("returns null for zero, above 100%, or an unparseable figure", () => {
     expect(extractQuantifiedYieldPercent("0%")).toBeNull();
+    expect(extractQuantifiedYieldPercent("1000% guaranteed")).toBeNull();
     expect(extractQuantifiedYieldPercent("six percent")).toBeNull();
+  });
+
+  it.each([
+    ["-6%"],
+    ["- 6%"],
+    ["−6%"],
+    ["− 6%"],
+    ["–6%"],
+    ["—6%"],
+    ["from -6%"],
+    ["+6%"], // signed values are rejected, not just negatives
+  ])("returns null for the signed figure %j", (signed) => {
+    expect(extractQuantifiedYieldPercent(signed)).toBeNull();
+  });
+
+  it.each([
+    ["-6% to 8%"],
+    ["6%–8%"],
+    ["6% to 8%"],
+    ["6% and 8%"],
+    ["6-8%"],
+  ])("returns null for the ambiguous range/list %j", (ambiguous) => {
+    expect(extractQuantifiedYieldPercent(ambiguous)).toBeNull();
   });
 });
 
