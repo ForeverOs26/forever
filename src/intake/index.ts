@@ -14,16 +14,49 @@ export { buildInventory } from "./inventory";
 export { extractStructured } from "./extract";
 export { normalizeToBatch } from "./normalize";
 export {
+  sanitizePriceList,
+  usableIntakeFact,
+  isUsableFactValue,
+  isUsableConfidence,
+  isUsableCountry,
+  isValidIsoDate,
+  isSentinelValue,
+  parsePositivePrice,
+  SUPPORTED_CURRENCIES,
+  IntakeConflictError,
+} from "./sanitize";
+export {
+  assertSafeSlug,
+  assertPathBoundaries,
+  isStrictlyInside,
+  isSamePath,
+  isFilesystemRoot,
+  removeManagedDir,
+  IntakePathError,
+} from "./paths";
+export {
   validateDraftPayload,
   validateDraftPayloadFile,
   DraftValidationError,
 } from "./validate-draft";
-export { runIntake, importCommand } from "./run";
+export {
+  runIntake,
+  importCommand,
+  classifyReadiness,
+  SUBSTANTIVE_WARNING_CODES,
+  IntakeLockError,
+} from "./run";
 export {
   readZipEntries,
   readZipEntryData,
   extractZip,
   safeJoinInside,
+  assertSafeEntryName,
+  DEFAULT_ZIP_LIMITS,
   ZipError,
   ZipTraversalError,
+  ZipLimitError,
+  ZipUnsupportedError,
+  ZipIntegrityError,
+  ZipCollisionError,
 } from "./zip";

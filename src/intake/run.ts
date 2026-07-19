@@ -1,5 +1,5 @@
 /**
- * Fast Intake v1 — the orchestrator.
+ * Fast Intake v1 — the transactional orchestrator.
  *
  *   source folder / ZIP archives
  *   → inventory + classification
@@ -11,23 +11,31 @@
  *
  * Local only. No browser, no Supabase credentials, no database client, no
  * network request, no production write, no publication. Elapsed time is
- * measured, never faked. Canonical outputs are written atomically and a failed
- * regeneration never replaces a previously valid payload.
+ * measured, never faked.
+ *
+ * Output is TRANSACTIONAL: every artifact is built in a unique staging
+ * directory inside the destination, validated there, and only then swapped into
+ * place atomically. A failure at any step removes the staging directory and
+ * preserves the previous canonical set byte-for-byte. A per-project lock makes
+ * two runs for the same slug safe; different slugs are independent.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { join, resolve } from "node:path";
 
 import { extractStructured } from "./extract";
-import { atomicWriteJson, removeDirSafe } from "./fs-utils";
+import { atomicWriteJson } from "./fs-utils";
 import { buildInventory } from "./inventory";
 import { normalizeToBatch } from "./normalize";
+import { assertPathBoundaries, assertSafeSlug, removeManagedDir } from "./paths";
+import { IntakeConflictError } from "./sanitize";
 import {
   DraftValidationError,
   validateDraftPayload,
   validateDraftPayloadFile,
 } from "./validate-draft";
+import type { ZipLimits } from "./zip";
 import type {
   IntakeCategory,
   IntakeStatus,
@@ -52,6 +60,42 @@ const DOCUMENT_CATEGORIES: ReadonlySet<IntakeCategory> = new Set([
   "furniture-package",
 ]);
 
+/**
+ * Payload warning codes that represent a substantive missing fact or conflict.
+ * Their presence keeps a valid draft at PARTIAL rather than READY. Offline
+ * dependency-link deferrals (`developer_unresolved`, `location_unresolved`) and
+ * informational v1 notes (coordinates/construction/media/document) are NOT
+ * substantive — they never demote a structurally complete draft.
+ */
+export const SUBSTANTIVE_WARNING_CODES: ReadonlySet<string> = new Set([
+  "developer_missing",
+  "location_missing",
+  "country_missing",
+  "country_malformed",
+  "currency_unresolved",
+  "currency_unsupported",
+  "price_missing",
+  "price_invalid",
+  "unit_identifier_missing",
+  "project_name_source_differs",
+  "field_conflict",
+  "price_list_unreadable",
+  "project_facts_unreadable",
+  "developer_ambiguous",
+  "location_ambiguous",
+  "developer_match_requires_confirmation",
+  "location_match_requires_confirmation",
+  "multiple_price-list",
+  "multiple_project-facts",
+]);
+
+export class IntakeLockError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "IntakeLockError";
+  }
+}
+
 export interface RunIntakeOptions {
   projectSlug: string;
   projectName: string;
@@ -59,12 +103,23 @@ export interface RunIntakeOptions {
   outRoot?: string;
   workspaceRoot?: string;
   targetSeconds?: number;
+  zipLimits?: ZipLimits;
   /** Injected wall-clock for a deterministic `intake_started_at` in tests. */
   now?: Date;
   /** Injected monotonic clock (ms) for deterministic elapsed in tests. */
   monotonic?: () => number;
+  /** Test-only hook to inject a failure at a named stage. */
+  failAfter?: RunStage;
   verbose?: boolean;
 }
+
+export type RunStage =
+  | "inventory"
+  | "extraction"
+  | "normalization"
+  | "staging-write"
+  | "validation"
+  | "commit";
 
 export interface RunIntakeResult {
   status: IntakeStatus;
@@ -89,14 +144,109 @@ export function importCommand(): string {
   return 'Double-click "Import Forever Project Draft.cmd" (or run scripts/import/Start-ForeverProjectDraftImport.ps1) and enter the database password once — a separately authorized action.';
 }
 
+/** Decide the readiness status from validation, graph shape, and warnings. */
+export function classifyReadiness(input: {
+  counts: PlannedGraphCounts;
+  payloadWarningCodes: string[];
+}): IntakeStatus {
+  const meaningful =
+    input.counts.buildings >= 1 && input.counts.units >= 1 && input.counts.prices >= 1;
+  const substantive = input.payloadWarningCodes.some((code) => SUBSTANTIVE_WARNING_CODES.has(code));
+  return meaningful && !substantive ? "READY_FOR_DRAFT_IMPORT" : "PARTIAL_READY_WITH_WARNINGS";
+}
+
+function throwIfFailStage(options: RunIntakeOptions, stage: RunStage): void {
+  if (options.failAfter === stage) {
+    throw new Error(`intake_injected_failure_at_${stage}`);
+  }
+}
+
+/** Remove leftover staging / backup directories from a crashed prior run. */
+function cleanupStaleArtifacts(projectDir: string): void {
+  if (!existsSync(projectDir)) return;
+  for (const name of readdirSync(projectDir)) {
+    if (
+      name.startsWith(".intake-staging-") ||
+      name.startsWith("intake.bak-") ||
+      name.startsWith("progressive.bak-")
+    ) {
+      try {
+        removeManagedDir(join(projectDir, name), [projectDir]);
+      } catch {
+        // Never let stale-cleanup abort a run.
+      }
+    }
+  }
+}
+
+/**
+ * Atomically replace the canonical `intake/` and `progressive/` directories with
+ * the staged ones, using same-filesystem renames and a backup-and-restore
+ * rollback so a failure preserves the previous set byte-for-byte.
+ */
+export function commitArtifacts(stagingDir: string, projectDir: string, uid: string): void {
+  const canonicalIntake = join(projectDir, "intake");
+  const canonicalProgressive = join(projectDir, "progressive");
+  const stagedIntake = join(stagingDir, "intake");
+  const stagedProgressive = join(stagingDir, "progressive");
+  const backupIntake = join(projectDir, `intake.bak-${uid}`);
+  const backupProgressive = join(projectDir, `progressive.bak-${uid}`);
+
+  const restores: Array<[string, string]> = [];
+  const placed: string[] = [];
+  try {
+    if (existsSync(canonicalIntake)) {
+      renameSync(canonicalIntake, backupIntake);
+      restores.push([backupIntake, canonicalIntake]);
+    }
+    if (existsSync(canonicalProgressive)) {
+      renameSync(canonicalProgressive, backupProgressive);
+      restores.push([backupProgressive, canonicalProgressive]);
+    }
+    renameSync(stagedIntake, canonicalIntake);
+    placed.push(canonicalIntake);
+    renameSync(stagedProgressive, canonicalProgressive);
+    placed.push(canonicalProgressive);
+  } catch (error) {
+    // Roll back: remove anything we placed, then restore the backups.
+    for (const dir of placed) {
+      try {
+        removeManagedDir(dir, [projectDir]);
+      } catch {
+        /* best effort */
+      }
+    }
+    for (const [backup, original] of restores) {
+      if (existsSync(original)) {
+        try {
+          removeManagedDir(original, [projectDir]);
+        } catch {
+          /* best effort */
+        }
+      }
+      renameSync(backup, original);
+    }
+    throw error;
+  }
+  // Success: drop the backups.
+  for (const [backup] of restores) {
+    try {
+      removeManagedDir(backup, [projectDir]);
+    } catch {
+      /* best effort */
+    }
+  }
+}
+
 export async function runIntake(options: RunIntakeOptions): Promise<RunIntakeResult> {
   const monotonic = options.monotonic ?? (() => performance.now());
   const startedAtWall = (options.now ?? new Date()).toISOString();
   const start = monotonic();
+  const uid = `${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
 
   const outRoot = options.outRoot ?? DEFAULT_OUT_ROOT;
   const workspaceRoot = options.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT;
-  const projectDir = join(outRoot, options.projectSlug);
+  const projectDir = resolve(join(outRoot, options.projectSlug));
   const intakeDir = join(projectDir, "intake");
   const progressiveDir = join(projectDir, "progressive");
   const artifacts: IntakeSummary["artifacts"] = {
@@ -106,28 +256,48 @@ export async function runIntake(options: RunIntakeOptions): Promise<RunIntakeRes
     intake_summary: join(intakeDir, "intake-summary.json"),
     payload: join(progressiveDir, "payload.json"),
   };
-  const workspaceDir = resolve(
-    join(
-      workspaceRoot,
-      `${options.projectSlug}-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e9)}`,
-    ),
-  );
+  const workspaceDir = resolve(join(workspaceRoot, `${options.projectSlug}-${uid}`));
+  const stagingDir = join(projectDir, `.intake-staging-${uid}`);
+  const lockDir = join(projectDir, ".intake.lock");
 
   const elapsed = () => {
     const ms = Math.max(0, monotonic() - start);
-    const seconds = ms / 1000;
-    return { ms, seconds };
+    return { ms, seconds: ms / 1000 };
   };
+  const targetSeconds = options.targetSeconds ?? INTAKE_TARGET_SECONDS;
 
+  let lockAcquired = false;
   try {
-    // ---- Preparation phase: everything BEFORE any canonical write. ----------
+    // Fail closed on unsafe slug / path overlaps BEFORE creating anything.
+    assertSafeSlug(options.projectSlug);
+    assertPathBoundaries({ outRoot, projectDir, workspaceDir, sources: options.sources });
+
+    mkdirSync(projectDir, { recursive: true });
+    try {
+      mkdirSync(lockDir); // exclusive: fails if a concurrent run holds it
+      lockAcquired = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new IntakeLockError(
+          `intake_locked: another run for "${options.projectSlug}" is active`,
+        );
+      }
+      throw error;
+    }
+    cleanupStaleArtifacts(projectDir);
+
+    // ---- Preparation: everything in memory / staging, canonical untouched. ---
     const inventory = buildInventory({
       projectSlug: options.projectSlug,
       sources: options.sources,
       workspaceDir,
       intakeStartedAt: startedAtWall,
+      zipLimits: options.zipLimits,
     });
+    throwIfFailStage(options, "inventory");
+
     const extraction = extractStructured(inventory.physicalFiles);
+    throwIfFailStage(options, "extraction");
 
     const hasMedia = inventory.physicalFiles.some((file) => MEDIA_CATEGORIES.has(file.category));
     const hasDocuments = inventory.physicalFiles.some((file) =>
@@ -145,26 +315,31 @@ export async function runIntake(options: RunIntakeOptions): Promise<RunIntakeRes
         priceListLogicalPath: extraction.priceListLogicalPath,
       },
     });
+    throwIfFailStage(options, "normalization");
 
-    // In-memory draft validation BEFORE writing anything: a build that cannot
-    // pass the boundary must never touch a previously valid payload.
+    // In-memory draft validation BEFORE writing anything.
     validateDraftPayload(batch, "pending");
 
-    // ---- Write phase: atomic; payload.json written last. --------------------
-    atomicWriteJson(artifacts.source_manifest, inventory.manifest);
-    atomicWriteJson(artifacts.classification, inventory.classification);
-    atomicWriteJson(artifacts.extracted_facts, extractedFacts);
-    atomicWriteJson(artifacts.payload, batch);
+    // ---- Staging write (inside the destination, canonical untouched). --------
+    const staged = {
+      source_manifest: join(stagingDir, "intake", "source-manifest.json"),
+      classification: join(stagingDir, "intake", "classification.json"),
+      extracted_facts: join(stagingDir, "intake", "extracted-facts.json"),
+      intake_summary: join(stagingDir, "intake", "intake-summary.json"),
+      payload: join(stagingDir, "progressive", "payload.json"),
+    };
+    atomicWriteJson(staged.source_manifest, inventory.manifest);
+    atomicWriteJson(staged.classification, inventory.classification);
+    atomicWriteJson(staged.extracted_facts, extractedFacts);
+    atomicWriteJson(staged.payload, batch);
+    throwIfFailStage(options, "staging-write");
 
-    // ---- Validate the written payload through the ordinary boundary. --------
-    const validation = validateDraftPayloadFile(artifacts.payload);
+    // Validate the staged payload through the ordinary boundary.
+    const validation = validateDraftPayloadFile(staged.payload);
+    throwIfFailStage(options, "validation");
 
     const intakeWarnings: IntakeWarning[] = [...inventory.intakeWarnings, ...extraction.warnings];
-    const payloadWarnings = batch.warnings ?? [];
-    const totalWarningSurface = intakeWarnings.length + payloadWarnings.length;
-    const status: IntakeStatus =
-      totalWarningSurface > 0 ? "PARTIAL_READY_WITH_WARNINGS" : "READY_FOR_DRAFT_IMPORT";
-
+    const payloadWarningCodes = (batch.warnings ?? []).map((warning) => warning.code);
     const planned: PlannedGraphCounts = {
       projects: validation.counts.projects,
       buildings: validation.counts.buildings,
@@ -174,9 +349,9 @@ export async function runIntake(options: RunIntakeOptions): Promise<RunIntakeRes
       warnings: validation.counts.warnings,
       batches: validation.counts.batches,
     };
+    const status = classifyReadiness({ counts: planned, payloadWarningCodes });
 
     const { ms, seconds } = elapsed();
-    const targetSeconds = options.targetSeconds ?? INTAKE_TARGET_SECONDS;
     const summary: IntakeSummary = {
       intake_schema_version: INTAKE_SCHEMA_VERSION,
       status,
@@ -207,13 +382,16 @@ export async function runIntake(options: RunIntakeOptions): Promise<RunIntakeRes
       artifacts,
       next_command: validateOnlyCommand(options.projectSlug),
     };
+    atomicWriteJson(staged.intake_summary, summary);
 
-    atomicWriteJson(artifacts.intake_summary, summary);
+    // ---- Commit: atomic swap of the whole set. ------------------------------
+    throwIfFailStage(options, "commit");
+    commitArtifacts(stagingDir, projectDir, uid);
+
     return { status, exitCode: 0, summary, wrotePayload: true, artifacts };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const { ms, seconds } = elapsed();
-    const targetSeconds = options.targetSeconds ?? INTAKE_TARGET_SECONDS;
     const summary: IntakeSummary = {
       intake_schema_version: INTAKE_SCHEMA_VERSION,
       status: "BLOCKED",
@@ -251,20 +429,54 @@ export async function runIntake(options: RunIntakeOptions): Promise<RunIntakeRes
       next_command: validateOnlyCommand(options.projectSlug),
     };
 
-    // Preserve any previously valid payload and its summary: only write a
-    // BLOCKED summary in place when there is no prior valid payload; otherwise
-    // record the failure beside it without overwriting canonical output.
-    const priorPayloadExists = existsSync(artifacts.payload);
-    if (priorPayloadExists) {
-      atomicWriteJson(join(intakeDir, "intake-failure.json"), summary);
-    } else {
-      atomicWriteJson(artifacts.intake_summary, summary);
+    // Canonical output was never touched (only staging was written, and it is
+    // removed below). Record the failure without replacing a valid set: beside
+    // an existing valid payload as intake-failure.json, otherwise as the
+    // first-run BLOCKED summary. A lock-blocked run writes NOTHING into the
+    // canonical directories — another run owns them right now; the terminal
+    // summary and exit code 4 are its record.
+    if (!(error instanceof IntakeLockError)) {
+      try {
+        if (existsSync(artifacts.payload)) {
+          atomicWriteJson(join(intakeDir, "intake-failure.json"), summary);
+        } else {
+          atomicWriteJson(artifacts.intake_summary, summary);
+        }
+      } catch {
+        // Never let failure-record writing mask the original error.
+      }
     }
 
-    const exitCode = error instanceof DraftValidationError ? 2 : 1;
+    const exitCode =
+      error instanceof DraftValidationError
+        ? 2
+        : error instanceof IntakeConflictError
+          ? 3
+          : error instanceof IntakeLockError
+            ? 4
+            : 1;
     return { status: "BLOCKED", exitCode, summary, wrotePayload: false, artifacts };
   } finally {
-    // Temporary extraction data is cleaned after success AND after failure.
-    removeDirSafe(workspaceDir);
+    // Remove temporary staging + workspace, then release the lock. Each guard
+    // confines removal to its managed tree.
+    try {
+      removeManagedDir(stagingDir, [projectDir]);
+    } catch {
+      /* staging may never have been created */
+    }
+    try {
+      removeManagedDir(workspaceDir, [resolve(workspaceRoot)]);
+    } catch {
+      // The workspace is always constructed strictly inside workspaceRoot, so a
+      // containment failure here means it was never created; never fall back to
+      // an unguarded remover.
+    }
+    if (lockAcquired) {
+      try {
+        removeManagedDir(lockDir, [projectDir]);
+      } catch {
+        /* best effort */
+      }
+    }
   }
 }

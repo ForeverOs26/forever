@@ -1,11 +1,12 @@
 /**
  * Fast Intake v1 — fact normalization, anti-fabrication, and batch assembly.
  *
- * Raw source values are preserved. A fact is used ONLY when it is source-backed
- * (a non-empty value, a source reference, and confidence above "none").
- * Nothing is inferred from a filename. Missing developer, location, country,
- * currency, coordinates, construction status, and media stay null and become
- * explicit warnings — never `"Unknown"`, `0`, or an empty-string placeholder.
+ * Raw source values are preserved. A fact is used ONLY when it survives the
+ * anti-fabrication guards in `./sanitize` (a usable non-sentinel value, a
+ * usable confidence, a present source reference, and a valid date when given).
+ * Nothing is inferred from a filename, folder, classification, CLI name, or
+ * placeholder. Missing developer, location, country, currency, coordinates,
+ * construction status, and media stay null and become explicit warnings.
  *
  * The Progressive batch itself is assembled by the existing, unchanged builder
  * (`buildProgressiveBatch`), which owns the currency doctrine, dependency
@@ -27,6 +28,7 @@ import type {
   ProvenanceStatus,
 } from "@/features/forever-ingestion/provenance";
 
+import { isUsableCountry, sanitizePriceList, usableIntakeFact } from "./sanitize";
 import type {
   ExtractedFacts,
   IntakeFact,
@@ -45,18 +47,7 @@ const CONFIDENCE_TO_NUMBER: Record<string, number> = {
   high: 1,
   medium: 0.7,
   low: 0.4,
-  none: 0,
 };
-
-function isSourceBacked(fact: IntakeFact | undefined): fact is IntakeFact & { value: string } {
-  return Boolean(
-    fact &&
-    typeof fact.value === "string" &&
-    fact.value.trim().length > 0 &&
-    fact.confidence !== "none" &&
-    (fact.source_file || fact.source_ref),
-  );
-}
 
 function toFieldProvenance(fact: IntakeFact): FieldProvenance {
   const status: ProvenanceStatus = fact.status ?? "extracted";
@@ -86,11 +77,20 @@ export interface NormalizeResult {
   extractedFacts: ExtractedFacts;
 }
 
-/** Assemble the unpublished, create-mode Progressive batch from intake facts. */
+/**
+ * Assemble the unpublished, create-mode Progressive batch from intake facts.
+ * Throws `IntakeConflictError` (from sanitize) on a blocking data conflict such
+ * as duplicate unit identifiers — the caller treats that as BLOCKED.
+ */
 export async function normalizeToBatch(input: NormalizeInput): Promise<NormalizeResult> {
   const { facts } = input;
   const fieldProvenance: FieldProvenanceMap = {};
   const warnings: ProgressiveWarning[] = [...(input.extraProgressiveWarnings ?? [])];
+
+  // Anti-fabrication sanitization of the price list (may throw on conflict).
+  const sanitized = sanitizePriceList(input.priceList);
+  warnings.push(...sanitized.warnings);
+  const priceList = sanitized.priceList;
 
   const project: ProgressiveProjectPayload = {
     slug: input.projectSlug,
@@ -105,16 +105,17 @@ export async function normalizeToBatch(input: NormalizeInput): Promise<Normalize
   };
 
   // Name: prefer a source-backed fact; otherwise the operator-supplied name.
-  if (isSourceBacked(facts.name)) {
-    project.name = facts.name.value.trim();
-    fieldProvenance.name = toFieldProvenance(facts.name);
-    if (facts.name.value.trim() !== input.projectName.trim()) {
+  const nameFact = usableIntakeFact(facts.name);
+  if (nameFact) {
+    project.name = nameFact.value;
+    fieldProvenance.name = toFieldProvenance(nameFact);
+    if (nameFact.value !== input.projectName.trim()) {
       warnings.push({
         entity: "project",
         field: "name",
         code: "project_name_source_differs",
         severity: "info",
-        message: `Source-backed project name "${facts.name.value.trim()}" was used instead of the requested "${input.projectName}".`,
+        message: `Source-backed project name "${nameFact.value}" was used instead of the requested "${input.projectName}".`,
       });
     }
   } else {
@@ -127,11 +128,12 @@ export async function normalizeToBatch(input: NormalizeInput): Promise<Normalize
   extractedProject.name = { value: project.name!, provenance: fieldProvenance.name };
 
   // Developer: source-backed only; otherwise preserved-null with a warning.
-  if (isSourceBacked(facts.developer)) {
-    project.developer_name_raw = facts.developer.value.trim();
-    fieldProvenance.developer_name_raw = toFieldProvenance(facts.developer);
+  const developerFact = usableIntakeFact(facts.developer);
+  if (developerFact) {
+    project.developer_name_raw = developerFact.value;
+    fieldProvenance.developer_name_raw = toFieldProvenance(developerFact);
     extractedProject.developer_name_raw = {
-      value: project.developer_name_raw,
+      value: developerFact.value,
       provenance: fieldProvenance.developer_name_raw,
     };
   } else {
@@ -145,11 +147,12 @@ export async function normalizeToBatch(input: NormalizeInput): Promise<Normalize
   }
 
   // Location: source-backed only; otherwise preserved-null with a warning.
-  if (isSourceBacked(facts.location)) {
-    project.location_name_raw = facts.location.value.trim();
-    fieldProvenance.location_name_raw = toFieldProvenance(facts.location);
+  const locationFact = usableIntakeFact(facts.location);
+  if (locationFact) {
+    project.location_name_raw = locationFact.value;
+    fieldProvenance.location_name_raw = toFieldProvenance(locationFact);
     extractedProject.location_name_raw = {
-      value: project.location_name_raw,
+      value: locationFact.value,
       provenance: fieldProvenance.location_name_raw,
     };
   } else {
@@ -162,54 +165,67 @@ export async function normalizeToBatch(input: NormalizeInput): Promise<Normalize
     });
   }
 
-  if (isSourceBacked(facts.location_area)) {
-    project.location_area = facts.location_area.value.trim();
-    fieldProvenance.location_area = toFieldProvenance(facts.location_area);
+  const areaFact = usableIntakeFact(facts.location_area);
+  if (areaFact) {
+    project.location_area = areaFact.value;
+    fieldProvenance.location_area = toFieldProvenance(areaFact);
     extractedProject.location_area = {
-      value: project.location_area,
+      value: areaFact.value,
       provenance: fieldProvenance.location_area,
     };
   }
 
-  if (isSourceBacked(facts.project_type)) {
-    project.project_type = facts.project_type.value.trim();
-    fieldProvenance.project_type = toFieldProvenance(facts.project_type);
+  const typeFact = usableIntakeFact(facts.project_type);
+  if (typeFact) {
+    project.project_type = typeFact.value;
+    fieldProvenance.project_type = toFieldProvenance(typeFact);
     extractedProject.project_type = {
-      value: project.project_type,
+      value: typeFact.value,
       provenance: fieldProvenance.project_type,
     };
   }
 
-  if (isSourceBacked(facts.short_description)) {
-    project.short_description = facts.short_description.value.trim();
-    fieldProvenance.short_description = toFieldProvenance(facts.short_description);
+  const shortFact = usableIntakeFact(facts.short_description);
+  if (shortFact) {
+    project.short_description = shortFact.value;
+    fieldProvenance.short_description = toFieldProvenance(shortFact);
     extractedProject.short_description = {
-      value: project.short_description,
+      value: shortFact.value,
       provenance: fieldProvenance.short_description,
     };
   }
-  if (isSourceBacked(facts.full_description)) {
-    project.full_description = facts.full_description.value.trim();
-    fieldProvenance.full_description = toFieldProvenance(facts.full_description);
+  const fullFact = usableIntakeFact(facts.full_description);
+  if (fullFact) {
+    project.full_description = fullFact.value;
+    fieldProvenance.full_description = toFieldProvenance(fullFact);
   }
 
   // Country drives ONLY the currency inference rule; it is never stored as a
-  // fabricated project field. Missing country stays a warning.
+  // fabricated project field. A malformed or missing country stays a warning.
   let countryEvidence: CurrencyEvidence | undefined;
   let countryCurrencyEvidence: string | null = null;
-  if (isSourceBacked(facts.country)) {
+  const countryFact = usableIntakeFact(facts.country);
+  if (countryFact && isUsableCountry(countryFact.value)) {
     countryEvidence = {
-      value: facts.country.value.trim(),
+      value: countryFact.value,
       status: "source_verified",
       confidence:
-        facts.country.confidence === "medium" || facts.country.confidence === "low"
-          ? facts.country.confidence
+        countryFact.confidence === "medium" || countryFact.confidence === "low"
+          ? countryFact.confidence
           : "high",
-      sourceFile: facts.country.source_file ?? facts.country.source_ref ?? null,
+      sourceFile: countryFact.source_file ?? countryFact.source_ref ?? null,
       context: "source-verified project country",
     };
-    countryCurrencyEvidence = facts.country.value.trim();
+    countryCurrencyEvidence = countryFact.value;
   } else {
+    if (countryFact && !isUsableCountry(countryFact.value)) {
+      warnings.push({
+        entity: "project",
+        code: "country_malformed",
+        severity: "warning",
+        message: `The provided country value was not a plausible country and was not used: "${countryFact.value}".`,
+      });
+    }
     warnings.push({
       entity: "project",
       code: "country_missing",
@@ -224,14 +240,14 @@ export async function normalizeToBatch(input: NormalizeInput): Promise<Normalize
     entity: "project",
     field: "latitude",
     code: "coordinates_missing",
-    severity: "warning",
+    severity: "info",
     message: "Fast Intake v1 does not extract coordinates; latitude/longitude remain NULL.",
   });
   warnings.push({
     entity: "project",
     field: "construction_status",
     code: "construction_status_missing",
-    severity: "warning",
+    severity: "info",
     message:
       "Fast Intake v1 does not extract construction status or completion date; these remain NULL.",
   });
@@ -264,7 +280,7 @@ export async function normalizeToBatch(input: NormalizeInput): Promise<Normalize
   const batch = await buildProgressiveBatch(offlineReader, {
     mode: "create",
     project,
-    priceList: input.priceList,
+    priceList,
     countryEvidence,
     extraWarnings: warnings,
   });
@@ -276,8 +292,8 @@ export async function normalizeToBatch(input: NormalizeInput): Promise<Normalize
     project: extractedProject,
     price_list: {
       source_logical_path: input.priceList ? input.categoryFlags.priceListLogicalPath : null,
-      price_list_date: input.priceList?.price_list_date?.value ?? null,
-      row_count: input.priceList?.unit_inventory?.length ?? 0,
+      price_list_date: priceList?.price_list_date?.value ?? null,
+      row_count: priceList?.unit_inventory?.length ?? 0,
       priced_row_count: pricedRows,
       country_currency_evidence: countryCurrencyEvidence,
     },

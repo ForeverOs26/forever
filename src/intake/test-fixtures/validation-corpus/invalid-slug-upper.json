@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "mode": "create",
+  "project": {
+    "slug": "Bad",
+    "name": "P",
+    "publish": false
+  },
+  "batch_fingerprint": "9d1a1b2bed4ba4c0801bbf9fb15334e2d9741df1eee2bc776f62b2eacd1ee358"
+}

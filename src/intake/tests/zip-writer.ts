@@ -1,8 +1,9 @@
 /**
  * Test-only minimal ZIP writer. Produces well-formed archives (correct CRC-32,
  * STORED or DEFLATE) so the production reader in `../zip.ts` is exercised for
- * real, including crafted path-traversal entries. Not shipped in any runtime
- * path — imported only by tests.
+ * real, plus deliberately malformed/hostile archives (traversal, encrypted,
+ * unsupported method, corrupt CRC, symlink attributes) to prove rejection.
+ * Not shipped in any runtime path — imported only by tests.
  */
 
 import { deflateRawSync } from "node:zlib";
@@ -30,9 +31,21 @@ function crc32(buffer: Buffer): number {
 export interface ZipInputEntry {
   name: string;
   data?: Buffer | string;
-  method?: 0 | 8;
+  /** Compression method to record (0 stored, 8 deflate, other = unsupported). */
+  method?: number;
   /** Force a directory entry (name will end with "/"). */
   directory?: boolean;
+  /** General-purpose flags (bit 0 set = encrypted). */
+  flags?: number;
+  /** Override the stored CRC-32 (to simulate corruption). */
+  crcOverride?: number;
+  /** External file attributes (high 16 bits = Unix mode; 0xA000 = symlink). */
+  externalAttributes?: number;
+  /**
+   * When set, these exact bytes are stored as the entry payload regardless of
+   * `method` (used to emit an "unsupported method" entry with real bytes).
+   */
+  rawStored?: Buffer;
 }
 
 /** Build a ZIP archive Buffer from the given entries. */
@@ -46,13 +59,18 @@ export function makeZip(entries: ZipInputEntry[]): Buffer {
     const nameBuf = Buffer.from(entry.name, "utf8");
     const raw = isDir ? Buffer.alloc(0) : Buffer.from(entry.data ?? "");
     const method = isDir ? 0 : (entry.method ?? 0);
-    const stored = method === 8 ? deflateRawSync(raw) : raw;
-    const crc = crc32(raw);
+    const flags = entry.flags ?? 0;
+    let stored: Buffer;
+    if (entry.rawStored) stored = entry.rawStored;
+    else if (method === 8) stored = deflateRawSync(raw);
+    else stored = raw;
+    const crc = entry.crcOverride ?? crc32(raw);
+    const externalAttributes = entry.externalAttributes ?? (isDir ? 0x10 : 0);
 
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
-    local.writeUInt16LE(0, 6);
+    local.writeUInt16LE(flags, 6);
     local.writeUInt16LE(method, 8);
     local.writeUInt16LE(0, 10);
     local.writeUInt16LE(0x21, 12); // fixed date for determinism
@@ -67,7 +85,7 @@ export function makeZip(entries: ZipInputEntry[]): Buffer {
     central.writeUInt32LE(0x02014b50, 0);
     central.writeUInt16LE(20, 4);
     central.writeUInt16LE(20, 6);
-    central.writeUInt16LE(0, 8);
+    central.writeUInt16LE(flags, 8);
     central.writeUInt16LE(method, 10);
     central.writeUInt16LE(0, 12);
     central.writeUInt16LE(0x21, 14);
@@ -79,7 +97,7 @@ export function makeZip(entries: ZipInputEntry[]): Buffer {
     central.writeUInt16LE(0, 32);
     central.writeUInt16LE(0, 34);
     central.writeUInt16LE(0, 36);
-    central.writeUInt32LE(isDir ? 0x10 : 0, 38);
+    central.writeUInt32LE(externalAttributes >>> 0, 38);
     central.writeUInt32LE(offset, 42);
     centralChunks.push(central, nameBuf);
 
@@ -100,3 +118,6 @@ export function makeZip(entries: ZipInputEntry[]): Buffer {
 
   return Buffer.concat([localData, centralDir, eocd]);
 }
+
+/** The Unix symlink external-attributes value (S_IFLNK << 16). */
+export const SYMLINK_EXTERNAL_ATTRS = 0o120000 << 16;

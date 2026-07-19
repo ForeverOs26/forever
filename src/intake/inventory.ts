@@ -17,7 +17,7 @@ import { basename, extname, join, resolve } from "node:path";
 
 import { classifyPath } from "./classify";
 import { toLogicalPath } from "./fs-utils";
-import { extractZip } from "./zip";
+import { DEFAULT_ZIP_LIMITS, extractZip, ZipLimitError, type ZipLimits } from "./zip";
 import type {
   ClassificationEntry,
   ClassificationReport,
@@ -55,6 +55,8 @@ export interface InventoryInput {
   /** Gitignored directory for archive extraction; cleaned by the caller. */
   workspaceDir: string;
   intakeStartedAt: string;
+  /** ZIP resource limits; conservative defaults when omitted. */
+  zipLimits?: ZipLimits;
 }
 
 function hashFile(absPath: string): { sha256: string; byteSize: number } {
@@ -96,6 +98,7 @@ function normalizeExtension(name: string): string {
 export function buildInventory(input: InventoryInput): InventoryResult {
   const roots: SourceRootManifest[] = [];
   const physicalFiles: PhysicalFile[] = [];
+  const zipLimits = input.zipLimits ?? DEFAULT_ZIP_LIMITS;
 
   input.sources.forEach((source, index) => {
     const abs = resolve(source);
@@ -104,9 +107,15 @@ export function buildInventory(input: InventoryInput): InventoryResult {
     const isZip = stats.isFile() && normalizeExtension(abs) === ".zip";
 
     if (isZip) {
+      // Reject an oversized archive before reading it into memory.
+      if (stats.size > zipLimits.maxArchiveBytes) {
+        throw new ZipLimitError(
+          `zip_archive_too_large: ${stats.size} > ${zipLimits.maxArchiveBytes}`,
+        );
+      }
       roots.push({ id: rootId, kind: "archive", name: basename(abs), local_only_path: abs });
       const destDir = join(input.workspaceDir, rootId);
-      const extracted = extractZip(readFileSync(abs), destDir);
+      const extracted = extractZip(readFileSync(abs), destDir, zipLimits);
       for (const file of extracted) {
         physicalFiles.push(
           describeFile(rootId, file.relativePath, file.absolutePath, {

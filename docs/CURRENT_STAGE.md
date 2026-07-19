@@ -33,11 +33,21 @@ The Coralina production draft import through that generic importer is completed:
 
 Fast Intake v1 is implemented in an open PR and is pending independent review and
 Owner merge; it is not yet canonical on `main`. It is a bounded, local, owner-only
-preparation-and-validation tool (`npm run intake`) that turns normal project
-source materials (a folder and/or ZIP archives) into a deterministic, validated,
+preparation-and-validation tool (`npm run intake`) that turns project source
+materials (a folder and/or ZIP archives) into a deterministic, validated,
 unpublished Progressive draft payload for the existing ordinary draft importer. It
 reuses the existing Progressive builder, fingerprint, currency policy, provenance
-and warning model, and the ordinary `-ValidateOnly` invariants.
+and warning model, and the ordinary `-ValidateOnly` invariants, with a hardened
+untrusted-ZIP boundary, transactional artifact output, per-project locking, and
+strengthened anti-fabrication guards.
+
+Scope honesty: Fast Intake v1 consumes only already-structured artifacts (an
+extracted price-list JSON and a `project-facts.json`). Raw PDFs, spreadsheets,
+images, and videos are inventoried and classified only — it does not yet
+transform an ordinary raw developer dossier into structured units/prices by
+itself, and the 15-minute target applies when compatible structured artifacts
+already exist. Raw-document extraction/OCR/spreadsheet parsing is a later Fast
+Intake stage.
 
 No production execution occurred: Fast Intake creates no database client, makes no
 network request, performs no write, and performs no publication. It does not add

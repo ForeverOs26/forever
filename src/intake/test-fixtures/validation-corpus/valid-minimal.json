@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "mode": "create",
+  "project": {
+    "slug": "sample",
+    "name": "Sample",
+    "publish": false
+  },
+  "batch_fingerprint": "74085a397fd70a6ca0438bf1e4570415572f71a6670e97cbdf49f5ca2733d242"
+}

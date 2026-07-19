@@ -1,0 +1,50 @@
+{
+  "valid-minimal": {
+    "powershell": "accept",
+    "typescript": "accept"
+  },
+  "valid-with-graph": {
+    "powershell": "accept",
+    "typescript": "accept"
+  },
+  "invalid-publish-true": {
+    "powershell": "reject",
+    "typescript": "reject"
+  },
+  "invalid-mode-enrich": {
+    "powershell": "reject",
+    "typescript": "reject"
+  },
+  "invalid-schema": {
+    "powershell": "reject",
+    "typescript": "reject"
+  },
+  "invalid-slug-upper": {
+    "powershell": "reject",
+    "typescript": "reject"
+  },
+  "invalid-missing-name": {
+    "powershell": "reject",
+    "typescript": "reject"
+  },
+  "invalid-documents": {
+    "powershell": "reject",
+    "typescript": "reject"
+  },
+  "invalid-buildings-not-array": {
+    "powershell": "reject",
+    "typescript": "reject"
+  },
+  "invalid-fingerprint-format": {
+    "powershell": "reject",
+    "typescript": "reject"
+  },
+  "invalid-not-json": {
+    "powershell": "reject",
+    "typescript": "reject"
+  },
+  "tampered-fingerprint": {
+    "powershell": "accept",
+    "typescript": "reject"
+  }
+}
