@@ -1,17 +1,17 @@
 # Forever Current Stage
 
 Status: Canonical active-stage document
-Last updated: 2026-07-18
+Last updated: 2026-07-19
 
 ## Stage name
 
-Ordinary new-project draft import simplification, after RC5.5D canonical-application closure, with a shared Forever Navigator (website + Booth Mode) implemented in an open, not-yet-merged pull request.
+Shared Forever Navigator (website + Booth Mode) canonical, with Fast Intake v1 as the next product checkpoint after ordinary new-project draft import simplification and RC5.5D canonical-application closure.
 
-## Shared Navigator (website + Booth Mode) — pending review, not yet canonical
+## Shared Navigator (website + Booth Mode) — canonical
 
-A shared Forever Navigator with two presentation shells has been implemented in **open pull request #84** (`claude/navigator-booth-implementation-1da3u9`). It is **not yet merged into `main`**, is **not yet canonical**, and the `/booth` route is **not yet part of the deployed site**. It remains pending independent Codex review and Owner approval and merge. Once merged, this section will be updated to describe it as the current canonical implementation.
+A shared Forever Navigator with two presentation shells is canonical on `main`. The website Navigator is implemented at `/navigator`, and Booth Mode is implemented at `/booth`. Booth remains intentionally unlinked from normal public navigation.
 
-What the PR implements, subject to review:
+Canonical implementation:
 
 - NAV-001 as the shared Navigator source of truth. Its approved Screens 00–08 questions, order, options, DecisionProfile, Forever Story, RecommendationPath, advisor invitation, and confirmation/edit behavior are preserved unchanged.
 - Website mode (`/navigator`) and Booth Mode (`/booth`) consuming one shared Navigator Core (`src/features/navigator/core/`): question definitions, gating, DecisionProfile derivation, Forever Story generation, RecommendationPath, and one deterministic project-match evaluator. Identical answers are designed to produce identical DecisionProfile, Forever Story, and recommendation results in either mode.
@@ -42,24 +42,24 @@ The ordinary draft importer does not authorize publication. Schema, migration, R
 
 ## Active tasks
 
-| Task | Owner | Status |
-| --- | --- | --- |
-| RC5.5D exceptional maintenance capability | Owner / Architect | Completed and retained |
-| Generic Progressive draft-import simplification | Codex / Owner | Completed |
-| Owner-authorized Coralina draft import through the generic importer | Owner | Completed - draft only, unpublished |
-| Shared Navigator: website + Booth Mode over one Navigator Core | Claude Code / Owner | Open PR #84 - pending independent review and Owner merge, not yet canonical |
-| Fast Intake v1 with a 15-minute draft target | Owner | Blocked on PR #84 merge - not started |
-| Publication of any imported draft | Owner | Later, separate action |
+| Task                                                                | Owner             | Status                                |
+| ------------------------------------------------------------------- | ----------------- | ------------------------------------- |
+| RC5.5D exceptional maintenance capability                           | Owner / Architect | Completed and retained                |
+| Generic Progressive draft-import simplification                     | Codex / Owner     | Completed                             |
+| Owner-authorized Coralina draft import through the generic importer | Owner             | Completed - draft only, unpublished   |
+| Shared Navigator: website + Booth Mode over one Navigator Core      | Codex / Owner     | Completed and canonical on `main`     |
+| Fast Intake v1 with a 15-minute draft target                        | Owner             | Next product checkpoint - not started |
+| Publication of any imported draft                                   | Owner             | Later, separate action                |
 
 ## Next checkpoint
 
-Independent review and Owner approval and merge of PR #84 (shared Navigator: website + Booth Mode). Fast Intake v1 with a 15-minute draft target is the checkpoint **after** PR #84 merges — it is not started and does not begin until the Navigator PR is reviewed, approved, and merged into `main`.
+Fast Intake v1: target a validated, unpublished draft graph through the ordinary generic importer within 15 minutes, while preserving the existing no-publication and no-schema-change boundaries.
 
 ## Acceptance criteria for the next checkpoint
 
-- PR #84 receives independent Codex review and Owner approval.
-- PR #84 is merged into `main` without schema, migration, RLS, or backend changes and without publishing Coralina.
-- Only once merged: a new project's source material can begin targeting a validated, unpublished draft graph through the ordinary generic importer within a 15-minute target (Fast Intake v1), with no publication performed by the intake path and no schema, migration, RPC, RLS, or grant work in the ordinary path.
+- A new project's source material can target a validated, unpublished draft graph through the ordinary generic importer within 15 minutes.
+- The intake path performs no publication and requires no schema, migration, RPC, RLS, or grant work.
+- Shared Navigator behavior at `/navigator` and `/booth` remains canonical over one NAV-001 Navigator Core, with Booth still unlinked from normal public navigation unless separately authorized.
 - Factory autonomy remains A0 throughout.
 
 ## Out of scope
@@ -67,8 +67,8 @@ Independent review and Owner approval and merge of PR #84 (shared Navigator: web
 - Platform recertification, production rollback rehearsal, strict RC5.5D approval/receipt flow, `pg_stat_ssl`, project-specific production launchers, and repeated infrastructure audits for an ordinary import.
 - Schema, migration, RPC, RLS, grant, existing-data mutation, or partial-state recovery work; these stay in the exceptional maintenance path.
 - Publication, update/upsert behavior, automatic retries, or disaster-recovery automation.
-- Merging PR #84 without independent review, or treating it as canonical before merge.
+- Linking Booth Mode from normal public navigation without a separate product decision.
 
 ## Definition of done
 
-The next checkpoint is complete when PR #84 is independently reviewed, Owner-approved, and merged with no publication action, no schema/migration/RLS/backend change, and Factory autonomy remaining A0. Fast Intake v1 becomes the following checkpoint only after that merge.
+The next checkpoint is complete when Fast Intake v1 proves the 15-minute validated-unpublished-draft target with no publication action, no schema/migration/RLS/backend change, and Factory autonomy remaining A0.

@@ -10,9 +10,9 @@ Forever Factory Constitution RC1 is active at A0 - Propose only. The bounded Fac
 
 ## Current Milestone
 
-A shared Forever Navigator with two presentation shells — website (`/navigator`) and Booth Mode (`/booth`) — over a single Navigator Core has been **implemented in open pull request #84** (`claude/navigator-booth-implementation-1da3u9`). It is **pending independent Codex review and Owner approval and merge**; it is **not yet merged into `main`**, **not yet canonical**, and the `/booth` route is **not yet part of the deployed site**. NAV-001 is the shared Navigator source of truth in that PR; its approved Screens 00–08 questions, order, DecisionProfile, Forever Story, RecommendationPath, advisor invitation, and confirmation/edit behavior are preserved unchanged. The PR's website and Booth shells consume the same core question definitions, DecisionProfile derivation, Forever Story generation, RecommendationPath, and one deterministic project-match evaluator with sentinel/unavailable-value guards, so identical answers are designed to produce identical results in either mode. Booth Mode is a presentation/employee workflow shell, not a second product: it reuses ProjectService, the universal `/projects/<slug>` Project Detail route, and the existing lead-service contract, and introduces no schema, migration, RLS, or new backend. The local website preview is completed; Coralina remains unpublished and is excluded from the production client bundle, appearing only through the existing local development demo preview.
+A shared Forever Navigator with two presentation shells — website (`/navigator`) and Booth Mode (`/booth`) — over a single Navigator Core is canonical on `main`. NAV-001 remains the shared Navigator source of truth; its approved Screens 00–08 questions, order, DecisionProfile, Forever Story, RecommendationPath, advisor invitation, and confirmation/edit behavior are preserved unchanged. The website and Booth shells consume the same core question definitions, DecisionProfile derivation, Forever Story generation, RecommendationPath, and one deterministic project-match evaluator with sentinel/unavailable-value guards, so identical answers produce identical results in either mode. Booth Mode is a presentation/employee workflow shell, not a second product: it reuses ProjectService, the universal `/projects/<slug>` Project Detail route, and the existing lead-service contract, and introduces no schema, migration, RLS, or new backend. Booth is intentionally not linked from normal public navigation. The local website preview is completed; Coralina remains unpublished and is excluded from the production client bundle, appearing only through the existing local development demo preview.
 
-Coralina's production draft import is completed as a draft only: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, and 1 ingestion batch. Coralina remains unpublished; publication is a separate, later action. Fast Intake v1 with a 15-minute draft target is the next **product** checkpoint, but it does not begin until PR #84 is reviewed, approved, and merged. Factory autonomy remains A0.
+Coralina's production draft import is completed as a draft only: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, and 1 ingestion batch. Coralina remains unpublished; publication is a separate, later action. Fast Intake v1 with a 15-minute draft target is the next **product** checkpoint. Factory autonomy remains A0.
 
 The ordinary new-project persistence path is simplified to one generic Progressive draft importer. Its normal workflow is payload validation → duplicate check → one atomic Progressive RPC transaction → exact graph verification → `COMMIT` → short post-commit verification.
 
@@ -46,7 +46,7 @@ The retained RC5.5D boundary remains disabled for ordinary imports; it exists fo
 
 ## Current Tasks and Authorization Boundary
 
-The Owner-authorized Coralina draft import through the generic importer is completed as a draft only; publication remains separately authorized. The current implementation task is the shared Navigator (website + Booth Mode) in **open, unmerged** PR #84, pending independent review and Owner approval and merge — it is not yet canonical. Fast Intake v1 with a 15-minute draft target is the next product checkpoint after PR #84 merges, not before.
+The Owner-authorized Coralina draft import through the generic importer is completed as a draft only; publication remains separately authorized. The shared Navigator (website + Booth Mode) is canonical on `main`. Fast Intake v1 with a 15-minute draft target is the next product checkpoint.
 
 Ordinary imports must not trigger platform recertification, a production rollback rehearsal, strict RC5.5D approval/receipt flow, `pg_stat_ssl`, project-specific production launchers, or repeated preflight/postflight infrastructure audits.
 
@@ -65,7 +65,7 @@ Modeva remains imported and validated with 7 buildings, 289 units, and 289 unit 
 
 ## Website and Architecture Status
 
-The public website remains on the reusable Project Detail Engine, Forever Passport, deterministic Forever Intelligence, and Import Engine stack. The RC4.4-RC5.1 knowledge chain remains exposed only through internal, unlinked, `noindex` inspection routes and is not a public product surface. Architecture continues toward One Engine, Many Interfaces.
+The public website remains on the reusable Project Detail Engine, Forever Passport, deterministic Forever Intelligence, and Import Engine stack. The shared Navigator website route is implemented at `/navigator`; employee-guided Booth Mode is implemented at `/booth` but remains unlinked from normal public navigation. Both use one NAV-001 Navigator Core. The RC4.4-RC5.1 knowledge chain remains exposed only through internal, unlinked, `noindex` inspection routes and is not a public product surface. Architecture continues toward One Engine, Many Interfaces.
 
 ## AI Status
 
@@ -79,4 +79,4 @@ RC5.5D canonical application verification remains historical evidence for except
 
 ## Last Updated
 
-2026-07-18
+2026-07-19
