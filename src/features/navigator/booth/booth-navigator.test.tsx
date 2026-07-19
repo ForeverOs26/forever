@@ -1,5 +1,6 @@
+import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -81,6 +82,35 @@ function renderBooth() {
   );
 }
 
+/**
+ * Deterministically resolves the ~900ms Forever Story timer instead of waiting
+ * on real wall-clock time: fake timers are enabled only around the "Continue"
+ * click that starts the timer (so the effect schedules a FAKE setTimeout), the
+ * fake clock is advanced exactly 900ms inside `act`, and real timers are
+ * restored immediately after — leaving the rest of the test's async flow
+ * (React Query resolution, user-event interactions, `waitFor`/`findBy*`) on
+ * real timers, unaffected.
+ *
+ * Uses `fireEvent.click` (not `userEvent.click`) for this one click:
+ * `userEvent` schedules internal work that never resolves once `setTimeout` is
+ * faked, even with `delay: null` — confirmed by isolating the hang. A plain
+ * `fireEvent.click` wrapped in `act` triggers the identical onClick handler
+ * synchronously with no such dependency.
+ */
+async function resolveForeverStory(continueButton: HTMLElement) {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    act(() => {
+      fireEvent.click(continueButton);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(900);
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
 async function drivenToResults(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Begin" }));
   await user.click(screen.getByRole("checkbox", { name: /investment & rental yield/i }));
@@ -91,12 +121,14 @@ async function drivenToResults(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("checkbox", { name: /ready now/i }));
   await user.click(screen.getByRole("button", { name: "Continue" }));
   await user.click(screen.getByRole("checkbox", { name: /rental returns/i }));
-  await user.click(screen.getByRole("button", { name: "Continue" }));
-  // Forever Story (~900ms templated reflection).
-  const confirm = await screen.findByRole("button", { name: /yes, this describes me/i }, { timeout: 3000 });
+
+  await resolveForeverStory(screen.getByRole("button", { name: "Continue" }));
+
+  const confirm = screen.getByRole("button", { name: /yes, this describes me/i });
   await user.click(confirm);
   await screen.findByRole("heading", { name: /projects matching your preferences/i });
-  // Wait for the mocked catalogue query to resolve the card.
+  // Wait for the mocked catalogue query (a plain resolved promise, no timer) to
+  // settle and render the card.
   await screen.findByText("The Modeva");
 }
 
@@ -114,6 +146,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -128,7 +161,7 @@ describe("booth shell chrome", () => {
 
 describe("booth project actions", () => {
   it("opens the project in a new tab via the runtime slug", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
     renderBooth();
     await drivenToResults(user);
@@ -144,7 +177,7 @@ describe("booth project actions", () => {
   });
 
   it("copies the guest link and announces success", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     // Override after setup() so the component's writeText hits our spy, not
     // userEvent's internal clipboard stub.
     const writeText = vi.fn().mockResolvedValue(undefined);
@@ -164,7 +197,7 @@ describe("booth project actions", () => {
   });
 
   it("announces a failure when the clipboard write rejects", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     setClipboard(vi.fn().mockRejectedValue(new Error("denied")));
     renderBooth();
     await drivenToResults(user);
@@ -179,7 +212,7 @@ describe("booth project actions", () => {
 describe("booth lead capture", () => {
   it("submits a mocked lead and reaches the completion screen", async () => {
     submitLead.mockResolvedValue(undefined);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderBooth();
     await drivenToResults(user);
 
@@ -211,7 +244,7 @@ describe("booth lead capture", () => {
           resolveSubmit = resolve;
         }),
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderBooth();
     await drivenToResults(user);
 
@@ -229,13 +262,19 @@ describe("booth lead capture", () => {
     await user.click(screen.getByRole("button", { name: /saving…/i }));
 
     expect(submitLead).toHaveBeenCalledTimes(1);
-    resolveSubmit?.();
+
+    // Resolve the in-flight submission and flush the resulting state update
+    // before the test ends, so no state change leaks into a later test.
+    await act(async () => {
+      resolveSubmit?.();
+      await Promise.resolve();
+    });
   });
 });
 
 describe("Start new guest clears the session", () => {
   it("guards with a confirm dialog then returns to Welcome", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderBooth();
     await user.click(screen.getByRole("button", { name: "Begin" }));
     await user.click(screen.getByRole("checkbox", { name: /a base in asia/i }));

@@ -7,6 +7,8 @@ import {
   deriveDecisionProfile,
   evaluateCatalogue,
   evaluateMatch,
+  extractQuantifiedYieldPercent,
+  isUnavailableValue,
   visibleResults,
   type DecisionProfile,
   type NavigatorAnswers,
@@ -134,6 +136,47 @@ describe("evaluateMatch — only source-backed reasons", () => {
     );
   });
 
+  it.each([
+    ["Not available"],
+    ["N/A"],
+    ["n/a"],
+    ["Unknown"],
+    ["unresolved"],
+    ["None"],
+    ["-"],
+    ["—"],
+    ["   "],
+    [""],
+  ])("emits no investment reason when rentalYield is the sentinel %j", (sentinel) => {
+    const profile = deriveDecisionProfile(investorAnswers);
+    const project = property({ rentalYield: sentinel });
+    expect(evaluateMatch(profile, project).map((r) => r.kind)).not.toContain("purpose_evidence");
+  });
+
+  it("emits no investment reason for non-quantified promotional text", () => {
+    const profile = deriveDecisionProfile(investorAnswers);
+    const promotional = property({ rentalYield: "Strong rental potential" });
+    expect(evaluateMatch(profile, promotional).map((r) => r.kind)).not.toContain(
+      "purpose_evidence",
+    );
+  });
+
+  it("emits no investment reason for a zero or negative quantified yield", () => {
+    const profile = deriveDecisionProfile(investorAnswers);
+    expect(
+      evaluateMatch(profile, property({ rentalYield: "0%" })).map((r) => r.kind),
+    ).not.toContain("purpose_evidence");
+  });
+
+  it("still emits the investment reason for a valid quantified positive yield", () => {
+    const profile = deriveDecisionProfile(investorAnswers);
+    for (const value of ["6%", "6.5%", "Up to 6% net", "6 %"]) {
+      expect(evaluateMatch(profile, property({ rentalYield: value })).map((r) => r.kind)).toContain(
+        "purpose_evidence",
+      );
+    }
+  });
+
   it("never emits location/format reasons from NAV-001 (no such profile fact)", () => {
     const profile = deriveDecisionProfile(investorAnswers);
     expect(profile.preferredAreas).toEqual([]);
@@ -142,6 +185,75 @@ describe("evaluateMatch — only source-backed reasons", () => {
     const kinds = evaluateMatch(profile, priced).map((r) => r.kind);
     expect(kinds).not.toContain("location");
     expect(kinds).not.toContain("property_format");
+  });
+});
+
+describe("isUnavailableValue — the reusable sentinel guard", () => {
+  it.each([
+    null,
+    undefined,
+    "",
+    "   ",
+    "Not available",
+    "NOT AVAILABLE",
+    "  not available  ",
+    "N/A",
+    "n/a",
+    "NA",
+    "Unknown",
+    "UNKNOWN",
+    "Unresolved",
+    "None",
+    "-",
+    "--",
+    "—",
+    "–",
+  ])("treats %j as unavailable", (value) => {
+    expect(isUnavailableValue(value)).toBe(true);
+  });
+
+  it.each(["Bang Tao", "6%", "Villa", "Some real value"])(
+    "treats %j as an actual usable value",
+    (value) => {
+      expect(isUnavailableValue(value)).toBe(false);
+    },
+  );
+});
+
+describe("extractQuantifiedYieldPercent — conservative yield parsing", () => {
+  it("parses a plain quantified percentage", () => {
+    expect(extractQuantifiedYieldPercent("6%")).toBe(6);
+    expect(extractQuantifiedYieldPercent("6.5%")).toBe(6.5);
+    expect(extractQuantifiedYieldPercent("Up to 6% net")).toBe(6);
+  });
+
+  it("returns null for sentinels, empty values, and non-quantified text", () => {
+    expect(extractQuantifiedYieldPercent("Not available")).toBeNull();
+    expect(extractQuantifiedYieldPercent("N/A")).toBeNull();
+    expect(extractQuantifiedYieldPercent("")).toBeNull();
+    expect(extractQuantifiedYieldPercent(null)).toBeNull();
+    expect(extractQuantifiedYieldPercent(undefined)).toBeNull();
+    expect(extractQuantifiedYieldPercent("Strong rental potential")).toBeNull();
+  });
+
+  it("returns null for a zero or unparseable figure", () => {
+    expect(extractQuantifiedYieldPercent("0%")).toBeNull();
+    expect(extractQuantifiedYieldPercent("six percent")).toBeNull();
+  });
+});
+
+describe("location matching never fires on a sentinel location", () => {
+  it("emits no location reason when the project location is a sentinel", () => {
+    // Simulates a future NAV-001 that does collect a preferred area.
+    const profile: DecisionProfile = {
+      ...deriveDecisionProfile(investorAnswers),
+      preferredAreas: ["Bang Tao"],
+    };
+    const sentinelLocation = property({ location: "Not available" });
+    const realLocation = property({ location: "Bang Tao" });
+
+    expect(evaluateMatch(profile, sentinelLocation).map((r) => r.kind)).not.toContain("location");
+    expect(evaluateMatch(profile, realLocation).map((r) => r.kind)).toContain("location");
   });
 });
 

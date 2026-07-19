@@ -23,8 +23,6 @@ import type {
   RentalDemand,
   SalesStatus,
 } from "@/lib/data";
-import { listDemoPreviewProperties } from "@/features/project-detail/demo-preview";
-
 import villaSurin from "@/assets/villa-surin.jpg";
 import villaKamala from "@/assets/villa-kamala.jpg";
 import villaLayan from "@/assets/villa-layan.jpg";
@@ -141,6 +139,21 @@ export type ListProjectsFilters = {
   limit?: number;
 };
 
+/**
+ * Loads the local-development-only Coralina preview, guarded by a direct
+ * `import.meta.env.DEV` check on the dynamic import call. Vite statically
+ * replaces `import.meta.env.DEV` with `false` in a production build, so
+ * Rollup's dead-code elimination removes this whole branch — including the
+ * `import()` call — meaning the demo-preview module (and its Coralina adapter)
+ * is never reachable from, and never bundled into, the production client.
+ * See `demo-preview.test.ts` / the production-bundle contract test for proof.
+ */
+async function loadDemoPreviewProperties(): Promise<Property[]> {
+  if (!import.meta.env.DEV) return [];
+  const { listDemoPreviewProperties } = await import("@/features/project-detail/demo-preview");
+  return listDemoPreviewProperties();
+}
+
 export const ProjectService = {
   /** Every active project, ordered: featured first, newest first. */
   async listActive(filters: ListProjectsFilters = {}): Promise<Property[]> {
@@ -155,7 +168,7 @@ export const ProjectService = {
     const { data, error } = await query;
     if (error) throw error;
     const projects = (data ?? []).map((row) => mapToProperty(row as unknown as ProjectWithRelations));
-    const previews = await listDemoPreviewProperties();
+    const previews = await loadDemoPreviewProperties();
     const combined = [...projects, ...previews];
     return filters.limit === undefined ? combined : combined.slice(0, filters.limit);
   },

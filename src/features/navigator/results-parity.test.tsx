@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -88,6 +89,34 @@ function renderWithQuery(ui: React.ReactElement) {
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
+/**
+ * Deterministically resolves the ~900ms Forever Story timer instead of waiting
+ * on real wall-clock time: fake timers are enabled only around the "Continue"
+ * click that starts the timer, the fake clock is advanced exactly 900ms inside
+ * `act`, and real timers are restored immediately after — the rest of each
+ * test's async flow (React Query resolution, user-event interactions,
+ * `findBy*`) stays on real timers, unaffected.
+ *
+ * Uses `fireEvent.click` (not `userEvent.click`) for this one click only:
+ * `userEvent` schedules internal work that never resolves once `setTimeout` is
+ * faked, even with `delay: null` (confirmed by isolating the hang). A plain
+ * `fireEvent.click` wrapped in `act` triggers the identical onClick handler
+ * synchronously with no such dependency.
+ */
+async function resolveForeverStory(continueButton: HTMLElement) {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    act(() => {
+      fireEvent.click(continueButton);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(900);
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
 /** The identical NAV-001 answer set, applied through each shell's own UI. */
 async function answerIdentically(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Begin" }));
@@ -99,12 +128,10 @@ async function answerIdentically(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("checkbox", { name: /ready now/i }));
   await user.click(screen.getByRole("button", { name: "Continue" }));
   await user.click(screen.getByRole("checkbox", { name: /rental returns/i }));
-  await user.click(screen.getByRole("button", { name: "Continue" }));
-  const confirm = await screen.findByRole(
-    "button",
-    { name: /yes, this describes me/i },
-    { timeout: 3000 },
-  );
+
+  await resolveForeverStory(screen.getByRole("button", { name: "Continue" }));
+
+  const confirm = screen.getByRole("button", { name: /yes, this describes me/i });
   await user.click(confirm);
   await screen.findByRole("heading", { name: /projects matching your preferences/i });
   await screen.findByText("The Modeva");
@@ -120,9 +147,13 @@ beforeEach(() => {
   window.sessionStorage.clear();
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("website and Booth show identical real project results for identical answers", () => {
   it("default view: same matched slugs; Browse all: same complete catalogue", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     // Website shell.
     const website = renderWithQuery(<NavigatorFlow />);
@@ -150,7 +181,7 @@ describe("website and Booth show identical real project results for identical an
   });
 
   it("website guest-facing results contain no placeholder cards and use runtime links", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const { container } = renderWithQuery(<NavigatorFlow />);
     await answerIdentically(user);
 
@@ -170,7 +201,7 @@ describe("website and Booth show identical real project results for identical an
   });
 
   it("website shows the honest fallback with the complete catalogue when nothing matches", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     // A profile with no investment intent earns no reason from this catalogue.
     const { container } = renderWithQuery(<NavigatorFlow />);
     await user.click(screen.getByRole("button", { name: "Begin" }));
@@ -182,12 +213,10 @@ describe("website and Booth show identical real project results for identical an
     await user.click(screen.getByRole("checkbox", { name: /just exploring/i }));
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await user.click(screen.getByRole("checkbox", { name: /choosing the right area/i }));
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    const confirm = await screen.findByRole(
-      "button",
-      { name: /yes, this describes me/i },
-      { timeout: 3000 },
-    );
+
+    await resolveForeverStory(screen.getByRole("button", { name: "Continue" }));
+
+    const confirm = screen.getByRole("button", { name: /yes, this describes me/i });
     await user.click(confirm);
     await screen.findByText("The Modeva");
 

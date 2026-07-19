@@ -47,8 +47,68 @@ export interface CatalogueEvaluation {
   noMatchMessage: string | null;
 }
 
-function nonEmpty(value: string | null | undefined): value is string {
-  return typeof value === "string" && value.trim().length > 0;
+/**
+ * Known "no data" sentinel strings that source records use in place of an
+ * actual absent value (e.g. a mapper writing the literal text `"Not available"`
+ * rather than `null`/`""`). Compared case- and whitespace-insensitively.
+ */
+const UNAVAILABLE_SENTINELS = new Set([
+  "",
+  "not available",
+  "n/a",
+  "na",
+  "unknown",
+  "unresolved",
+  "none",
+  "-",
+  "--",
+  "—",
+  "–",
+]);
+
+function normalizeForSentinelCheck(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** True for null/undefined and for any known "no data" sentinel string. */
+export function isUnavailableValue(value: string | null | undefined): boolean {
+  if (typeof value !== "string") return true;
+  return UNAVAILABLE_SENTINELS.has(normalizeForSentinelCheck(value));
+}
+
+/**
+ * The one reusable missing/unavailable-value guard for every matching
+ * dimension. A value only counts as a usable fact when it is a non-sentinel
+ * string — never a positive or negative signal when the underlying data is
+ * genuinely absent, "Not available", "N/A", "Unknown", "Unresolved", "None",
+ * or a bare dash/em dash.
+ */
+function hasFactualValue(value: string | null | undefined): value is string {
+  return typeof value === "string" && !isUnavailableValue(value);
+}
+
+/** Matches a plain quantified percentage figure, e.g. "6%", "6.5 %". */
+const YIELD_PERCENT_PATTERN = /(\d+(?:\.\d+)?)\s*%/;
+
+/**
+ * Parses an actually usable, quantified positive yield percentage out of a
+ * free-text rental-yield field, or `null` when the field is absent, a
+ * sentinel, unparseable, zero, or otherwise not a concrete figure. This is
+ * deliberately conservative: it never infers or invents a number, and
+ * non-quantified promotional copy ("Strong rental potential") yields `null`
+ * exactly like an unavailable sentinel does.
+ */
+export function extractQuantifiedYieldPercent(value: string | null | undefined): number | null {
+  if (!hasFactualValue(value)) return null;
+  const match = YIELD_PERCENT_PATTERN.exec(value);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return amount;
+}
+
+function hasQuantifiedPositiveYield(value: string | null | undefined): boolean {
+  return extractQuantifiedYieldPercent(value) !== null;
 }
 
 /**
@@ -76,10 +136,12 @@ export function evaluateMatch(profile: DecisionProfile, project: Property): Matc
     reasons.push({ kind: "budget", label: "Within selected budget" });
   }
 
-  // Purchase goal supported by available project evidence — an investment intent
-  // on the profile AND a rental-yield fact present on the project record. We do
-  // not fabricate a yield; we only note that the record carries the evidence.
-  if (profile.wantsInvestment && nonEmpty(project.rentalYield)) {
+  // Purchase goal supported by available project evidence — an investment
+  // intent on the profile AND an actually usable, quantified positive rental
+  // yield fact on the project record. A sentinel ("Not available", "N/A",
+  // "Unknown", …), empty value, or non-quantified promotional text produces no
+  // reason; we never fabricate or infer a yield.
+  if (profile.wantsInvestment && hasQuantifiedPositiveYield(project.rentalYield)) {
     reasons.push({
       kind: "purpose_evidence",
       label: "Purchase goal supported by available project evidence",
@@ -87,8 +149,9 @@ export function evaluateMatch(profile: DecisionProfile, project: Property): Matc
   }
 
   // Relevant source-backed location preference — only when NAV-001 has captured
-  // a preferred area (it does not today) that matches the project's location.
-  if (profile.preferredAreas.length > 0 && nonEmpty(project.location)) {
+  // a preferred area (it does not today) that matches the project's location,
+  // and the project's location is an actual value, not a sentinel.
+  if (profile.preferredAreas.length > 0 && hasFactualValue(project.location)) {
     const location = project.location.toLowerCase();
     if (profile.preferredAreas.some((area) => location.includes(area.toLowerCase()))) {
       reasons.push({
@@ -99,7 +162,9 @@ export function evaluateMatch(profile: DecisionProfile, project: Property): Matc
   }
 
   // Relevant property format — only when NAV-001 has captured a preferred
-  // property type (it does not today) that matches the project's type.
+  // property type (it does not today) that matches the project's type. This is
+  // a typed enum with no "Not available" sentinel variant, so no sentinel guard
+  // is needed here — the equality check alone is exact.
   if (
     profile.preferredPropertyTypes.length > 0 &&
     profile.preferredPropertyTypes.includes(project.propertyType)

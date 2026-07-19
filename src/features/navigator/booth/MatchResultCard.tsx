@@ -1,5 +1,5 @@
 import type { Property } from "@/lib/data";
-import { DEMO_PREVIEW_SLUG } from "@/features/project-detail/demo-preview";
+import { DEMO_PREVIEW_SLUG } from "@/features/project-detail/demo-preview-constants";
 import type { MatchReason } from "../core";
 
 /** A single factual, source-backed match reason. Bronze dot + label; never a score. */
