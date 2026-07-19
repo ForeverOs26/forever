@@ -1,0 +1,42 @@
+{
+  "intake_schema_version": "1",
+  "project_slug": "rainpalm-villas",
+  "category_counts": {
+    "brochure": 0,
+    "price-list": 1,
+    "payment-plan": 0,
+    "project-facts": 1,
+    "developer-profile": 0,
+    "master-plan": 0,
+    "floor-plan": 0,
+    "unit-plan": 0,
+    "furniture-package": 0,
+    "map-location": 0,
+    "legal-document": 0,
+    "photo": 0,
+    "video": 0,
+    "archive": 0,
+    "unknown": 0
+  },
+  "supported_count": 2,
+  "unsupported_count": 0,
+  "structured_artifacts": [
+    "root-0/project-facts.json",
+    "root-1/price-list.json"
+  ],
+  "entries": [
+    {
+      "logical_path": "root-0/project-facts.json",
+      "category": "project-facts",
+      "extraction_support": "structured",
+      "warning_codes": []
+    },
+    {
+      "logical_path": "root-1/price-list.json",
+      "category": "price-list",
+      "extraction_support": "structured",
+      "warning_codes": []
+    }
+  ],
+  "intake_warnings": []
+}

@@ -6,11 +6,11 @@ This document defines development phases, dependencies, and sequencing. It is no
 
 ## Current Development Phase
 
-Forever Partner Demo v1 is canonical and ready for presentation. Completed prerequisites: Navigator canonical, Booth canonical, Coralina local preview complete, Fast Intake v1 canonical, and the ordinary Progressive draft import canonical. The recorded product order is: partner presentation → structured partner feedback classified as demo blocker / product improvement / future roadmap idea / commercial-partnership decision → the measured Fast Intake v1 real-project pilot → the later, separate raw-document extraction stage. Coralina remains unpublished and Factory remains A0. See `docs/PARTNER_DEMO_V1.md` and `docs/CURRENT_STAGE.md`.
+Forever Partner Demo v1 is canonical and ready for presentation, pending scheduling. Completed prerequisites: Navigator canonical, Booth canonical, Coralina local preview complete, Fast Intake v1 canonical, the ordinary Progressive draft import canonical, and the Owner-brought-forward Rainpalm Fast Intake Pilot 01. The recorded product order is: partner presentation → structured partner feedback classified as demo blocker / product improvement / future roadmap idea / commercial-partnership decision, alongside the next Fast Intake design checkpoint for structured-input preparation → the later, separate raw-document extraction stage. Coralina remains unpublished and Factory remains A0. See `docs/PARTNER_DEMO_V1.md`, `docs/CURRENT_STAGE.md`, and `docs/FAST_INTAKE_PILOT_01_RAINPALM.md`.
 
 A shared Forever Navigator over two shells — the website Navigator (`/navigator`) and Booth Mode (`/booth`) — is canonical on `main`. Both shells consume a single Navigator Core, NAV-001 remains the shared source of truth, and Booth Mode is a presentation/employee workflow shell rather than a second product. Booth is intentionally not linked from normal public navigation. See `docs/CURRENT_STAGE.md`.
 
-Coralina's production draft import is completed as an unpublished draft (1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch); the local website preview is completed and Coralina stays unpublished and excluded from the production client bundle. Fast Intake v1 with a 15-minute draft target is implemented, independently Windows-validated, and canonical on `main`; Coralina remains unpublished and Factory remains A0. Fast Intake v1 prepares and validates an unpublished Progressive draft, writes local managed artifacts only, and consumes compatible already-structured extracted price-list JSON and `project-facts.json`. Raw PDFs, Excel files, images, and videos are inventoried and classified only; raw-document extraction, OCR, spreadsheet parsing, and computer vision are a later stage. The 15-minute target applies when compatible structured artifacts already exist.
+Coralina's production draft import is completed as an unpublished draft (1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch); the local website preview is completed and Coralina stays unpublished and excluded from the production client bundle. Fast Intake v1 with a 15-minute draft target is implemented, independently Windows-validated, and canonical on `main`; Coralina remains unpublished and Factory remains A0. Rainpalm Fast Intake Pilot 01 completed from two manually prepared compatible structured JSON inputs in 39.834 seconds (`target_met=true`), yielding an unpublished validated partial draft (0 buildings, 21 units, 14 prices, 12 warnings). It did not import or publish Rainpalm. Fast Intake v1 prepares and validates an unpublished Progressive draft, writes local managed artifacts only, and consumes compatible already-structured extracted price-list JSON and `project-facts.json`. Raw PDFs, Excel files, images, and videos are inventoried and classified only; raw-document extraction, OCR, spreadsheet parsing, and computer vision are a later stage. The 15-minute target applies when compatible structured artifacts already exist.
 
 Ordinary new-project persistence uses the generic Progressive draft importer. See `docs/CURRENT_STAGE.md`.
 
@@ -85,7 +85,7 @@ RC5.5D is completed, reviewed, integrated, canonically applied, and verified as 
 
 RC5.5C and RC5.5D are completed historical and exceptional maintenance capabilities for schema, migration, RPC, RLS, grant, existing-data mutation, or partial-state recovery work. They are not the ordinary new-project import workflow.
 
-Ordinary new-project import is completed and proven: one generic Progressive draft importer and visible Windows launcher perform validation, duplicate protection, one atomic RPC transaction, exact graph verification, commit, and a short post-commit check. Ordinary imports do not require `pg_stat_ssl`, platform recertification, rollback rehearsal, strict RC5.5D approval/receipt flow, project-specific launchers, or repeated infrastructure audits. The Owner-authorized Coralina draft import through the generic importer is completed (1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch). Coralina remains an unpublished draft; publication remains later and separate; Factory remains A0. Fast Intake v1 is canonical; the next checkpoint is the measured, local, non-importing, non-publishing real-project pilot.
+Ordinary new-project import is completed and proven: one generic Progressive draft importer and visible Windows launcher perform validation, duplicate protection, one atomic RPC transaction, exact graph verification, commit, and a short post-commit check. Ordinary imports do not require `pg_stat_ssl`, platform recertification, rollback rehearsal, strict RC5.5D approval/receipt flow, project-specific launchers, or repeated infrastructure audits. The Owner-authorized Coralina draft import through the generic importer is completed (1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch). Coralina remains an unpublished draft; publication remains later and separate; Factory remains A0. Fast Intake v1 is canonical; Rainpalm Pilot 01 completed as a measured, local, non-importing, non-publishing structured-input proof, and its evidence now supports the structured-input preparation design checkpoint.
 
 - RC5.5 Coralina safe execution
   - RC5.5A (completed, merged): deterministic plan hashing, explicit local/staging/production targets, pure preflight guards, and a non-persistent dry-run receipt. Production is blocked; staging is unconfigured; no database access occurs.
@@ -101,13 +101,17 @@ Ordinary new-project import is completed and proven: one generic Progressive dra
   - Collect structured partner feedback and classify it as demo blocker, product improvement, future roadmap idea, or commercial/partnership decision.
   - Apply focused corrections for confirmed demo blockers only.
 
-- Measured Fast Intake v1 real-project pilot (immediately after partner feedback)
-  - One new non-sensitive real project with compatible structured artifacts.
-  - Measure complete local preparation-and-validation time against the 15-minute target and record gaps.
-  - No automatic import, no publication, no schema/migration/RLS/backend change; Factory stays A0.
+- Rainpalm Fast Intake Pilot 01 (completed; Owner brought it forward)
+  - Measured local structured-input preparation and validation: 39.834 seconds, target met.
+  - Unpublished validated partial draft only; no database import, publication, or production write.
+  - See `docs/FAST_INTAKE_PILOT_01_RAINPALM.md` for source integrity, warnings, and gaps.
+
+- Structured-input preparation stage (next Fast Intake design checkpoint)
+  - Design the smallest source-backed preparation path from an ordinary dossier to `project-facts.json` and extracted price-list JSON.
+  - Preserve provenance and anti-fabrication controls; do not implement without separate authorization.
 
 - Raw-document extraction stage (later, separate)
-  - Raw PDF/spreadsheet/image extraction for Fast Intake, after the pilot's gaps are recorded.
+  - Raw PDF/spreadsheet/image extraction for Fast Intake after the structured-input preparation design is approved.
 
 - RC1 architecture hardening
   - Clarify canonical media flow.

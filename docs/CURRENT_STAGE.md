@@ -5,7 +5,7 @@ Last updated: 2026-07-19
 
 ## Stage name
 
-Forever Partner Demo v1 is canonical and ready for presentation. The partner presentation is the immediate product checkpoint; the measured Fast Intake v1 real-project pilot follows immediately after partner feedback. Shared Forever Navigator (website + Booth Mode), Fast Intake v1, ordinary new-project draft import simplification, and RC5.5D canonical-application closure remain canonical and unchanged.
+Forever Partner Demo v1 is canonical and ready for presentation; its presentation remains pending scheduling. The Owner brought Fast Intake Pilot 01 forward, and the measured Rainpalm Villas structured-input pilot completed locally in 39.834 seconds (`target_met=true`) without import or publication. Shared Forever Navigator (website + Booth Mode), Fast Intake v1, ordinary new-project draft import simplification, and RC5.5D canonical-application closure remain canonical and unchanged.
 
 Completed prerequisites for this stage:
 
@@ -92,20 +92,21 @@ The ordinary draft importer does not authorize publication. Schema, migration, R
 
 ## Active tasks
 
-| Task                                                                | Owner             | Status                                                                |
-| ------------------------------------------------------------------- | ----------------- | --------------------------------------------------------------------- |
-| RC5.5D exceptional maintenance capability                           | Owner / Architect | Completed and retained                                                |
-| Generic Progressive draft-import simplification                     | Codex / Owner     | Completed                                                             |
-| Owner-authorized Coralina draft import through the generic importer | Owner             | Completed - draft only, unpublished                                   |
-| Shared Navigator: website + Booth Mode over one Navigator Core      | Codex / Owner     | Completed and canonical on `main`                                     |
-| Fast Intake v1 with a 15-minute draft target                        | Codex / Owner     | Implemented, independently Windows-validated, and canonical on `main` |
-| Partner Demo v1 (runbook, launcher, no-write lead demo mode)        | Claude / Owner    | Completed and canonical on `main`                                     |
-| Present Partner Demo v1 to the partner                              | Owner             | Immediate next checkpoint                                             |
-| Publication of any imported draft                                   | Owner             | Later, separate action                                                |
+| Task                                                                | Owner             | Status                                                                   |
+| ------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------ |
+| RC5.5D exceptional maintenance capability                           | Owner / Architect | Completed and retained                                                   |
+| Generic Progressive draft-import simplification                     | Codex / Owner     | Completed                                                                |
+| Owner-authorized Coralina draft import through the generic importer | Owner             | Completed - draft only, unpublished                                      |
+| Shared Navigator: website + Booth Mode over one Navigator Core      | Codex / Owner     | Completed and canonical on `main`                                        |
+| Fast Intake v1 with a 15-minute draft target                        | Codex / Owner     | Implemented, independently Windows-validated, and canonical on `main`    |
+| Rainpalm Fast Intake Pilot 01                                       | Codex / Owner     | Completed locally — 39.834s, unpublished partial draft, ready for review |
+| Partner Demo v1 (runbook, launcher, no-write lead demo mode)        | Claude / Owner    | Completed and canonical on `main`                                        |
+| Present Partner Demo v1 to the partner                              | Owner             | Immediate next checkpoint                                                |
+| Publication of any imported draft                                   | Owner             | Later, separate action                                                   |
 
 ## Next checkpoint
 
-Present Forever Partner Demo v1 to the partner using `docs/PARTNER_DEMO_V1.md`, collect structured feedback, and classify every item as one of:
+Present Forever Partner Demo v1 to the partner when scheduling permits, using `docs/PARTNER_DEMO_V1.md`, collect structured feedback, and classify every item as one of:
 
 - demo blocker;
 - product improvement;
@@ -114,7 +115,7 @@ Present Forever Partner Demo v1 to the partner using `docs/PARTNER_DEMO_V1.md`, 
 
 ## Following checkpoint
 
-After partner feedback is collected and classified: run the measured Fast Intake v1 pilot on one new non-sensitive real project with compatible structured artifacts, measure the complete local preparation-and-validation time against the 15-minute target, and record gaps before starting the separate raw-document extraction stage. This pilot must not automatically import or publish the project.
+Use the measured Rainpalm evidence in `docs/FAST_INTAKE_PILOT_01_RAINPALM.md` to design the smallest source-backed structured-input preparation stage for an ordinary project dossier. Do not implement that stage without separate authorization. The pilot prepared and validated an unpublished draft only; Rainpalm was neither imported nor published.
 
 ## Acceptance criteria for the next checkpoint
 

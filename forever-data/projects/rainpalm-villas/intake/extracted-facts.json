@@ -1,0 +1,72 @@
+{
+  "intake_schema_version": "1",
+  "project_slug": "rainpalm-villas",
+  "project": {
+    "name": {
+      "value": "Rainpalm Villas",
+      "provenance": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "For PDF Presentation.pdf#page=1",
+        "confidence": 1
+      }
+    },
+    "developer_name_raw": {
+      "value": "Tonsai Company",
+      "provenance": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "For PDF Presentation.pdf#page=3",
+        "confidence": 1
+      }
+    },
+    "location_name_raw": {
+      "value": "Bang Tao, Phuket",
+      "provenance": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "For PDF Presentation.pdf#pages=7-8",
+        "confidence": 1
+      }
+    },
+    "location_area": {
+      "value": "Bang Tao",
+      "provenance": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "For PDF Presentation.pdf#pages=7-8",
+        "confidence": 1
+      }
+    },
+    "project_type": {
+      "value": "Pool Villa",
+      "provenance": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "For PDF Presentation.pdf#page=1",
+        "confidence": 1
+      }
+    },
+    "short_description": {
+      "value": "Luxury Modern Tropical Villa",
+      "provenance": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "For PDF Presentation.pdf#page=5",
+        "confidence": 1
+      }
+    }
+  },
+  "price_list": {
+    "source_logical_path": "root-1/price-list.json",
+    "price_list_date": null,
+    "row_count": 21,
+    "priced_row_count": 14,
+    "country_currency_evidence": null
+  },
+  "counts": {
+    "buildings": 0,
+    "units": 21,
+    "prices": 14
+  }
+}
