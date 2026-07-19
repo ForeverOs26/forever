@@ -1,336 +1,45 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 
+import { projectListQuery } from "@/lib/project-service";
 import ChoiceGroup from "./ChoiceGroup";
 import NoteField from "./NoteField";
 import PrimaryActionBar from "./PrimaryActionBar";
 import ProgressHeader from "./ProgressHeader";
 import "./navigator-flow.css";
 
-const WHY_PHUKET_OPTIONS = [
-  { key: "second_home", label: "A second home by the sea" },
-  { key: "retirement", label: "Retirement in a warmer place" },
-  { key: "investment", label: "Investment & rental yield" },
-  { key: "asia_base", label: "A base in Asia" },
-  { key: "slower_life", label: "A slower way of living" },
-  { key: "family", label: "Somewhere for the family" },
-] as const;
-
-const SUCCESS_OPTIONS = [
-  { key: "financial_security", label: "Financial security" },
-  { key: "feels_like_home", label: "A place that feels like home" },
-  { key: "rental_income", label: "Steady rental income" },
-  { key: "freedom", label: "Freedom to travel" },
-  { key: "legacy", label: "A legacy for my family" },
-  { key: "peace_privacy", label: "Peace and privacy" },
-] as const;
-
-const BUDGET_OPTIONS = [
-  { key: "lt_250k", label: "Under $250k" },
-  { key: "250_500k", label: "$250k–500k" },
-  { key: "500k_1m", label: "$500k–1M" },
-  { key: "1m_2_5m", label: "$1M–2.5M" },
-  { key: "gt_2_5m", label: "$2.5M+" },
-  { key: "exploring", label: "Still exploring" },
-] as const;
-
-const TIMELINE_OPTIONS = [
-  { key: "ready_now", label: "Ready now" },
-  { key: "3_6m", label: "3–6 months" },
-  { key: "6_12m", label: "6–12 months" },
-  { key: "exploring", label: "Just exploring" },
-] as const;
-
-const CONCERN_OPTIONS = [
-  { key: "ownership", label: "Legal & ownership rules" },
-  { key: "developer_trust", label: "Trusting the developer" },
-  { key: "rental_returns", label: "Rental returns" },
-  { key: "resale", label: "Resale & liquidity" },
-  { key: "remote_mgmt", label: "Managing it from abroad" },
-  { key: "area_choice", label: "Choosing the right area" },
-] as const;
-
-type MotivationKey = (typeof WHY_PHUKET_OPTIONS)[number]["key"];
-type GoalKey = (typeof SUCCESS_OPTIONS)[number]["key"];
-type BudgetKey = (typeof BUDGET_OPTIONS)[number]["key"];
-type TimelineKey = (typeof TIMELINE_OPTIONS)[number]["key"];
-type ConcernKey = (typeof CONCERN_OPTIONS)[number]["key"];
-type StoryStatus = "idle" | "loading" | "resolved" | "error";
-
-interface LocalRecommendation {
-  primaryRecommendation: string;
-  whyItFits: string;
-  investmentProfile: string;
-  suggestedProjects: {
-    title: string;
-    description: string;
-  }[];
-}
-
-interface StoryFacet {
-  label: string;
-  value: string;
-}
-
-interface LocalForeverStory {
-  reflection: string;
-  facets: StoryFacet[];
-  profileLabel: string;
-  profileDescription: string;
-}
-
-const DEFAULT_FOREVER_STORY: LocalForeverStory = {
-  reflection:
-    "You're not rushing toward Phuket — you're moving toward a certain kind of life. A place by the sea where things slow down, that's genuinely yours and genuinely private. You'd like to feel sure of the decision, which is why the ownership questions matter to you more than the view. There's no hurry. You'll know it when it's right.",
-  facets: [
-    {
-      label: "Why Phuket",
-      value: "A second home by the sea, and a slower way of living.",
-    },
-    {
-      label: "What you're hoping for",
-      value: "Somewhere that feels like home — with real peace and privacy.",
-    },
-    {
-      label: "What matters most",
-      value: "Certainty over yield. You'd rather be right than quick.",
-    },
-    {
-      label: "Where you feel unsure",
-      value: "Legal & ownership — the part that feels least familiar.",
-    },
-    {
-      label: "Your horizon",
-      value: "Unhurried — six to twelve months, ready when it's right.",
-    },
-  ],
-  profileLabel: "The Considered Retreat-Seeker",
-  profileDescription:
-    "You'll choose slowly, and once. Guidance matters more to you than options — you want the right decision, not the most choice.",
-};
-
-const DEFAULT_RECOMMENDATION: LocalRecommendation = {
-  primaryRecommendation: "A verified Phuket property shortlist",
-  whyItFits:
-    "You are still shaping the decision, so the right first step is a calm shortlist that compares ownership clarity, area fit, budget comfort, and long-term confidence before narrowing to a specific project type.",
-  investmentProfile:
-    "Balanced explorer: needs clarity before commitment, with room to compare lifestyle and investment tradeoffs.",
-  suggestedProjects: [
-    {
-      title: "Verified entry villas",
-      description:
-        "Placeholder cards for ownership-friendly villas with practical management options.",
-    },
-    {
-      title: "Low-rise coastal residences",
-      description: "Placeholder cards for quiet, easier-to-hold residences near established areas.",
-    },
-    {
-      title: "Rental-ready condominiums",
-      description: "Placeholder cards for managed units with clearer rental assumptions.",
-    },
-  ],
-};
-
-const getOptionLabel = <T extends string>(
-  options: readonly { key: T; label: string }[],
-  key: T | null,
-) => options.find((option) => option.key === key)?.label ?? "";
-
-const getOptionLabels = <T extends string>(
-  options: readonly { key: T; label: string }[],
-  keys: T[],
-) =>
-  keys
-    .map((key) => options.find((option) => option.key === key)?.label)
-    .filter((label): label is string => Boolean(label));
-
-function humanizeList(values: string[]) {
-  if (values.length === 0) {
-    return "";
-  }
-
-  if (values.length === 1) {
-    return values[0];
-  }
-
-  if (values.length === 2) {
-    return `${values[0]} and ${values[1]}`;
-  }
-
-  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
-}
-
-function buildLocalForeverStory({
-  motivations,
-  goals,
-  budget,
-  timeline,
-  concerns,
-}: {
-  motivations: MotivationKey[];
-  goals: GoalKey[];
-  budget: BudgetKey | null;
-  timeline: TimelineKey | null;
-  concerns: ConcernKey[];
-}): LocalForeverStory {
-  if (
-    motivations.length === 0 ||
-    goals.length === 0 ||
-    !budget ||
-    !timeline ||
-    concerns.length === 0
-  ) {
-    return DEFAULT_FOREVER_STORY;
-  }
-
-  const whyLabels = getOptionLabels(WHY_PHUKET_OPTIONS, motivations);
-  const goalLabels = getOptionLabels(SUCCESS_OPTIONS, goals);
-  const concernLabels = getOptionLabels(CONCERN_OPTIONS, concerns);
-  const why = humanizeList(whyLabels).toLowerCase();
-  const success = humanizeList(goalLabels).toLowerCase();
-  const concern = humanizeList(concernLabels).toLowerCase();
-  const budgetLabel = getOptionLabel(BUDGET_OPTIONS, budget).toLowerCase();
-  const timelineLabel = getOptionLabel(TIMELINE_OPTIONS, timeline).toLowerCase();
-
-  return {
-    reflection: `You're drawn to Phuket for ${why}. Success, for you, looks like ${success} — and with ${budgetLabel} over ${timelineLabel}, the thing that matters most is navigating ${concern}.`,
-    facets: [
-      { label: "Why Phuket", value: `${humanizeList(whyLabels)}.` },
-      {
-        label: "What you're hoping for",
-        value: `${humanizeList(goalLabels)}.`,
-      },
-      {
-        label: "What matters most",
-        value: concerns.includes("ownership")
-          ? "Certainty over yield. You'd rather be right than quick."
-          : "A clear decision that fits the life you're trying to build.",
-      },
-      {
-        label: "Where you feel unsure",
-        value: `${humanizeList(concernLabels)}.`,
-      },
-      {
-        label: "Your horizon",
-        value: `${getOptionLabel(TIMELINE_OPTIONS, timeline)} — ready when it's right.`,
-      },
-    ],
-    profileLabel: "The Considered Retreat-Seeker",
-    profileDescription:
-      "You'll choose slowly, and once. Guidance matters more to you than options — you want the right decision, not the most choice.",
-  };
-}
-
-function buildLocalRecommendation({
-  motivations,
-  goals,
-  budget,
-  timeline,
-  concerns,
-}: {
-  motivations: MotivationKey[];
-  goals: GoalKey[];
-  budget: BudgetKey | null;
-  timeline: TimelineKey | null;
-  concerns: ConcernKey[];
-}): LocalRecommendation {
-  if (
-    motivations.length === 0 ||
-    goals.length === 0 ||
-    !budget ||
-    !timeline ||
-    concerns.length === 0
-  ) {
-    return DEFAULT_RECOMMENDATION;
-  }
-
-  if (goals.includes("rental_income") || motivations.includes("investment")) {
-    return {
-      primaryRecommendation: "Rental-ready residences with professional management",
-      whyItFits:
-        "Your answers point toward income discipline and easier remote ownership. A managed residence gives you clearer operating assumptions before you compare individual projects.",
-      investmentProfile:
-        timeline === "ready_now" || timeline === "3_6m"
-          ? "Yield-aware investor: ready to compare verified rental assumptions and near-term availability."
-          : "Patient income planner: focused on rental logic, but still needs time to compare areas and management quality.",
-      suggestedProjects: [
-        {
-          title: "Managed coastal condominium",
-          description: "Placeholder card for a furnished unit with rental program comparison.",
-        },
-        {
-          title: "Hotel-managed residence",
-          description: "Placeholder card for branded operations and simpler owner use windows.",
-        },
-        {
-          title: "Resale liquidity watchlist",
-          description: "Placeholder card for projects with stronger secondary-market signals.",
-        },
-      ],
-    };
-  }
-
-  if (
-    goals.includes("peace_privacy") ||
-    motivations.includes("slower_life") ||
-    motivations.includes("retirement")
-  ) {
-    return {
-      primaryRecommendation: "Private low-density villas in established lifestyle areas",
-      whyItFits:
-        "You are optimizing for calm, privacy, and a decision you can live with. A low-density villa path keeps the search focused on comfort, ownership clarity, and day-to-day livability.",
-      investmentProfile:
-        budget === "lt_250k" || budget === "250_500k"
-          ? "Lifestyle-led buyer: careful on budget, with fit and clarity carrying more weight than maximum yield."
-          : "Lifestyle-led capital preserver: values privacy, quality, and long holding confidence.",
-      suggestedProjects: [
-        {
-          title: "Quiet private villa",
-          description:
-            "Placeholder card for low-density homes with practical maintenance planning.",
-        },
-        {
-          title: "Retreat-style residence",
-          description: "Placeholder card for calmer locations with stronger everyday comfort.",
-        },
-        {
-          title: "Ownership clarity shortlist",
-          description:
-            "Placeholder card for projects screened around legal structure and handover risk.",
-        },
-      ],
-    };
-  }
-
-  if (goals.includes("legacy") || motivations.includes("family")) {
-    return {
-      primaryRecommendation: "Family-sized residences with long-hold fundamentals",
-      whyItFits:
-        "Your answers suggest the property needs to work for more than one trip or one season. The first screen should favor space, durability, area convenience, and future flexibility.",
-      investmentProfile:
-        "Long-hold family allocator: prioritizes reliability, usable space, and a decision that remains sensible over time.",
-      suggestedProjects: [
-        {
-          title: "Three-bedroom residence",
-          description: "Placeholder card for practical layouts suited to repeat family stays.",
-        },
-        {
-          title: "Established-area villa",
-          description:
-            "Placeholder card for access to services, beaches, and long-term convenience.",
-        },
-        {
-          title: "Legacy shortlist",
-          description:
-            "Placeholder card for durable projects with clearer ownership documentation.",
-        },
-      ],
-    };
-  }
-
-  return DEFAULT_RECOMMENDATION;
-}
+import {
+  BUDGET_OPTIONS,
+  CONCERN_OPTIONS,
+  SUCCESS_OPTIONS,
+  TIMELINE_OPTIONS,
+  WHY_PHUKET_OPTIONS,
+  budgetLabel,
+  buildForeverStory,
+  buildProjectPath,
+  buildRecommendationPath,
+  concernLabels,
+  deriveDecisionProfile,
+  emptyAnswers,
+  evaluateCatalogue,
+  goalLabels,
+  humanizeList,
+  motivationLabels,
+  timelineLabel,
+  toggleMaxThree,
+  toggleSingle,
+  visibleResults,
+  type BudgetKey,
+  type ConcernKey,
+  type ForeverStory,
+  type GoalKey,
+  type MotivationKey,
+  type NavigatorAnswers,
+  type RecommendationPath,
+  type StoryStatus,
+  type TimelineKey,
+} from "../core";
 
 function ScreenFrame({ children }: { children: ReactNode }) {
   return <main className="navigator-screen">{children}</main>;
@@ -610,7 +319,7 @@ function ForeverStoryScreen({
   onConfirm,
   onRetry,
 }: {
-  story: LocalForeverStory | null;
+  story: ForeverStory | null;
   status: StoryStatus;
   onChangeSomething: () => void;
   onConfirm: () => void;
@@ -725,13 +434,27 @@ function ForeverStoryScreen({
 }
 
 function RecommendationScreen({
+  answers,
   recommendation,
   onContinue,
 }: {
-  recommendation: LocalRecommendation;
+  answers: NavigatorAnswers;
+  recommendation: RecommendationPath;
   onContinue: () => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const [browseAll, setBrowseAll] = useState(false);
+
+  // Same real result engine as Booth Mode: ProjectService catalogue evaluated
+  // by the shared deterministic evaluator. Identical answers and catalogue data
+  // therefore show identical project records in both modes.
+  const catalogue = useQuery(projectListQuery());
+  const profile = useMemo(() => deriveDecisionProfile(answers), [answers]);
+  const evaluation = useMemo(
+    () => evaluateCatalogue(profile, catalogue.data ?? []),
+    [profile, catalogue.data],
+  );
+  const shown = visibleResults(evaluation, browseAll);
 
   useEffect(() => {
     headingRef.current?.focus();
@@ -782,20 +505,80 @@ function RecommendationScreen({
             className="navigator-recommendation__projects"
             aria-labelledby="navigator-projects-title"
           >
-            <h3 id="navigator-projects-title">Suggested first projects</h3>
-            <div className="navigator-recommendation__project-list">
-              {recommendation.suggestedProjects.map((project, index) => (
-                <article
-                  key={project.title}
-                  className="navigator-recommendation__project"
-                  style={{ "--navigator-story-delay": `${index * 60}ms` } as CSSProperties}
+            <h3 id="navigator-projects-title">Projects matching your preferences</h3>
+
+            {catalogue.isLoading ? (
+              <p className="navigator-story__muted" aria-live="polite">
+                Loading available projects…
+              </p>
+            ) : catalogue.isError ? (
+              <div>
+                <p className="navigator-story__muted">
+                  The catalogue couldn&apos;t load. Check the connection and retry.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => catalogue.refetch()}
+                  className="mt-3 min-h-[44px] rounded-[12px] bg-[#17150F] px-5 text-[14px] font-[600] text-white outline-none focus-visible:ring-2 focus-visible:ring-[#9C7B4C] focus-visible:ring-offset-2"
                 >
-                  <p>{String(index + 1).padStart(2, "0")}</p>
-                  <h4>{project.title}</h4>
-                  <span>{project.description}</span>
-                </article>
-              ))}
-            </div>
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <>
+                {evaluation.noMatchMessage ? (
+                  <p className="navigator-story__muted">{evaluation.noMatchMessage}</p>
+                ) : null}
+
+                <div className="navigator-recommendation__project-list">
+                  {shown.map(({ project, reasons }, index) => (
+                    <article
+                      key={project.slug}
+                      data-project-slug={project.slug}
+                      className="navigator-recommendation__project"
+                      style={{ "--navigator-story-delay": `${index * 60}ms` } as CSSProperties}
+                    >
+                      <p>{String(index + 1).padStart(2, "0")}</p>
+                      <h4>{project.name}</h4>
+                      {project.location ? <span>{project.location}</span> : null}
+                      {reasons.length > 0 ? (
+                        <ul aria-label={`Why ${project.name} is shown`} className="mt-2 flex flex-wrap gap-2">
+                          {reasons.map((reason) => (
+                            <li
+                              key={reason.kind}
+                              className="inline-flex items-center gap-2 rounded-full border border-[#E3DED4] bg-[#FBFAF7] px-3 py-1 text-[12px] font-[600] text-[#3A362E]"
+                            >
+                              <span
+                                aria-hidden="true"
+                                className="h-[6px] w-[6px] rounded-full bg-[#9C7B4C]"
+                              />
+                              {reason.label}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      {project.price ? <span>{project.price}</span> : null}
+                      <a
+                        href={buildProjectPath(project.slug)}
+                        className="mt-2 inline-flex min-h-[44px] items-center text-[14px] font-[600] text-[#9C7B4C] underline-offset-4 outline-none hover:text-[#17150F] hover:underline focus-visible:ring-2 focus-visible:ring-[#9C7B4C]"
+                      >
+                        View project
+                      </a>
+                    </article>
+                  ))}
+                </div>
+
+                {evaluation.hasSupportedMatch && !browseAll ? (
+                  <button
+                    type="button"
+                    onClick={() => setBrowseAll(true)}
+                    className="mt-4 min-h-[44px] rounded-[12px] border border-[#EAE6DE] bg-white px-5 text-[14px] font-[600] text-[#57534A] outline-none hover:bg-[#FBFAF7] focus-visible:ring-2 focus-visible:ring-[#9C7B4C] focus-visible:ring-offset-2"
+                  >
+                    Browse all projects
+                  </button>
+                ) : null}
+              </>
+            )}
           </section>
         </section>
       </ScreenFrame>
@@ -815,18 +598,15 @@ function AdvisorInvitationScreen({
 }: {
   motivations: MotivationKey[];
   goals: GoalKey[];
-  recommendation: LocalRecommendation;
+  recommendation: RecommendationPath;
   concerns: ConcernKey[];
   budget: BudgetKey | null;
   timeline: TimelineKey | null;
   onContinue: () => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const priorityLabels = [
-    ...getOptionLabels(WHY_PHUKET_OPTIONS, motivations),
-    ...getOptionLabels(SUCCESS_OPTIONS, goals),
-  ];
-  const concernLabels = getOptionLabels(CONCERN_OPTIONS, concerns);
+  const priorityLabels = [...motivationLabels(motivations), ...goalLabels(goals)];
+  const concernLabelList = concernLabels(concerns);
 
   useEffect(() => {
     headingRef.current?.focus();
@@ -859,13 +639,13 @@ function AdvisorInvitationScreen({
               </div>
               <div className="navigator-advisor__row">
                 <dt>Biggest concern</dt>
-                <dd>{humanizeList(concernLabels) || "Not specified"}</dd>
+                <dd>{humanizeList(concernLabelList) || "Not specified"}</dd>
               </div>
               <div className="navigator-advisor__row">
                 <dt>Budget summary</dt>
                 <dd>
-                  {budget ? getOptionLabel(BUDGET_OPTIONS, budget) : "Still exploring"}
-                  {timeline ? ` · ${getOptionLabel(TIMELINE_OPTIONS, timeline)}` : ""}
+                  {budget ? budgetLabel(budget) : "Still exploring"}
+                  {timeline ? ` · ${timelineLabel(timeline)}` : ""}
                 </dd>
               </div>
             </dl>
@@ -934,24 +714,13 @@ function ConfirmationScreen({ onStartAgain }: { onStartAgain: () => void }) {
   );
 }
 
-function toggleMaxThree<T>(value: T, values: T[]) {
-  if (values.includes(value)) {
-    return values.filter((currentValue) => currentValue !== value);
-  }
-
-  return [...values, value].slice(-3);
-}
-
 export function NavigatorFlow() {
   const [step, setStep] = useState(0);
-  const [motivations, setMotivations] = useState<MotivationKey[]>([]);
-  const [goals, setGoals] = useState<GoalKey[]>([]);
-  const [budget, setBudget] = useState<BudgetKey | null>(null);
-  const [timeline, setTimeline] = useState<TimelineKey | null>(null);
-  const [concerns, setConcerns] = useState<ConcernKey[]>([]);
-  const [freeNote, setFreeNote] = useState("");
+  const [answers, setAnswers] = useState(emptyAnswers);
   const [storyStatus, setStoryStatus] = useState<StoryStatus>("idle");
-  const [foreverStory, setForeverStory] = useState<LocalForeverStory | null>(null);
+  const [foreverStory, setForeverStory] = useState<ForeverStory | null>(null);
+
+  const { motivations, goals, budget, timeline, concerns, note: freeNote } = answers;
 
   useEffect(() => {
     if (storyStatus !== "loading") {
@@ -959,20 +728,12 @@ export function NavigatorFlow() {
     }
 
     const timeoutId = window.setTimeout(() => {
-      setForeverStory(
-        buildLocalForeverStory({
-          motivations,
-          goals,
-          budget,
-          timeline,
-          concerns,
-        }),
-      );
+      setForeverStory(buildForeverStory(answers));
       setStoryStatus("resolved");
     }, 900);
 
     return () => window.clearTimeout(timeoutId);
-  }, [budget, concerns, goals, motivations, storyStatus, timeline]);
+  }, [answers, storyStatus]);
 
   const beginStoryGeneration = () => {
     setForeverStory(null);
@@ -981,24 +742,13 @@ export function NavigatorFlow() {
   };
 
   const startAgain = () => {
-    setMotivations([]);
-    setGoals([]);
-    setBudget(null);
-    setTimeline(null);
-    setConcerns([]);
-    setFreeNote("");
+    setAnswers(emptyAnswers());
     setStoryStatus("idle");
     setForeverStory(null);
     setStep(0);
   };
 
-  const recommendation = buildLocalRecommendation({
-    motivations,
-    goals,
-    budget,
-    timeline,
-    concerns,
-  });
+  const recommendation = buildRecommendationPath(answers);
 
   const renderScreen = () => {
     switch (step) {
@@ -1010,9 +760,10 @@ export function NavigatorFlow() {
             motivations={motivations}
             onContinue={() => setStep(2)}
             onToggleMotivation={(motivation) => {
-              setMotivations((currentMotivations) =>
-                toggleMaxThree(motivation, currentMotivations),
-              );
+              setAnswers((current) => ({
+                ...current,
+                motivations: toggleMaxThree(motivation, current.motivations),
+              }));
             }}
           />
         );
@@ -1022,7 +773,10 @@ export function NavigatorFlow() {
             goals={goals}
             onContinue={() => setStep(3)}
             onToggleGoal={(goal) => {
-              setGoals((currentGoals) => toggleMaxThree(goal, currentGoals));
+              setAnswers((current) => ({
+                ...current,
+                goals: toggleMaxThree(goal, current.goals),
+              }));
             }}
           />
         );
@@ -1033,12 +787,16 @@ export function NavigatorFlow() {
             timeline={timeline}
             onContinue={() => setStep(4)}
             onToggleBudget={(nextBudget) => {
-              setBudget((currentBudget) => (currentBudget === nextBudget ? null : nextBudget));
+              setAnswers((current) => ({
+                ...current,
+                budget: toggleSingle(nextBudget, current.budget),
+              }));
             }}
             onToggleTimeline={(nextTimeline) => {
-              setTimeline((currentTimeline) =>
-                currentTimeline === nextTimeline ? null : nextTimeline,
-              );
+              setAnswers((current) => ({
+                ...current,
+                timeline: toggleSingle(nextTimeline, current.timeline),
+              }));
             }}
           />
         );
@@ -1048,9 +806,14 @@ export function NavigatorFlow() {
             concerns={concerns}
             note={freeNote}
             onContinue={beginStoryGeneration}
-            onNoteChange={setFreeNote}
+            onNoteChange={(nextNote) =>
+              setAnswers((current) => ({ ...current, note: nextNote }))
+            }
             onToggleConcern={(concern) => {
-              setConcerns((currentConcerns) => toggleMaxThree(concern, currentConcerns));
+              setAnswers((current) => ({
+                ...current,
+                concerns: toggleMaxThree(concern, current.concerns),
+              }));
             }}
           />
         );
@@ -1066,7 +829,11 @@ export function NavigatorFlow() {
         );
       case 6:
         return (
-          <RecommendationScreen recommendation={recommendation} onContinue={() => setStep(7)} />
+          <RecommendationScreen
+            answers={answers}
+            recommendation={recommendation}
+            onContinue={() => setStep(7)}
+          />
         );
       case 7:
         return (

@@ -8,8 +8,9 @@
  */
 import type { Property } from "@/lib/data";
 import type { ProjectDetail } from "./project-detail-types";
+import { DEMO_PREVIEW_SLUG } from "./demo-preview-constants";
 
-export const DEMO_PREVIEW_SLUG = "coralina";
+export { DEMO_PREVIEW_SLUG };
 
 const loadDemoPreviewAdapter = import.meta.env.DEV
   ? () => import("@/features/coralina-integration/adapters/coralina-project-detail")
