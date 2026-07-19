@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 
+import { projectListQuery } from "@/lib/project-service";
 import ChoiceGroup from "./ChoiceGroup";
 import NoteField from "./NoteField";
 import PrimaryActionBar from "./PrimaryActionBar";
@@ -15,20 +17,25 @@ import {
   WHY_PHUKET_OPTIONS,
   budgetLabel,
   buildForeverStory,
+  buildProjectPath,
   buildRecommendationPath,
   concernLabels,
+  deriveDecisionProfile,
   emptyAnswers,
+  evaluateCatalogue,
   goalLabels,
   humanizeList,
   motivationLabels,
   timelineLabel,
   toggleMaxThree,
   toggleSingle,
+  visibleResults,
   type BudgetKey,
   type ConcernKey,
   type ForeverStory,
   type GoalKey,
   type MotivationKey,
+  type NavigatorAnswers,
   type RecommendationPath,
   type StoryStatus,
   type TimelineKey,
@@ -427,13 +434,27 @@ function ForeverStoryScreen({
 }
 
 function RecommendationScreen({
+  answers,
   recommendation,
   onContinue,
 }: {
+  answers: NavigatorAnswers;
   recommendation: RecommendationPath;
   onContinue: () => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const [browseAll, setBrowseAll] = useState(false);
+
+  // Same real result engine as Booth Mode: ProjectService catalogue evaluated
+  // by the shared deterministic evaluator. Identical answers and catalogue data
+  // therefore show identical project records in both modes.
+  const catalogue = useQuery(projectListQuery());
+  const profile = useMemo(() => deriveDecisionProfile(answers), [answers]);
+  const evaluation = useMemo(
+    () => evaluateCatalogue(profile, catalogue.data ?? []),
+    [profile, catalogue.data],
+  );
+  const shown = visibleResults(evaluation, browseAll);
 
   useEffect(() => {
     headingRef.current?.focus();
@@ -484,20 +505,80 @@ function RecommendationScreen({
             className="navigator-recommendation__projects"
             aria-labelledby="navigator-projects-title"
           >
-            <h3 id="navigator-projects-title">Suggested first projects</h3>
-            <div className="navigator-recommendation__project-list">
-              {recommendation.suggestedProjects.map((project, index) => (
-                <article
-                  key={project.title}
-                  className="navigator-recommendation__project"
-                  style={{ "--navigator-story-delay": `${index * 60}ms` } as CSSProperties}
+            <h3 id="navigator-projects-title">Projects matching your preferences</h3>
+
+            {catalogue.isLoading ? (
+              <p className="navigator-story__muted" aria-live="polite">
+                Loading available projects…
+              </p>
+            ) : catalogue.isError ? (
+              <div>
+                <p className="navigator-story__muted">
+                  The catalogue couldn&apos;t load. Check the connection and retry.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => catalogue.refetch()}
+                  className="mt-3 min-h-[44px] rounded-[12px] bg-[#17150F] px-5 text-[14px] font-[600] text-white outline-none focus-visible:ring-2 focus-visible:ring-[#9C7B4C] focus-visible:ring-offset-2"
                 >
-                  <p>{String(index + 1).padStart(2, "0")}</p>
-                  <h4>{project.title}</h4>
-                  <span>{project.description}</span>
-                </article>
-              ))}
-            </div>
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <>
+                {evaluation.noMatchMessage ? (
+                  <p className="navigator-story__muted">{evaluation.noMatchMessage}</p>
+                ) : null}
+
+                <div className="navigator-recommendation__project-list">
+                  {shown.map(({ project, reasons }, index) => (
+                    <article
+                      key={project.slug}
+                      data-project-slug={project.slug}
+                      className="navigator-recommendation__project"
+                      style={{ "--navigator-story-delay": `${index * 60}ms` } as CSSProperties}
+                    >
+                      <p>{String(index + 1).padStart(2, "0")}</p>
+                      <h4>{project.name}</h4>
+                      {project.location ? <span>{project.location}</span> : null}
+                      {reasons.length > 0 ? (
+                        <ul aria-label={`Why ${project.name} is shown`} className="mt-2 flex flex-wrap gap-2">
+                          {reasons.map((reason) => (
+                            <li
+                              key={reason.kind}
+                              className="inline-flex items-center gap-2 rounded-full border border-[#E3DED4] bg-[#FBFAF7] px-3 py-1 text-[12px] font-[600] text-[#3A362E]"
+                            >
+                              <span
+                                aria-hidden="true"
+                                className="h-[6px] w-[6px] rounded-full bg-[#9C7B4C]"
+                              />
+                              {reason.label}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      {project.price ? <span>{project.price}</span> : null}
+                      <a
+                        href={buildProjectPath(project.slug)}
+                        className="mt-2 inline-flex min-h-[44px] items-center text-[14px] font-[600] text-[#9C7B4C] underline-offset-4 outline-none hover:text-[#17150F] hover:underline focus-visible:ring-2 focus-visible:ring-[#9C7B4C]"
+                      >
+                        View project
+                      </a>
+                    </article>
+                  ))}
+                </div>
+
+                {evaluation.hasSupportedMatch && !browseAll ? (
+                  <button
+                    type="button"
+                    onClick={() => setBrowseAll(true)}
+                    className="mt-4 min-h-[44px] rounded-[12px] border border-[#EAE6DE] bg-white px-5 text-[14px] font-[600] text-[#57534A] outline-none hover:bg-[#FBFAF7] focus-visible:ring-2 focus-visible:ring-[#9C7B4C] focus-visible:ring-offset-2"
+                  >
+                    Browse all projects
+                  </button>
+                ) : null}
+              </>
+            )}
           </section>
         </section>
       </ScreenFrame>
@@ -748,7 +829,11 @@ export function NavigatorFlow() {
         );
       case 6:
         return (
-          <RecommendationScreen recommendation={recommendation} onContinue={() => setStep(7)} />
+          <RecommendationScreen
+            answers={answers}
+            recommendation={recommendation}
+            onContinue={() => setStep(7)}
+          />
         );
       case 7:
         return (

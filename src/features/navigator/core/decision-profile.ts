@@ -42,14 +42,26 @@ export function emptyAnswers(): NavigatorAnswers {
   };
 }
 
-/**
- * Approximate USD→THB band boundary used only to compare a NAV-001 budget band
- * against a project's `startingPriceTHB`. It is a matching threshold, never a
- * quoted price — no converted figure is ever shown to a guest.
- */
-export const USD_TO_THB = 35;
+export type CurrencyCode = "USD" | "THB";
 
-const BUDGET_CEILING_USD: Record<BudgetKey, number | null> = {
+/** The currency the approved NAV-001 budget bands are quoted in. */
+export const NAV001_BUDGET_CURRENCY: CurrencyCode = "USD";
+
+/**
+ * A budget ceiling that carries its currency. The matching evaluator may only
+ * compare it against a project price expressed in the SAME canonical currency —
+ * no exchange rate is invented anywhere in the Navigator. Today the NAV-001
+ * bands are USD while project starting prices are THB, so budget matching is
+ * honestly unavailable (missing comparable currency data, not a negative
+ * match). A future canonical currency-normalized budget can populate a THB
+ * ceiling here without any change to the website or Booth shells.
+ */
+export interface BudgetCeiling {
+  amount: number;
+  currency: CurrencyCode;
+}
+
+const BUDGET_CEILING_AMOUNT: Record<BudgetKey, number | null> = {
   lt_250k: 250_000,
   "250_500k": 500_000,
   "500k_1m": 1_000_000,
@@ -58,13 +70,12 @@ const BUDGET_CEILING_USD: Record<BudgetKey, number | null> = {
   exploring: null, // no budget fact -> no budget-based reason
 };
 
-/** Upper THB bound implied by the selected budget band, or null when unknown. */
-export function budgetCeilingTHB(budget: BudgetKey | null): number | null {
+/** The ceiling implied by the selected NAV-001 band, or null when unknown. */
+export function budgetCeiling(budget: BudgetKey | null): BudgetCeiling | null {
   if (!budget) return null;
-  const usd = BUDGET_CEILING_USD[budget];
-  if (usd === null) return null;
-  if (usd === Number.POSITIVE_INFINITY) return Number.POSITIVE_INFINITY;
-  return usd * USD_TO_THB;
+  const amount = BUDGET_CEILING_AMOUNT[budget];
+  if (amount === null) return null;
+  return { amount, currency: NAV001_BUDGET_CURRENCY };
 }
 
 /**
@@ -84,7 +95,7 @@ export interface DecisionProfile {
   concerns: ConcernKey[];
   note: string;
   isComplete: boolean;
-  budgetCeilingTHB: number | null;
+  budgetCeiling: BudgetCeiling | null;
   wantsInvestment: boolean;
   preferredAreas: string[];
   preferredPropertyTypes: PropertyType[];
@@ -114,7 +125,7 @@ export function deriveDecisionProfile(answers: NavigatorAnswers): DecisionProfil
     concerns: [...answers.concerns],
     note: answers.note,
     isComplete: isProfileComplete(answers),
-    budgetCeilingTHB: budgetCeilingTHB(answers.budget),
+    budgetCeiling: budgetCeiling(answers.budget),
     wantsInvestment,
     // NAV-001 collects neither of these facts today.
     preferredAreas: [],

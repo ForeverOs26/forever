@@ -123,7 +123,10 @@ describe("booth lead payload maps to the existing lead-service contract", () => 
     expect(message).toContain("Confirmed Forever Story");
     expect(message).toContain("Recommendation path");
     expect(message).toContain("The Modeva"); // selected project
-    expect(message).toContain("Within selected budget"); // supported reason
+    // Supported reason: rental-yield evidence. No budget reason may appear —
+    // USD bands and THB prices are not comparable without a canonical rate.
+    expect(message).toContain("Purchase goal supported by available project evidence");
+    expect(message).not.toContain("Within selected budget");
     expect(message).toContain("Serious buyer, ready this quarter"); // staff note
     // Deterministic: same inputs, same output.
     expect(buildInput().message).toBe(buildInput().message);

@@ -121,7 +121,7 @@ describe("editing an answer recalculates downstream state", () => {
   });
 
   it("marks incomplete profiles and falls back to the default story", () => {
-    const partial = { ...emptyAnswers(), motivations: ["family"] as const };
+    const partial: NavigatorAnswers = { ...emptyAnswers(), motivations: ["family"] };
     expect(deriveDecisionProfile(partial).isComplete).toBe(false);
     expect(buildForeverStory(partial).profileLabel).toBe("The Considered Retreat-Seeker");
   });

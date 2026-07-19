@@ -18,7 +18,7 @@ The ordinary new-project persistence path is simplified to one generic Progressi
 
 RC5.5D remains completed, canonically applied, and verified, but is historical or exceptional maintenance capability rather than the ordinary import workflow. Schema, migration, RPC, RLS, grant, existing-data mutation, and partial-state recovery work use that separate maintenance path.
 
-No production connection occurred during this simplification and Coralina has not been imported. Publication remains a later separate action. Factory autonomy remains A0.
+The Coralina production draft import through the generic importer is completed: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch. Coralina remains an unpublished draft; publication remains a later separate action. Factory autonomy remains A0.
 
 RC5.5D Live Execution Boundary Preparation is completed, reviewed, integrated, canonically applied, and verified.
 
@@ -29,7 +29,7 @@ RC5.5D Live Execution Boundary Preparation is completed, reviewed, integrated, c
 - The manual logical backup was completed and verified before application.
 - No migration retry, repair, `GRANT`, or `REVOKE` is required.
 
-The retained RC5.5D boundary remains disabled for ordinary imports; it exists for exceptional maintenance only. Coralina has not been imported and Factory autonomy remains A0.
+The retained RC5.5D boundary remains disabled for ordinary imports; it exists for exceptional maintenance only. Coralina is imported as an unpublished draft and Factory autonomy remains A0.
 
 ## Completed Milestones
 
@@ -46,7 +46,7 @@ The retained RC5.5D boundary remains disabled for ordinary imports; it exists fo
 
 ## Current Tasks and Authorization Boundary
 
-The next checkpoint is Owner-authorized Coralina draft import through the generic importer. Independent review and Owner approval are required before merge because this is an R2 shared write pathway. The importer creates a draft only; publication remains separately authorized.
+The Owner-authorized Coralina draft import through the generic importer is completed as a draft only; publication remains separately authorized. The current implementation task is the shared Navigator (website + Booth Mode) in PR #84, pending independent review. The next product checkpoint is Fast Intake v1 with a 15-minute draft target.
 
 Ordinary imports must not trigger platform recertification, a production rollback rehearsal, strict RC5.5D approval/receipt flow, `pg_stat_ssl`, project-specific production launchers, or repeated preflight/postflight infrastructure audits.
 
@@ -55,13 +55,13 @@ The retained RC5.5D approval and execution controls apply only when exceptional 
 ## Blockers and Gates
 
 - Coralina has no knowledge-readiness blocker; RC5.4 resolved `developer` and `country` from official sources.
-- Coralina awaits Owner authorization to use the generic draft importer after this R2 PR receives independent review.
+- Coralina is imported as a draft; it awaits a separate Owner publication decision and remains excluded from production behavior.
 - Modeva's Project Knowledge Platform readiness remains separately blocked by the absence of a committed developer package, even though Modeva itself is already live from FDB-003C.
 - Future project onboarding requires committed source material under `forever-data/projects/{project_slug}/`.
 
 ## Database Status
 
-Modeva remains imported and validated with 7 buildings, 289 units, and 289 unit price-history rows. RC5.5D migration `20260715120000` exists exactly once in the canonical database as part of the exceptional-maintenance boundary. Coralina has not been imported.
+Modeva remains imported and validated with 7 buildings, 289 units, and 289 unit price-history rows. RC5.5D migration `20260715120000` exists exactly once in the canonical database as part of the exceptional-maintenance boundary. Coralina is imported as an unpublished draft: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch.
 
 ## Website and Architecture Status
 

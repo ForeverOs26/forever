@@ -56,7 +56,10 @@ export function MatchResultCard({
   const hasImage = Boolean(project.image);
 
   return (
-    <article className="flex flex-col overflow-hidden rounded-[18px] border border-[#E3DED4] bg-white">
+    <article
+      data-project-slug={project.slug}
+      className="flex flex-col overflow-hidden rounded-[18px] border border-[#E3DED4] bg-white"
+    >
       <div className="relative aspect-[16/9] w-full overflow-hidden bg-[#ECEAE3]">
         {hasImage ? (
           <img

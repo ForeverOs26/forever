@@ -3,11 +3,15 @@ import { describe, expect, it } from "vitest";
 import type { Property } from "@/lib/data";
 import {
   NO_EXACT_MATCH_MESSAGE,
+  PROJECT_PRICE_CURRENCY,
   deriveDecisionProfile,
   evaluateCatalogue,
   evaluateMatch,
+  visibleResults,
+  type DecisionProfile,
   type NavigatorAnswers,
 } from "./index";
+import * as coreModule from "./index";
 
 function property(overrides: Partial<Property> = {}): Property {
   return {
@@ -59,38 +63,70 @@ function property(overrides: Partial<Property> = {}): Property {
 const investorAnswers: NavigatorAnswers = {
   motivations: ["investment"],
   goals: ["rental_income"],
-  budget: "500k_1m", // ceiling 35,000,000 THB
+  budget: "500k_1m", // USD band — NOT comparable to THB prices
   timeline: "ready_now",
   concerns: ["rental_returns"],
   note: "",
 };
 
-describe("evaluateMatch — only source-backed reasons", () => {
-  it("emits no fabricated reason for sparse project data (Modeva-like null price)", () => {
-    const profile = deriveDecisionProfile(investorAnswers);
-    const sparse = property({ slug: "the-modeva-bang-tao", startingPriceTHB: 0, rentalYield: "" });
-    expect(evaluateMatch(profile, sparse)).toEqual([]);
+/** A hypothetical future profile whose budget is canonically THB-normalized. */
+function thbProfile(amount: number): DecisionProfile {
+  return {
+    ...deriveDecisionProfile(investorAnswers),
+    budgetCeiling: { amount, currency: "THB" },
+  };
+}
+
+describe("no fixed FX conversion exists", () => {
+  it("exports no USD_TO_THB constant and no THB-converting ceiling helper", () => {
+    const exported = coreModule as Record<string, unknown>;
+    expect(exported.USD_TO_THB).toBeUndefined();
+    expect(exported.budgetCeilingTHB).toBeUndefined();
   });
 
-  it("emits Within selected budget only when both sides have the fact", () => {
+  it("keeps the NAV-001 USD budget band as raw data on the profile", () => {
     const profile = deriveDecisionProfile(investorAnswers);
+    expect(profile.budget).toBe("500k_1m");
+    expect(profile.budgetCeiling).toEqual({ amount: 1_000_000, currency: "USD" });
+    expect(PROJECT_PRICE_CURRENCY).toBe("THB");
+  });
+});
+
+describe("evaluateMatch — only source-backed reasons", () => {
+  it("emits NO budget reason across incomparable currencies (USD band vs THB price)", () => {
+    // Missing comparable currency data is missing data, never a negative match.
+    const profile = deriveDecisionProfile(investorAnswers);
+    const priced = property({ startingPriceTHB: 20_000_000 });
+    expect(evaluateMatch(profile, priced).map((r) => r.kind)).not.toContain("budget");
+  });
+
+  it("emits a budget reason once a canonically comparable THB ceiling exists", () => {
+    // Future currency-normalized budget: same evaluator, no shell change.
     const inBudget = property({ startingPriceTHB: 20_000_000 });
     const overBudget = property({ startingPriceTHB: 90_000_000 });
+    expect(evaluateMatch(thbProfile(35_000_000), inBudget).map((r) => r.kind)).toContain("budget");
+    expect(evaluateMatch(thbProfile(35_000_000), overBudget).map((r) => r.kind)).not.toContain(
+      "budget",
+    );
+  });
 
-    expect(evaluateMatch(profile, inBudget).map((r) => r.kind)).toContain("budget");
-    expect(evaluateMatch(profile, overBudget).map((r) => r.kind)).not.toContain("budget");
+  it("emits no fabricated reason for sparse project data (Modeva-like null price)", () => {
+    const sparse = property({ slug: "the-modeva-bang-tao", startingPriceTHB: 0, rentalYield: "" });
+    expect(evaluateMatch(thbProfile(35_000_000), sparse)).toEqual([]);
+    expect(evaluateMatch(deriveDecisionProfile(investorAnswers), sparse)).toEqual([]);
   });
 
   it("does not emit a budget reason when the guest is still exploring budget", () => {
     const profile = deriveDecisionProfile({ ...investorAnswers, budget: "exploring" });
+    expect(profile.budgetCeiling).toBeNull();
     const priced = property({ startingPriceTHB: 20_000_000 });
     expect(evaluateMatch(profile, priced).map((r) => r.kind)).not.toContain("budget");
   });
 
   it("notes purchase-goal evidence only when the record carries a rental yield", () => {
     const profile = deriveDecisionProfile(investorAnswers);
-    const withYield = property({ startingPriceTHB: 10_000_000, rentalYield: "6% net" });
-    const withoutYield = property({ startingPriceTHB: 10_000_000, rentalYield: "" });
+    const withYield = property({ rentalYield: "6% net" });
+    const withoutYield = property({ rentalYield: "" });
 
     expect(evaluateMatch(profile, withYield).map((r) => r.kind)).toContain("purpose_evidence");
     expect(evaluateMatch(profile, withoutYield).map((r) => r.kind)).not.toContain(
@@ -109,7 +145,27 @@ describe("evaluateMatch — only source-backed reasons", () => {
   });
 });
 
-describe("evaluateCatalogue — no-match fallback + browse all", () => {
+describe("evaluateCatalogue — matched/all contract", () => {
+  it("separates matchedResults from allResults, preserving catalogue order", () => {
+    const profile = deriveDecisionProfile(investorAnswers);
+    const catalogue = [
+      property({ slug: "sparse-first" }),
+      property({ slug: "with-yield", rentalYield: "6%" }),
+      property({ slug: "sparse-last" }),
+    ];
+    const result = evaluateCatalogue(profile, catalogue);
+
+    expect(result.hasSupportedMatch).toBe(true);
+    expect(result.noMatchMessage).toBeNull();
+    expect(result.matchedResults.map((r) => r.project.slug)).toEqual(["with-yield"]);
+    // Complete catalogue, original order, no invented ranking.
+    expect(result.allResults.map((r) => r.project.slug)).toEqual([
+      "sparse-first",
+      "with-yield",
+      "sparse-last",
+    ]);
+  });
+
   it("uses the honest no-exact-match line when nothing earns a reason", () => {
     const profile = deriveDecisionProfile(investorAnswers);
     const catalogue = [
@@ -120,23 +176,37 @@ describe("evaluateCatalogue — no-match fallback + browse all", () => {
 
     expect(result.hasSupportedMatch).toBe(false);
     expect(result.noMatchMessage).toBe(NO_EXACT_MATCH_MESSAGE);
-    // Every project is still returned so the employee can browse/select any.
-    expect(result.results.map((r) => r.project.slug)).toEqual([
+    expect(result.matchedResults).toEqual([]);
+    expect(result.allResults.map((r) => r.project.slug)).toEqual([
       "the-modeva-bang-tao",
       "coralina",
     ]);
   });
+});
 
-  it("drops the fallback line once any project earns a supported reason", () => {
-    const profile = deriveDecisionProfile(investorAnswers);
-    const catalogue = [
-      property({ slug: "priced", startingPriceTHB: 15_000_000 }),
-      property({ slug: "sparse", startingPriceTHB: 0 }),
-    ];
-    const result = evaluateCatalogue(profile, catalogue);
+describe("visibleResults — shared presentation rule for both shells", () => {
+  const profile = deriveDecisionProfile(investorAnswers);
+  const catalogue = [
+    property({ slug: "matched", rentalYield: "6%" }),
+    property({ slug: "unmatched" }),
+  ];
 
-    expect(result.hasSupportedMatch).toBe(true);
-    expect(result.noMatchMessage).toBeNull();
-    expect(result.results).toHaveLength(2); // browse-all preserved
+  it("shows only matched projects by default when supported matches exist", () => {
+    const evaluation = evaluateCatalogue(profile, catalogue);
+    expect(visibleResults(evaluation, false).map((r) => r.project.slug)).toEqual(["matched"]);
+  });
+
+  it("shows the complete catalogue on Browse all projects", () => {
+    const evaluation = evaluateCatalogue(profile, catalogue);
+    expect(visibleResults(evaluation, true).map((r) => r.project.slug)).toEqual([
+      "matched",
+      "unmatched",
+    ]);
+  });
+
+  it("shows the complete catalogue under the fallback when nothing matched", () => {
+    const evaluation = evaluateCatalogue(profile, [property({ slug: "a" }), property({ slug: "b" })]);
+    expect(evaluation.noMatchMessage).toBe(NO_EXACT_MATCH_MESSAGE);
+    expect(visibleResults(evaluation, false).map((r) => r.project.slug)).toEqual(["a", "b"]);
   });
 });

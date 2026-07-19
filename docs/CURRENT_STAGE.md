@@ -23,9 +23,9 @@ Ordinary new-project draft import simplification, after RC5.5D canonical-applica
 
 ## Current milestone
 
-RC5.5D remains completed, canonically applied, and verified as an exceptional maintenance capability. Ordinary new-project persistence is now one generic Progressive draft-import path: payload validation, duplicate check, one atomic Progressive RPC transaction, exact graph verification, `COMMIT`, and a short post-commit verification.
+RC5.5D remains completed, canonically applied, and verified as an exceptional maintenance capability. Ordinary new-project persistence is one generic Progressive draft-import path: payload validation, duplicate check, one atomic Progressive RPC transaction, exact graph verification, `COMMIT`, and a short post-commit verification.
 
-The simplification was local-only: no production connection occurred and Coralina has not been imported. Publication remains a later, separate action.
+The Coralina production draft import through that generic importer is completed: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch. Coralina remains an unpublished draft; publication is a later, separate action. The local website preview of Coralina is completed.
 
 ## Current authorization and safety state
 
@@ -33,7 +33,7 @@ Current state remains:
 
 - live capability is disabled;
 - no executor credential has been provisioned for live use;
-- Coralina has not been imported;
+- Coralina is imported as a draft only and remains unpublished;
 - Factory autonomy remains A0 - Propose only.
 
 The ordinary draft importer does not authorize publication. Schema, migration, RPC, RLS, grant, existing-data mutation, and partial-state recovery work remains exceptional maintenance subject to its own review and validation.
@@ -43,20 +43,21 @@ The ordinary draft importer does not authorize publication. Schema, migration, R
 | Task | Owner | Status |
 | --- | --- | --- |
 | RC5.5D exceptional maintenance capability | Owner / Architect | Completed and retained |
-| Generic Progressive draft-import simplification | Codex / Owner | Pending independent review and Owner approval in this R2 PR |
-| Owner-authorized Coralina draft import through the generic importer | Owner | Next checkpoint - not started |
+| Generic Progressive draft-import simplification | Codex / Owner | Completed |
+| Owner-authorized Coralina draft import through the generic importer | Owner | Completed - draft only, unpublished |
+| Shared Navigator: website + Booth Mode over one Navigator Core | Claude Code / Owner | Implemented in PR #84 - pending independent review |
+| Fast Intake v1 with a 15-minute draft target | Owner | Next checkpoint - not started |
 | Publication of any imported draft | Owner | Later, separate action |
 
 ## Next checkpoint
 
-Owner-authorized Coralina draft import through `scripts/import/Import-ForeverProjectDraft.ps1`. The Owner supplies ordinary connection settings and a password interactively; the generic importer validates the existing payload, rejects duplicates, persists exactly one draft graph atomically through the Progressive RPC, verifies it, and commits. It does not publish the project.
+Fast Intake v1 with a 15-minute draft target: from received project source material to a validated draft graph through the generic importer in fifteen minutes or less, without publication.
 
 ## Acceptance criteria for the next checkpoint
 
-- Owner explicitly authorizes the Coralina draft import after independent review of this R2 change.
-- The existing Coralina payload and Progressive migration hashes match their recorded values.
-- The generic importer reports a completed exact draft graph and post-commit check, or fails without a partial import.
-- Publication is not performed by the import checkpoint.
+- A new project's source material reaches a validated, unpublished draft graph through the ordinary generic importer within the 15-minute target.
+- No publication is performed by the intake path.
+- No schema, migration, RPC, RLS, or grant work occurs in the ordinary path.
 - Factory autonomy remains A0.
 
 ## Out of scope
@@ -67,4 +68,4 @@ Owner-authorized Coralina draft import through `scripts/import/Import-ForeverPro
 
 ## Definition of done
 
-The next checkpoint is complete when the Owner-authorized Coralina payload is imported as a verified draft through the generic importer, with no publication action and Factory autonomy remaining A0.
+The next checkpoint is complete when Fast Intake v1 produces a validated, unpublished draft within the 15-minute target through the ordinary generic importer, with no publication action and Factory autonomy remaining A0.

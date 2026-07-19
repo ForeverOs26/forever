@@ -16,10 +16,13 @@
  */
 
 import type { Property } from "@/lib/data";
-import type { DecisionProfile } from "./decision-profile";
+import type { CurrencyCode, DecisionProfile } from "./decision-profile";
 
 export const NO_EXACT_MATCH_MESSAGE =
   "No exact match found — showing available projects for discussion";
+
+/** The canonical currency of `Property.startingPriceTHB`. */
+export const PROJECT_PRICE_CURRENCY: CurrencyCode = "THB";
 
 export type MatchReasonKind = "budget" | "purpose_evidence" | "location" | "property_format";
 
@@ -34,7 +37,10 @@ export interface MatchResult {
 }
 
 export interface CatalogueEvaluation {
-  results: MatchResult[];
+  /** Projects with at least one supported factual reason, in catalogue order. */
+  matchedResults: MatchResult[];
+  /** The complete available catalogue, in catalogue order. */
+  allResults: MatchResult[];
   /** True when at least one project earned a supported factual reason. */
   hasSupportedMatch: boolean;
   /** The heading fallback line to show when no supported match exists. */
@@ -53,12 +59,19 @@ function nonEmpty(value: string | null | undefined): value is string {
 export function evaluateMatch(profile: DecisionProfile, project: Property): MatchReason[] {
   const reasons: MatchReason[] = [];
 
-  // Within selected budget — needs a budget band AND a real starting price.
-  // Modeva's null starting_price_thb (mapped to 0) yields no reason, honestly.
+  // Within selected budget — needs a stated budget ceiling AND a real project
+  // price expressed in the SAME canonical currency. NAV-001 bands are USD and
+  // `startingPriceTHB` is THB; no exchange rate is invented here, so across
+  // incomparable currencies this reason is unavailable. That is missing
+  // comparable currency data, never a negative match. A future canonical
+  // currency-normalized ceiling (currency "THB") lights this up in both modes
+  // with no shell change. Modeva's null starting_price_thb (mapped to 0)
+  // likewise yields no reason, honestly.
   if (
-    profile.budgetCeilingTHB !== null &&
+    profile.budgetCeiling !== null &&
+    profile.budgetCeiling.currency === PROJECT_PRICE_CURRENCY &&
     project.startingPriceTHB > 0 &&
-    project.startingPriceTHB <= profile.budgetCeilingTHB
+    project.startingPriceTHB <= profile.budgetCeiling.amount
   ) {
     reasons.push({ kind: "budget", label: "Within selected budget" });
   }
@@ -98,23 +111,45 @@ export function evaluateMatch(profile: DecisionProfile, project: Property): Matc
 }
 
 /**
- * Evaluate the whole catalogue. Every project is always returned so the guest or
- * employee can browse and select any of them; the flag and message drive only the
- * honest no-exact-match heading.
+ * Evaluate the whole catalogue — the single result engine for BOTH shells.
+ *
+ * `allResults` always carries the complete catalogue so the guest or employee
+ * can browse and select any project; `matchedResults` is the subset with at
+ * least one supported factual reason. Catalogue order is preserved exactly as
+ * ProjectService delivers it (featured first, then creation order) — matched
+ * projects are never re-ranked by any invented score.
  */
 export function evaluateCatalogue(
   profile: DecisionProfile,
   projects: Property[],
 ): CatalogueEvaluation {
-  const results = projects.map((project) => ({
+  const allResults = projects.map((project) => ({
     project,
     reasons: evaluateMatch(profile, project),
   }));
-  const hasSupportedMatch = results.some((result) => result.reasons.length > 0);
+  const matchedResults = allResults.filter((result) => result.reasons.length > 0);
+  const hasSupportedMatch = matchedResults.length > 0;
 
   return {
-    results,
+    matchedResults,
+    allResults,
     hasSupportedMatch,
     noMatchMessage: hasSupportedMatch ? null : NO_EXACT_MATCH_MESSAGE,
   };
+}
+
+/**
+ * Shared presentation rule for which results a shell displays:
+ *   • supported matches exist → `matchedResults`;
+ *   • "Browse all projects"   → `allResults`;
+ *   • no supported match      → `allResults` (under the honest fallback line).
+ * Both shells route through this one function so their visible project sets can
+ * never diverge for identical answers and catalogue data.
+ */
+export function visibleResults(
+  evaluation: CatalogueEvaluation,
+  browseAll: boolean,
+): MatchResult[] {
+  if (browseAll || !evaluation.hasSupportedMatch) return evaluation.allResults;
+  return evaluation.matchedResults;
 }

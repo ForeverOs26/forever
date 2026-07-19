@@ -14,16 +14,10 @@
 
 import { isProfileComplete, type NavigatorAnswers } from "./decision-profile";
 
-export interface RecommendationPathProject {
-  title: string;
-  description: string;
-}
-
 export interface RecommendationPath {
   primaryRecommendation: string;
   whyItFits: string;
   investmentProfile: string;
-  suggestedProjects: RecommendationPathProject[];
 }
 
 export const DEFAULT_RECOMMENDATION_PATH: RecommendationPath = {
@@ -32,21 +26,6 @@ export const DEFAULT_RECOMMENDATION_PATH: RecommendationPath = {
     "You are still shaping the decision, so the right first step is a calm shortlist that compares ownership clarity, area fit, budget comfort, and long-term confidence before narrowing to a specific project type.",
   investmentProfile:
     "Balanced explorer: needs clarity before commitment, with room to compare lifestyle and investment tradeoffs.",
-  suggestedProjects: [
-    {
-      title: "Verified entry villas",
-      description:
-        "Placeholder cards for ownership-friendly villas with practical management options.",
-    },
-    {
-      title: "Low-rise coastal residences",
-      description: "Placeholder cards for quiet, easier-to-hold residences near established areas.",
-    },
-    {
-      title: "Rental-ready condominiums",
-      description: "Placeholder cards for managed units with clearer rental assumptions.",
-    },
-  ],
 };
 
 export function buildRecommendationPath(answers: NavigatorAnswers): RecommendationPath {
@@ -65,20 +44,6 @@ export function buildRecommendationPath(answers: NavigatorAnswers): Recommendati
         timeline === "ready_now" || timeline === "3_6m"
           ? "Yield-aware investor: ready to compare verified rental assumptions and near-term availability."
           : "Patient income planner: focused on rental logic, but still needs time to compare areas and management quality.",
-      suggestedProjects: [
-        {
-          title: "Managed coastal condominium",
-          description: "Placeholder card for a furnished unit with rental program comparison.",
-        },
-        {
-          title: "Hotel-managed residence",
-          description: "Placeholder card for branded operations and simpler owner use windows.",
-        },
-        {
-          title: "Resale liquidity watchlist",
-          description: "Placeholder card for projects with stronger secondary-market signals.",
-        },
-      ],
     };
   }
 
@@ -95,22 +60,6 @@ export function buildRecommendationPath(answers: NavigatorAnswers): Recommendati
         budget === "lt_250k" || budget === "250_500k"
           ? "Lifestyle-led buyer: careful on budget, with fit and clarity carrying more weight than maximum yield."
           : "Lifestyle-led capital preserver: values privacy, quality, and long holding confidence.",
-      suggestedProjects: [
-        {
-          title: "Quiet private villa",
-          description:
-            "Placeholder card for low-density homes with practical maintenance planning.",
-        },
-        {
-          title: "Retreat-style residence",
-          description: "Placeholder card for calmer locations with stronger everyday comfort.",
-        },
-        {
-          title: "Ownership clarity shortlist",
-          description:
-            "Placeholder card for projects screened around legal structure and handover risk.",
-        },
-      ],
     };
   }
 
@@ -121,22 +70,6 @@ export function buildRecommendationPath(answers: NavigatorAnswers): Recommendati
         "Your answers suggest the property needs to work for more than one trip or one season. The first screen should favor space, durability, area convenience, and future flexibility.",
       investmentProfile:
         "Long-hold family allocator: prioritizes reliability, usable space, and a decision that remains sensible over time.",
-      suggestedProjects: [
-        {
-          title: "Three-bedroom residence",
-          description: "Placeholder card for practical layouts suited to repeat family stays.",
-        },
-        {
-          title: "Established-area villa",
-          description:
-            "Placeholder card for access to services, beaches, and long-term convenience.",
-        },
-        {
-          title: "Legacy shortlist",
-          description:
-            "Placeholder card for durable projects with clearer ownership documentation.",
-        },
-      ],
     };
   }
 

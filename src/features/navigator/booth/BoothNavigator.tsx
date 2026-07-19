@@ -28,6 +28,7 @@ import {
   humanizeList,
   motivationLabels,
   NO_EXACT_MATCH_MESSAGE,
+  visibleResults,
   type BoothContactDetails,
   type CatalogueEvaluation,
   type ForeverStory,
@@ -618,6 +619,11 @@ function ResultsView({
   onCopyLink: (slug: string) => void;
   onSelect: (slug: string) => void;
 }) {
+  const [browseAll, setBrowseAll] = useState(false);
+  // Same shared presentation rule as the website: matched by default, all on
+  // Browse-all, all under the honest fallback when nothing matched.
+  const shown = visibleResults(evaluation, browseAll);
+
   return (
     <div className="mx-auto max-w-[1000px]">
       <SectionHeading eyebrow="Matching projects" title="Projects matching your preferences" />
@@ -648,24 +654,36 @@ function ResultsView({
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-          {evaluation.results.map(({ project, reasons }) => (
-            <MatchResultCard
-              key={project.slug}
-              project={project}
-              reasons={reasons}
-              onOpen={() => onOpen(project.slug)}
-              onCopyLink={() => onCopyLink(project.slug)}
-              onSelect={() => onSelect(project.slug)}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+            {shown.map(({ project, reasons }) => (
+              <MatchResultCard
+                key={project.slug}
+                project={project}
+                reasons={reasons}
+                onOpen={() => onOpen(project.slug)}
+                onCopyLink={() => onCopyLink(project.slug)}
+                onSelect={() => onSelect(project.slug)}
+              />
+            ))}
+          </div>
+
+          {evaluation.hasSupportedMatch && !browseAll ? (
+            <button
+              type="button"
+              onClick={() => setBrowseAll(true)}
+              className="mt-5 min-h-[48px] rounded-[13px] border border-[#EAE6DE] bg-white px-5 text-[14px] font-[600] text-[#57534A] outline-none hover:bg-[#FBFAF7] focus-visible:ring-2 focus-visible:ring-[#9C7B4C] focus-visible:ring-offset-2"
+            >
+              Browse all projects
+            </button>
+          ) : null}
+        </>
       )}
 
       <p className="mt-6 text-[13px] text-[#8A857A]">
-        {NO_EXACT_MATCH_MESSAGE === evaluation.noMatchMessage
-          ? "Browse all projects above — any can be opened or selected for discussion."
-          : "Every active project is available to browse and select."}
+        {evaluation.noMatchMessage || browseAll
+          ? "Every active project is shown — any can be opened or selected for discussion."
+          : "Browse all projects shows the complete catalogue."}
       </p>
     </div>
   );
