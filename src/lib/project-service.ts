@@ -72,7 +72,9 @@ function mapToProperty(row: ProjectWithRelations): Property {
   const brochures = media.filter((m) => m.media_type === "brochure").map((m) => m.url);
   const videos = media.filter((m) => m.media_type === "video").map((m) => m.url);
   const masterPlan = media.find((m) => m.media_type === "master_plan")?.url;
-  const unitPlanPdf = media.find((m) => m.media_type === "unit_plan" && /\.pdf($|\?)/i.test(m.url))?.url;
+  const unitPlanPdf = media.find(
+    (m) => m.media_type === "unit_plan" && /\.pdf($|\?)/i.test(m.url),
+  )?.url;
   const priceList = media.find((m) => m.media_type === "price_list")?.url;
 
   const image = resolveImage(row.main_image_url, row.image_key);
@@ -154,9 +156,27 @@ async function loadDemoPreviewProperties(): Promise<Property[]> {
   return listDemoPreviewProperties();
 }
 
+/**
+ * Returns `null` outside the launcher-controlled Partner Demo. A non-null
+ * result is authoritative and prevents any Supabase query for that request.
+ */
+async function loadPartnerDemoProperties(): Promise<Property[] | null> {
+  if (!import.meta.env.DEV) return null;
+  const { listPartnerDemoProperties } = await import("@/features/project-detail/partner-demo-data");
+  return listPartnerDemoProperties();
+}
+
 export const ProjectService = {
   /** Every active project, ordered: featured first, newest first. */
   async listActive(filters: ListProjectsFilters = {}): Promise<Property[]> {
+    const partnerDemoProjects = await loadPartnerDemoProperties();
+    if (partnerDemoProjects) {
+      const selected = filters.featuredOnly
+        ? partnerDemoProjects.filter((project) => project.slug === "modeva")
+        : partnerDemoProjects;
+      return filters.limit === undefined ? selected : selected.slice(0, filters.limit);
+    }
+
     let query = supabase
       .from("projects")
       .select(SELECT)
@@ -167,7 +187,9 @@ export const ProjectService = {
     if (filters.featuredOnly) query = query.eq("is_featured", true);
     const { data, error } = await query;
     if (error) throw error;
-    const projects = (data ?? []).map((row) => mapToProperty(row as unknown as ProjectWithRelations));
+    const projects = (data ?? []).map((row) =>
+      mapToProperty(row as unknown as ProjectWithRelations),
+    );
     const previews = await loadDemoPreviewProperties();
     const combined = [...projects, ...previews];
     return filters.limit === undefined ? combined : combined.slice(0, filters.limit);
@@ -175,6 +197,11 @@ export const ProjectService = {
 
   /** Single active project by slug, or `null` if not found / inactive. */
   async getBySlug(slug: string): Promise<Property | null> {
+    const partnerDemoProjects = await loadPartnerDemoProperties();
+    if (partnerDemoProjects) {
+      return partnerDemoProjects.find((project) => project.slug === slug) ?? null;
+    }
+
     const { data, error } = await supabase
       .from("projects")
       .select(SELECT)
@@ -188,10 +215,10 @@ export const ProjectService = {
 
   /** Slugs only — cheap query for sitemap / static enumeration. */
   async listActiveSlugs(): Promise<string[]> {
-    const { data, error } = await supabase
-      .from("projects")
-      .select("slug")
-      .eq("is_active", true);
+    const partnerDemoProjects = await loadPartnerDemoProperties();
+    if (partnerDemoProjects) return partnerDemoProjects.map((project) => project.slug);
+
+    const { data, error } = await supabase.from("projects").select("slug").eq("is_active", true);
     if (error) throw error;
     return (data ?? []).map((r) => r.slug);
   },
@@ -201,8 +228,7 @@ export const ProjectService = {
 
 export const projectKeys = {
   all: ["projects"] as const,
-  list: (filters: ListProjectsFilters = {}) =>
-    ["projects", "list", filters] as const,
+  list: (filters: ListProjectsFilters = {}) => ["projects", "list", filters] as const,
   detail: (slug: string) => ["projects", "detail", slug] as const,
 };
 

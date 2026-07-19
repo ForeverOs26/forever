@@ -5,6 +5,7 @@ import {
   validateLead,
   type LeadValidationErrors,
 } from "@/lib/lead-service";
+import { isDemoLeadModeEnabled } from "@/lib/partner-demo-mode";
 import type { BoothContactDetails, LeadStatus } from "../core";
 
 interface FieldProps {
@@ -39,7 +40,9 @@ function Field({
       >
         {label}
         {required ? <span className="text-[#9C7B4C]"> *</span> : null}
-        {optionalHint ? <span className="ml-1 font-[400] text-[#A29C90]">{optionalHint}</span> : null}
+        {optionalHint ? (
+          <span className="ml-1 font-[400] text-[#A29C90]">{optionalHint}</span>
+        ) : null}
       </label>
       <input
         id={id}
@@ -96,6 +99,7 @@ export function BoothLeadForm({
   const [errors, setErrors] = useState<LeadValidationErrors>({});
 
   const submitting = status === "submitting";
+  const isDemoMode = import.meta.env.DEV && isDemoLeadModeEnabled();
 
   function update<K extends keyof BoothContactDetails>(key: K, value: string) {
     setContact((current) => ({ ...current, [key]: value }));
@@ -197,7 +201,13 @@ export function BoothLeadForm({
             : "bg-[#17150F] text-white active:translate-y-px",
         ].join(" ")}
       >
-        {submitting ? "Saving…" : "Save lead"}
+        {submitting
+          ? isDemoMode
+            ? "Validating…"
+            : "Saving…"
+          : isDemoMode
+            ? "Validate contact"
+            : "Save lead"}
       </button>
     </form>
   );

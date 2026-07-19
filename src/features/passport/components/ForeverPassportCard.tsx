@@ -51,10 +51,7 @@ function ScoreEvidenceRow({ score }: { score: PassportScore }) {
         className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted"
         aria-label={`${score.label} score ${score.score} out of ${score.maxScore}`}
       >
-        <div
-          className="h-full rounded-full bg-primary"
-          style={{ width: `${score.score}%` }}
-        />
+        <div className="h-full rounded-full bg-primary" style={{ width: `${score.score}%` }} />
       </div>
     </div>
   );
@@ -69,7 +66,9 @@ function SummaryBlock({
   section: PassportSection;
   tone?: "neutral" | "risk";
 }) {
-  const visibleItems = section.items.filter((item) => item.value !== null && item.value !== undefined && item.value !== "");
+  const visibleItems = section.items.filter(
+    (item) => item.value !== null && item.value !== undefined && item.value !== "",
+  );
   const Icon = tone === "risk" ? AlertTriangle : ClipboardCheck;
 
   return (
@@ -78,9 +77,7 @@ function SummaryBlock({
         <Icon className="h-5 w-5 text-primary" />
         <h3 className="text-lg font-semibold text-foreground">{title}</h3>
       </div>
-      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-        {section.summary}
-      </p>
+      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{section.summary}</p>
       {visibleItems.length > 0 ? (
         <div className="mt-4 space-y-3">
           {visibleItems.map((item) => (
@@ -107,7 +104,9 @@ function SummaryBlock({
 function VerificationRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid gap-1 border-b border-border/70 py-3 last:border-b-0 sm:grid-cols-[1fr_auto] sm:items-center sm:gap-4">
-      <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{label}</span>
+      <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+        {label}
+      </span>
       <span className="text-sm font-semibold text-foreground">{formatPassportValue(value)}</span>
     </div>
   );
@@ -134,9 +133,7 @@ function PassportHeader({ passport }: { passport: ForeverPassport }) {
         <h2 className="mt-3 max-w-3xl text-3xl font-bold leading-tight text-foreground md:text-5xl">
           {passport.projectName}
         </h2>
-        <p className="mt-5 max-w-2xl text-lg leading-8 text-muted-foreground">
-          {passport.verdict}
-        </p>
+        <p className="mt-5 max-w-2xl text-lg leading-8 text-muted-foreground">{passport.verdict}</p>
       </div>
 
       <div className="rounded-lg border border-primary/30 bg-background p-6 text-center shadow-sm">
@@ -163,13 +160,82 @@ export function ForeverPassportCard({ project }: ForeverPassportCardProps) {
     const report = generateForeverIntelligenceReport(project);
     return createForeverPassport(project, report);
   }, [project]);
+  const assessmentAvailable =
+    project.trust.foreverVerified ||
+    project.trust.trustScore > 0 ||
+    project.investment.investmentValue > 0 ||
+    Boolean(
+      project.trust.lastInspection ||
+      project.trust.marketPosition ||
+      project.trust.verdict ||
+      project.investment.rentalYield ||
+      project.investment.rentalDemand ||
+      project.investment.capitalGrowthEstimate,
+    );
+
+  if (!assessmentAvailable) {
+    return (
+      <section className="bg-muted/20 py-16">
+        <div className="container mx-auto px-4">
+          <div className="mx-auto max-w-6xl rounded-lg border border-border bg-background p-5 shadow-sm md:p-8">
+            <div className="rounded-lg border border-border/80 bg-muted/10 p-5 md:p-8">
+              <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                <FileBadge className="h-4 w-4" />
+                Forever Passport
+              </div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                {passport.foreverId}
+              </p>
+              <h2 className="mt-3 text-3xl font-bold text-foreground md:text-5xl">
+                {passport.projectName}
+              </h2>
+              <div className="mt-8 grid gap-6 md:grid-cols-2">
+                <div className="rounded-lg border border-border bg-background p-5 md:p-6">
+                  <div className="mb-3 flex items-center gap-2">
+                    <ClipboardCheck className="h-5 w-5 text-primary" />
+                    <h3 className="text-lg font-semibold text-foreground">Available record</h3>
+                  </div>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    The Passport organizes the project identity and the evidence currently recorded.
+                    Missing facts remain marked as not recorded.
+                  </p>
+                  <div className="mt-4">
+                    <VerificationRow label="Forever inspection" value={passport.lastInspection} />
+                    <VerificationRow label="Price-list date" value={passport.lastPriceUpdate} />
+                  </div>
+                </div>
+                <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-5 md:p-6">
+                  <div className="mb-3 flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-primary" />
+                    <h3 className="text-lg font-semibold text-foreground">
+                      Advisory assessment pending
+                    </h3>
+                  </div>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    No Forever Score, verdict, rental projection, or verification claim is issued
+                    from this sparse record.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-6 border-t border-border pt-5 text-sm text-muted-foreground">
+                <span className="inline-flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-primary" />
+                  Canonical project summary
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="bg-muted/20 py-16">
       <div className="container mx-auto px-4">
         <div className="mx-auto max-w-6xl rounded-lg border border-border bg-background p-5 shadow-sm md:p-8">
           <div className="rounded-lg border border-border/80 bg-muted/10 p-5 md:p-8">
-          <PassportHeader passport={passport} />
+            <PassportHeader passport={passport} />
 
             <div className="mt-8 grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
               <div className="space-y-6">
@@ -178,7 +244,9 @@ export function ForeverPassportCard({ project }: ForeverPassportCardProps) {
                     <Target className="h-5 w-5 text-primary" />
                     <h3 className="text-lg font-semibold text-foreground">Best Buyer Profile</h3>
                   </div>
-                  <p className="text-base font-semibold text-foreground">{passport.bestBuyerProfile.label}</p>
+                  <p className="text-base font-semibold text-foreground">
+                    {passport.bestBuyerProfile.label}
+                  </p>
                   <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                     {formatPassportValue(passport.bestBuyerProfile.value)}
                   </p>
@@ -216,18 +284,17 @@ export function ForeverPassportCard({ project }: ForeverPassportCardProps) {
             </div>
 
             <div className="mt-6 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-              <SummaryBlock title="Forever Recommendation" section={passport.recommendationSummary} />
+              <SummaryBlock
+                title="Forever Recommendation"
+                section={passport.recommendationSummary}
+              />
               <SummaryBlock title="Risks Summary" section={passport.risksSummary} tone="risk" />
             </div>
 
-            <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5 text-sm text-muted-foreground">
+            <div className="mt-6 border-t border-border pt-5 text-sm text-muted-foreground">
               <span className="inline-flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-primary" />
                 Canonical project summary
-              </span>
-              <span className="inline-flex items-center gap-2">
-                <BadgeCheck className="h-4 w-4 text-primary" />
-                Generated {formatPassportValue(passport.metadata.generatedAt)}
               </span>
             </div>
           </div>

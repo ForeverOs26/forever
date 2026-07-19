@@ -21,7 +21,7 @@ export interface RecommendationPath {
 }
 
 export const DEFAULT_RECOMMENDATION_PATH: RecommendationPath = {
-  primaryRecommendation: "A verified Phuket property shortlist",
+  primaryRecommendation: "A source-backed Phuket project shortlist",
   whyItFits:
     "You are still shaping the decision, so the right first step is a calm shortlist that compares ownership clarity, area fit, budget comfort, and long-term confidence before narrowing to a specific project type.",
   investmentProfile:
@@ -42,7 +42,7 @@ export function buildRecommendationPath(answers: NavigatorAnswers): Recommendati
         "Your answers point toward income discipline and easier remote ownership. A managed residence gives you clearer operating assumptions before you compare individual projects.",
       investmentProfile:
         timeline === "ready_now" || timeline === "3_6m"
-          ? "Yield-aware investor: ready to compare verified rental assumptions and near-term availability."
+          ? "Yield-aware investor: ready to compare recorded rental assumptions and near-term availability."
           : "Patient income planner: focused on rental logic, but still needs time to compare areas and management quality.",
     };
   }

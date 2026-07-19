@@ -22,8 +22,21 @@ async function loadDemoPreviewProjectDetail(slug: string): Promise<ProjectDetail
   return getDemoPreviewProjectDetail(slug);
 }
 
+async function loadPartnerDemoProjectDetail(
+  slug: string,
+): Promise<{ active: boolean; project: ProjectDetail | null }> {
+  if (!import.meta.env.DEV) return { active: false, project: null };
+  const { getPartnerDemoProjectDetail } = await import("./partner-demo-data");
+  const project = await getPartnerDemoProjectDetail(slug);
+  const active = import.meta.env.VITE_PARTNER_DEMO === "true";
+  return { active, project };
+}
+
 export const ProjectDetailService = {
   async getBySlug(slug: string): Promise<ProjectDetail | null> {
+    const partnerDemo = await loadPartnerDemoProjectDetail(slug);
+    if (partnerDemo.active) return partnerDemo.project;
+
     const demoPreview = await loadDemoPreviewProjectDetail(slug);
     if (demoPreview) return demoPreview;
 

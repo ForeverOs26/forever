@@ -3,8 +3,9 @@ import { useState } from "react";
 import { Menu, X } from "lucide-react";
 import { Container } from "./Container";
 import { Button } from "@/components/ui/button";
+import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";
 
-const nav = [
+const publicNav = [
   { to: "/", label: "Home" },
   { to: "/discovery", label: "Discovery" },
   { to: "/advisory", label: "Advisory" },
@@ -15,10 +16,27 @@ const nav = [
   { to: "/about", label: "About" },
 ] as const;
 
+const partnerDemoNav = [
+  { to: "/", label: "Home" },
+  { to: "/navigator", label: "Navigator" },
+  { to: "/projects", label: "Projects" },
+  { to: "/contact", label: "Advisory" },
+] as const;
+
 export function Header() {
   const [open, setOpen] = useState(false);
+  const partnerDemo = import.meta.env.DEV && isPartnerDemoModeEnabled();
+  const nav = partnerDemo ? partnerDemoNav : publicNav;
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/85 backdrop-blur">
+      {partnerDemo ? (
+        <div
+          data-partner-demo-safe="true"
+          className="bg-primary px-4 py-2 text-center text-xs font-medium text-primary-foreground"
+        >
+          Partner presentation · committed local project records · requests are not saved
+        </div>
+      ) : null}
       <Container className="flex h-16 items-center justify-between">
         <Link to="/" className="flex items-center gap-2">
           <span className="font-serif text-2xl tracking-tight text-foreground">Forever</span>

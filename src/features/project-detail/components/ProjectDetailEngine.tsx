@@ -18,12 +18,24 @@ type ProjectDetailEngineProps = {
 };
 
 export function ProjectDetailEngine({ project }: ProjectDetailEngineProps) {
+  const hasAdvisoryEvidence =
+    project.trust.foreverVerified ||
+    project.trust.trustScore > 0 ||
+    project.investment.investmentValue > 0 ||
+    Boolean(
+      project.trust.lastInspection ||
+      project.trust.marketPosition ||
+      project.trust.verdict ||
+      project.investment.rentalYield ||
+      project.investment.rentalDemand ||
+      project.investment.capitalGrowthEstimate,
+    );
   return (
     <>
       <ProjectHero project={project} />
       <ForeverPassportCard project={project} />
       <ProjectTrustSummary project={project} />
-      <ForeverIntelligenceSection project={project} />
+      {hasAdvisoryEvidence ? <ForeverIntelligenceSection project={project} /> : null}
       <ProjectInvestmentAnalysis project={project} />
       <ProjectInventory project={project} />
       <ProjectGallery project={project} />

@@ -5,10 +5,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   hasLeadValidationErrors,
+  isDemoLeadModeEnabled,
   submitLead,
   validateLead,
   type LeadValidationErrors,
 } from "@/lib/lead-service";
+import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";
 
 type ContactFormProps = {
   defaultInterest?: string;
@@ -21,6 +23,7 @@ export function ContactForm({
   projectSlug,
   source = "contact_form",
 }: ContactFormProps) {
+  const isPartnerDemo = isPartnerDemoModeEnabled();
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<LeadValidationErrors>({});
@@ -71,14 +74,24 @@ export function ContactForm({
       <div className="rounded-2xl border border-border/60 bg-card p-8 text-center">
         <div className="font-serif text-2xl text-foreground">Thank you.</div>
         <p className="mt-2 text-sm text-muted-foreground">
-          A member of our private client team will be in touch within one business day.
+          {isPartnerDemo
+            ? "The advisory request passed local validation. No contact details were saved or sent."
+            : "A member of our private client team will be in touch within one business day."}
         </p>
+        {import.meta.env.DEV && isDemoLeadModeEnabled() && (
+          <p className="mt-4 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            Presentation mode — this request was validated but not saved.
+          </p>
+        )}
       </div>
     );
   }
 
   return (
-    <form onSubmit={onSubmit} className="grid gap-5 rounded-2xl border border-border/60 bg-card p-6 sm:p-8">
+    <form
+      onSubmit={onSubmit}
+      className="grid gap-5 rounded-2xl border border-border/60 bg-card p-6 sm:p-8"
+    >
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="grid gap-2">
           <Label htmlFor="firstName">First name</Label>
@@ -166,6 +179,11 @@ export function ContactForm({
       {formError && (
         <p className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           {formError}
+        </p>
+      )}
+      {import.meta.env.DEV && isDemoLeadModeEnabled() && (
+        <p className="rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          Presentation mode — submissions are validated but not saved.
         </p>
       )}
       <Button type="submit" size="lg" className="justify-self-start" disabled={submitting}>

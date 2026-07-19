@@ -53,15 +53,36 @@ export async function getDemoPreviewProjectDetail(slug: string): Promise<Project
 export function mapProjectDetailToProperty(project: ProjectDetail): Property {
   const hero = project.media.hero ?? project.media.gallery[0];
   const startingPrice = project.pricing.startingPriceTHB;
+  const isUnpublishedPreview =
+    project.core.isDemoPreview || project.core.slug === DEMO_PREVIEW_SLUG;
 
   return {
     slug: project.core.slug,
     name: project.core.name,
     developer: project.developer?.name ?? "",
     location: project.location.area || project.core.location,
-    propertyType: "Residence",
-    constructionStatus: "Not available",
-    status: "Not available",
+    propertyType:
+      project.core.type === "Villa" ||
+      project.core.type === "Condominium" ||
+      project.core.type === "Residence"
+        ? project.core.type
+        : "Residence",
+    constructionStatus:
+      project.core.constructionStatus === "Planning" ||
+      project.core.constructionStatus === "Pre-Launch" ||
+      project.core.constructionStatus === "Under Construction" ||
+      project.core.constructionStatus === "Nearing Completion" ||
+      project.core.constructionStatus === "Ready" ||
+      project.core.constructionStatus === "Sold Out"
+        ? project.core.constructionStatus
+        : "Not available",
+    status: isUnpublishedPreview
+      ? "Not available"
+      : project.core.status === "Available" ||
+          project.core.status === "Selling" ||
+          project.core.status === "Sold Out"
+        ? project.core.status
+        : "Not available",
     tagline: project.core.tagline,
     description: project.core.description,
     highlights: project.core.highlights,

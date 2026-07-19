@@ -71,8 +71,11 @@ function createSection(
     title: section.title,
     summary: section.summary,
     items: section.items,
-    sourceFields: section.evidence?.sourceFields ?? section.items.flatMap((item) => item.sourceFields),
-    sourceValues: section.evidence?.sourceValues ?? Object.assign({}, ...section.items.map((item) => item.sourceValues)),
+    sourceFields:
+      section.evidence?.sourceFields ?? section.items.flatMap((item) => item.sourceFields),
+    sourceValues:
+      section.evidence?.sourceValues ??
+      Object.assign({}, ...section.items.map((item) => item.sourceValues)),
   };
 }
 
@@ -105,9 +108,10 @@ function createRisksSummary(report: ForeverIntelligenceReport): PassportSection 
   return createSection({
     key: "risks",
     title: "Risks Summary",
-    summary: riskItems.length > 0
-      ? riskItems.map((item) => String(item.value)).join(" ")
-      : "No major structured risks identified from available project data.",
+    summary:
+      riskItems.length > 0
+        ? riskItems.map((item) => String(item.value)).join(" ")
+        : "No major structured risks identified from available project data.",
     items: riskItems,
   });
 }
@@ -159,7 +163,8 @@ function createTimeline(project: ProjectDetail, generatedAt: string): PassportTi
     });
   }
 
-  events.push({
+  if (generatedAt) {
+    events.push({
       type: "passport-generated",
       label: "Passport generated",
       date: generatedAt,
@@ -168,6 +173,7 @@ function createTimeline(project: ProjectDetail, generatedAt: string): PassportTi
         generatedAt,
       },
     });
+  }
 
   return { events };
 }
@@ -279,7 +285,10 @@ export function createForeverPassport(
   report: ForeverIntelligenceReport,
   options: CreateForeverPassportOptions = {},
 ): ForeverPassport {
-  const generatedAt = options.generatedAt ?? new Date().toISOString();
+  // A generation timestamp is caller-owned metadata. Never invent one during
+  // render: that is unstable across SSR/hydration and can imply freshness that
+  // the project evidence does not support.
+  const generatedAt = options.generatedAt?.trim() ?? "";
   const verificationDates = createVerificationDates(project);
   const recommendationSummary = createRecommendationSummary(report);
   const risksSummary = createRisksSummary(report);

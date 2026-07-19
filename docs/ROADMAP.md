@@ -6,13 +6,15 @@ This document defines development phases, dependencies, and sequencing. It is no
 
 ## Current Development Phase
 
+Forever Partner Demo v1 is canonical and ready for presentation. Completed prerequisites: Navigator canonical, Booth canonical, Coralina local preview complete, Fast Intake v1 canonical, and the ordinary Progressive draft import canonical. The recorded product order is: partner presentation → structured partner feedback classified as demo blocker / product improvement / future roadmap idea / commercial-partnership decision → the measured Fast Intake v1 real-project pilot → the later, separate raw-document extraction stage. Coralina remains unpublished and Factory remains A0. See `docs/PARTNER_DEMO_V1.md` and `docs/CURRENT_STAGE.md`.
+
 A shared Forever Navigator over two shells — the website Navigator (`/navigator`) and Booth Mode (`/booth`) — is canonical on `main`. Both shells consume a single Navigator Core, NAV-001 remains the shared source of truth, and Booth Mode is a presentation/employee workflow shell rather than a second product. Booth is intentionally not linked from normal public navigation. See `docs/CURRENT_STAGE.md`.
 
 Coralina's production draft import is completed as an unpublished draft (1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch); the local website preview is completed and Coralina stays unpublished and excluded from the production client bundle. Fast Intake v1 with a 15-minute draft target is implemented, independently Windows-validated, and canonical on `main`; Coralina remains unpublished and Factory remains A0. Fast Intake v1 prepares and validates an unpublished Progressive draft, writes local managed artifacts only, and consumes compatible already-structured extracted price-list JSON and `project-facts.json`. Raw PDFs, Excel files, images, and videos are inventoried and classified only; raw-document extraction, OCR, spreadsheet parsing, and computer vision are a later stage. The 15-minute target applies when compatible structured artifacts already exist.
 
 Ordinary new-project persistence uses the generic Progressive draft importer. See `docs/CURRENT_STAGE.md`.
 
-RC5.5D is completed, reviewed, integrated, canonically applied, and verified as exceptional maintenance capability. Ordinary imports no longer use its approval/receipt workflow or repeated platform certification. The normal sequence is payload validation → duplicate check → one atomic Progressive RPC transaction → exact graph verification → `COMMIT` → short post-commit verification. The Coralina production draft import through that generic importer is completed (1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch); Coralina remains an unpublished draft, publication is separate, and Factory remains A0. Fast Intake v1 is canonical. Its next product checkpoint is one measured, non-sensitive real-project pilot using compatible structured artifacts, with no automatic import or publication.
+RC5.5D is completed, reviewed, integrated, canonically applied, and verified as exceptional maintenance capability. Ordinary imports no longer use its approval/receipt workflow or repeated platform certification. The normal sequence is payload validation → duplicate check → one atomic Progressive RPC transaction → exact graph verification → `COMMIT` → short post-commit verification. The Coralina production draft import through that generic importer is completed (1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch); Coralina remains an unpublished draft, publication is separate, and Factory remains A0. Fast Intake v1 is canonical. The immediate product checkpoint is the Partner Demo v1 presentation and its structured feedback; the measured, non-sensitive real-project Fast Intake pilot (compatible structured artifacts, no automatic import or publication) follows immediately after that feedback.
 
 ## Completed Phases
 
@@ -93,6 +95,19 @@ Ordinary new-project import is completed and proven: one generic Progressive dra
   - Historical execution preparation is retained only for exceptional maintenance. The Coralina draft import through the generic importer is completed as an unpublished draft; publication remains separate, and Factory stays A0. Fast Intake v1 is canonical; its measured real-project pilot is the ordinary next checkpoint.
 
 ## Upcoming Phases
+
+- Partner Demo v1 presentation (immediate checkpoint)
+  - Present Forever Partner Demo v1 from `docs/PARTNER_DEMO_V1.md`.
+  - Collect structured partner feedback and classify it as demo blocker, product improvement, future roadmap idea, or commercial/partnership decision.
+  - Apply focused corrections for confirmed demo blockers only.
+
+- Measured Fast Intake v1 real-project pilot (immediately after partner feedback)
+  - One new non-sensitive real project with compatible structured artifacts.
+  - Measure complete local preparation-and-validation time against the 15-minute target and record gaps.
+  - No automatic import, no publication, no schema/migration/RLS/backend change; Factory stays A0.
+
+- Raw-document extraction stage (later, separate)
+  - Raw PDF/spreadsheet/image extraction for Fast Intake, after the pilot's gaps are recorded.
 
 - RC1 architecture hardening
   - Clarify canonical media flow.

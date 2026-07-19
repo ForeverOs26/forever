@@ -9,9 +9,7 @@ import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/projects/$slug")({
   loader: async ({ context, params }) => {
-    const project = await context.queryClient.ensureQueryData(
-      projectDetailQuery(params.slug),
-    );
+    const project = await context.queryClient.ensureQueryData(projectDetailQuery(params.slug));
     if (!project) throw notFound();
     return { project };
   },
@@ -27,7 +25,7 @@ function buildProjectHead(slug: string, project?: ProjectDetail) {
     ? `${project.core.name} - Forever Advisory Report`
     : "Project Details - Forever";
   const description = project
-    ? `${project.core.name} in ${project.core.location}. ${project.core.tagline}. Independently reviewed by Forever.`
+    ? `${project.core.name} in ${project.core.location}. ${project.core.tagline}.${project.trust.foreverVerified ? " Reviewed by Forever." : " Available project record."}`
     : "Independent Forever advisory report on a Phuket residence.";
   const url = `https://forever-home-core.lovable.app/projects/${slug}`;
   const meta = [
@@ -52,6 +50,47 @@ function buildProjectHead(slug: string, project?: ProjectDetail) {
 
 function buildProjectStructuredData(project: ProjectDetail, url: string, image?: string) {
   const images = image ? [image] : [];
+  const additionalProperty = [
+    project.trust.trustScore > 0
+      ? {
+          "@type": "PropertyValue",
+          name: "Forever Score",
+          value: project.trust.trustScore,
+          maxValue: 10,
+        }
+      : null,
+    project.investment.investmentValue > 0
+      ? {
+          "@type": "PropertyValue",
+          name: "Investment Value",
+          value: project.investment.investmentValue,
+          maxValue: 10,
+        }
+      : null,
+    project.trust.marketPosition
+      ? { "@type": "PropertyValue", name: "Market Position", value: project.trust.marketPosition }
+      : null,
+    project.trust.verdict
+      ? { "@type": "PropertyValue", name: "Forever Verdict", value: project.trust.verdict }
+      : null,
+    project.core.constructionStatus
+      ? {
+          "@type": "PropertyValue",
+          name: "Construction Status",
+          value: project.core.constructionStatus,
+        }
+      : null,
+    project.investment.rentalYield
+      ? { "@type": "PropertyValue", name: "Rental Yield", value: project.investment.rentalYield }
+      : null,
+    project.investment.capitalGrowthEstimate
+      ? {
+          "@type": "PropertyValue",
+          name: "Capital Growth Estimate",
+          value: project.investment.capitalGrowthEstimate,
+        }
+      : null,
+  ].filter(Boolean);
 
   return [
     {
@@ -67,62 +106,21 @@ function buildProjectStructuredData(project: ProjectDetail, url: string, image?:
         brand: project.developer
           ? { "@type": "Organization", name: project.developer.name }
           : undefined,
-        offers: {
-          "@type": "Offer",
-          price: project.pricing.startingPriceTHB,
-          priceCurrency: "THB",
-          availability:
-            project.core.status === "Sold Out"
-              ? "https://schema.org/SoldOut"
-              : "https://schema.org/InStock",
-          url,
-          priceSpecification: {
-            "@type": "PriceSpecification",
-            price: project.pricing.startingPriceTHB,
-            priceCurrency: "THB",
-            valueAddedTaxIncluded: false,
-            description: `Starting price. Verified range ${project.pricing.verifiedPrice}, ${project.pricing.pricePerSqm}.`,
-          },
-        },
-        additionalProperty: [
-          {
-            "@type": "PropertyValue",
-            name: "Forever Score",
-            value: project.trust.trustScore,
-            maxValue: 10,
-          },
-          {
-            "@type": "PropertyValue",
-            name: "Investment Value",
-            value: project.investment.investmentValue,
-            maxValue: 10,
-          },
-          {
-            "@type": "PropertyValue",
-            name: "Market Position",
-            value: project.trust.marketPosition,
-          },
-          {
-            "@type": "PropertyValue",
-            name: "Forever Verdict",
-            value: project.trust.verdict,
-          },
-          {
-            "@type": "PropertyValue",
-            name: "Construction Status",
-            value: project.core.constructionStatus,
-          },
-          {
-            "@type": "PropertyValue",
-            name: "Rental Yield",
-            value: project.investment.rentalYield,
-          },
-          {
-            "@type": "PropertyValue",
-            name: "Capital Growth Estimate",
-            value: project.investment.capitalGrowthEstimate,
-          },
-        ],
+        ...(project.pricing.startingPriceTHB > 0
+          ? {
+              offers: {
+                "@type": "Offer",
+                price: project.pricing.startingPriceTHB,
+                priceCurrency: "THB",
+                availability:
+                  project.core.status === "Sold Out"
+                    ? "https://schema.org/SoldOut"
+                    : "https://schema.org/InStock",
+                url,
+              },
+            }
+          : {}),
+        additionalProperty,
       }),
     },
     {

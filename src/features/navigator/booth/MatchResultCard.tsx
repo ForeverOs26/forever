@@ -79,7 +79,7 @@ export function MatchResultCard({
         )}
         {isDraftPreview ? (
           <span className="absolute left-3 top-3 rounded-full border border-[#E3DED4] bg-white/95 px-3 py-1 text-[11px] font-[700] uppercase tracking-[0.12em] text-[#9C7B4C] [font-family:'Hanken_Grotesk',system-ui,sans-serif]">
-            Local development preview · unpublished draft
+            Unpublished project preview
           </span>
         ) : null}
         {variant === "selected" ? (
