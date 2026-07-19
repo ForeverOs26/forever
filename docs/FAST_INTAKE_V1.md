@@ -1,8 +1,6 @@
 # Fast Intake v1
 
-Status: Implemented and independently Windows-validated in the open, unmerged
-PR [#85](https://github.com/ForeverOs26/forever/pull/85), pending Owner merge.
-Not yet canonical on `main`.
+Status: Implemented, independently Windows-validated, and canonical on `main`.
 
 Fast Intake v1 is a bounded, local, owner-only tool. It turns normal project
 source materials into a deterministic, validated, **unpublished** Progressive
@@ -10,11 +8,10 @@ draft payload ready for the existing ordinary draft importer. It performs
 **preparation and validation only**.
 
 It never connects to production, never creates a database client, never makes a
-network request, never executes a database import, and never publishes. It
-performs **no production write** — its only writes are the local generated
-artifacts under `forever-data/projects/<slug>/` and its gitignored temporary
-workspace. No production database, lead, or publication is touched by running
-it.
+network request, never executes a database import, never creates a lead, and
+never publishes. It performs **no production write** — its only writes are local
+managed artifacts under `forever-data/projects/<slug>/` and its gitignored
+temporary workspace.
 
 ## What Fast Intake v1 does — and does NOT — do yet
 
@@ -26,8 +23,8 @@ and a compact `project-facts.json`. Raw PDFs, spreadsheets, images, and videos
 are **inventoried and classified only**, never interpreted.
 
 Raw-document extraction — OCR, computer vision, and spreadsheet parsing — is a
-**later Fast Intake stage**, deliberately out of scope for v1. This PR is not
-complete raw-folder-to-database automation; it is a bounded, safe preparation
+**later Fast Intake stage**, deliberately out of scope for v1. Fast Intake v1 is
+not complete raw-folder-to-database automation; it is a bounded, safe preparation
 and validation tool that reuses the existing structured-ingestion contract.
 
 ## Operator flow
