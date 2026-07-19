@@ -29,6 +29,22 @@ RC5.5D remains completed, canonically applied, and verified as an exceptional ma
 
 The Coralina production draft import through that generic importer is completed: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch. Coralina remains an unpublished draft; publication is a later, separate action. The local website preview of Coralina is completed.
 
+## Fast Intake v1 (open PR, not yet canonical)
+
+Fast Intake v1 is implemented in an open PR and is pending independent review and
+Owner merge; it is not yet canonical on `main`. It is a bounded, local, owner-only
+preparation-and-validation tool (`npm run intake`) that turns normal project
+source materials (a folder and/or ZIP archives) into a deterministic, validated,
+unpublished Progressive draft payload for the existing ordinary draft importer. It
+reuses the existing Progressive builder, fingerprint, currency policy, provenance
+and warning model, and the ordinary `-ValidateOnly` invariants.
+
+No production execution occurred: Fast Intake creates no database client, makes no
+network request, performs no write, and performs no publication. It does not add
+schema, migration, RPC, RLS, grants, or backend services, does not create a
+website/admin UI, and does not expand Factory autonomy. Coralina remains an
+unpublished draft and Factory autonomy remains A0. See `docs/FAST_INTAKE_V1.md`.
+
 ## Current authorization and safety state
 
 Current state remains:
@@ -48,7 +64,7 @@ The ordinary draft importer does not authorize publication. Schema, migration, R
 | Generic Progressive draft-import simplification                     | Codex / Owner     | Completed                             |
 | Owner-authorized Coralina draft import through the generic importer | Owner             | Completed - draft only, unpublished   |
 | Shared Navigator: website + Booth Mode over one Navigator Core      | Codex / Owner     | Completed and canonical on `main`     |
-| Fast Intake v1 with a 15-minute draft target                        | Owner             | Next product checkpoint - not started |
+| Fast Intake v1 with a 15-minute draft target                        | Codex / Owner     | Implemented in an open PR - pending independent review and Owner merge; not yet canonical on `main` |
 | Publication of any imported draft                                   | Owner             | Later, separate action                |
 
 ## Next checkpoint

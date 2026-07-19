@@ -1,0 +1,62 @@
+{
+  "project_slug": "sample-project",
+  "source_type": "price_list",
+  "price_list_date": {
+    "value": "2026-07-01",
+    "source_file": "price-list/price-list.json",
+    "page_number": 1,
+    "confidence": "high"
+  },
+  "unit_inventory": [
+    {
+      "source_row": 1,
+      "unit_number": { "value": "A-101", "source_file": "price-list/price-list.json", "page_number": 1, "confidence": "high" },
+      "building": { "value": "A", "source_file": "price-list/price-list.json", "page_number": 1, "confidence": "high" },
+      "floor": { "value": "1", "source_file": "price-list/price-list.json", "page_number": 1, "confidence": "high" },
+      "unit_type": { "value": "1 BEDROOM", "source_file": "price-list/price-list.json", "page_number": 1, "confidence": "high" },
+      "bedrooms": { "value": "1", "source_file": "price-list/price-list.json", "page_number": 1, "confidence": "high" },
+      "size_sqm": { "value": "45", "source_file": "price-list/price-list.json", "page_number": 1, "confidence": "high" },
+      "price": { "value": "4,500,000", "source_file": "price-list/price-list.json", "page_number": 1, "confidence": "high" }
+    },
+    {
+      "source_row": 2,
+      "unit_number": { "value": "A-102", "source_file": "price-list/price-list.json", "page_number": 1, "confidence": "high" },
+      "building": { "value": "A", "source_file": "price-list/price-list.json", "page_number": 1, "confidence": "high" },
+      "floor": { "value": "1", "source_file": "price-list/price-list.json", "page_number": 1, "confidence": "high" },
+      "unit_type": { "value": "1 BEDROOM", "source_file": "price-list/price-list.json", "page_number": 1, "confidence": "high" },
+      "bedrooms": { "value": "1", "source_file": "price-list/price-list.json", "page_number": 1, "confidence": "high" },
+      "size_sqm": { "value": "47", "source_file": "price-list/price-list.json", "page_number": 1, "confidence": "high" },
+      "price": { "value": "4,750,000", "source_file": "price-list/price-list.json", "page_number": 1, "confidence": "high" }
+    },
+    {
+      "source_row": 3,
+      "unit_number": { "value": "B-201", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "building": { "value": "B", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "floor": { "value": "2", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "unit_type": { "value": "2 BEDROOM", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "bedrooms": { "value": "2", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "size_sqm": { "value": "72", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "price": { "value": "8,900,000", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" }
+    },
+    {
+      "source_row": 4,
+      "unit_number": { "value": "B-202", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "building": { "value": "B", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "floor": { "value": "2", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "unit_type": { "value": "2 BEDROOM", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "bedrooms": { "value": "2", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "size_sqm": { "value": "74", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "price": { "value": "9,150,000", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" }
+    },
+    {
+      "source_row": 5,
+      "unit_number": { "value": "B-203", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "building": { "value": "B", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "floor": { "value": "2", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "unit_type": { "value": "2 BEDROOM", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "bedrooms": { "value": "2", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "size_sqm": { "value": "73", "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "high" },
+      "price": { "value": null, "source_file": "price-list/price-list.json", "page_number": 2, "confidence": "none" }
+    }
+  ]
+}
