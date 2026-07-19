@@ -5,7 +5,25 @@ Last updated: 2026-07-19
 
 ## Stage name
 
-Fast Intake v1 canonical on `main`, with the first measured real-project pilot as the next product checkpoint. Shared Forever Navigator (website + Booth Mode), ordinary new-project draft import simplification, and RC5.5D canonical-application closure remain canonical and unchanged.
+Forever Partner Demo v1 is canonical and ready for presentation. The partner presentation is the immediate product checkpoint; the measured Fast Intake v1 real-project pilot follows immediately after partner feedback. Shared Forever Navigator (website + Booth Mode), Fast Intake v1, ordinary new-project draft import simplification, and RC5.5D canonical-application closure remain canonical and unchanged.
+
+Completed prerequisites for this stage:
+
+- Navigator canonical (website `/navigator` + Booth `/booth` over one NAV-001 Navigator Core);
+- Booth canonical;
+- Coralina local preview complete (unpublished draft, local development only);
+- Fast Intake v1 canonical;
+- ordinary Progressive draft import canonical.
+
+## Partner Demo v1 — canonical
+
+Partner Demo v1 is a presentation-readiness layer over the existing product, not a second product:
+
+- one canonical 7–10 minute partner runbook in `docs/PARTNER_DEMO_V1.md` (persona, timed script, routes, fallbacks, checklist, shutdown, honest limitations);
+- a local Windows launcher `scripts/demo/Start-Forever-Partner-Demo.cmd` that starts the existing development server and prints the presentation routes (no credentials, no database client, no background processes);
+- a local-development-only no-write lead demo mode at the existing `submitLead` boundary: lead forms complete normally, nothing is written, no network call is made, a visible "Local demo mode" note identifies it, and the branch is guarded by a literal `import.meta.env.DEV` so production lead behavior is unchanged and the demo strings are excluded from the production bundle (`VITE_DEMO_LEAD_MODE=false` restores real writes in local development);
+- minimal shared-UI presentation fixes: the home hero now leads with "Start the Forever Navigator", the website Navigator completion CTA routes to the existing `/contact` advisory form (it was a no-op), the internal placeholder "Temporary Forever ID" was removed, and the Forever Passport "Generated" marker is date-only and hydration-stable (a millisecond timestamp previously broke hydration on every project page);
+- no new Navigator, matching engine, questionnaire, Project Detail engine, Passport, or lead system; no fabricated project facts; Coralina remains an unpublished local-development preview.
 
 ## Shared Navigator (website + Booth Mode) — canonical
 
@@ -80,19 +98,30 @@ The ordinary draft importer does not authorize publication. Schema, migration, R
 | Owner-authorized Coralina draft import through the generic importer | Owner             | Completed - draft only, unpublished                                   |
 | Shared Navigator: website + Booth Mode over one Navigator Core      | Codex / Owner     | Completed and canonical on `main`                                     |
 | Fast Intake v1 with a 15-minute draft target                        | Codex / Owner     | Implemented, independently Windows-validated, and canonical on `main` |
+| Partner Demo v1 (runbook, launcher, no-write lead demo mode)        | Claude / Owner    | Completed and canonical on `main`                                     |
+| Present Partner Demo v1 to the partner                              | Owner             | Immediate next checkpoint                                             |
 | Publication of any imported draft                                   | Owner             | Later, separate action                                                |
 
 ## Next checkpoint
 
-Run Fast Intake v1 on one new non-sensitive real project with compatible structured artifacts, measure the complete local preparation-and-validation time against the 15-minute target, and record gaps before starting the separate raw-document extraction stage. This pilot must not automatically import or publish the project.
+Present Forever Partner Demo v1 to the partner using `docs/PARTNER_DEMO_V1.md`, collect structured feedback, and classify every item as one of:
+
+- demo blocker;
+- product improvement;
+- future roadmap idea;
+- commercial/partnership decision.
+
+## Following checkpoint
+
+After partner feedback is collected and classified: run the measured Fast Intake v1 pilot on one new non-sensitive real project with compatible structured artifacts, measure the complete local preparation-and-validation time against the 15-minute target, and record gaps before starting the separate raw-document extraction stage. This pilot must not automatically import or publish the project.
 
 ## Acceptance criteria for the next checkpoint
 
-- One new non-sensitive real project with compatible structured artifacts is prepared and validated locally as an unpublished Progressive draft.
-- Complete local preparation-and-validation time is measured against the 15-minute target and any gaps are recorded before the separate raw-document extraction stage begins.
-- The pilot performs no automatic import or publication and requires no schema, migration, RPC, RLS, or grant work.
+- The partner presentation is delivered from the canonical runbook without exposing repository, database, PowerShell, import, or test internals.
+- No production lead, import, publication, or production write occurs during the presentation.
+- Partner feedback is recorded and classified into the four categories above.
 - Shared Navigator behavior at `/navigator` and `/booth` remains canonical over one NAV-001 Navigator Core, with Booth still unlinked from normal public navigation unless separately authorized.
-- Factory autonomy remains A0 throughout.
+- Coralina remains an unpublished draft and Factory autonomy remains A0 throughout.
 
 ## Out of scope
 
@@ -103,4 +132,6 @@ Run Fast Intake v1 on one new non-sensitive real project with compatible structu
 
 ## Definition of done
 
-The next checkpoint is complete when the real-project pilot records its complete local preparation-and-validation time and gaps against the 15-minute target, with no automatic import, no publication action, no schema/migration/RLS/backend change, and Factory autonomy remaining A0.
+The next checkpoint is complete when the partner presentation has been delivered from the canonical runbook and the resulting feedback is recorded and classified (demo blocker / product improvement / future roadmap idea / commercial-partnership decision), with no production lead, import, publication, or production write, and Factory autonomy remaining A0.
+
+The following checkpoint (the measured Fast Intake v1 real-project pilot) is complete when the pilot records its complete local preparation-and-validation time and gaps against the 15-minute target, with no automatic import, no publication action, no schema/migration/RLS/backend change, and Factory autonomy remaining A0.
