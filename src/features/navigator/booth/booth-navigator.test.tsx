@@ -254,6 +254,38 @@ describe("booth project actions", () => {
 });
 
 describe("booth lead capture", () => {
+  it("describes the Partner Demo handoff as validated and not saved", async () => {
+    vi.stubEnv("VITE_PARTNER_DEMO", "true");
+    submitLead.mockResolvedValue(undefined);
+
+    try {
+      await withBooth(async () => {
+        await drivenToResults();
+
+        const card = screen.getByText("The Modeva").closest("article") as HTMLElement;
+        fireEvent.click(within(card).getByText(/select for guest/i, { selector: "button" }));
+        fireEvent.click(button(/continue to contact details/i));
+
+        fireEvent.change(screen.getByLabelText(/first name/i), { target: { value: "Demo" } });
+        fireEvent.change(screen.getByLabelText(/last name/i), { target: { value: "Guest" } });
+        fireEvent.change(screen.getByLabelText(/email/i), {
+          target: { value: "demo@example.invalid" },
+        });
+        fireEvent.change(screen.getByLabelText(/phone/i), {
+          target: { value: "+66 00 000 0000" },
+        });
+        fireEvent.click(button(/validate contact/i));
+
+        expect(
+          await screen.findByText(/contact validated/i, { selector: "h1" }),
+        ).toBeInTheDocument();
+        expect(screen.getByText(/contact details not saved/i)).toBeInTheDocument();
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("submits a mocked lead and reaches the completion screen", async () => {
     submitLead.mockResolvedValue(undefined);
     await withBooth(async () => {

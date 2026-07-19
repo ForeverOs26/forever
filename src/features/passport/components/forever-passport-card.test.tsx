@@ -1,14 +1,7 @@
-/**
- * Hydration-stability regression for the Forever Passport footer.
- *
- * The card once stamped `generatedAt` with a millisecond ISO timestamp, so the
- * server-rendered text never matched the client-hydrated text and React
- * discarded the whole tree on every project page ("Hydration failed because
- * the server rendered text didn't match the client"). The footer must render
- * a stable, date-only value.
- */
-import { cleanup, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { mapProjectDetail } from "@/features/project-detail/project-detail-mappers";
 import type { ProjectDetailRecord } from "@/features/project-detail/project-detail-types";
@@ -21,7 +14,7 @@ function minimalRecord(): ProjectDetailRecord {
     name: "Modeva",
     is_featured: true,
     is_active: true,
-    forever_verified: true,
+    forever_verified: false,
     developer: null,
     media: null,
     units: null,
@@ -29,30 +22,37 @@ function minimalRecord(): ProjectDetailRecord {
   } as unknown as ProjectDetailRecord;
 }
 
-function generatedFooterText(): string {
-  const node = screen.getByText(/^Generated /);
-  return node.textContent ?? "";
-}
-
 describe("ForeverPassportCard generated-at stability", () => {
-  it("renders a date-only generated marker with no time component", () => {
-    render(<ForeverPassportCard project={mapProjectDetail(minimalRecord())} />);
-    const text = generatedFooterText();
-    expect(text).toMatch(/^Generated \d{4}-\d{2}-\d{2}$/);
-    expect(text).not.toContain("T");
-    expect(text).not.toContain(":");
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  it("renders identical text across independent renders (server/client parity)", () => {
+  it("does not invent a generated marker when no factual timestamp exists", () => {
+    render(<ForeverPassportCard project={mapProjectDetail(minimalRecord())} />);
+    expect(screen.queryByText(/^Generated /)).toBeNull();
+    expect(screen.getByText("Advisory assessment pending")).toBeInTheDocument();
+  });
+
+  it("hydrates without recovery across a controlled UTC date boundary", async () => {
     const project = mapProjectDetail(minimalRecord());
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-19T23:59:59.900Z"));
+    const html = renderToString(<ForeverPassportCard project={project} />);
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.append(container);
+    const recoverable = vi.fn();
 
-    render(<ForeverPassportCard project={project} />);
-    const first = generatedFooterText();
-    cleanup();
-
-    render(<ForeverPassportCard project={project} />);
-    const second = generatedFooterText();
-
-    expect(second).toBe(first);
+    vi.setSystemTime(new Date("2026-07-20T00:00:00.100Z"));
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    await act(async () => {
+      root = hydrateRoot(container, <ForeverPassportCard project={project} />, {
+        onRecoverableError: recoverable,
+      });
+    });
+    expect(recoverable).not.toHaveBeenCalled();
+    expect(container.textContent).not.toMatch(/Generated /);
+    await act(async () => root?.unmount());
+    container.remove();
   });
 });

@@ -27,8 +27,8 @@ const validValues: LeadFormValues = {
 };
 
 describe("isDemoLeadModeEnabled", () => {
-  it("is enabled by default in local development", () => {
-    expect(isDemoLeadModeEnabled({ DEV: true })).toBe(true);
+  it("is disabled by default in ordinary local development", () => {
+    expect(isDemoLeadModeEnabled({ DEV: true })).toBe(false);
   });
 
   it("is always disabled outside local development", () => {
@@ -36,8 +36,18 @@ describe("isDemoLeadModeEnabled", () => {
     expect(isDemoLeadModeEnabled({ DEV: false, VITE_DEMO_LEAD_MODE: "true" })).toBe(false);
   });
 
-  it("can be switched off in local development to restore real writes", () => {
-    expect(isDemoLeadModeEnabled({ DEV: true, VITE_DEMO_LEAD_MODE: "false" })).toBe(false);
+  it("can be explicitly enabled for ordinary local development", () => {
+    expect(isDemoLeadModeEnabled({ DEV: true, VITE_DEMO_LEAD_MODE: "true" })).toBe(true);
+  });
+
+  it("is mandatory when the Partner Demo process is active", () => {
+    expect(
+      isDemoLeadModeEnabled({
+        DEV: true,
+        VITE_PARTNER_DEMO: "true",
+        VITE_DEMO_LEAD_MODE: "false",
+      }),
+    ).toBe(true);
   });
 });
 
@@ -52,8 +62,7 @@ describe("submitLead demo mode (local development)", () => {
   });
 
   it("completes without any lead write or network call in demo mode", async () => {
-    // Vitest runs with DEV=true, so demo mode is on by default.
-    expect(import.meta.env.DEV).toBe(true);
+    vi.stubEnv("VITE_PARTNER_DEMO", "true");
 
     await expect(submitLead(validValues)).resolves.toBeUndefined();
     expect(fromMock).not.toHaveBeenCalled();
@@ -61,6 +70,7 @@ describe("submitLead demo mode (local development)", () => {
   });
 
   it("still validates before completing in demo mode", async () => {
+    vi.stubEnv("VITE_PARTNER_DEMO", "true");
     await expect(submitLead({ ...validValues, email: "not-an-email" })).rejects.toThrow(
       "Please check the highlighted fields",
     );
@@ -68,6 +78,7 @@ describe("submitLead demo mode (local development)", () => {
   });
 
   it("writes through the unchanged production path when demo mode is off", async () => {
+    vi.stubEnv("VITE_PARTNER_DEMO", "false");
     vi.stubEnv("VITE_DEMO_LEAD_MODE", "false");
 
     await expect(submitLead(validValues)).resolves.toBeUndefined();

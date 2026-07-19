@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const submitLead = vi.fn(async (_values: unknown) => undefined);
 
@@ -21,11 +21,19 @@ function fillRequiredFields() {
 }
 
 describe("ContactForm demo-mode visibility (local development)", () => {
+  beforeEach(() => {
+    vi.stubEnv("VITE_PARTNER_DEMO", "true");
+    submitLead.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("shows the owner-visible demo-mode note while demo lead mode is on", () => {
     render(<ContactForm source="home_page" />);
-    // Vitest runs with DEV=true, so the local demo-lead mode is on by default.
     expect(
-      screen.getByText("Local demo mode — submissions are validated but not saved."),
+      screen.getByText("Presentation mode — submissions are validated but not saved."),
     ).toBeInTheDocument();
   });
 
@@ -37,7 +45,12 @@ describe("ContactForm demo-mode visibility (local development)", () => {
     await waitFor(() => expect(screen.getByText("Thank you.")).toBeInTheDocument());
     expect(submitLead).toHaveBeenCalledTimes(1);
     expect(
-      screen.getByText("Local demo mode — this request was validated but not saved."),
+      screen.getByText(
+        "The advisory request passed local validation. No contact details were saved or sent.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Presentation mode — this request was validated but not saved."),
     ).toBeInTheDocument();
   });
 });

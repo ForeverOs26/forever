@@ -79,16 +79,11 @@ describe("shared question definitions", () => {
 });
 
 describe("Coralina dev preview presentation", () => {
-  it("shows the local-development draft badge and neutral placeholder, no Forever Verified", () => {
+  it("shows the unpublished preview badge and neutral placeholder, no Forever Verified", () => {
     render(
-      <MatchResultCard
-        project={property()}
-        reasons={[]}
-        onOpen={() => {}}
-        onCopyLink={() => {}}
-      />,
+      <MatchResultCard project={property()} reasons={[]} onOpen={() => {}} onCopyLink={() => {}} />,
     );
-    expect(screen.getByText(/local development preview · unpublished draft/i)).toBeInTheDocument();
+    expect(screen.getByText(/unpublished project preview/i)).toBeInTheDocument();
     expect(screen.getByText(/no media yet/i)).toBeInTheDocument();
     expect(screen.queryByText(/forever verified/i)).toBeNull();
   });

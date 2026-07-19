@@ -25,16 +25,28 @@ whenever a person label is needed.
 2. Double-click `scripts/demo/Start-Forever-Partner-Demo.cmd`.
    - It verifies Node/npm, checks that dependencies are installed (and tells
      you to run `npm install` once if they are not), prints the presentation
-     routes, starts the existing development server, and opens the first
-     route.
-3. Wait for the browser to open `http://localhost:5173/`.
+     routes, reserves port 5173, starts the existing development server on
+     that exact port in a dedicated `partner-demo` Vite mode, and waits for
+     Forever's local safety response. The dedicated mode omits editor-only
+     source tagging so the presentation console stays clean.
+3. Wait for `Safe readiness confirmed` and for the browser to open
+   `http://localhost:5173/`. If the port is occupied, startup fails clearly
+   instead of opening the wrong page.
 
-Demo lead mode is ON by default in local development: every lead form
-(Booth contact details, Request Private Advisory) completes normally but
-writes nothing and makes no network call. A small "Local demo mode" note is
-visible on those screens so you always know no real lead is created. To
-restore real lead writes during ordinary local work, set
-`VITE_DEMO_LEAD_MODE=false` in `.env`.
+The `.cmd` uses `-ExecutionPolicy Bypass` only for its child PowerShell
+process because the Owner machine blocks repository `.ps1` files under its
+default policy. It does not change the machine or user execution policy.
+
+The launcher sets process-scoped Partner Demo controls that take precedence
+over shell variables and Vite `.env` files. The presentation uses committed
+local Modeva and Coralina records, replaces inherited production settings with
+local placeholders, and forces no-write lead behavior. Every lead form
+validates and completes normally but makes no write request. A small
+"Presentation mode" note confirms that no real request is saved.
+
+Ordinary `npm run dev` deliberately keeps the existing lead-write behavior.
+Developers may opt into no-write behavior with `VITE_DEMO_LEAD_MODE=true`;
+the Partner Demo launcher does not depend on that developer setting.
 
 First route: `http://localhost:5173/` (Home).
 
@@ -45,12 +57,12 @@ First route: `http://localhost:5173/` (Home).
 Exact NAV-001 answers (same answers in Navigator and Booth — the results are
 deterministic and identical in both):
 
-| Screen | Question | Select |
-| ------ | -------- | ------ |
-| 01 | Why are you considering Phuket? | "A second home by the sea" + "Investment & rental yield" |
-| 02 | What would success look like for you? | "Steady rental income" + "Financial security" |
-| 03 | What feels comfortable, and when? | Budget "$500k–1M", Timeline "3–6 months" |
-| 04 | What's your biggest concern right now? | "Trusting the developer" + "Rental returns" |
+| Screen | Question                               | Select                                                   |
+| ------ | -------------------------------------- | -------------------------------------------------------- |
+| 01     | Why are you considering Phuket?        | "A second home by the sea" + "Investment & rental yield" |
+| 02     | What would success look like for you?  | "Steady rental income" + "Financial security"            |
+| 03     | What feels comfortable, and when?      | Budget "$500k–1M", Timeline "3–6 months"                 |
+| 04     | What's your biggest concern right now? | "Trusting the developer" + "Rental returns"              |
 
 ## Expected Navigator result behavior
 
@@ -63,10 +75,8 @@ deterministic and identical in both):
   not a failure — say so out loud: Forever only claims a match when the
   guest's confirmed profile and the project's recorded evidence both support
   it.
-- If the production Modeva record has been enriched with a quantified rental
-  yield since this runbook was written, an evidence chip ("Purchase goal
-  supported by available project evidence") may appear instead. Both outcomes
-  are correct.
+- The launcher dataset is deterministic, so the documented persona produces
+  this same fallback after every reset in both website and Booth Mode.
 
 ## 7–10 minute timed script
 
@@ -92,9 +102,10 @@ supports, and the guest always keeps access to the full catalogue.
 
 **4. Project Detail and Forever Passport — 2 minutes**
 
-From the results, open **Modeva** (the published project,
-`/projects/modeva`). Scroll the Forever Passport, evidence scores,
-strengths/risks, and the "Not recorded" honesty. Then open **Coralina**
+From the results, open **Modeva** (the published project record,
+`/projects/modeva`). Scroll the Forever Passport and show that the sparse
+record issues no score, verdict, rental projection, or verification claim.
+Then open **Coralina**
 (`/projects/coralina`) — a real newly onboarded project, still an unpublished
 draft, previewed locally: same Project Detail engine, structured inventory of
 8 buildings and 198 residences, and neutral "Not available" wherever
@@ -133,8 +144,9 @@ Select for guest → Contact details (demo mode, nothing saved) → Complete →
 ## Published project and Coralina preview
 
 - Published project to open: **Modeva** — click its card from the results or
-  the catalogue (`/projects/modeva`). It is served by the normal
-  production-backed ProjectService path.
+  the catalogue (`/projects/modeva`). The launcher serves the published
+  Modeva identity and reviewed inventory from committed repository sources at
+  the existing ProjectService boundary, with no production connection.
 - Coralina local preview route: **`/projects/coralina`** — available only in
   local development; it appears in the local catalogue with an unpublished
   draft badge and is excluded from production builds. Coralina remains an
@@ -142,10 +154,11 @@ Select for guest → Contact details (demo mode, nothing saved) → Complete →
 
 ## Where the demo stops before any real write
 
-Nowhere — by design. With demo lead mode ON (the local default), both lead
-forms can be completed live: they validate, show the normal confirmation, and
-write nothing. If you have set `VITE_DEMO_LEAD_MODE=false` for other local
-work, either set it back or stop at the lead form without submitting.
+Nowhere — by design. The Partner Demo launcher forces no-write mode regardless
+of `.env`, `.env.local`, or shell values. Both lead forms can be completed
+live: they validate, show the normal confirmation, and stop before any
+Supabase client or HTTP write. If safe readiness cannot be proven, the browser
+does not open.
 
 ## What not to discuss unless the partner asks
 
@@ -154,15 +167,11 @@ work, either set it back or stop at the lead form without submitting.
 - Fast Intake implementation detail beyond the business statement above.
 - Factory autonomy levels (if asked: analysis tooling only proposes; a person
   approves everything).
-- The static illustrative sections on the home page (offers, reviews, areas)
-  — see honest limitations below.
 
 ## Fallbacks if a screen or data source fails
 
-- Home or catalogue fails to load (data source unreachable): use the shown
-  "Try again", or continue the story directly at `/navigator` — the Navigator
-  and Booth work without the catalogue, and results degrade to their built-in
-  error state with a retry.
+- Home or catalogue fails to load: stop and restart the launcher. The
+  canonical presentation does not depend on an external data source.
 - A project page fails: use the other project (`/projects/modeva` ↔
   `/projects/coralina`).
 - Coralina preview unavailable: fall back to Modeva only and describe
@@ -177,10 +186,9 @@ work, either set it back or stop at the lead form without submitting.
 - [ ] Laptop on power, notifications/do-not-disturb on.
 - [ ] `scripts/demo/Start-Forever-Partner-Demo.cmd` started; browser opened
       Home.
-- [ ] `.env` present so the catalogue shows published projects.
 - [ ] Home, `/navigator`, `/projects/modeva`, `/projects/coralina`, `/booth`
       each opened once and rendering.
-- [ ] "Local demo mode" note visible on the Booth contact screen.
+- [ ] "Presentation mode" note visible on the Booth contact screen.
 - [ ] Booth reset to Welcome ("Start new guest").
 - [ ] Browser zoom at 100%; close extra tabs.
 
@@ -193,15 +201,15 @@ work, either set it back or stop at the lead form without submitting.
 ## Known honest limitations
 
 - The current published catalogue is small, and the Modeva record is still
-  sparse ("Awaiting full Forever inspection data", low evidence scores,
-  "Price on request"). The scores are honest, not broken — say so if asked.
+  sparse (no issued score, verdict, rental projection, or verification claim;
+  project-level price remains on request). Missing evidence is the point, not
+  a broken screen.
 - Expect "No exact match found" for most personas today; matching only lights
   up dimensions the recorded data supports (for example, budget matching
   stays off until project prices and budget bands share a currency).
-- The home page "Verified Offers", "Reviews", and "Areas" sections are static
-  illustrative content from the early product foundation, not database-backed
-  records. Do not present them as live data; the Navigator → Project Detail →
-  Booth path is the real system.
+- Early static offers, reviews, and area-count examples are removed from the
+  Partner Demo home and navigation. They remain outside the presentation path
+  in ordinary development pending separate product review.
 - Coralina has no public media in the preview — its gallery is intentionally
   empty rather than filled with unverified images.
 - The browser dev console in local development shows warnings from local dev

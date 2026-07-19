@@ -29,9 +29,7 @@ export function ProjectHero({ project }: ProjectHeroProps) {
 
   function scrollToFloorPlans() {
     if (typeof document === "undefined") return;
-    document
-      .getElementById("floor-plans")
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    document.getElementById("floor-plans")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   return (
@@ -61,7 +59,7 @@ export function ProjectHero({ project }: ProjectHeroProps) {
                 {project.core.isDemoPreview ? (
                   <span className="inline-flex items-center gap-2 rounded-full border border-amber-200/40 bg-amber-100/15 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.16em] text-amber-50 backdrop-blur-sm">
                     <FlaskConical className="h-3.5 w-3.5" />
-                    Internal demo preview — production draft
+                    Unpublished project preview
                   </span>
                 ) : null}
                 {project.trust.foreverVerified ? <ForeverVerified /> : null}
@@ -158,7 +156,9 @@ export function ProjectHero({ project }: ProjectHeroProps) {
                         <TrendingUp className="h-4 w-4" />
                         Rental yield
                       </span>
-                      <span className="text-sm font-semibold">{project.investment.rentalYield}</span>
+                      <span className="text-sm font-semibold">
+                        {project.investment.rentalYield}
+                      </span>
                     </div>
                   ) : null}
 

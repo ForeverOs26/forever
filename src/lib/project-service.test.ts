@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { listDemoPreviewProperties, from } = vi.hoisted(() => ({
+const { listDemoPreviewProperties, listPartnerDemoProperties, from } = vi.hoisted(() => ({
   listDemoPreviewProperties: vi.fn(),
+  listPartnerDemoProperties: vi.fn(),
   from: vi.fn(),
 }));
 
@@ -11,6 +12,10 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 vi.mock("@/features/project-detail/demo-preview", () => ({
   listDemoPreviewProperties,
+}));
+
+vi.mock("@/features/project-detail/partner-demo-data", () => ({
+  listPartnerDemoProperties,
 }));
 
 import { ProjectService } from "./project-service";
@@ -75,6 +80,8 @@ function preview(slug = "coralina") {
 }
 
 beforeEach(() => {
+  vi.stubEnv("VITE_PARTNER_DEMO", "false");
+  from.mockClear();
   const result = { data: [projectRow("modeva"), projectRow("other")], error: null };
   const query: Record<string, unknown> = {
     select: vi.fn(),
@@ -87,6 +94,11 @@ beforeEach(() => {
   query.then = Promise.resolve(result).then.bind(Promise.resolve(result));
   from.mockReturnValue(query);
   listDemoPreviewProperties.mockResolvedValue([preview()]);
+  listPartnerDemoProperties.mockResolvedValue(null);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("ProjectService.listActive", () => {
@@ -101,5 +113,16 @@ describe("ProjectService.listActive", () => {
   it("applies an exact limit after combining published projects and previews", async () => {
     await expect(ProjectService.listActive({ limit: 2 })).resolves.toHaveLength(2);
     expect((from.mock.results[0]?.value as Record<string, unknown>).limit).toBeUndefined();
+  });
+
+  it("uses committed local data without touching Supabase in Partner Demo mode", async () => {
+    vi.stubEnv("VITE_PARTNER_DEMO", "true");
+    listPartnerDemoProperties.mockResolvedValue([preview("modeva"), preview("coralina")]);
+
+    await expect(ProjectService.listActive()).resolves.toMatchObject([
+      { slug: "modeva" },
+      { slug: "coralina" },
+    ]);
+    expect(from).not.toHaveBeenCalled();
   });
 });

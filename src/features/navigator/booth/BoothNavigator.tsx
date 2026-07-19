@@ -87,7 +87,7 @@ export function BoothNavigator() {
   const catalogueEnabled =
     screen === "recommendation" || screen === "selected" || screen === "contact";
   const catalogue = useQuery({ ...projectListQuery(), enabled: catalogueEnabled });
-  const projects: Property[] = catalogue.data ?? [];
+  const projects = useMemo<Property[]>(() => catalogue.data ?? [], [catalogue.data]);
   const evaluation = useMemo(() => evaluateCatalogue(profile, projects), [profile, projects]);
 
   const selectedProject = projects.find((p) => p.slug === session.selectedProjectSlug) ?? null;
@@ -828,7 +828,7 @@ function ContactView({
         <Panel>
           {import.meta.env.DEV && isDemoLeadModeEnabled() && (
             <p className="mb-4 rounded-[10px] border border-dashed border-[#EAE6DE] bg-[#FBFAF7] px-3 py-2 text-[12px] text-[#8A857A]">
-              Local demo mode — contact details are validated but not saved.
+              Presentation mode — contact details are validated but not saved.
             </p>
           )}
           <BoothLeadForm status={leadStatus} failedBanner={failedBanner} onSubmit={onSubmit} />
@@ -872,6 +872,8 @@ function CompleteView({
   onOpen: () => void;
   onStartNewGuest: () => void;
 }) {
+  const isDemoMode = import.meta.env.DEV && isDemoLeadModeEnabled();
+
   return (
     <div className="mx-auto max-w-[680px] pt-6">
       <Panel>
@@ -885,14 +887,14 @@ function CompleteView({
           tabIndex={-1}
           className="mt-2 text-[30px] font-[400] text-[#17150F] outline-none [font-family:'Newsreader',Georgia,serif]"
         >
-          Lead saved
+          {isDemoMode ? "Contact validated" : "Lead saved"}
         </h1>
         <ul className="mt-5 flex flex-col gap-2 text-[15px] text-[#2B2820]">
           <li className="flex items-center gap-2">
             <span aria-hidden="true" className="text-[#3D8A5F]">
               ✓
             </span>
-            Lead saved
+            {isDemoMode ? "Contact details not saved" : "Lead saved"}
           </li>
           <li className="flex items-center gap-2">
             <span aria-hidden="true" className="text-[#3D8A5F]">
@@ -909,7 +911,7 @@ function CompleteView({
         </ul>
         {import.meta.env.DEV && isDemoLeadModeEnabled() && (
           <p className="mt-5 rounded-[10px] border border-dashed border-[#EAE6DE] bg-[#FBFAF7] px-3 py-2 text-[12px] text-[#8A857A]">
-            Local demo mode — no lead was saved.
+            Presentation mode — no lead was saved.
           </p>
         )}
         <div className="mt-7 flex flex-col gap-3 sm:flex-row">

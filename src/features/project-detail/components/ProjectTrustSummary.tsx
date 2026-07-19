@@ -39,8 +39,7 @@ export function ProjectTrustSummary({ project }: ProjectTrustSummaryProps) {
         ? "sm:grid-cols-3"
         : "sm:grid-cols-2";
   const priceVerified =
-    project.pricing.verifiedPrice.toLowerCase() === "verified" ||
-    project.trust.foreverVerified;
+    project.pricing.verifiedPrice.toLowerCase() === "verified" || project.trust.foreverVerified;
   const hasInspection =
     project.trust.lastInspection ||
     project.core.constructionStatus ||
@@ -64,7 +63,13 @@ export function ProjectTrustSummary({ project }: ProjectTrustSummaryProps) {
       )}
 
       {hasInspection && (
-        <Section eyebrow="Forever Inspection" title="What we verified on site" className="pt-0">
+        <Section
+          eyebrow={project.trust.foreverVerified ? "Forever Inspection" : "Project record"}
+          title={
+            project.trust.foreverVerified ? "What we verified on site" : "Available project facts"
+          }
+          className="pt-0"
+        >
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             {project.trust.lastInspection && (
               <InspectionItem
@@ -144,9 +149,7 @@ function SummaryStat({
       >
         {value}
         {suffix && (
-          <span className="ml-1 font-sans text-sm font-normal text-muted-foreground">
-            {suffix}
-          </span>
+          <span className="ml-1 font-sans text-sm font-normal text-muted-foreground">{suffix}</span>
         )}
       </span>
       <span className="mt-0.5 h-[2px] w-8 rounded-full bg-accent/30" />

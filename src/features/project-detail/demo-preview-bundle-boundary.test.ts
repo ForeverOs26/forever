@@ -22,6 +22,8 @@ const PRODUCTION_SERVICE_FILES = [
   "src/features/project-detail/project-detail-service.ts",
 ];
 
+const PARTNER_DEMO_IMPORT = /\bimport\(\s*["'][^"']*\/partner-demo-data["']\s*\)/;
+
 // Matches a static ES import whose specifier ends in "/demo-preview" (not
 // "-constants"), e.g. `import { x } from "./demo-preview";` or the `@/` alias.
 const STATIC_DEMO_PREVIEW_IMPORT = /^\s*import\s+[^;]*from\s+["'][^"']*\/demo-preview["'];?\s*$/m;
@@ -58,4 +60,13 @@ describe("demo-preview stays out of production-reachable services", () => {
     expect(source).toContain("demo-preview-constants");
     expect(STATIC_DEMO_PREVIEW_IMPORT.test(source)).toBe(false);
   });
+
+  it.each(PRODUCTION_SERVICE_FILES)(
+    "%s reaches Partner Demo data only through a DEV-guarded dynamic import",
+    (relativePath) => {
+      const source = readFileSync(join(process.cwd(), relativePath), "utf-8");
+      expect(PARTNER_DEMO_IMPORT.test(source)).toBe(true);
+      expect(source).toMatch(/if \(!import\.meta\.env\.DEV\) return/);
+    },
+  );
 });

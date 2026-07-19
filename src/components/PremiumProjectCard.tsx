@@ -123,7 +123,9 @@ export function PremiumProjectCard({ project }: PremiumProjectCardProps) {
               {project.propertyType}
             </div>
           ) : null}
-          <h3 className="line-clamp-2 font-serif text-xl leading-tight tracking-tight">{project.name}</h3>
+          <h3 className="line-clamp-2 font-serif text-xl leading-tight tracking-tight">
+            {project.name}
+          </h3>
           {project.location ? (
             <div className="mt-1.5 flex items-center gap-1.5 text-xs text-primary-foreground/90">
               <MapPin className="h-3 w-3" />
@@ -152,14 +154,16 @@ export function PremiumProjectCard({ project }: PremiumProjectCardProps) {
           ) : null}
         </div>
 
-        <div className="border-b border-border py-4">
-          <div className="text-[9px] font-medium uppercase tracking-[0.16em] text-primary">
-            Forever Verdict
+        {hasValue(project.verdict) && project.verdict !== "Not available" ? (
+          <div className="border-b border-border py-4">
+            <div className="text-[9px] font-medium uppercase tracking-[0.16em] text-primary">
+              Forever Verdict
+            </div>
+            <p className="mt-1.5 line-clamp-1 text-sm font-semibold leading-snug text-foreground">
+              {project.verdict}
+            </p>
           </div>
-          <p className="mt-1.5 line-clamp-1 text-sm font-semibold leading-snug text-foreground">
-            {project.verdict}
-          </p>
-        </div>
+        ) : null}
 
         <dl className="grid gap-3 py-4 text-sm">
           {quietDetails.map((detail) => (

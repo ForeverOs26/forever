@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { isDemoLeadModeEnabled } from "@/lib/partner-demo-mode";
 
 /**
  * Guarded "Start new guest" confirmation. role="dialog" aria-modal with a focus
@@ -11,6 +12,7 @@ export function ResetConfirmDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const isDemoMode = import.meta.env.DEV && isDemoLeadModeEnabled();
   const confirmRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -67,7 +69,7 @@ export function ResetConfirmDialog({
           className="mt-3 text-[14.5px] leading-relaxed text-[#57534A] [font-family:'Hanken_Grotesk',system-ui,sans-serif]"
         >
           This clears the current guest&apos;s answers and any unsaved details from this tablet.
-          Saved leads are not affected.
+          {isDemoMode ? " No contact details were saved." : " Saved leads are not affected."}
         </p>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row-reverse">
           <button

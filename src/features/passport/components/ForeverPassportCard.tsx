@@ -158,12 +158,77 @@ function PassportHeader({ passport }: { passport: ForeverPassport }) {
 export function ForeverPassportCard({ project }: ForeverPassportCardProps) {
   const passport = useMemo(() => {
     const report = generateForeverIntelligenceReport(project);
-    // Date-only precision keeps the server-rendered and client-hydrated text
-    // identical; a millisecond timestamp here caused a hydration failure on
-    // every project page.
-    const generatedAt = new Date().toISOString().slice(0, 10);
-    return createForeverPassport(project, report, { generatedAt });
+    return createForeverPassport(project, report);
   }, [project]);
+  const assessmentAvailable =
+    project.trust.foreverVerified ||
+    project.trust.trustScore > 0 ||
+    project.investment.investmentValue > 0 ||
+    Boolean(
+      project.trust.lastInspection ||
+      project.trust.marketPosition ||
+      project.trust.verdict ||
+      project.investment.rentalYield ||
+      project.investment.rentalDemand ||
+      project.investment.capitalGrowthEstimate,
+    );
+
+  if (!assessmentAvailable) {
+    return (
+      <section className="bg-muted/20 py-16">
+        <div className="container mx-auto px-4">
+          <div className="mx-auto max-w-6xl rounded-lg border border-border bg-background p-5 shadow-sm md:p-8">
+            <div className="rounded-lg border border-border/80 bg-muted/10 p-5 md:p-8">
+              <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                <FileBadge className="h-4 w-4" />
+                Forever Passport
+              </div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                {passport.foreverId}
+              </p>
+              <h2 className="mt-3 text-3xl font-bold text-foreground md:text-5xl">
+                {passport.projectName}
+              </h2>
+              <div className="mt-8 grid gap-6 md:grid-cols-2">
+                <div className="rounded-lg border border-border bg-background p-5 md:p-6">
+                  <div className="mb-3 flex items-center gap-2">
+                    <ClipboardCheck className="h-5 w-5 text-primary" />
+                    <h3 className="text-lg font-semibold text-foreground">Available record</h3>
+                  </div>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    The Passport organizes the project identity and the evidence currently recorded.
+                    Missing facts remain marked as not recorded.
+                  </p>
+                  <div className="mt-4">
+                    <VerificationRow label="Forever inspection" value={passport.lastInspection} />
+                    <VerificationRow label="Price-list date" value={passport.lastPriceUpdate} />
+                  </div>
+                </div>
+                <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-5 md:p-6">
+                  <div className="mb-3 flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-primary" />
+                    <h3 className="text-lg font-semibold text-foreground">
+                      Advisory assessment pending
+                    </h3>
+                  </div>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    No Forever Score, verdict, rental projection, or verification claim is issued
+                    from this sparse record.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-6 border-t border-border pt-5 text-sm text-muted-foreground">
+                <span className="inline-flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-primary" />
+                  Canonical project summary
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="bg-muted/20 py-16">
@@ -226,14 +291,10 @@ export function ForeverPassportCard({ project }: ForeverPassportCardProps) {
               <SummaryBlock title="Risks Summary" section={passport.risksSummary} tone="risk" />
             </div>
 
-            <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5 text-sm text-muted-foreground">
+            <div className="mt-6 border-t border-border pt-5 text-sm text-muted-foreground">
               <span className="inline-flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-primary" />
                 Canonical project summary
-              </span>
-              <span className="inline-flex items-center gap-2" suppressHydrationWarning>
-                <BadgeCheck className="h-4 w-4 text-primary" />
-                Generated {formatPassportValue(passport.metadata.generatedAt)}
               </span>
             </div>
           </div>
