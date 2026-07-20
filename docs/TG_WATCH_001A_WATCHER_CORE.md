@@ -1,6 +1,6 @@
 # TG-WATCH-001A — Universal Read-Only Telegram Source Watcher: Transport-Independent Core and Offline Pilot
 
-Status: Implemented, pending independent review and Owner approval
+Status: Implemented, independently reviewed, real-Windows validated, and Owner-approved for normal merge; canonical only after PR #91 is merged
 Task: TG-WATCH-001A (first implementation step of the TG-WATCH-001 checkpoint in `docs/CURRENT_STAGE.md`)
 Derives from: `docs/CURRENT_STAGE.md` — "TG-WATCH-001 — Universal Read-Only Telegram Source Watcher Design and Safe Pilot"
 Date: 2026-07-20
@@ -368,29 +368,40 @@ After the self-review hardening pass (§10a):
   are the two PRE-EXISTING baseline items (importer-preflight tests and the
   partner-demo-data collection failure) that require gitignored Owner-machine
   local data and reproduce identically at the base commit.
-- Real-Windows validation (PowerShell/cmd.exe `npm.cmd run tg-watch`, real
-  Telegram Desktop export of `@coralinakamala`, junction/reparse-point
-  boundary checks) has NOT been performed in this environment and remains for
-  the Owner/Codex — see §12.
+- Real-Windows validation is recorded in §12.
 
-## 12. Next steps after this stage
+## 12. Completion record — independently reviewed real-Windows pilot (2026-07-21)
 
-1. Independent review of this PR; Owner approval; canonicalization
-   (`docs/CURRENT_STAGE.md`, `docs/FOREVER_STATUS.md`, `docs/DECISIONS.md`)
-   in the established ledger flow.
-2. **Local Windows pilot (Owner + Codex):** real Telegram Desktop JSON export
-   of `@coralinakamala`; perform the first-run binding (§7); run the watcher;
-   verify the review report against the channel; and compare the quarantined
-   2026-07-17 price list/master plan hashes with the committed SIP-001B
-   `source-bundle.json` fingerprints (`268c2fa3…`, `1f7d70c8…`) — a
-   real-world provenance cross-check.
-3. **Real-Windows reparse-point audit (Codex):** on the Owner's machine,
-   verify the lstat-based link rejection against actual NTFS junctions and
-   symbolic links — (a) a junction as `--out-root`, (b) a junction as the
-   export folder, (c) a junction planted as `channels\<key>\media`, and (d) a
-   symlinked media file inside an export — each must fail closed with the
-   corresponding `*_symlink` / `media_path_unsafe` error and write nothing.
-4. Owner selects and authorizes the second Title pilot channel; add its
-   registry entry and perform its first-run binding.
-5. Only then, and behind its own gate: TG-WATCH-001B live-transport design
-   (§8).
+TG-WATCH-001A is implemented, independently reviewed, real-Windows
+validated, and Owner-approved for a normal merge of PR #91. It becomes
+canonical only after that merge; the strategic and canonical-stage records are
+intentionally handled separately in PR #93.
+
+The retained pilot evidence is:
+
+- Channel: `@coralinakamala`; verified numeric Telegram channel ID:
+  `3033667337`.
+- The first unbound run failed closed before history or state ingestion.
+- Message 175, `Price List 03.07.26`, was retained at 251842 bytes with
+  SHA-256 `ae62137e…c8abb` and classification `price_table`.
+- Message 176, `Master Plan 03.07.26`, was retained at 1473700 bytes with
+  SHA-256 `b0af3c6e…52f31` and classification `visual_master_plan`.
+- Message 178, `Master Plan 17.07.26`, was retained at 1474832 bytes with
+  SHA-256
+  `1f7d70c83a53b96981dabba3e03206996f8c1c6bfdfc37983a48c9e16eadd2fa`
+  and classification `visual_master_plan`.
+- Message 179, `Price List 17.07.26`, was retained at 251902 bytes with
+  SHA-256
+  `268c2fa30e39e89c7dd5e3d7751326e3cf958ec2783e5953eabccbece9b3f3c0`
+  and classification `price_table`.
+- Both 17.07 files exactly match canonical SIP-001B. All source files
+  remained unchanged.
+- A second identical run stored zero additional objects and retained cursor 179. Two fixed-time fresh runtime roots were byte-identical.
+- NTFS export-root, runtime-root, media-subfolder, and object-slot junction
+  cases each failed closed. Runtime artifacts stayed outside the repository.
+- No Telegram authentication or network access occurred; no database client,
+  import, lead, publication, production connection, or production write
+  occurred.
+
+The next implementation work remains separately gated: authorize a second
+pilot channel, then consider TG-WATCH-001B live-transport design (§8).
