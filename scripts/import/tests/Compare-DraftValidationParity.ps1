@@ -42,7 +42,12 @@ function ConvertTo-NativeArgument([string]$Value) {
 }
 
 function Invoke-ValidateOnly([string]$PayloadPath) {
-  $arguments = @('-NoProfile', '-File', $Importer, '-PayloadPath', $PayloadPath, '-ValidateOnly')
+  # Windows PowerShell does not inherit an outer process's -ExecutionPolicy.
+  # Pass Bypass only to this disposable validation child; no machine, user, or
+  # repository policy is changed. pwsh does not need this Windows-only switch.
+  $arguments = @('-NoProfile')
+  if ($PSVersionTable.PSEdition -eq 'Desktop') { $arguments += @('-ExecutionPolicy', 'Bypass') }
+  $arguments += @('-File', $Importer, '-PayloadPath', $PayloadPath, '-ValidateOnly')
   $startInfo = New-Object System.Diagnostics.ProcessStartInfo
   $startInfo.FileName = $psExe
   $startInfo.Arguments = (($arguments | ForEach-Object { ConvertTo-NativeArgument ([string]$_) }) -join ' ')

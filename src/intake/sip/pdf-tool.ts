@@ -23,16 +23,33 @@ export const PDFTOTEXT_RUN_TIMEOUT_MS = 60_000;
 /** Bound on the produced text-layer output. A larger result fails closed. */
 export const MAX_TEXT_OUTPUT_BYTES = 50 * 1024 * 1024;
 
-/** Repository-documented / previously used local Windows Poppler install paths. */
-const WINDOWS_CANDIDATE_PATHS = [
-  "C:\\poppler\\Library\\bin\\pdftotext.exe",
-  "C:\\Program Files\\poppler\\Library\\bin\\pdftotext.exe",
-  "C:\\Program Files\\poppler-24.02.0\\Library\\bin\\pdftotext.exe",
-  // Git for Windows currently ships the compatible Xpdf pdftotext utility
-  // here. SIP records the vendor honestly and uses its table mode only when
-  // the executable identifies itself as Xpdf.
-  "C:\\Program Files\\Git\\mingw64\\bin\\pdftotext.exe",
-];
+type WindowsEnvironment = {
+  ProgramFiles?: string;
+  "ProgramFiles(x86)"?: string;
+  SystemDrive?: string;
+};
+
+/**
+ * Construct only conventional, local Windows candidates. The roots come from
+ * the host environment rather than an Owner-specific drive letter, and are
+ * never scanned. Git for Windows bundles the compatible Xpdf utility; it is
+ * kept as a candidate because a version probe validates it before use.
+ */
+export function buildWindowsPdftotextCandidates(
+  environment: WindowsEnvironment = process.env,
+): PdfToolCandidate[] {
+  const programFilesRoots = [
+    environment.ProgramFiles,
+    environment["ProgramFiles(x86)"],
+    environment.SystemDrive ? join(environment.SystemDrive, "Program Files") : undefined,
+  ].filter((root): root is string => Boolean(root));
+  const candidates = programFilesRoots.flatMap((root) => [
+    join(root, "poppler", "Library", "bin", "pdftotext.exe"),
+    join(root, "poppler-24.02.0", "Library", "bin", "pdftotext.exe"),
+    join(root, "Git", "mingw64", "bin", "pdftotext.exe"),
+  ]);
+  return [...new Set(candidates)].map((executable) => ({ executable }));
+}
 
 function parseVersion(output: string): string | null {
   const match = output.match(/version\s+([0-9]+\.[0-9]+(?:\.[0-9]+)?)/i);
@@ -106,12 +123,31 @@ export interface PdfToolCandidate {
   argumentPrefix?: string[];
 }
 
+function siblingPdftotextCandidate(): PdfToolCandidate[] {
+  const pdfinfoPath = resolveAbsolutePath("pdfinfo");
+  if (!pdfinfoPath) return [];
+  const executable = join(
+    dirname(pdfinfoPath),
+    process.platform === "win32" ? "pdftotext.exe" : "pdftotext",
+  );
+  return existsSync(executable) ? [{ executable }] : [];
+}
+
+export function buildPdftotextCandidates(
+  candidateOverride?: PdfToolCandidate[],
+): PdfToolCandidate[] {
+  return [
+    { executable: "pdftotext" },
+    ...(candidateOverride ?? []),
+    ...(process.platform === "win32" ? buildWindowsPdftotextCandidates() : []),
+  ];
+}
+
 export function preflightPdftotext(candidateOverride?: PdfToolCandidate[]): PdfToolPreflight {
-  const candidates: PdfToolCandidate[] =
-    candidateOverride ??
-    ["pdftotext", ...(process.platform === "win32" ? WINDOWS_CANDIDATE_PATHS : [])].map(
-      (executable) => ({ executable }),
-    );
+  const candidates: PdfToolCandidate[] = [
+    ...buildPdftotextCandidates(candidateOverride),
+    ...siblingPdftotextCandidate(),
+  ];
 
   for (const candidate of candidates) {
     const found = tryVersion(candidate.executable, candidate.argumentPrefix);

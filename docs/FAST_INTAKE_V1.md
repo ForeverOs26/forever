@@ -57,7 +57,7 @@ Use `npm.cmd` — a normal execution policy may block `npm.ps1`, so plain `npm`
 is not guaranteed to work in PowerShell. Single line:
 
 ```
-npm.cmd run intake -- --project marina-bay --name "Marina Bay" --source "C:\forever-incoming\Marina Bay"
+npm.cmd run intake -- --project marina-bay --name "Marina Bay" --source "<OWNER_LOCAL_INCOMING>/Marina Bay"
 ```
 
 Multiple ZIP sources (PowerShell backtick continuation, if a single line is too
@@ -65,8 +65,8 @@ long):
 
 ```
 npm.cmd run intake -- --project marina-bay --name "Marina Bay" `
-  --source "C:\forever-incoming\Marina Bay brochure.zip" `
-  --source "C:\forever-incoming\Marina Bay price list.zip"
+  --source "<OWNER_LOCAL_INCOMING>/Marina Bay brochure.zip" `
+  --source "<OWNER_LOCAL_INCOMING>/Marina Bay price list.zip"
 ```
 
 ### Windows cmd.exe
@@ -74,7 +74,7 @@ npm.cmd run intake -- --project marina-bay --name "Marina Bay" `
 The same single-line `npm.cmd` command:
 
 ```
-npm.cmd run intake -- --project marina-bay --name "Marina Bay" --source "C:\forever-incoming\Marina Bay"
+npm.cmd run intake -- --project marina-bay --name "Marina Bay" --source "<OWNER_LOCAL_INCOMING>/Marina Bay"
 ```
 
 (For continuation in cmd.exe use the caret `^`, never a backslash.)

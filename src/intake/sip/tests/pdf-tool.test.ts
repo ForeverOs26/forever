@@ -6,36 +6,89 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   MAX_TEXT_OUTPUT_BYTES,
   PdfToolError,
+  buildPdftotextCandidates,
+  buildWindowsPdftotextCandidates,
   preflightPdftotext,
   runPdftotextLayout,
 } from "../pdf-tool";
 import { writeFakePdftotext } from "./test-support";
 
 const ORIGINAL_PATH = process.env.PATH;
+const ORIGINAL_PROGRAM_FILES = process.env.ProgramFiles;
+const ORIGINAL_PROGRAM_FILES_X86 = process.env["ProgramFiles(x86)"];
+const ORIGINAL_SYSTEM_DRIVE = process.env.SystemDrive;
 
 describe("SIP-001A pdftotext preflight", () => {
   let fakeDir: string;
 
   afterEach(() => {
     process.env.PATH = ORIGINAL_PATH;
+    if (ORIGINAL_PROGRAM_FILES === undefined) delete process.env.ProgramFiles;
+    else process.env.ProgramFiles = ORIGINAL_PROGRAM_FILES;
+    if (ORIGINAL_PROGRAM_FILES_X86 === undefined) delete process.env["ProgramFiles(x86)"];
+    else process.env["ProgramFiles(x86)"] = ORIGINAL_PROGRAM_FILES_X86;
+    if (ORIGINAL_SYSTEM_DRIVE === undefined) delete process.env.SystemDrive;
+    else process.env.SystemDrive = ORIGINAL_SYSTEM_DRIVE;
     if (fakeDir) rmSync(fakeDir, { recursive: true, force: true });
   });
 
   it("reports found=false with an explicit external-prerequisite message when pdftotext is missing", () => {
     process.env.PATH = "/nonexistent-bin-only";
+    delete process.env.ProgramFiles;
+    delete process.env["ProgramFiles(x86)"];
+    delete process.env.SystemDrive;
     const result = preflightPdftotext([]);
     expect(result.found).toBe(false);
     expect(result.executablePath).toBeNull();
     expect(result.error).toMatch(/pdftotext was not found/i);
+
+    expect(buildWindowsPdftotextCandidates({})).toEqual([]);
+    const nonSystemProgramFiles = `D:${String.fromCharCode(92)}Programs`;
+    const nonSystemProgramFilesX86 = `E:${String.fromCharCode(92)}Programs (x86)`;
+    const nonSystemDrive = "F:";
+    expect(
+      buildPdftotextCandidates([{ executable: "injected-test-pdftotext" }]).slice(0, 2),
+    ).toEqual([{ executable: "pdftotext" }, { executable: "injected-test-pdftotext" }]);
+    expect(
+      buildWindowsPdftotextCandidates({
+        ProgramFiles: nonSystemProgramFiles,
+        "ProgramFiles(x86)": nonSystemProgramFilesX86,
+        SystemDrive: nonSystemDrive,
+      }).map((candidate) => candidate.executable),
+    ).toEqual([
+      join(nonSystemProgramFiles, "poppler", "Library", "bin", "pdftotext.exe"),
+      join(nonSystemProgramFiles, "poppler-24.02.0", "Library", "bin", "pdftotext.exe"),
+      join(nonSystemProgramFiles, "Git", "mingw64", "bin", "pdftotext.exe"),
+      join(nonSystemProgramFilesX86, "poppler", "Library", "bin", "pdftotext.exe"),
+      join(nonSystemProgramFilesX86, "poppler-24.02.0", "Library", "bin", "pdftotext.exe"),
+      join(nonSystemProgramFilesX86, "Git", "mingw64", "bin", "pdftotext.exe"),
+      join(nonSystemDrive, "Program Files", "poppler", "Library", "bin", "pdftotext.exe"),
+      join(nonSystemDrive, "Program Files", "poppler-24.02.0", "Library", "bin", "pdftotext.exe"),
+      join(nonSystemDrive, "Program Files", "Git", "mingw64", "bin", "pdftotext.exe"),
+    ]);
+
+    if (process.platform === "win32") {
+      process.env.PATH = "/nonexistent-bin-only";
+      if (ORIGINAL_PROGRAM_FILES === undefined) delete process.env.ProgramFiles;
+      else process.env.ProgramFiles = ORIGINAL_PROGRAM_FILES;
+      const xpdf = preflightPdftotext();
+      expect(xpdf.found).toBe(true);
+      expect(xpdf.vendor).toBe("xpdf");
+      expect(xpdf.version).toBe("4.06");
+      expect(xpdf.executableSha256).toMatch(/^[0-9a-f]{64}$/);
+    }
   });
 
   it("locates a real pdftotext on PATH and records its version", () => {
     const fake = writeFakePdftotext();
     fakeDir = fake.dir;
+    process.env.PATH = fake.dir;
     const result = preflightPdftotext([
       { executable: process.execPath, argumentPrefix: [fake.scriptPath] },
     ]);
     expect(result.found).toBe(true);
+    expect(result.executablePath).toBe(process.execPath);
+    expect(result.argumentPrefix).toEqual([fake.scriptPath]);
     expect(result.version).toBe("24.02.0");
     expect(result.versionOutput).toMatch(/pdftotext version/);
     expect(result.executableSha256).toMatch(/^[0-9a-f]{64}$/);

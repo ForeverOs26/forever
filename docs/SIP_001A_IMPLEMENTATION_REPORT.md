@@ -32,14 +32,15 @@ The audit corrected PR-owned defects before accepting a real result:
 - Size: 77,091 bytes.
 - SHA-256 before, between, and after real runs: `4ddee05fe5063bd8548ca8d2833c20bb4ca9b6b81a23aee8f21b065e1b5260b6`.
 - The file is outside the repository and was never modified or committed.
-- PDF text tool: `C:\Program Files\Git\mingw64\bin\pdftotext.exe`, Xpdf 4.06, SHA-256 `9699be3ec5726d33010295d96fd9eff43c5a6f4201aefe5c1678e70ec9fe3948`.
+- PDF text tool: Git for Windows bundled Xpdf `pdftotext` (vendor: Xpdf, version: 4.06), executable SHA-256 `9699be3ec5726d33010295d96fd9eff43c5a6f4201aefe5c1678e70ec9fe3948`.
 - PDF inspection tool: bundled Poppler `pdfinfo` 26.05.0, SHA-256 `bc2c0f980c9a2a29cd1e06aacd8d1c7b67a5304e9d1d6f75190bdeb9c81a4365`.
 - The one-page letter-landscape PDF is tagged, unencrypted, has no JavaScript, and contains no obvious personal data.
+- Authorized local custody location: `<OWNER_LOCAL_INCOMING>/Rainpalm/raw/price-list/...`; the source remains outside the repository.
 
 Exact command, run twice with fresh managed workspaces:
 
 ```powershell
-npm.cmd run sip:price-list -- --project rainpalm-villas --pdf "C:\forever-incoming\Rainpalm\raw\price-list\Rainpalm - Price List（for In house) update 04.2025.pdf"
+npm.cmd run sip:price-list -- --project rainpalm-villas --pdf "<AUTHORIZED_RAINPALM_PRICE_LIST_PDF>"
 ```
 
 ## Real qualification and extraction
