@@ -1,0 +1,4 @@
+Rainpalm Villas - Price List
+
+Unit    Type    Price         Transfer Fee (THB)   Status
+A1      Type A  12,500,000    50,000               Available

@@ -1,0 +1,5 @@
+Rainpalm Villas - Price List
+
+Unit    Type    Bed  Bath  Size (sqm)  Price (THB)   Status
+A1      Type A  3    3     220.5       12,500,000    Available
+A1      Type A  3    3     220.5       12,600,000    Available
