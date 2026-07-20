@@ -1,13 +1,13 @@
 # Structured Input Preparation - Design v1
 
-Status: Design only - corrected after independent review; awaiting Owner merge approval
+Status: Approved canonical design - independently reviewed and Owner approved
 Authoritative base: `6bb1c66e1e7081811f308140dcb0c3f4935ac7e6`
-Reviewed PR head: `42b3d7c73cc997012686f1b86d3cea41e7d9e3f8`
+Approved reviewed PR head: `0a703e31d3f940a1000d23f90dc448f249212b4e`
 Review date: 2026-07-20
 
 ## Purpose and evidence discipline
 
-Structured Input Preparation (SIP) is a proposed local-only stage before Fast Intake. It turns a reviewed subset of a raw developer dossier into unchanged `project-facts.json` and `ExtractedPriceList` inputs. It is not an importer, payload builder, database client, publisher, OCR system, AI agent, or Factory executor.
+Structured Input Preparation (SIP) is an approved local-only stage before Fast Intake. It turns a reviewed subset of a raw developer dossier into unchanged `project-facts.json` and `ExtractedPriceList` inputs. It is not an importer, payload builder, database client, publisher, OCR system, AI agent, or Factory executor.
 
 Evidence labels:
 
@@ -132,4 +132,4 @@ Explicit exclusions: project-facts automation, XLSX, OCR, scanned PDFs, image/fl
 - **[U]** Confirm Owner-machine Poppler executable path/version in SIP-001A preflight; install no replacement in this PR.
 - **[U]** Choose private module location only after direct-reuse analysis decides between `src/intake/sip/` and small shared boundary. Fast Intake behavior remains unchanged.
 
-No Owner-policy decisions remain unresolved. This document does not alter `docs/CURRENT_STAGE.md`, `docs/FOREVER_STATUS.md`, or `docs/ROADMAP.md`; checkpoint remains incomplete until PR #88 is reviewed and merged.
+No Owner-policy decisions remain unresolved. Structured Input Preparation Design v1 is independently reviewed and Owner approved. SIP-001A is the active implementation checkpoint; implementation remains outside this design-canonicalization PR.

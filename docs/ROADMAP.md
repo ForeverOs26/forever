@@ -6,7 +6,7 @@ This document defines development phases, dependencies, and sequencing. It is no
 
 ## Current Development Phase
 
-Rainpalm Fast Intake Pilot 01 completed successfully. Partner Demo v1 is canonical and ready for presentation, pending scheduling as a parallel business checkpoint; it does not block development. The active development checkpoint is the Structured Input Preparation design: determine the smallest reliable, source-backed process from ordinary developer materials to compatible `project-facts.json` and extracted price-list JSON. The design preserves exact source references, provenance, confidence, missing-fact handling, no filename-based fact inference, and no unsupported currency, price, date, developer, location, or project fact. It authorizes neither automatic import nor publication. After review and approval, implement the smallest validated slice without prematurely building a large OCR/computer-vision platform; raw-document extraction remains a later, separate stage. When the partner presentation is delivered, classify feedback as demo blocker / product improvement / future roadmap idea / commercial-partnership decision. Coralina remains unpublished and Factory remains A0. See `docs/PARTNER_DEMO_V1.md`, `docs/CURRENT_STAGE.md`, and `docs/FAST_INTAKE_PILOT_01_RAINPALM.md`.
+Structured Input Preparation Design v1 is independently reviewed, Owner approved, and canonical. The active development checkpoint is SIP-001A: qualify and deterministically extract one supported text-based PDF price list into candidate `ExtractedPriceList` JSON, validate it, produce an exception-only review summary, and prove current Fast Intake consumes the reviewed result unchanged. Rainpalm is the intended first pilot only after its actual raw price-list PDF is confirmed in an authorized local source folder; its committed payload is comparison ground truth, not proof that the raw PDF is present. Partner Demo v1 remains canonical and ready for presentation, pending scheduling as a parallel business checkpoint; it does not block SIP-001A. Coralina remains unpublished, Rainpalm remains unimported and unpublished, and Factory remains A0. See `docs/STRUCTURED_INPUT_PREPARATION_DESIGN_V1.md`, `docs/PARTNER_DEMO_V1.md`, and `docs/CURRENT_STAGE.md`.
 
 A shared Forever Navigator over two shells — the website Navigator (`/navigator`) and Booth Mode (`/booth`) — is canonical on `main`. Both shells consume a single Navigator Core, NAV-001 remains the shared source of truth, and Booth Mode is a presentation/employee workflow shell rather than a second product. Booth is intentionally not linked from normal public navigation. See `docs/CURRENT_STAGE.md`.
 
@@ -14,7 +14,7 @@ Coralina's production draft import is completed as an unpublished draft (1 proje
 
 Ordinary new-project persistence uses the generic Progressive draft importer. See `docs/CURRENT_STAGE.md`.
 
-RC5.5D is completed, reviewed, integrated, canonically applied, and verified as exceptional maintenance capability. Ordinary imports no longer use its approval/receipt workflow or repeated platform certification. The normal sequence is payload validation → duplicate check → one atomic Progressive RPC transaction → exact graph verification → `COMMIT` → short post-commit verification. The Coralina production draft import through that generic importer is completed (1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch); Coralina remains an unpublished draft, publication is separate, and Factory remains A0. Fast Intake v1 is canonical. Rainpalm Pilot 01 is completed; the immediate development checkpoint is Structured Input Preparation design, while Partner Demo v1 presentation and its structured feedback remain pending in parallel.
+RC5.5D is completed, reviewed, integrated, canonically applied, and verified as exceptional maintenance capability. Ordinary imports no longer use its approval/receipt workflow or repeated platform certification. The normal sequence is payload validation → duplicate check → one atomic Progressive RPC transaction → exact graph verification → `COMMIT` → short post-commit verification. The Coralina production draft import through that generic importer is completed (1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch); Coralina remains an unpublished draft, publication is separate, and Factory remains A0. Fast Intake v1 and Structured Input Preparation Design v1 are canonical. Rainpalm Pilot 01 is completed; the immediate development checkpoint is SIP-001A, while Partner Demo v1 presentation and its structured feedback remain pending in parallel.
 
 ## Completed Phases
 
@@ -92,7 +92,7 @@ Ordinary new-project import is completed and proven: one generic Progressive dra
   - RC5.5B (completed, merged, locally proven): explicitly requested, read-only target collision inspection with proven-complete paginated reads. The Owner's local proving run against the reconciled canonical local target reported Coralina as 405 `absent` operations with no collisions, duplicates, identity conflicts, or inspection errors.
   - RC5.5C (completed, reviewed, integrated, and merged): transaction-backed execution and rollback preparation — a single-transaction boundary, Owner approval-artifact contract, deterministic ordering, in-transaction verification, automatic rollback, sanitized receipts, and an explicit `--execute-approved-import` mode. The live adapter stays disabled; no real import has occurred; real database writes remain zero.
   - RC5.5D (completed, reviewed, integrated, canonically applied, and verified): migration `20260715120000` is recorded exactly once. The complete canonical boundary and security state passed, including the exact ownership and capability allowlists, 10 dedicated policy definitions, and effective `postgres` membership capabilities. The pre-application manual logical backup was completed and verified. No retry, repair, `GRANT`, or `REVOKE` is required.
-  - Historical execution preparation is retained only for exceptional maintenance. The Coralina draft import through the generic importer is completed as an unpublished draft; publication remains separate, and Factory stays A0. Fast Intake v1 is canonical; Rainpalm Pilot 01 is completed and its evidence supports the active Structured Input Preparation design checkpoint.
+  - Historical execution preparation is retained only for exceptional maintenance. The Coralina draft import through the generic importer is completed as an unpublished draft; publication remains separate, and Factory stays A0. Fast Intake v1 and Structured Input Preparation Design v1 are canonical; Rainpalm Pilot 01 is completed and its evidence supports the active SIP-001A checkpoint.
 
 ## Upcoming Phases
 
@@ -101,19 +101,23 @@ Ordinary new-project import is completed and proven: one generic Progressive dra
   - Unpublished validated partial draft only; no database import, publication, or production write.
   - See `docs/FAST_INTAKE_PILOT_01_RAINPALM.md` for source integrity, warnings, and gaps.
 
-- Structured Input Preparation design (active development checkpoint)
-  - Design the smallest reliable source-backed preparation path from an ordinary developer dossier to `project-facts.json` and extracted price-list JSON.
-  - Preserve exact source references, provenance, confidence, missing-fact handling, anti-fabrication controls, and no filename-based fact inference.
-  - Do not introduce unsupported currency, price, date, developer, location, or project facts; do not automatically import or publish.
-  - After review and approval, implement the smallest validated slice without prematurely building a large OCR/computer-vision platform.
+- Structured Input Preparation Design v1 (completed and canonical)
+  - Independently reviewed and Owner approved with existing Fast Intake contracts and safety boundaries unchanged.
+  - Selects local Poppler text output plus deterministic TypeScript for SIP-001 and leaves no Owner-policy decision unresolved.
+
+- SIP-001A supported text-PDF extraction (active development checkpoint)
+  - Accept only authorized local raw price-list PDF input; reuse existing Fast Intake inventory, path, ZIP, hashing, duplicate, and classification boundaries.
+  - Preflight local Poppler, qualify the text layer, deterministically extract one supported table layout, retain exact page/row references, normalize candidates, block duplicates/ambiguity, produce exception-only review, write reviewed final `ExtractedPriceList` JSON, prove deterministic repeat, and prove unchanged Fast Intake compatibility.
+  - Exclude project-facts automation, XLSX/CSV, OCR, scanned PDFs, images/floor plans, AI/cloud extraction, database connection, import, publication, admin UI, and Factory autonomy expansion.
+  - Use Rainpalm as the real pilot only when its actual raw price-list PDF is confirmed in an authorized local source folder; safe fixtures may support infrastructure work before then.
 
 - Partner Demo v1 presentation (parallel pending business checkpoint)
   - Present Forever Partner Demo v1 from `docs/PARTNER_DEMO_V1.md` when partner scheduling permits.
   - Collect structured partner feedback and classify it as demo blocker, product improvement, future roadmap idea, or commercial/partnership decision.
-  - This presentation does not block Structured Input Preparation design.
+  - This presentation does not block SIP-001A.
 
-- Raw-document extraction stage (later, separate)
-  - Raw PDF/spreadsheet/image extraction for Fast Intake after the structured-input preparation design is approved.
+- Broader raw-document extraction stages (later, separate)
+  - XLSX/CSV, OCR, scanned-PDF, image, floor-plan, AI, or other extraction modes require later separately approved checkpoints.
 
 - RC1 architecture hardening
   - Clarify canonical media flow.
