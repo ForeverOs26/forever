@@ -28,6 +28,25 @@ now suppresses these slugs at every public data boundary
 (`src/lib/public-truth.ts`), so the public product no longer renders them even
 if the rows still exist. This plan removes them at the source.
 
+## Fail-closed execution model
+
+Both write transactions in this plan follow the same safety pattern:
+
+1. Exact expected state is bound into the transaction as data (a
+   transaction-local snapshot table), never as operator memory.
+2. Identity checks run BEFORE any modification and `RAISE EXCEPTION` on any
+   missing row, unexpected row, or identity mismatch.
+3. Verification of the exact post-change state runs INSIDE the transaction
+   and `RAISE EXCEPTION` on any mismatch — including unrelated rows.
+4. A raised exception aborts the transaction; the trailing `COMMIT` then
+   rolls back automatically. No step asks the operator to compare output by
+   eye and remember to type `ROLLBACK`.
+5. The rollback restores only values captured in the reviewed pre-change
+   snapshot. The template ships with intentionally invalid placeholder ids
+   (`00000000-…`), and production row UUIDs cannot be known from the
+   repository — so the template is structurally inert until the Owner pastes
+   the real Step 1b snapshot; otherwise the identity check aborts.
+
 ## Entities in scope
 
 Fictitious projects (slugs, as seeded):
@@ -48,14 +67,7 @@ South Cape Homes.
 Genuine records that must NOT be touched: project `modeva` (and the legacy
 `the-modeva-bang-tao` record if present — see Step 1e), developer `Title`,
 location `Bang Tao`, the unpublished Coralina draft and its whole graph, all
-buildings/units/price history, all leads.
-
-Throughout this document, `:fictitious_slugs` means exactly:
-
-```sql
-('surin-ridge-villas','kamala-beach-residences','layan-forest-villas',
- 'bangtao-garden-pool-villas','kata-cliff-residences','rawai-courtyard-villas')
-```
+buildings/units/price history, all leads, all media.
 
 ## Step 1 — Read-only inventory (separately authorized, no writes)
 
@@ -72,18 +84,19 @@ ORDER BY created_at;
 SELECT id, name, created_at FROM public.developers ORDER BY created_at;
 ```
 
-### 1b. Exact pre-change state of the targeted rows (the rollback baseline)
+### 1b. Exact pre-change state of the targeted rows (the snapshot)
 
 ```sql
-SELECT id, slug, name, is_active, is_featured, public_status, updated_at
+SELECT id, slug, name, is_active, is_featured, public_status
 FROM public.projects
 WHERE slug IN ('surin-ridge-villas','kamala-beach-residences','layan-forest-villas',
                'bangtao-garden-pool-villas','kata-cliff-residences','rawai-courtyard-villas')
 ORDER BY slug;
 ```
 
-This output is the authoritative pre-change snapshot. The deactivation in
-Step 3 and the rollback in Step 5 both depend on it; do not proceed without it.
+This output is the authoritative pre-change snapshot. Step 3's identity
+checks, and every value the Step 5 rollback restores, come from this exact
+output. Do not proceed without it.
 
 ### 1c. Complete relation discovery — every table that references projects
 
@@ -109,8 +122,7 @@ WHERE con.contype = 'f'
 
 For **every** table returned by 1c, count rows referencing the six projects.
 From the canonical migration set the expected referencing tables are at least:
-`project_media`, `units`, `buildings`, `facilities` (via `project_facilities`),
-`project_assets` (`images`/`videos`/`documents` variants as created),
+`project_media`, `units`, `buildings`, `project_facilities`, `project_assets`,
 `project_intelligence`, `investment_data`, `price_updates`,
 `project_translations`, `project_tags`, `project_amenities`, `project_seo`,
 `project_status_history`, `nearby_places`, `sources`, `ingestion_batches`,
@@ -136,9 +148,9 @@ WHERE project_slug IN ('surin-ridge-villas','kamala-beach-residences','layan-for
 
 Expected from migration history: `project_media` = 6, every other relation = 0.
 Any `leads` count above 0 means a real person asked about a fictitious project
-— record it for the Owner; it blocks nothing here because deactivation does not
-touch `leads` (the FK is `ON UPDATE CASCADE ON DELETE SET NULL` and this plan
-neither updates slugs nor deletes rows).
+— record it for the Owner; it blocks nothing here because this plan never
+touches `leads` (the FK is `ON UPDATE CASCADE ON DELETE SET NULL` and this
+plan neither updates slugs nor deletes rows).
 
 ### 1e. Modeva identity check, including the legacy RC2-era slug
 
@@ -185,18 +197,26 @@ Otherwise stop and resolve with the Architect.
 
 Deactivation, not deletion: reversible, preserves history, and removes public
 visibility (public RLS shows only `is_active = true AND public_status =
-'published'`). The transaction verifies identities and row counts in place and
-aborts on any mismatch:
+'published'`). All checks are database-enforced: any mismatch raises, the
+transaction aborts, and the trailing `COMMIT` rolls back automatically.
 
 ```sql
 BEGIN;
 
--- Fail closed unless the six targeted rows are exactly the expected
--- slug/name identities discovered in Step 1b — nothing more, nothing less.
+-- Transaction-local snapshot of every row NOT targeted, taken before any
+-- change, so unrelated-row preservation is verified value-by-value.
+CREATE TEMPORARY TABLE truth001a_untargeted_before ON COMMIT DROP AS
+SELECT id, slug, name, is_active, is_featured, public_status
+FROM public.projects
+WHERE slug NOT IN ('surin-ridge-villas','kamala-beach-residences','layan-forest-villas',
+                   'bangtao-garden-pool-villas','kata-cliff-residences','rawai-courtyard-villas');
+
+-- Identity check BEFORE any modification: exactly the six expected
+-- slug/name identities, nothing more, nothing less.
 DO $$
 DECLARE
-  mismatched integer;
   matched integer;
+  mismatched integer;
 BEGIN
   SELECT count(*) INTO matched
   FROM public.projects
@@ -224,13 +244,12 @@ BEGIN
 
   IF matched <> 6 OR mismatched <> 0 THEN
     RAISE EXCEPTION
-      'Targeted identity check failed: matched %, mismatched % — ROLLBACK', matched, mismatched;
+      'Targeted identity check failed: matched %, mismatched % — aborting', matched, mismatched;
   END IF;
 END $$;
 
 -- Lock exactly the targeted rows for this transaction.
-SELECT id, slug, is_active, is_featured, public_status
-FROM public.projects
+SELECT id FROM public.projects
 WHERE slug IN ('surin-ridge-villas','kamala-beach-residences','layan-forest-villas',
                'bangtao-garden-pool-villas','kata-cliff-residences','rawai-courtyard-villas')
 FOR UPDATE;
@@ -242,14 +261,16 @@ SET is_active = false,
 WHERE slug IN ('surin-ridge-villas','kamala-beach-residences','layan-forest-villas',
                'bangtao-garden-pool-villas','kata-cliff-residences','rawai-courtyard-villas');
 
--- Fail closed unless exactly six rows changed and none remain public.
+-- Fail closed unless: exactly six rows are now deactivated, none remain
+-- public, and every untargeted row is value-identical to its pre-change
+-- snapshot (compared row-by-row, not merely counted).
 DO $$
 DECLARE
-  updated integer;
+  deactivated integer;
   still_public integer;
-  untouched_active integer;
+  unrelated_changed integer;
 BEGIN
-  SELECT count(*) INTO updated
+  SELECT count(*) INTO deactivated
   FROM public.projects
   WHERE slug IN ('surin-ridge-villas','kamala-beach-residences','layan-forest-villas',
                  'bangtao-garden-pool-villas','kata-cliff-residences','rawai-courtyard-villas')
@@ -261,31 +282,41 @@ BEGIN
                  'bangtao-garden-pool-villas','kata-cliff-residences','rawai-courtyard-villas')
     AND (is_active = true OR public_status = 'published');
 
-  -- Unrelated projects must be untouched: compare against the Step 1a
-  -- inventory count of active projects outside the targeted set.
-  SELECT count(*) INTO untouched_active
-  FROM public.projects
-  WHERE slug NOT IN ('surin-ridge-villas','kamala-beach-residences','layan-forest-villas',
-                     'bangtao-garden-pool-villas','kata-cliff-residences','rawai-courtyard-villas')
-    AND is_active = true;
+  -- Symmetric difference between the pre-change snapshot of untargeted rows
+  -- and their live state: any insert, delete, or value change counts.
+  SELECT count(*) INTO unrelated_changed
+  FROM (
+    SELECT id, slug, name, is_active, is_featured, public_status
+    FROM truth001a_untargeted_before
+    EXCEPT
+    SELECT id, slug, name, is_active, is_featured, public_status
+    FROM public.projects
+    WHERE slug NOT IN ('surin-ridge-villas','kamala-beach-residences','layan-forest-villas',
+                       'bangtao-garden-pool-villas','kata-cliff-residences','rawai-courtyard-villas')
+  ) gone
+  FULL OUTER JOIN (
+    SELECT id, slug, name, is_active, is_featured, public_status
+    FROM public.projects
+    WHERE slug NOT IN ('surin-ridge-villas','kamala-beach-residences','layan-forest-villas',
+                       'bangtao-garden-pool-villas','kata-cliff-residences','rawai-courtyard-villas')
+    EXCEPT
+    SELECT id, slug, name, is_active, is_featured, public_status
+    FROM truth001a_untargeted_before
+  ) appeared ON false;
 
-  IF updated <> 6 OR still_public <> 0 THEN
+  IF deactivated <> 6 OR still_public <> 0 OR unrelated_changed <> 0 THEN
     RAISE EXCEPTION
-      'Deactivation verification failed: updated %, still_public % — ROLLBACK',
-      updated, still_public;
+      'Deactivation verification failed: deactivated %, still_public %, unrelated_changed % — aborting',
+      deactivated, still_public, unrelated_changed;
   END IF;
-
-  RAISE NOTICE 'Deactivated 6 fictitious projects; % unrelated active projects untouched.',
-    untouched_active;
 END $$;
 
 COMMIT;
 ```
 
-If any statement raises, the transaction aborts and nothing changes. Developers
-and media rows are intentionally not modified: deactivated projects already
-remove them from every public join, and physical cleanup can be a later,
-separately approved action.
+Developers, media, units, prices, and leads are intentionally not modified:
+deactivated projects already leave every public join, and physical cleanup can
+be a later, separately approved action.
 
 ## Step 4 — Post-cleanup verification (read-only)
 
@@ -300,43 +331,104 @@ ORDER BY slug;
 Also re-check the live site: `/projects`, `/sitemap.xml`, and one fictitious
 detail URL (must render the not-found page).
 
-## Step 5 — Rollback (restores the exact Step 1b state)
+## Step 5 — Rollback (snapshot-bound, database-enforced)
 
-The rollback restores each row to the exact values captured in Step 1b — it
-never unconditionally publishes. The statements below carry the values
-expected from migration history (`is_active = true`, `is_featured` as seeded,
-`public_status = 'published'` after the `20260718113000` backfill). **If the
-Step 1b snapshot recorded different values for any row, substitute that row's
-captured values before running.**
+The rollback restores each targeted row to exactly the values recorded in the
+Step 1b snapshot — never to values assumed from migration history, and never
+by publishing anything unconditionally.
+
+**Before running:** replace the six placeholder rows in the `VALUES` list with
+the exact Step 1b output. The placeholder ids below are intentionally invalid
+(`00000000-…`) and production row UUIDs cannot be known from this repository,
+so an unedited template ALWAYS aborts at the identity check — forgetting to
+paste the snapshot cannot silently restore wrong values.
 
 ```sql
 BEGIN;
 
-UPDATE public.projects SET is_active = true, is_featured = true,  public_status = 'published'
-WHERE slug = 'surin-ridge-villas';
-UPDATE public.projects SET is_active = true, is_featured = true,  public_status = 'published'
-WHERE slug = 'kamala-beach-residences';
-UPDATE public.projects SET is_active = true, is_featured = true,  public_status = 'published'
-WHERE slug = 'layan-forest-villas';
-UPDATE public.projects SET is_active = true, is_featured = false, public_status = 'published'
-WHERE slug = 'bangtao-garden-pool-villas';
-UPDATE public.projects SET is_active = true, is_featured = false, public_status = 'published'
-WHERE slug = 'kata-cliff-residences';
-UPDATE public.projects SET is_active = true, is_featured = false, public_status = 'published'
-WHERE slug = 'rawai-courtyard-villas';
+CREATE TEMPORARY TABLE truth001a_rollback_snapshot (
+  id uuid PRIMARY KEY,
+  slug text NOT NULL UNIQUE,
+  name text NOT NULL,
+  is_active boolean NOT NULL,
+  is_featured boolean NOT NULL,
+  public_status text NOT NULL
+) ON COMMIT DROP;
 
--- Verification: every targeted row matches its Step 1b snapshot again.
-SELECT id, slug, is_active, is_featured, public_status
-FROM public.projects
-WHERE slug IN ('surin-ridge-villas','kamala-beach-residences','layan-forest-villas',
-               'bangtao-garden-pool-villas','kata-cliff-residences','rawai-courtyard-villas')
-ORDER BY slug;
--- Compare against Step 1b before COMMIT; ROLLBACK on any difference.
+-- PASTE THE EXACT STEP 1b ROWS HERE (id, slug, name, is_active, is_featured,
+-- public_status). The rows below are inert placeholders.
+INSERT INTO truth001a_rollback_snapshot VALUES
+  ('00000000-0000-0000-0000-000000000001','surin-ridge-villas','PLACEHOLDER', false, false, 'draft'),
+  ('00000000-0000-0000-0000-000000000002','kamala-beach-residences','PLACEHOLDER', false, false, 'draft'),
+  ('00000000-0000-0000-0000-000000000003','layan-forest-villas','PLACEHOLDER', false, false, 'draft'),
+  ('00000000-0000-0000-0000-000000000004','bangtao-garden-pool-villas','PLACEHOLDER', false, false, 'draft'),
+  ('00000000-0000-0000-0000-000000000005','kata-cliff-residences','PLACEHOLDER', false, false, 'draft'),
+  ('00000000-0000-0000-0000-000000000006','rawai-courtyard-villas','PLACEHOLDER', false, false, 'draft');
+
+-- Identity check BEFORE any modification: the snapshot must contain exactly
+-- the six expected slugs, and every snapshot row must match a live row by
+-- (id, slug, name). An unedited template fails here on the placeholder ids.
+DO $$
+DECLARE
+  snapshot_rows integer;
+  expected_slugs integer;
+  identity_matches integer;
+BEGIN
+  SELECT count(*) INTO snapshot_rows FROM truth001a_rollback_snapshot;
+
+  SELECT count(*) INTO expected_slugs
+  FROM truth001a_rollback_snapshot
+  WHERE slug IN ('surin-ridge-villas','kamala-beach-residences','layan-forest-villas',
+                 'bangtao-garden-pool-villas','kata-cliff-residences','rawai-courtyard-villas');
+
+  SELECT count(*) INTO identity_matches
+  FROM truth001a_rollback_snapshot s
+  JOIN public.projects p ON p.id = s.id AND p.slug = s.slug AND p.name = s.name;
+
+  IF snapshot_rows <> 6 OR expected_slugs <> 6 OR identity_matches <> 6 THEN
+    RAISE EXCEPTION
+      'Rollback identity check failed: snapshot %, expected-slugs %, identity-matches % — aborting (paste the real Step 1b snapshot)',
+      snapshot_rows, expected_slugs, identity_matches;
+  END IF;
+END $$;
+
+-- Lock the six targeted rows.
+SELECT p.id FROM public.projects p
+JOIN truth001a_rollback_snapshot s ON s.id = p.id
+FOR UPDATE;
+
+-- Restore ONLY the captured values. Nothing here can publish a row that the
+-- snapshot recorded as unpublished.
+UPDATE public.projects p
+SET is_active = s.is_active,
+    is_featured = s.is_featured,
+    public_status = s.public_status
+FROM truth001a_rollback_snapshot s
+WHERE p.id = s.id;
+
+-- Verify the exact restored state INSIDE the transaction: every one of the
+-- six rows must be value-identical to its snapshot row.
+DO $$
+DECLARE
+  restored integer;
+BEGIN
+  SELECT count(*) INTO restored
+  FROM truth001a_rollback_snapshot s
+  JOIN public.projects p ON p.id = s.id
+  WHERE p.is_active = s.is_active
+    AND p.is_featured = s.is_featured
+    AND p.public_status = s.public_status;
+
+  IF restored <> 6 THEN
+    RAISE EXCEPTION
+      'Rollback verification failed: % of 6 rows match the snapshot — aborting', restored;
+  END IF;
+END $$;
 
 COMMIT;
 ```
 
-Note: even after a rollback, the repository quarantine keeps these slugs
+Note: even after a rollback, the repository suppression keeps these slugs
 hidden from the public product. Rollback only restores database state.
 
 ## Recommended follow-up data corrections (separate Owner decisions)
@@ -362,7 +454,8 @@ explicit slugs. This plan does not modify the historical migration.
 - Any Coralina publication or update (separate checkpoint).
 - Rainpalm import or publication.
 - Deleting rows, schemas, or storage objects.
-- Editing `leads` in any way.
+- Editing `leads`, `developers`, `project_media`, `units`, or price history
+  in any way.
 - Regenerating Supabase types (`src/integrations/supabase/types.ts` is stale —
   missing `public_status` and post-FDB tables — but regeneration requires a
   Supabase connection and is Owner/Codex work).

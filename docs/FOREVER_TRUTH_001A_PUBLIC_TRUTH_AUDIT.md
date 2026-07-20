@@ -101,6 +101,30 @@ catalogue is publicly served unless production was manually cleaned.
   current per-record source coverage (Modeva knowledge readiness is
   incomplete).
 
+### Defects corrected in the final review pass
+
+- The ordinary public header still linked `/advisory`, whose route hardcoded
+  the legacy `the-modeva-bang-tao` slug, loaded every active candidate, and
+  publicly exposed a ranked project list, a top pick, "ranked first"
+  language, and "verified evidence signals" — all derived from the same
+  legacy scalars this PR classifies as evidence-unproven. `/advisory` and
+  `/advisory/report` are now neutral, noindex, data-free placeholders out of
+  public navigation; the canonical Advisory modules under
+  `src/features/advisory/` are retained unchanged for the later Advisor
+  Workflow phase (per the Strategic North Star sequencing).
+- The prepared rollback in the cleanup plan hardcoded migration-history
+  values, relied on manual SELECT comparison before COMMIT, and could
+  therefore not be called an exact fail-closed restoration. It is now
+  snapshot-bound and database-enforced: a transaction-local snapshot table
+  carries the exact reviewed Step 1b values (id, slug, name, is_active,
+  is_featured, public_status); identity checks RAISE before any
+  modification; exact restored values are verified inside the transaction
+  before COMMIT; and the shipped template is inert — its placeholder ids can
+  never match production UUIDs, so an unedited template always aborts. The
+  deactivation now also snapshots every untargeted row before the update and
+  aborts (not merely notices) if any unrelated row changed, compared
+  value-by-value.
+
 ### Already fail-closed (verified, unchanged)
 
 Passport and Intelligence internal scoring thresholds, Navigator matching
@@ -138,8 +162,10 @@ codebase already uses (`"Not available"` sentinels, empty string / 0 / null):
    and Advisory candidate lists cannot render them regardless of current
    production contents.
 5. **Removal of fabricated content and behavior** — static offers, reviews,
-   and the area guide removed entirely; `/offers`, `/reviews`, and `/areas`
-   are honest empty-state pages, out of primary navigation and the sitemap;
+   and the area guide removed entirely; `/offers`, `/reviews`, `/areas`, and
+   the public Advisory Workspace (`/advisory`, `/advisory/report`) are honest
+   empty-state or placeholder pages, out of primary navigation and the
+   sitemap (Advisory pages are additionally noindex);
    Discovery's positional "Forever Recommended" banner, its "Forever
    Recommended"/"Forever Score" sorts, its "Forever Verified only" filter,
    and its non-functional intent tiles are removed — sorting is neutral
@@ -186,8 +212,17 @@ codebase already uses (`"Not available"` sentinels, empty string / 0 / null):
   no channel for suppressed scalars, and an end-to-end check with the real
   Modeva legacy row shape.
 - `src/lib/production-cleanup-plan.test.ts` — the prepared cleanup plan stays
-  prepared-only, slug-scoped, transactional, fail-closed, ellipsis-free, and
-  lead-untouched.
+  prepared-only, slug-scoped, transactional, and ellipsis-free; the rollback
+  is snapshot-bound with database-enforced aborts (inert placeholder ids,
+  identity checks before modification, exact-value verification before
+  COMMIT, no manual compare-then-commit step); unrelated projects are
+  compared value-by-value; leads, developers, media, units, and prices are
+  untouched.
+- `src/lib/advisory-public-boundary.test.ts` — `/advisory` and
+  `/advisory/report` query no project data, import no advisory engine,
+  contain no legacy slug or ranking/evidence-signal language, are noindex,
+  and appear in neither public navigation nor the sitemap; no ordinary
+  public route hardcodes the legacy Advisory slug.
 - `src/components/premium-project-card.truth.test.tsx` — display gating over
   the `Property` model: absent values render no badge, verdict, verified
   price, score, inspection date, or substitute imagery, and the sentinel is
@@ -208,8 +243,10 @@ These require the separately authorized read-only inventory in
 
 The exact production inventory (dynamic foreign-key discovery via
 `pg_constraint`, per-relation counts, pre-change snapshot), the
-single-transaction fail-closed deactivation of the six fictitious projects,
-verification, and an exact-value rollback are prepared in
+single-transaction fail-closed deactivation (identity checks and a
+value-by-value untargeted-row invariant that abort via RAISE), and a
+snapshot-bound rollback (inert placeholder template, database-enforced
+identity and restored-value verification before COMMIT) are prepared in
 `docs/FOREVER_TRUTH_001A_PRODUCTION_CLEANUP_PLAN.md`. No production
 connection, migration, or write occurred in this checkpoint.
 
@@ -232,7 +269,8 @@ modified. Publication is a separate Owner-gated checkpoint
    cleanup plan's recommended follow-up corrections).
 5. Owner/Architect: define the future evidence contract that would allow
    verification badges, scores, verdicts, market positions, yields,
-   inspections, and verified prices to return publicly.
+   inspections, verified prices, and the Advisor Workspace (with its
+   evidence-coverage views) to return publicly.
 6. Codex/Owner (Windows): reproduce the two inherited baseline failures
    (`partner-demo-data` imports and `importer-preflight` Coralina dry-run)
    that depend on untracked local source files, and confirm they pass there.

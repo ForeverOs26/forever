@@ -97,9 +97,15 @@ describe("AdvisoryWorkspace with Investment Intelligence", () => {
 });
 
 describe("Advisory route project identity", () => {
-  it("keeps the loaded Modeva slug as 'the-modeva-bang-tao'", () => {
+  // FOREVER-TRUTH-001A inverted this guard: the public /advisory route no
+  // longer loads any project — it is a neutral, noindex placeholder with no
+  // hardcoded slug, no query, and no derived recommendation. The full public
+  // boundary is enforced by `src/lib/advisory-public-boundary.test.ts`; this
+  // keeps the historical guard's location honest about the change.
+  it("no longer hardcodes the legacy Modeva slug in the public route", () => {
     const routePath = resolve(process.cwd(), "src/routes/advisory.tsx");
     const source = readFileSync(routePath, "utf8");
-    expect(source).toContain('ADVISORY_PROJECT_SLUG = "the-modeva-bang-tao"');
+    expect(source).not.toContain("the-modeva-bang-tao");
+    expect(source).not.toContain("ADVISORY_PROJECT_SLUG");
   });
 });

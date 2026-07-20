@@ -6,15 +6,15 @@ import { Button } from "@/components/ui/button";
 import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";
 
 /**
- * FOREVER-TRUTH-001A: `/offers`, `/reviews`, and `/areas` left the primary
- * navigation — they carry no published, source-backed content yet and must
- * not be promoted. The routes still exist as honest empty states for anyone
- * holding an old link.
+ * FOREVER-TRUTH-001A: `/offers`, `/reviews`, `/areas`, and `/advisory` left
+ * the primary navigation — they carry no published, evidence-bound content
+ * yet and must not be promoted. The routes still exist as honest, noindex
+ * empty states for anyone holding an old link. The Advisor Workspace returns
+ * in a later phase behind a real evidence contract.
  */
 const publicNav = [
   { to: "/", label: "Home" },
   { to: "/discovery", label: "Discovery" },
-  { to: "/advisory", label: "Advisory" },
   { to: "/projects", label: "Projects" },
   { to: "/about", label: "About" },
 ] as const;
