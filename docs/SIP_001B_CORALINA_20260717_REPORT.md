@@ -1,6 +1,6 @@
 # SIP-001B Coralina 2026-07-17 report
 
-Status: ready for independent review; not canonical until Owner merge.
+Status: implemented, independently reviewed, real-Windows validated, Owner-approved, and canonical after merge.
 
 ## Authority and sources
 
@@ -33,4 +33,4 @@ TypeScript checking, formatting, lint of all changed files, and the production b
 
 No production connection, database client, import, lead, publication, network request, or Telegram authentication occurred. Coralina remains unpublished; Rainpalm remains unimported and unpublished; Partner Demo remains canonical; Factory remains A0.
 
-The next recommended checkpoint is **TG-WATCH-001**, a separately approved local read-only Telegram watcher with a multi-project channel registry. It must be separate because it introduces user-session authentication, credential/session storage, external network access, recurring monitoring, and multiple-channel state.
+The next active development checkpoint is **TG-WATCH-001 — Universal Read-Only Telegram Source Watcher Design and Safe Pilot**. It is a separate future task: one universal local watcher will use one protected Telegram user session and a configuration registry that maps channels to developers and project slugs. Its safe pilot will cover `@coralinakamala` and one additional authorized Title channel selected during that task. It will read new posts and attachments only, quarantine them locally with SHA-256 duplicate protection, classify canonical price tables, visual Master Plans, construction photos/videos, and other documents, retain per-channel cursor and last-processed-message state, and produce Owner-review output. It will not automatically import to a database, publish anything, or expand Factory autonomy.

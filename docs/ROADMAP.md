@@ -6,7 +6,7 @@ This document defines development phases, dependencies, and sequencing. It is no
 
 ## Current Development Phase
 
-Structured Input Preparation Design v1 and SIP-001A are independently audited, real-Windows validated, Owner approved, and canonical. The active development checkpoint is SIP-001B: validate the canonical text-PDF extractor against one additional real authorized qualified price-list PDF before adding another source format. Partner Demo v1 remains canonical and ready for presentation, pending scheduling as a parallel business checkpoint; it does not block SIP-001B. Coralina remains unpublished, Rainpalm remains unimported and unpublished, and Factory remains A0. See `docs/SIP_001A_IMPLEMENTATION_REPORT.md`, `docs/PARTNER_DEMO_V1.md`, and `docs/CURRENT_STAGE.md`.
+Structured Input Preparation Design v1, SIP-001A, and SIP-001B are independently reviewed, real-Windows validated, Owner-approved, and canonical. The active development checkpoint is **TG-WATCH-001 — Universal Read-Only Telegram Source Watcher Design and Safe Pilot**. It defines one universal local watcher, one protected Telegram user session, and a registry mapping channels to developers and project slugs; its pilot is `@coralinakamala` plus one additional authorized Title channel selected during the task. It will read new posts and attachments only, apply local quarantine and SHA-256 duplicate protection, classify source types, retain per-channel cursor and last-processed-message state, and produce Owner-review output. It does not authorize automatic database import, publication, or Factory autonomy expansion. Partner Demo v1 remains canonical and ready for presentation, pending scheduling as a parallel business checkpoint; it does not block TG-WATCH-001. Coralina remains unpublished, Rainpalm remains unimported and unpublished, and Factory remains A0. See `docs/SIP_001B_CORALINA_20260717_REPORT.md`, `docs/PARTNER_DEMO_V1.md`, and `docs/CURRENT_STAGE.md`.
 
 A shared Forever Navigator over two shells — the website Navigator (`/navigator`) and Booth Mode (`/booth`) — is canonical on `main`. Both shells consume a single Navigator Core, NAV-001 remains the shared source of truth, and Booth Mode is a presentation/employee workflow shell rather than a second product. Booth is intentionally not linked from normal public navigation. See `docs/CURRENT_STAGE.md`.
 
@@ -14,7 +14,7 @@ Coralina's production draft import is completed as an unpublished draft (1 proje
 
 Ordinary new-project persistence uses the generic Progressive draft importer. See `docs/CURRENT_STAGE.md`.
 
-RC5.5D is completed, reviewed, integrated, canonically applied, and verified as exceptional maintenance capability. Ordinary imports no longer use its approval/receipt workflow or repeated platform certification. The normal sequence is payload validation → duplicate check → one atomic Progressive RPC transaction → exact graph verification → `COMMIT` → short post-commit verification. The Coralina production draft import through that generic importer is completed (1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch); Coralina remains an unpublished draft, publication is separate, and Factory remains A0. Fast Intake v1, Structured Input Preparation Design v1, and SIP-001A are canonical. The immediate development checkpoint is SIP-001B, while Partner Demo v1 presentation and its structured feedback remain pending in parallel.
+RC5.5D is completed, reviewed, integrated, canonically applied, and verified as exceptional maintenance capability. Ordinary imports no longer use its approval/receipt workflow or repeated platform certification. The normal sequence is payload validation → duplicate check → one atomic Progressive RPC transaction → exact graph verification → `COMMIT` → short post-commit verification. The Coralina production draft import through that generic importer is completed (1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch); Coralina remains an unpublished draft, publication is separate, and Factory remains A0. Fast Intake v1, Structured Input Preparation Design v1, SIP-001A, and SIP-001B are canonical. The immediate development checkpoint is TG-WATCH-001, while Partner Demo v1 presentation and its structured feedback remain pending in parallel.
 
 ## Completed Phases
 
@@ -109,14 +109,19 @@ Ordinary new-project import is completed and proven: one generic Progressive dra
   - Independently audited and real-Windows validated against the authorized Rainpalm qualified text-PDF; reviewed artifacts, deterministic repeat, and unchanged Fast Intake compatibility are retained.
   - Rainpalm remains unimported and unpublished; Coralina remains unpublished; Factory remains A0.
 
-- SIP-001B additional real qualified text-PDF validation (active development checkpoint)
-  - Validate the canonical SIP-001A extractor against one additional real authorized qualified price-list PDF before adding another source format.
-  - Preserve local-only execution, source references, fail-closed duplicate/ambiguity handling, repeatability, unchanged Fast Intake compatibility, no import/publication, and Factory A0.
+- SIP-001B Coralina 2026-07-17 validation (completed and canonical)
+  - Retained result: 198 accepted rows; 197 shared unchanged units; `CKD508` newly present; `CKF406` only `missing_from_latest_price_list`; zero price, price-per-sqm, availability-text, or attribute changes; THB `inferred_default`; sinking fund 850 THB/sqm; common fee 85 THB/sqm/month; seven-page visual Master Plan companion; no spatial interpretation.
+  - Coralina remains unpublished, Rainpalm remains unimported and unpublished, Partner Demo remains canonical, and Factory remains A0.
+
+- TG-WATCH-001 — Universal Read-Only Telegram Source Watcher Design and Safe Pilot (active development checkpoint)
+  - Design one universal local watcher, rather than one agent per channel, using one protected Telegram user session and a configuration registry mapping channels to developers and project slugs.
+  - Pilot `@coralinakamala` and one additional authorized Title channel selected during the task; read new posts and attachments only, quarantine locally with SHA-256 duplicate protection, classify canonical price tables, visual Master Plans, construction photos/videos, and other documents, retain per-channel cursor and last-processed-message state, and produce Owner-review output.
+  - No automatic database import or publication, and no Factory autonomy expansion.
 
 - Partner Demo v1 presentation (parallel pending business checkpoint)
   - Present Forever Partner Demo v1 from `docs/PARTNER_DEMO_V1.md` when partner scheduling permits.
   - Collect structured partner feedback and classify it as demo blocker, product improvement, future roadmap idea, or commercial/partnership decision.
-  - This presentation does not block SIP-001A.
+  - This presentation does not block TG-WATCH-001.
 
 - Broader raw-document extraction stages (later, separate)
   - XLSX/CSV, OCR, scanned-PDF, image, floor-plan, AI, or other extraction modes require later separately approved checkpoints.
