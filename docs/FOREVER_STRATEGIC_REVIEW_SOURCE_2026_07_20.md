@@ -1,6 +1,6 @@
 # Forever Strategic Review Source Record — 2026-07-20
 
-Status: Durable source record; not the canonical strategy
+Status: Conditional private-source record; not the canonical strategy
 
 ## Source report
 

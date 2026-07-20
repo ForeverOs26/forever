@@ -12,7 +12,7 @@ The strategic direction is governed by `docs/FOREVER_STRATEGIC_NORTH_STAR.md`.
 
 The active product checkpoint is **FOREVER-TRUTH-001A — Public Truth Audit and Fail-Closed Cleanup**.
 
-TG-WATCH-001A PR #91 is a bounded integration carry-over. After approved integration, the offline watcher is retained as a manual internal capability. Live Telegram transport and broad channel scaling are deferred until catalogue freshness becomes a measured operating bottleneck.
+TG-WATCH-001A is canonical as a bounded manual offline capability. Live Telegram transport and broad channel scaling are deferred until catalogue freshness becomes a measured operating bottleneck.
 
 Partner Demo v1 remains canonical and pending presentation in parallel.
 
@@ -55,7 +55,7 @@ Make Forever safe to show and obtain the first structured external signals.
 - one real partner presentation when scheduling permits;
 - at least five real guest, former-client, advisor, or trusted-user walkthroughs;
 - first-response and funnel baselines established;
-- bounded TG-WATCH-001A integration resolved without live-transport expansion.
+- TG-WATCH-001A remains bounded offline tooling with no live-transport expansion.
 
 ### Work
 
@@ -208,7 +208,7 @@ The following foundations remain available and should be reused rather than rebu
 - SIP-001A Rainpalm validation;
 - SIP-001B Coralina validation and version diff;
 - Partner Demo v1;
-- bounded TG-WATCH-001A offline watcher after approved integration;
+- canonical TG-WATCH-001A offline watcher;
 - Factory RC1 at A0.
 
 These are capabilities, not automatic priorities.

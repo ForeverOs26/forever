@@ -1,6 +1,6 @@
 # Forever Strategic North Star
 
-Status: Canonical strategic direction after Owner-approved merge
+Status: Owner-approved and canonical after PR #93 merge
 Last updated: 2026-07-20
 
 ## Purpose
@@ -175,7 +175,7 @@ more internal foundations
 
 ## Immediate strategic checkpoint
 
-After the bounded integration closure of TG-WATCH-001A, the next product checkpoint is:
+The active product checkpoint is:
 
 **FOREVER-TRUTH-001A — Public Truth Audit and Fail-Closed Cleanup**
 
@@ -193,7 +193,7 @@ FOREVER-TRUTH-001A does not include live Telegram transport, a new scoring engin
 
 ## Relationship to TG-WATCH
 
-TG-WATCH-001A remains a useful internal capability when independently reviewed and merged:
+TG-WATCH-001A is canonical as a bounded offline internal capability:
 
 - offline Telegram Desktop export ingestion;
 - source quarantine;
@@ -202,7 +202,7 @@ TG-WATCH-001A remains a useful internal capability when independently reviewed a
 - channel identity and cursor state;
 - Owner-review output.
 
-After TG-WATCH-001A integration:
+It must remain bounded:
 
 - use it as a bounded manual offline tool;
 - do not begin TG-WATCH-001B live Telegram authentication or recurring monitoring yet;

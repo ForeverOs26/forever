@@ -7,7 +7,7 @@ The commands **Continue Forever** and **Продолжай Forever** invoke the 
 
 ## A0 sequence
 
-1. Reconcile Git and Ledger state: read the Factory Index, `docs/FOREVER_STRATEGIC_NORTH_STAR.md`, current stage/status, roadmap, Task Packet, and relevant routing and gate sections; fetch authorized repository state where permitted; and inspect active branches, PRs, run reports, and parked work. Read the complete Factory Constitution when required by the Factory Index full-reading policy.
+1. Reconcile Git and Ledger state: read `docs/FOREVER_STRATEGIC_NORTH_STAR.md` before selecting work, then the Factory Index, current stage/status, roadmap, Task Packet, and relevant routing and gate sections; fetch authorized repository state where permitted; and inspect active branches, PRs, run reports, and parked work. Read the complete Factory Constitution when required by the Factory Index full-reading policy.
 2. Inspect `docs/factory/OWNER_QUEUE.md`.
 3. Identify the single highest-priority action already authorized by the Strategic North Star, current stage, roadmap, decision, or explicit Owner instruction.
 4. Test the proposed action against the strategic value gate:
@@ -36,7 +36,8 @@ The protocol must preserve the current approved sequence:
 ```text
 truthful public surface
 → external partner and guest feedback
-→ focused real catalogue
+→ Coralina publication readiness
+→ focused 5–8 real-project catalogue
 → advisor conversion workflow
 → measured commercial proof
 → controlled scale
@@ -46,7 +47,7 @@ A conflicting task requires an explicit strategy-change proposal and Owner appro
 
 ## Deterministic command entry point (FACTORY-A1-003)
 
-A deterministic command implements the *execution* half of this protocol for one already-approved Task Packet: `npm run factory:continue` (`src/factory/continue-forever/`). It does not originate work, invent priority, choose the next RC, or approve a packet. It resolves exactly one already-approved current Task Packet, fails closed unless a single executable current task exists, runs it through the unchanged Router (FACTORY-A1-001) and Execution Connector (FACTORY-A1-002) with the exact selected model and effort, prepares the unchanged Operator-compatible handoff, and produces one owner-visible final report — then stops without starting any next task.
+A deterministic command implements the _execution_ half of this protocol for one already-approved Task Packet: `npm run factory:continue` (`src/factory/continue-forever/`). It does not originate work, invent priority, choose the next RC, or approve a packet. It resolves exactly one already-approved current Task Packet, fails closed unless a single executable current task exists, runs it through the unchanged Router (FACTORY-A1-001) and Execution Connector (FACTORY-A1-002) with the exact selected model and effort, prepares the unchanged Operator-compatible handoff, and produces one owner-visible final report — then stops without starting any next task.
 
 It runs the real Claude Code adapter by default; `--fake` selects a hermetic, TEST_ONLY adapter for tests and local checks only, never as a silent production default, and there is no automatic live-to-fake fallback. Binary availability and authentication are distinct: the live preflight (`claude --version`) confirms only that the binary is resolvable, while authentication is confirmed solely by a real execution — a launch failure or a recognized auth/login failure maps to `LIVE_EXECUTION_UNAVAILABLE`, never a simulated success. Its canonical source is `.forever-factory/CONTINUE_TASK.json`, an explicitly distinct file from the Operator canonical `.forever-factory/CURRENT_TASK.json`; the Operator state is reconciled strictly and fails closed with `CURRENT_TASK_STATE_CONFLICT` (differing id) or `CURRENT_TASK_STATE_INVALID` (unreadable/malformed/invalid) — never a silent skip — so there is one authoritative identity.
 

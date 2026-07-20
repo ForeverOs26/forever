@@ -15,7 +15,7 @@ The active product checkpoint is:
 
 **FOREVER-TRUTH-001A — Public Truth Audit and Fail-Closed Cleanup**
 
-One bounded integration item remains in flight: TG-WATCH-001A PR #91. After its approved integration, the offline watcher is retained as an internal manual capability. Live Telegram authentication, recurring monitoring, and multi-channel expansion are deferred until project freshness is a measured operating bottleneck.
+TG-WATCH-001A is completed and canonical as a bounded offline internal tool. Live Telegram authentication, recurring monitoring, and multi-channel expansion are deferred until project freshness is a measured operating bottleneck.
 
 The strategic direction is defined in `docs/FOREVER_STRATEGIC_NORTH_STAR.md` and is mandatory context for stage and task selection.
 
@@ -28,10 +28,9 @@ This stage must:
 1. remove unsupported public claims and optimistic missing-data defaults;
 2. establish the actual public and production-facing inventory read-only;
 3. preserve only source-backed or clearly qualified project statements;
-4. complete the already-reviewed TG-WATCH-001A integration without expanding it into a live network service;
-5. present Partner Demo v1 when scheduling permits;
-6. obtain structured feedback from real people;
-7. define and begin measuring lead-response and conversion baselines.
+4. present Partner Demo v1 when scheduling permits;
+5. obtain structured feedback from real people;
+6. define and begin measuring lead-response and conversion baselines.
 
 ## Canonical foundations retained
 
@@ -65,14 +64,14 @@ The current constraints are:
 
 ## Active tasks
 
-| Task | Owner | Status |
-| --- | --- | --- |
-| TG-WATCH-001A offline watcher core and real Coralina pilot | Codex / Owner | Integration closure in PR #91; no live transport expansion |
-| FOREVER-TRUTH-001A public truth audit and fail-closed cleanup | Claude / Codex / Owner | Active product checkpoint |
-| Present Partner Demo v1 and collect structured feedback | Owner | Parallel pending business checkpoint |
-| Establish lead-response and guest-feedback baseline | Owner / Architect | Starts during this stage |
-| Coralina publication readiness | Owner / Architect | Next separate checkpoint; publication not authorized here |
-| Any imported-draft publication | Owner | Separate consequential action |
+| Task                                                          | Owner                  | Status                                                               |
+| ------------------------------------------------------------- | ---------------------- | -------------------------------------------------------------------- |
+| TG-WATCH-001A offline watcher core and real Coralina pilot    | Codex / Owner          | Completed and canonical offline tooling; no live transport expansion |
+| FOREVER-TRUTH-001A public truth audit and fail-closed cleanup | Claude / Codex / Owner | Active product checkpoint                                            |
+| Present Partner Demo v1 and collect structured feedback       | Owner                  | Parallel pending business checkpoint                                 |
+| Establish lead-response and guest-feedback baseline           | Owner / Architect      | Starts during this stage                                             |
+| Coralina publication readiness                                | Owner / Architect      | Next separate checkpoint; publication not authorized here            |
+| Any imported-draft publication                                | Owner                  | Separate consequential action                                        |
 
 ## FOREVER-TRUTH-001A scope
 
@@ -171,7 +170,7 @@ The strategic North Star metric remains reservations or closed transactions in w
 - truth audit and public cleanup;
 - fail-closed display defaults;
 - public-route and production-bundle regression tests;
-- bounded completion of PR #91;
+- use of TG-WATCH-001A only as bounded offline tooling;
 - Partner Demo presentation and structured feedback;
 - simple lead-response measurement and alert design where it provides immediate value;
 - documentation alignment with the Strategic North Star.
@@ -197,7 +196,7 @@ The strategic North Star metric remains reservations or closed transactions in w
 - missing data fails closed throughout the affected public surfaces;
 - the actual production/public inventory is documented from read-only evidence;
 - affected tests, type checks, build, bundle scans, and security checks pass;
-- TG-WATCH-001A is either safely integrated or remains explicitly separate without blocking Truth work;
+- TG-WATCH-001A remains bounded offline tooling with no live-transport expansion;
 - Partner Demo or guest testing produces at least one external feedback record;
 - no unauthorized import, publication, lead mutation, or production write occurs;
 - Coralina remains unpublished and Rainpalm remains unimported/unpublished throughout this stage unless a later separately approved checkpoint changes that state;
@@ -208,8 +207,7 @@ The strategic North Star metric remains reservations or closed transactions in w
 This stage is complete when:
 
 1. Forever's public surface is source-honest and fail-closed;
-2. the remaining bounded TG-WATCH-001A integration is resolved without live-transport expansion;
-3. external partner or guest feedback has been collected and reviewed;
-4. the next checkpoint is selected from evidence rather than infrastructure momentum.
+2. external partner or guest feedback has been collected and reviewed;
+3. the next checkpoint is selected from evidence rather than infrastructure momentum.
 
 The expected next checkpoint is **Coralina Publication Readiness**, followed by a focused pilot catalogue of 5–8 commercially important real projects. That sequence may change if external feedback provides stronger evidence.

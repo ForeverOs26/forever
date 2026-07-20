@@ -16,13 +16,16 @@ The project now prioritizes:
 
 1. a truthful public surface;
 2. real guest and partner feedback;
-3. a focused catalogue of commercially important real projects;
-4. fast advisor response and measurable conversion;
-5. controlled scale only after proof.
+3. Coralina publication readiness;
+4. a focused catalogue of commercially important real projects;
+5. fast advisor response and measurable conversion;
+6. controlled scale only after proof.
 
 The active product checkpoint is **FOREVER-TRUTH-001A — Public Truth Audit and Fail-Closed Cleanup**.
 
-TG-WATCH-001A PR #91 is a bounded integration carry-over. After approved integration, it remains an offline internal source-watcher capability. Live Telegram transport and multi-channel scaling are deferred.
+This strategic documentation ratification does not itself change product behavior or authorize a production cleanup, publication, import, lead mutation, or production write.
+
+TG-WATCH-001A is canonical as a bounded offline internal source-watcher capability. Live Telegram transport and multi-channel scaling are deferred.
 
 Partner Demo v1 remains canonical and ready for presentation, pending scheduling.
 
@@ -124,7 +127,7 @@ Ordinary project preparation and import do not automatically authorize publicati
 
 ## TG-WATCH status
 
-PR #91 contains the independently developed and Windows-piloted TG-WATCH-001A offline core:
+PR #91 merged the independently developed and Windows-piloted TG-WATCH-001A offline core:
 
 - Telegram Desktop JSON export ingestion;
 - verified numeric channel binding;
