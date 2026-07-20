@@ -112,6 +112,17 @@ export function classifyAttachment(
 ): AttachmentClassification {
   const filename = attachment.original_filename ?? "";
   const { category } = classifyPath(filename);
+  const filenameHints = textHints(filename);
+
+  // A filename that explicitly says "master plan" is routed as the visual
+  // master plan even when it also contains "price list" (for example,
+  // "Master Plan Price list"). The shared classifier intentionally gives
+  // price-list keywords priority for generic Fast Intake routing; that is too
+  // broad for this review bucket because a master-plan document is not a
+  // candidate price table.
+  if (filenameHints.includes("master-plan")) {
+    return { intake_category: "master-plan", bucket: "visual_master_plan", from_text_hint: false };
+  }
   const fromFilename = bucketFromCategory(category);
 
   // A category derived from the filename's own words (or the archive rule)
@@ -121,7 +132,7 @@ export function classifyAttachment(
   if (fromFilename !== null && !isBareMedia) {
     return { intake_category: category, bucket: fromFilename, from_text_hint: false };
   }
-  const fromFilenameHints = bucketFromHints(textHints(filename));
+  const fromFilenameHints = bucketFromHints(filenameHints);
   if (fromFilenameHints !== null) {
     return { intake_category: category, bucket: fromFilenameHints, from_text_hint: false };
   }

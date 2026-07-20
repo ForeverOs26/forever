@@ -111,7 +111,7 @@ Code: `src/intake/watch/` — `types.ts`, `registry.ts`, `export-adapter.ts`
 `run.ts`, `cli-args.ts`, `cli.ts`, `run-cli.mjs`. Owner command:
 
 ```
-npm.cmd run tg-watch -- --channel @coralinakamala --export "C:\forever-incoming\tg-export\coralinakamala"
+npm.cmd run tg-watch -- --channel '@coralinakamala' --export "C:\forever-incoming\tg-export\coralinakamala"
 ```
 
 **Committed configuration vs runtime data are strictly separate.** The only
@@ -270,7 +270,10 @@ is safe — the watcher is idempotent; overlapping ranges are deduplicated).
 B. Wait for the export to finish and note the export folder (it contains
 `result.json`).
 C. Run, in PowerShell or cmd.exe:
-`npm.cmd run tg-watch -- --channel @coralinakamala --export "<export folder>"`
+`npm.cmd run tg-watch -- --channel '@coralinakamala' --export "<export folder>"`
+
+In PowerShell, quote the channel value because a bare leading `@` is parsed as
+a splatting token. In `cmd.exe`, the unquoted `@coralinakamala` form also works.
 Runtime data goes to `C:\Users\<you>\forever-watch` by default; use
 `--out-root` to choose another location OUTSIDE the repository. For videos
 larger than 512 MiB, raise the ceiling, e.g. `--max-attachment-mb 2048`.

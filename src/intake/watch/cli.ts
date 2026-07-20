@@ -8,7 +8,7 @@
  * Windows PowerShell and cmd.exe (single line; `npm.cmd` because `npm.ps1`
  * may be blocked by a normal execution policy):
  *
- *   npm.cmd run tg-watch -- --channel @coralinakamala --export "C:\forever-incoming\tg-export\coralinakamala"
+ *   npm.cmd run tg-watch -- --channel '@coralinakamala' --export "C:\forever-incoming\tg-export\coralinakamala"
  *
  * Bash / Linux / macOS:
  *
@@ -21,7 +21,8 @@ import { defaultWatchRoot, runWatch } from "./run";
 function printUsage(): void {
   console.log("Usage:");
   console.log(
-    '  Windows (PowerShell or cmd.exe):  npm.cmd run tg-watch -- --channel @name --export "<export-folder>"',
+    "  Windows PowerShell:               npm.cmd run tg-watch -- --channel '@name' --export \"<export-folder>\"",
+    '  Windows cmd.exe:                  npm.cmd run tg-watch -- --channel @name --export "<export-folder>"',
   );
   console.log(
     '  Bash/Linux/macOS:                 npm run tg-watch -- --channel @name --export "<export-folder>"',

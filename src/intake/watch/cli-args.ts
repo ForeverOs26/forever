@@ -2,6 +2,9 @@
  * TG-WATCH-001A — pure CLI argument resolution (no side effects, safe in tests).
  *
  *   npm run tg-watch -- --channel @coralinakamala --export "<export-folder>"
+ *
+ * In PowerShell, quote the channel (`'@coralinakamala'`) so PowerShell does
+ * not treat its leading `@` as a splatting token.
  *     [--registry <path>] [--out-root <dir>] [--max-attachment-mb <n>]
  *     [--run-at <ISO-8601>]
  */

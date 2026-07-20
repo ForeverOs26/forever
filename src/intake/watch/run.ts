@@ -122,9 +122,6 @@ function rejectSymlink(path: string, code: string): void {
 }
 
 function assertWatchBoundaries(outRoot: string, exportDir: string): void {
-  if (isFilesystemRoot(outRoot)) {
-    throw new IntakePathError("watch_out_root_is_filesystem_root");
-  }
   // Runtime data never lives inside the repository working tree (even
   // gitignored), and the runtime root must not swallow the repository.
   if (isSamePath(outRoot, REPOSITORY_ROOT) || isStrictlyInside(outRoot, REPOSITORY_ROOT)) {
@@ -133,7 +130,15 @@ function assertWatchBoundaries(outRoot: string, exportDir: string): void {
     );
   }
   if (isStrictlyInside(REPOSITORY_ROOT, outRoot)) {
+    if (isFilesystemRoot(outRoot)) {
+      throw new IntakePathError(
+        `watch_out_root_is_filesystem_root; watch_out_root_contains_repository: ${outRoot}`,
+      );
+    }
     throw new IntakePathError(`watch_out_root_contains_repository: ${outRoot}`);
+  }
+  if (isFilesystemRoot(outRoot)) {
+    throw new IntakePathError("watch_out_root_is_filesystem_root");
   }
   // The roots themselves must not be links (junctions/reparse points appear
   // as symlinks to lstat); pass the real directories instead.

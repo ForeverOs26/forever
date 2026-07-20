@@ -29,6 +29,13 @@ describe("classifyAttachment", () => {
     expect(classifyAttachment(file("Master Plan Prices.pdf"), [])).toMatchObject({
       bucket: "visual_master_plan",
     });
+    expect(
+      classifyAttachment(file("CLK - Master Plan Price list V.2 - updated 17.07.26.pdf"), []),
+    ).toEqual({
+      intake_category: "master-plan",
+      bucket: "visual_master_plan",
+      from_text_hint: false,
+    });
     expect(classifyAttachment(file("Company Brochure.pdf"), [])).toMatchObject({
       bucket: "document",
     });
