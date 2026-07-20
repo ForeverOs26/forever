@@ -102,6 +102,7 @@ function readBoundPriceArtifacts(input: BoundPriceArtifactPaths): {
   hashes: Record<BoundPriceArtifactKey, string>;
   reviewedPriceList: ExtractedPriceList;
   sourceProof: SourceProof;
+  paths: Record<BoundPriceArtifactKey, string>;
 } {
   if (!isRecord(input)) throw new Error("sip_package_artifact_paths_invalid");
   assertExactKeys(input, BOUND_PRICE_ARTIFACT_KEYS, "sip_package_artifact_keys_invalid");
@@ -153,10 +154,16 @@ function readBoundPriceArtifacts(input: BoundPriceArtifactPaths): {
     hashes,
     reviewedPriceList: reviewed as ExtractedPriceList,
     sourceProof: sourceProof as unknown as SourceProof,
+    paths: Object.fromEntries(resolvedPaths) as Record<BoundPriceArtifactKey, string>,
   };
 }
 
-function assertPriceSourceProof(sourceProof: SourceProof, actual: SourceFileFingerprint): void {
+function assertPriceSourceProof(
+  sourceProof: SourceProof,
+  actual: SourceFileFingerprint,
+  expectedProjectSlug: string,
+  expectedFilename: string,
+): void {
   const validFingerprint = (value: unknown): value is SourceFileFingerprint =>
     isRecord(value) &&
     typeof value.sha256 === "string" &&
@@ -168,6 +175,8 @@ function assertPriceSourceProof(sourceProof: SourceProof, actual: SourceFileFing
     !sourceProof.hash_verified_unchanged_after_extraction ||
     !validFingerprint(sourceProof.pre_processing) ||
     !validFingerprint(sourceProof.post_processing) ||
+    sourceProof.project_slug !== expectedProjectSlug ||
+    sourceProof.source_filename !== expectedFilename ||
     sourceProof.sha256 !== actual.sha256 ||
     sourceProof.byte_size !== actual.byte_size ||
     sourceProof.pre_processing.sha256 !== actual.sha256 ||
@@ -176,6 +185,55 @@ function assertPriceSourceProof(sourceProof: SourceProof, actual: SourceFileFing
     sourceProof.post_processing.byte_size !== actual.byte_size
   ) {
     throw new Error("sip_package_price_source_proof_mismatch");
+  }
+}
+
+function assertBoundArtifactCoherence(input: {
+  projectSlug: string;
+  sourceProof: SourceProof;
+  sourcePdfSha256: string;
+  parsedQualification: unknown;
+  parsedReviewSummary: unknown;
+  parsedPreparationSummary: unknown;
+}): void {
+  const { sourceProof, sourcePdfSha256, projectSlug } = input;
+  const generationId = sourceProof.generation_id;
+  if (typeof generationId !== "string" || generationId === "") {
+    throw new Error("sip_package_generation_id_invalid");
+  }
+  const hasSourceHash = (value: unknown) =>
+    isRecord(value) && value.source_pdf_sha256 === sourcePdfSha256;
+  const hasBoundGeneration = (value: unknown) =>
+    isRecord(value) &&
+    value.project_slug === projectSlug &&
+    value.source_pdf_sha256 === sourcePdfSha256 &&
+    value.generation_id === generationId;
+  if (!hasSourceHash(input.parsedQualification)) {
+    throw new Error("sip_package_qualification_source_mismatch");
+  }
+  if (!hasBoundGeneration(input.parsedReviewSummary)) {
+    throw new Error("sip_package_review_summary_generation_mismatch");
+  }
+  if (!hasBoundGeneration(input.parsedPreparationSummary)) {
+    throw new Error("sip_package_preparation_generation_mismatch");
+  }
+}
+
+function assertArtifactOutputIsolation(
+  artifactPaths: Record<BoundPriceArtifactKey, string>,
+  outDir: string,
+): void {
+  const outputs = new Set(
+    [
+      join(outDir, "source-bundle.json"),
+      join(outDir, "master-plan", "source-proof.json"),
+      join(outDir, "master-plan", "registration.json"),
+      join(outDir, "version-diff.json"),
+      join(outDir, "cross-source-summary.json"),
+    ].map((path) => resolve(path)),
+  );
+  if (Object.values(artifactPaths).some((path) => outputs.has(path))) {
+    throw new Error("sip_package_artifact_output_path_collision");
   }
 }
 
@@ -349,7 +407,19 @@ export function writeSIP001BPackage(input: SIP001BPackageInput) {
 
   const price = { basename: basename(pricePdfPath), ...fingerprintSourceFile(pricePdfPath) };
   const bound = readBoundPriceArtifacts(input.priceArtifacts);
-  assertPriceSourceProof(bound.sourceProof, price);
+  assertPriceSourceProof(bound.sourceProof, price, input.projectSlug, price.basename);
+  const parsedQualification = readJson(bound.paths.qualification, "qualification");
+  const parsedReviewSummary = readJson(bound.paths.review_summary, "review_summary");
+  const parsedPreparationSummary = readJson(bound.paths.preparation_summary, "preparation_summary");
+  assertBoundArtifactCoherence({
+    projectSlug: input.projectSlug,
+    sourceProof: bound.sourceProof,
+    sourcePdfSha256: price.sha256,
+    parsedQualification,
+    parsedReviewSummary,
+    parsedPreparationSummary,
+  });
+  assertArtifactOutputIsolation(bound.paths, outDir);
   assertUpdateDateMatchesPriceList(bound.reviewedPriceList, input.updateDate);
 
   const tool = input.toolOverride ?? preflightPdftotext();

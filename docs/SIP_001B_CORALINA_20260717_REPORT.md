@@ -19,7 +19,7 @@ Two fresh managed extraction runs produced byte-identical canonical files: sourc
 
 ## Source-bound package and companion evidence
 
-The generic package CLI requires explicit project, date, origin-channel, source, artifact, prior-version, output, and workspace arguments. Its source bundle binds all six generated price artifacts by SHA-256; tampering with one changes the bundle identity. It also captures and verifies pre- and post-processing fingerprints for the Master Plan before registering it.
+The generic package CLI requires explicit project, date, origin-channel, source, artifact, prior-version, output, and workspace arguments. Its source bundle binds all six generated price artifacts by SHA-256; tampering with one changes the bundle identity. It rejects malformed or missing bindings, duplicate artifact paths, mixed project/generation artifacts, and artifact paths that package output could overwrite. It also captures and verifies pre- and post-processing fingerprints for the Master Plan before registering it.
 
 Two fresh package runs produced byte-identical package files: source bundle `9f9803e61f7f47c37c60f1f42ab9225aa9059f16c4ba46cafef749bd7a3e9b7a`, Master Plan source proof `d70a8413201f3f3119dddcf483208387f092f0c1438e3b8bf24f4584b5634c77`, registration `62395f45509d3e7bde0fcf73713e8a5eb6decd21540a20f8f09398f5d5fd1eb4`, version diff `be080932a300fc4bc4c042b0a191c3c81e5ad270e9e0da595cf77f528b49a70b`, and cross-source summary `39efba1a6d796ea655921f42380f256befb3dd269e84b21a76969e186b4fe389`.
 
@@ -29,7 +29,7 @@ The Master Plan is registered as a seven-page `visual_master_plan_companion`. It
 
 ## Compatibility and safety
 
-TypeScript checking, formatting, lint of all changed files, and the production build pass. The complete `npm test` suite passed twice: 307 files and 2930 tests in 315.62s and 313.49s. The live PowerShell validation test retries only an empty/non-proof child result once and reports both attempts if the genuine parity proof still fails; it preserves its existing 300-second bound. The SIP crash-recovery integration test has a documented 15-second local timeout because it performs three synchronous transactional generations under the full Windows suite; its behavior is unchanged.
+TypeScript checking, formatting, lint of all changed files, and the production build pass. The ordinary complete `npm test` suite passed twice without sharding or exclusions: 307 files / 2,940 tests in 331.16 seconds, then 307 files / 2,940 tests in 323.00 seconds. The live PowerShell validation test retries once only for the documented Windows process-start contention shape: no exit status, no stdout, no stderr diagnostic, and no emitted `VALIDATION_PARITY_STARTED` marker. It fails immediately without retry for a non-zero exit, marker contradiction, PowerShell diagnostic, partial case output, or a timeout after the child begins the parity run. The SIP crash-recovery integration test has a documented 15-second local timeout because it performs three synchronous transactional generations under the full Windows suite; its behavior is unchanged.
 
 No production connection, database client, import, lead, publication, network request, or Telegram authentication occurred. Coralina remains unpublished; Rainpalm remains unimported and unpublished; Partner Demo remains canonical; Factory remains A0.
 

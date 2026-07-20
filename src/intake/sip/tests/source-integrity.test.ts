@@ -38,6 +38,15 @@ describe("SIP source integrity", () => {
     ).toThrow(/sip_source_file_changed_during_processing/);
   });
 
+  it("checks source integrity even when the processing operation throws", () => {
+    expect(() =>
+      processWithSourceIntegrity(sourcePath, () => {
+        writeFileSync(sourcePath, "altered! source bytes", "utf8");
+        throw new Error("simulated processor failure");
+      }),
+    ).toThrow(/sip_source_file_changed_during_processing/);
+  });
+
   it("fails closed when the source disappears after preflight", () => {
     expect(() =>
       processWithSourceIntegrity(sourcePath, () => {

@@ -61,7 +61,16 @@ export function processWithSourceIntegrity<T>(
   processor: () => T,
 ): { value: T; before: SourceFileFingerprint; after: SourceFileFingerprint } {
   const before = fingerprintSourceFile(path);
-  const value = processor();
-  const after = assertSourceUnchanged(before, path);
-  return { value, before, after };
+  let result: { value: T } | undefined;
+  let after: SourceFileFingerprint;
+  try {
+    result = { value: processor() };
+  } finally {
+    // A failed processor still performed a processing attempt. Check the
+    // source before propagating that failure so an attempted mutation cannot
+    // evade the read-only integrity boundary by throwing first.
+    after = assertSourceUnchanged(before, path);
+  }
+  if (!result) throw new SourceIntegrityError("sip_source_processing_did_not_complete");
+  return { value: result.value, before, after };
 }

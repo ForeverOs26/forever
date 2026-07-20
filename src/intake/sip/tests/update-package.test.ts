@@ -82,6 +82,7 @@ describe("SIP-001B generic package integrity", () => {
     const summaryPath = join(artifactDir, "preparation-summary.json");
     const reviewedPath = join(artifactDir, "reviewed-price-list.json");
     const updateDate = overrides.updateDate ?? "2031-04-05";
+    const generationId = "synthetic-generation";
     mkdirSync(priceDir, { recursive: true });
     mkdirSync(masterDir, { recursive: true });
     writeFileSync(pricePdfPath, "synthetic price source", "utf8");
@@ -96,15 +97,27 @@ describe("SIP-001B generic package integrity", () => {
       project_slug: "synthetic-project",
       source_filename: "synthetic-price-list.pdf",
       ...fingerprint,
+      generation_id: generationId,
       pre_processing: fingerprint,
       post_processing: fingerprint,
       hash_verified_unchanged_after_extraction: true,
     });
-    writeJson(qualificationPath, { status: "QUALIFIED_SUPPORTED_LAYOUT" });
+    writeJson(qualificationPath, {
+      status: "QUALIFIED_SUPPORTED_LAYOUT",
+      source_pdf_sha256: fingerprint.sha256,
+    });
     writeJson(candidatePath, reviewed);
-    writeJson(reviewPath, { items: [] });
+    writeJson(reviewPath, {
+      project_slug: "synthetic-project",
+      source_pdf_sha256: fingerprint.sha256,
+      generation_id: generationId,
+      items: [],
+    });
     writeJson(reviewedPath, reviewed);
     writeJson(summaryPath, {
+      project_slug: "synthetic-project",
+      source_pdf_sha256: fingerprint.sha256,
+      generation_id: generationId,
       artifact_hashes: {
         source_proof: sha256File(sourceProofPath),
         qualification: sha256File(qualificationPath),
@@ -219,5 +232,73 @@ describe("SIP-001B generic package integrity", () => {
     expect(() =>
       parseSipPackageArgs(["--project-slug", "synthetic-one", "--project-slug", "synthetic-two"]),
     ).toThrow("sip_package_duplicate_argument: --project-slug");
+  });
+
+  it("rejects malformed, missing, or duplicate bound artifact references", () => {
+    const malformed = makeInput();
+    writeJson(malformed.priceArtifacts.preparation_summary, { artifact_hashes: {} });
+    expect(() => writeSIP001BPackage(malformed)).toThrow(
+      /sip_package_preparation_hash_keys_invalid/,
+    );
+
+    const duplicate = makeInput();
+    duplicate.priceArtifacts.qualification = duplicate.priceArtifacts.source_proof;
+    expect(() => writeSIP001BPackage(duplicate)).toThrow(/sip_package_duplicate_artifact_path/);
+  });
+
+  it("rejects a package whose artifacts do not belong to its requested project or generation", () => {
+    const projectMismatch = makeInput();
+    expect(() => writeSIP001BPackage({ ...projectMismatch, projectSlug: "other-project" })).toThrow(
+      /sip_package_price_source_proof_mismatch/,
+    );
+
+    const generationMismatch = makeInput();
+    const sourceProof = JSON.parse(
+      readFileSync(generationMismatch.priceArtifacts.source_proof, "utf8"),
+    ) as Record<string, unknown>;
+    writeJson(generationMismatch.priceArtifacts.source_proof, {
+      ...sourceProof,
+      generation_id: "other-generation",
+    });
+    const summary = JSON.parse(
+      readFileSync(generationMismatch.priceArtifacts.preparation_summary, "utf8"),
+    ) as { artifact_hashes: Record<string, string> };
+    writeJson(generationMismatch.priceArtifacts.preparation_summary, {
+      ...summary,
+      artifact_hashes: {
+        ...summary.artifact_hashes,
+        source_proof: sha256File(generationMismatch.priceArtifacts.source_proof),
+      },
+    });
+    expect(() => writeSIP001BPackage(generationMismatch)).toThrow(
+      /sip_package_review_summary_generation_mismatch/,
+    );
+  });
+
+  it("rejects a bound artifact path that package output would overwrite", () => {
+    const input = makeInput();
+    input.priceArtifacts.source_proof = join(input.outDir, "source-bundle.json");
+    writeJson(input.priceArtifacts.source_proof, {
+      sip_schema_version: "1",
+      project_slug: "synthetic-project",
+      source_filename: "synthetic-price-list.pdf",
+      sha256: sha256File(input.pricePdfPath),
+      byte_size: 22,
+      pre_processing: { sha256: sha256File(input.pricePdfPath), byte_size: 22 },
+      post_processing: { sha256: sha256File(input.pricePdfPath), byte_size: 22 },
+      hash_verified_unchanged_after_extraction: true,
+      generation_id: "synthetic-generation",
+    });
+    const summary = JSON.parse(readFileSync(input.priceArtifacts.preparation_summary, "utf8")) as {
+      artifact_hashes: Record<string, string>;
+    };
+    writeJson(input.priceArtifacts.preparation_summary, {
+      ...summary,
+      artifact_hashes: {
+        ...summary.artifact_hashes,
+        source_proof: sha256File(input.priceArtifacts.source_proof),
+      },
+    });
+    expect(() => writeSIP001BPackage(input)).toThrow(/sip_package_artifact_output_path_collision/);
   });
 });
