@@ -3,10 +3,10 @@
  *
  * Builds one deterministic run report (canonical JSON plus a human-readable
  * Markdown rendering) describing what the run found: new posts, edited posts,
- * quarantined attachments, duplicates, and review buckets — with RECOMMENDED
- * next actions only. The watcher never runs SIP extraction, Fast Intake,
- * import, or publication itself; every recommendation is a separately
- * authorized Owner command.
+ * quarantined attachments, duplicates, oversized files, candidate deletions,
+ * and review buckets — with RECOMMENDED next actions only. The watcher never
+ * runs SIP extraction, Fast Intake, import, or publication itself; every
+ * recommendation is a separately authorized Owner command.
  *
  * Portability rule: no absolute Owner-machine path appears in any artifact.
  * Stored objects are referenced relative to the watch root.
@@ -16,6 +16,7 @@ import type { MergedAttachment, MergedMessage } from "./store";
 import {
   WATCH_BUCKETS,
   WATCH_SCHEMA_VERSION,
+  type ChannelLedger,
   type ChannelRegistryEntry,
   type ChannelSnapshot,
   type ReviewAttachment,
@@ -36,6 +37,7 @@ const BUCKET_PRIORITY: readonly WatchBucket[] = [
   "visual_master_plan",
   "document",
   "construction_media",
+  "manual_review_required",
   "other",
 ];
 
@@ -64,13 +66,15 @@ export function recommendedAction(input: {
     );
   if (primary === "price_table") {
     const attachment = firstIn("price_table");
-    const path = attachment?.stored_object
-      ? objectPath(input.channelKey, attachment.stored_object)
-      : null;
+    if (!attachment?.stored_object) {
+      return "Owner review: candidate canonical price table referenced, but its bytes are not quarantined (not exported or oversized); re-export this channel with files included or adjust --max-attachment-mb.";
+    }
+    if (!attachment.stored_object.endsWith(".pdf")) {
+      return "Owner review: candidate price table in a non-PDF format. SIP-001A extraction supports qualified text PDFs only; handle this source manually.";
+    }
+    const path = objectPath(input.channelKey, attachment.stored_object);
     const target = slug ? `--project ${slug}` : "--project <owner-assigns-project>";
-    return path
-      ? `Owner review: candidate canonical price table. If approved, run SIP extraction separately: npm run sip:price-list -- ${target} --pdf "<watch-root>/${path}" (path relative to the watch root).`
-      : "Owner review: candidate canonical price table referenced, but its file was not exported; re-export this channel with files included.";
+    return `Owner review: candidate canonical price table. If approved, run SIP extraction separately: npm run sip:price-list -- ${target} --pdf "<watch-root>/${path}" (path relative to the watch root).`;
   }
   if (primary === "visual_master_plan") {
     return "Owner review: candidate visual Master Plan companion. If a reviewed price table exists for the same update, pair it via npm run sip:package (visual registration only; no spatial interpretation).";
@@ -83,10 +87,13 @@ export function recommendedAction(input: {
   if (primary === "construction_media") {
     return "Construction media archived with provenance. No action required.";
   }
+  if (primary === "manual_review_required") {
+    return "Owner review required: media without a deterministic filename or caption signal. Classify manually before any use; the watcher does not guess content.";
+  }
   if (input.attachments.length === 0) {
     return "Informational post archived. No action required.";
   }
-  return "Unclassified attachment quarantined. Owner review required before any use.";
+  return "Unclassified attachment quarantined (archives stay unopened; extraction only via Fast Intake's hardened boundary after Owner review).";
 }
 
 function toReviewAttachment(channelKey: string, attachment: MergedAttachment): ReviewAttachment {
@@ -98,6 +105,7 @@ function toReviewAttachment(channelKey: string, attachment: MergedAttachment): R
       ? objectPath(channelKey, attachment.stored_object)
       : null,
     presence: attachment.presence,
+    size_check: attachment.size_check,
     bucket: attachment.bucket,
     bucket_from_text_hint: attachment.bucket_from_text_hint,
     duplicate_in_channel: attachment.duplicateInChannel,
@@ -105,10 +113,39 @@ function toReviewAttachment(channelKey: string, attachment: MergedAttachment): R
   };
 }
 
+/**
+ * Ledger message ids inside the snapshot's contiguous id span that the
+ * snapshot no longer contains. These are candidate deletions (or a narrower
+ * export range) — surfaced for Owner awareness; the ledger keeps everything.
+ */
+export function possiblyDeletedMessageIds(
+  ledger: ChannelLedger,
+  snapshot: ChannelSnapshot,
+): number[] {
+  const snapshotIds = new Set<number>([
+    ...snapshot.posts.map((post) => post.message_id),
+    ...snapshot.excluded_messages.map((event) => event.message_id),
+  ]);
+  if (snapshotIds.size === 0) return [];
+  let min = Number.MAX_SAFE_INTEGER;
+  let max = 0;
+  for (const id of snapshotIds) {
+    if (id < min) min = id;
+    if (id > max) max = id;
+  }
+  const known = [
+    ...ledger.messages.map((message) => message.message_id),
+    ...ledger.excluded_messages.map((event) => event.message_id),
+  ];
+  return known.filter((id) => id >= min && id <= max && !snapshotIds.has(id)).sort((a, b) => a - b);
+}
+
 export function buildRunReport(input: {
   entry: ChannelRegistryEntry;
   channelKey: string;
   snapshot: ChannelSnapshot;
+  /** The post-merge ledger (used for candidate-deletion detection). */
+  ledger: ChannelLedger;
   changes: MergedMessage[];
   unchangedCount: number;
   storedObjectCount: number;
@@ -123,6 +160,8 @@ export function buildRunReport(input: {
   let duplicateCrossChannel = 0;
   let notExported = 0;
   let missingOnDisk = 0;
+  let oversized = 0;
+  let sizeMismatch = 0;
 
   const items: ReviewMessageItem[] = input.changes.map((change) => {
     const buckets: WatchBucket[] = [];
@@ -135,6 +174,8 @@ export function buildRunReport(input: {
       if (attachment.duplicateOfChannels.length > 0) duplicateCrossChannel += 1;
       if (attachment.presence === "not_exported") notExported += 1;
       if (attachment.presence === "missing_on_disk") missingOnDisk += 1;
+      if (attachment.presence === "oversized") oversized += 1;
+      if (attachment.size_check === "declared_mismatch") sizeMismatch += 1;
     }
     buckets.sort((a, b) => BUCKET_PRIORITY.indexOf(a) - BUCKET_PRIORITY.indexOf(b));
     return {
@@ -157,6 +198,14 @@ export function buildRunReport(input: {
     };
   });
 
+  const serviceCount = input.snapshot.excluded_messages.filter(
+    (event) => event.kind === "service",
+  ).length;
+  const unsupportedIds = input.snapshot.excluded_messages
+    .filter((event) => event.kind === "unsupported_type")
+    .map((event) => event.message_id);
+  const possiblyDeleted = possiblyDeletedMessageIds(input.ledger, input.snapshot);
+
   const warnings: string[] = [];
   if (missingOnDisk > 0) {
     warnings.push(
@@ -168,16 +217,33 @@ export function buildRunReport(input: {
       `${notExported} attachment(s) were not included in the export (export settings); their bytes are not quarantined yet.`,
     );
   }
-  if (input.snapshot.unsupported_message_ids.length > 0) {
+  if (oversized > 0) {
     warnings.push(
-      `${input.snapshot.unsupported_message_ids.length} message(s) had an unrecognized type and were skipped without interpretation: ids ${input.snapshot.unsupported_message_ids.join(", ")}.`,
+      `${oversized} attachment(s) exceeded the configured size limit and were NOT quarantined; re-run with a larger --max-attachment-mb after Owner review.`,
+    );
+  }
+  if (sizeMismatch > 0) {
+    warnings.push(
+      `${sizeMismatch} attachment(s) had a declared size that did not match their actual bytes; the actual bytes were hashed and stored, but treat the export metadata with care.`,
+    );
+  }
+  if (unsupportedIds.length > 0) {
+    warnings.push(
+      `${unsupportedIds.length} message(s) had an unrecognized type and were recorded as excluded events without interpretation: ids ${unsupportedIds.join(", ")}.`,
+    );
+  }
+  if (possiblyDeleted.length > 0) {
+    warnings.push(
+      `${possiblyDeleted.length} previously recorded message(s) inside this export's id range are no longer present (deleted on Telegram, or a narrower export): ids ${possiblyDeleted.join(", ")}. The ledger keeps their full history.`,
     );
   }
 
-  const maxSeen = input.snapshot.posts.reduce(
-    (max, post) => Math.max(max, post.message_id),
-    input.previousLastProcessedMessageId,
-  );
+  // The cursor may advance only past durably recorded events: processed posts
+  // (ledger versions) and excluded events (ledger excluded_messages).
+  const maxSeen = [
+    ...input.snapshot.posts.map((post) => post.message_id),
+    ...input.snapshot.excluded_messages.map((event) => event.message_id),
+  ].reduce((max, id) => Math.max(max, id), input.previousLastProcessedMessageId);
 
   const newMessages = items.filter((item) => item.change === "new").length;
   return {
@@ -193,8 +259,8 @@ export function buildRunReport(input: {
       sha256: input.snapshot.snapshot_sha256,
       byte_size: input.snapshot.snapshot_byte_size,
       message_count: input.snapshot.posts.length,
-      skipped_service_message_count: input.snapshot.skipped_service_message_count,
-      unsupported_message_ids: input.snapshot.unsupported_message_ids,
+      skipped_service_message_count: serviceCount,
+      unsupported_message_ids: unsupportedIds,
     },
     cursor: {
       previous_last_processed_message_id: input.previousLastProcessedMessageId,
@@ -209,8 +275,11 @@ export function buildRunReport(input: {
       attachments_duplicate_cross_channel: duplicateCrossChannel,
       attachments_not_exported: notExported,
       attachments_missing_on_disk: missingOnDisk,
+      attachments_oversized: oversized,
+      attachments_size_mismatch: sizeMismatch,
       bucket_counts: bucketCounts,
     },
+    possibly_deleted_message_ids: possiblyDeleted,
     items,
     warnings,
     no_extraction_statement: NO_EXTRACTION_STATEMENT,
@@ -241,7 +310,7 @@ export function renderRunReportMarkdown(report: WatchRunReport): string {
     `- Duplicates — in channel: ${report.counts.attachments_duplicate_in_channel}, cross-channel: ${report.counts.attachments_duplicate_cross_channel}`,
   );
   lines.push(
-    `- Not exported: ${report.counts.attachments_not_exported} · Missing on disk: ${report.counts.attachments_missing_on_disk}`,
+    `- Not exported: ${report.counts.attachments_not_exported} · Missing on disk: ${report.counts.attachments_missing_on_disk} · Oversized: ${report.counts.attachments_oversized}`,
   );
   const buckets = Object.entries(report.counts.bucket_counts)
     .filter(([, count]) => count > 0)
@@ -276,6 +345,7 @@ export function renderRunReportMarkdown(report: WatchRunReport): string {
         attachment.bucket ?? "unclassified",
         attachment.presence,
         attachment.sha256 ? `sha256 ${attachment.sha256.slice(0, 12)}…` : null,
+        attachment.size_check === "declared_mismatch" ? "declared-size-mismatch" : null,
         attachment.duplicate_in_channel ? "duplicate-in-channel" : null,
         attachment.duplicate_of_channels.length > 0
           ? `also in ${attachment.duplicate_of_channels.join(", ")}`

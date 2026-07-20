@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { flattenExportText, readChannelExport, WatchExportError } from "../export-adapter";
 
 const RUN_1 = resolve("src/intake/watch/test-fixtures/export-run-1");
+const POSIX = process.platform !== "win32";
 
 let base: string;
 beforeEach(() => {
@@ -46,8 +47,9 @@ describe("readChannelExport", () => {
     expect(snapshot.channel_type).toBe("public_channel");
     expect(snapshot.channel_id).toBe(1000000001);
     expect(snapshot.posts.map((post) => post.message_id)).toEqual([101, 102, 104, 105, 106, 107]);
-    expect(snapshot.skipped_service_message_count).toBe(1);
-    expect(snapshot.unsupported_message_ids).toEqual([]);
+    expect(snapshot.excluded_messages).toEqual([
+      { message_id: 103, kind: "service", raw_type: "service" },
+    ]);
     expect(snapshot.snapshot_sha256).toMatch(/^[a-f0-9]{64}$/);
 
     const priceList = snapshot.posts[0];
@@ -57,6 +59,7 @@ describe("readChannelExport", () => {
       original_filename: "Synthetic Price List 01.07.2026.pdf",
       mime_type: "application/pdf",
       presence: "present",
+      declared_byte_size: 72,
     });
 
     const photo = snapshot.posts[1].attachments[0];
@@ -100,6 +103,30 @@ describe("readChannelExport", () => {
     }
   });
 
+  it.runIf(POSIX)("fails closed on a symlinked media file, even one inside the export", () => {
+    const dir = writeExport([message(1, { file: "files/link.pdf", file_name: "Link.pdf" })]);
+    mkdirSync(join(dir, "files"));
+    writeFileSync(join(dir, "files", "real.pdf"), "bytes", "utf8");
+    symlinkSync(join(dir, "files", "real.pdf"), join(dir, "files", "link.pdf"));
+    expect(() => readChannelExport(dir)).toThrow(/media_symlink/);
+  });
+
+  it.runIf(POSIX)("fails closed on a symlinked media path escaping the export root", () => {
+    const outside = join(base, "outside.pdf");
+    writeFileSync(outside, "outside bytes", "utf8");
+    const dir = writeExport([message(1, { file: "files/escape.pdf", file_name: "Escape.pdf" })]);
+    mkdirSync(join(dir, "files"));
+    symlinkSync(outside, join(dir, "files", "escape.pdf"));
+    // Real-path containment rejects it before the lstat symlink check runs.
+    expect(() => readChannelExport(dir)).toThrow(/media_path_unsafe|media_symlink/);
+  });
+
+  it("fails closed when a media path names a directory", () => {
+    const dir = writeExport([message(1, { file: "files", file_name: "Files.pdf" })]);
+    mkdirSync(join(dir, "files"));
+    expect(() => readChannelExport(dir)).toThrow(/media_not_regular_file/);
+  });
+
   it("marks referenced-but-absent files as missing_on_disk instead of guessing", () => {
     const dir = writeExport([message(1, { file: "files/ghost.pdf", file_name: "Ghost.pdf" })]);
     const snapshot = readChannelExport(dir);
@@ -107,21 +134,33 @@ describe("readChannelExport", () => {
     expect(snapshot.posts[0].attachments[0].absolute_path).toBeNull();
   });
 
-  it("rejects duplicate message ids and invalid ids/dates", () => {
+  it("rejects duplicate message ids (including across excluded events) and invalid ids/dates", () => {
     expect(() => readChannelExport(writeExport([message(7), message(7)]))).toThrow(
       /duplicate_message_id/,
     );
+    expect(() =>
+      readChannelExport(
+        writeExport([message(7), { id: 7, type: "call", date: "2026-07-01T10:00:00" }]),
+      ),
+    ).toThrow(/duplicate_message_id/);
     expect(() => readChannelExport(writeExport([message(0)]))).toThrow(/message_id_invalid/);
     expect(() => readChannelExport(writeExport([{ id: 1, type: "message", text: "x" }]))).toThrow(
       /message_date_invalid/,
     );
   });
 
-  it("skips unknown message types without interpreting them", () => {
+  it("records unknown message types as excluded events with a durable identity", () => {
     const dir = writeExport([message(1), { id: 2, type: "call", date: "2026-07-01T10:00:00" }]);
     const snapshot = readChannelExport(dir);
     expect(snapshot.posts.map((post) => post.message_id)).toEqual([1]);
-    expect(snapshot.unsupported_message_ids).toEqual([2]);
+    expect(snapshot.excluded_messages).toEqual([
+      { message_id: 2, kind: "unsupported_type", raw_type: "call" },
+    ]);
+  });
+
+  it("fails closed on an unknown message type without a usable id", () => {
+    const dir = writeExport([message(1), { type: "call", date: "2026-07-01T10:00:00" }]);
+    expect(() => readChannelExport(dir)).toThrow(/message_id_invalid/);
   });
 
   it("sorts posts ascending by message id", () => {

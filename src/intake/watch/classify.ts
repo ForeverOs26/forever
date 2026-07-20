@@ -2,10 +2,15 @@
  * TG-WATCH-001A — deterministic review-routing classification.
  *
  * Reuses the shared intake classifier (`src/intake/classify.ts`) on the
- * ORIGINAL published filename, then folds the result into the four review
- * buckets the Owner cares about, with deterministic message-text keyword
- * hints (English and Russian — the languages The Title channels publish in)
- * for bare media that carries no classifiable filename.
+ * ORIGINAL published filename, then folds the result into review buckets,
+ * with deterministic keyword hints (English and Russian — the languages The
+ * Title channels publish in) taken from the filename and the message caption.
+ *
+ * CONSERVATIVE by design: a bucket requires a deterministic source signal —
+ * a classifiable filename, a filename keyword, or a caption keyword. Bare
+ * media without any signal is routed to `manual_review_required`, never
+ * assumed to be construction media. Archives are opaque containers and are
+ * never hint-routed.
  *
  * Routing only. A bucket decides which review section an item appears in and
  * which follow-up command is RECOMMENDED; it is never a fact about the
@@ -54,7 +59,7 @@ const TEXT_HINT_RULES: ReadonlyArray<{ hint: string; test: (h: string) => boolea
   },
 ];
 
-/** Deterministic keyword hints from the message text; hints, never facts. */
+/** Deterministic keyword hints from a text (caption or filename); hints, never facts. */
 export function textHints(text: string): string[] {
   const haystack = text.toLowerCase();
   return TEXT_HINT_RULES.filter((rule) => rule.test(haystack)).map((rule) => rule.hint);
@@ -75,7 +80,10 @@ const DOCUMENT_CATEGORIES: ReadonlySet<string> = new Set([
 function bucketFromCategory(category: string): WatchBucket | null {
   if (category === "price-list") return "price_table";
   if (category === "master-plan") return "visual_master_plan";
-  if (category === "photo" || category === "video") return "construction_media";
+  // An archive is an opaque container: quarantined as bytes, never routed by
+  // caption keywords, extracted only later behind Fast Intake's hardened
+  // ZIP boundary after Owner review.
+  if (category === "archive") return "other";
   if (DOCUMENT_CATEGORIES.has(category)) return "document";
   return null;
 }
@@ -89,13 +97,14 @@ function bucketFromHints(hints: string[]): WatchBucket | null {
 }
 
 /**
- * Classify one attachment. Precedence:
+ * Classify one attachment. Precedence (all deterministic, first match wins):
  *  1. the shared intake classifier over the original filename (a filename
  *     like "CLK - Price List V.2.pdf" is the strongest routing signal);
- *  2. for bare media (photo/video) or unclassified files, deterministic
- *     message-text hints;
- *  3. photo/video without any hint remains construction media (the ordinary
- *     content of these channels); everything else falls to "other".
+ *  2. keyword hints in the FILENAME itself (e.g. "construction-july.mp4");
+ *  3. keyword hints in the message caption (bare media and unknown files
+ *     only — a named document or archive is never re-routed by a caption);
+ *  4. no signal: photo/video → `manual_review_required`; anything else →
+ *     `other`. Nothing is assumed to be construction media without a signal.
  */
 export function classifyAttachment(
   attachment: Pick<NormalizedAttachment, "original_filename" | "kind">,
@@ -105,22 +114,23 @@ export function classifyAttachment(
   const { category } = classifyPath(filename);
   const fromFilename = bucketFromCategory(category);
 
-  // photo/video from the extension alone is the weakest filename signal —
-  // let an explicit text hint refine it; a named document never gets
-  // re-routed by caption keywords.
+  // A category derived from the filename's own words (or the archive rule)
+  // wins outright; extension-only media and unknown files fall through to
+  // the weaker hint signals.
   const isBareMedia = category === "photo" || category === "video" || category === "unknown";
   if (fromFilename !== null && !isBareMedia) {
     return { intake_category: category, bucket: fromFilename, from_text_hint: false };
   }
-  const fromHints = bucketFromHints(messageTextHints);
-  if (fromHints !== null) {
-    return { intake_category: category, bucket: fromHints, from_text_hint: true };
+  const fromFilenameHints = bucketFromHints(textHints(filename));
+  if (fromFilenameHints !== null) {
+    return { intake_category: category, bucket: fromFilenameHints, from_text_hint: false };
   }
-  if (fromFilename !== null) {
-    return { intake_category: category, bucket: fromFilename, from_text_hint: false };
+  const fromCaptionHints = bucketFromHints(messageTextHints);
+  if (fromCaptionHints !== null) {
+    return { intake_category: category, bucket: fromCaptionHints, from_text_hint: true };
   }
-  if (attachment.kind === "photo") {
-    return { intake_category: category, bucket: "construction_media", from_text_hint: false };
+  if (category === "photo" || category === "video" || attachment.kind === "photo") {
+    return { intake_category: category, bucket: "manual_review_required", from_text_hint: false };
   }
   return { intake_category: category, bucket: "other", from_text_hint: false };
 }

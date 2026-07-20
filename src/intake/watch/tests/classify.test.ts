@@ -34,13 +34,13 @@ describe("classifyAttachment", () => {
     });
   });
 
-  it("lets text hints route bare media and unknown files", () => {
+  it("lets caption hints route bare media and unknown files", () => {
     expect(classifyAttachment(photo, ["master-plan"])).toMatchObject({
       bucket: "visual_master_plan",
       from_text_hint: true,
     });
-    expect(classifyAttachment(photo, ["price-list"])).toMatchObject({
-      bucket: "price_table",
+    expect(classifyAttachment(photo, ["construction"])).toMatchObject({
+      bucket: "construction_media",
       from_text_hint: true,
     });
     expect(classifyAttachment(file("scan0001.pdf"), ["price-list"])).toMatchObject({
@@ -49,20 +49,40 @@ describe("classifyAttachment", () => {
     });
   });
 
-  it("defaults unhinted photos to construction media and unknown files to other", () => {
-    expect(classifyAttachment(photo, [])).toMatchObject({
-      intake_category: "photo",
+  it("lets filename keywords route media without a caption", () => {
+    expect(classifyAttachment(file("construction-progress-july.mp4"), [])).toMatchObject({
+      intake_category: "video",
       bucket: "construction_media",
       from_text_hint: false,
     });
+  });
+
+  it("is conservative: media without any deterministic signal requires manual review", () => {
+    expect(classifyAttachment(photo, [])).toEqual({
+      intake_category: "photo",
+      bucket: "manual_review_required",
+      from_text_hint: false,
+    });
+    expect(classifyAttachment(file("site-update.mp4"), [])).toMatchObject({
+      intake_category: "video",
+      bucket: "manual_review_required",
+    });
+    // A photo whose filename could not even be recovered stays manual review.
+    expect(classifyAttachment({ original_filename: null, kind: "photo" }, [])).toMatchObject({
+      bucket: "manual_review_required",
+    });
+  });
+
+  it("keeps unknown non-media files in other", () => {
     expect(classifyAttachment(file("mystery.bin"), [])).toMatchObject({ bucket: "other" });
     expect(classifyAttachment(file(null), [])).toMatchObject({ bucket: "other" });
   });
 
-  it("keeps construction video routing for video files", () => {
-    expect(classifyAttachment(file("site-update.mp4"), [])).toMatchObject({
-      intake_category: "video",
-      bucket: "construction_media",
+  it("never routes archives by caption keywords", () => {
+    expect(classifyAttachment(file("full-docs.zip"), ["price-list"])).toEqual({
+      intake_category: "archive",
+      bucket: "other",
+      from_text_hint: false,
     });
   });
 });

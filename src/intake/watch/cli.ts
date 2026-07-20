@@ -16,7 +16,7 @@
  */
 
 import { parseWatchInvocation } from "./cli-args";
-import { runWatch } from "./run";
+import { defaultWatchRoot, runWatch } from "./run";
 
 function printUsage(): void {
   console.log("Usage:");
@@ -36,8 +36,9 @@ function printUsage(): void {
     "  --registry <path>      Channel registry (default forever-data/watch/channel-registry.json).",
   );
   console.log(
-    "  --out-root <dir>       Watch root for quarantine/ledger/review (default forever-data/watch).",
+    `  --out-root <dir>       Runtime root for quarantine/ledger/review (default ${defaultWatchRoot()}; never inside the repository).`,
   );
+  console.log("  --max-attachment-mb <n>  Per-attachment size ceiling in MiB (default 512).");
   console.log("  --run-at <ISO>         Fixed run timestamp for deterministic repeat proofs.");
   console.log("  --verbose              List every reviewed item on the console.");
 }
@@ -60,6 +61,7 @@ async function main(): Promise<void> {
     exportDir: parsed.options.exportDir,
     registryPath: parsed.options.registryPath,
     outRoot: parsed.options.outRoot,
+    maxAttachmentBytes: parsed.options.maxAttachmentBytes,
     runAt: parsed.options.runAt,
   });
 

@@ -6,6 +6,7 @@ import {
   rmSync,
   cpSync,
   mkdtempSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -36,14 +37,20 @@ function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8")) as T;
 }
 
-async function watch(outRoot: string, exportDir: string, channel: string, runAt: Date) {
-  return runWatch({
-    channel,
-    exportDir,
-    registryPath: REGISTRY,
-    outRoot,
-    runAt,
-  });
+function writeRegistry(entries: Array<Record<string, unknown>>): string {
+  const path = join(base, `registry-${Math.random().toString(36).slice(2)}.json`);
+  writeFileSync(path, JSON.stringify({ watch_schema_version: "1", channels: entries }), "utf8");
+  return path;
+}
+
+async function watch(
+  outRoot: string,
+  exportDir: string,
+  channel: string,
+  runAt: Date,
+  registryPath = REGISTRY,
+) {
+  return runWatch({ channel, exportDir, registryPath, outRoot, runAt });
 }
 
 describe("runWatch end-to-end on the synthetic channel export", () => {
@@ -63,10 +70,15 @@ describe("runWatch end-to-end on the synthetic channel export", () => {
     expect(report.counts.attachments_stored).toBe(3);
     expect(report.counts.attachments_duplicate_in_channel).toBe(1);
     expect(report.counts.attachments_not_exported).toBe(1);
+    expect(report.counts.attachments_oversized).toBe(0);
+    expect(report.counts.attachments_size_mismatch).toBe(0);
     expect(report.counts.bucket_counts.price_table).toBe(2);
     expect(report.counts.bucket_counts.visual_master_plan).toBe(1);
     expect(report.counts.bucket_counts.construction_media).toBe(1);
     expect(report.counts.bucket_counts.document).toBe(1);
+    expect(report.counts.bucket_counts.manual_review_required).toBe(0);
+    expect(report.snapshot.skipped_service_message_count).toBe(1);
+    expect(report.possibly_deleted_message_ids).toEqual([]);
     expect(report.cursor).toEqual({
       previous_last_processed_message_id: 0,
       new_last_processed_message_id: 107,
@@ -91,6 +103,15 @@ describe("runWatch end-to-end on the synthetic channel export", () => {
     );
     expect(ledger.messages).toHaveLength(6);
     expect(ledger.messages.every((message) => message.versions.length === 1)).toBe(true);
+    // The service message is durably recorded as an excluded event.
+    expect(ledger.excluded_messages).toEqual([
+      {
+        message_id: 103,
+        kind: "service",
+        raw_type: "service",
+        first_recorded_at_run: RUN_AT_1.toISOString(),
+      },
+    ]);
 
     const reportPath = join(
       outRoot,
@@ -206,6 +227,63 @@ describe("runWatch end-to-end on the synthetic channel export", () => {
   });
 });
 
+describe("channel-identity binding", () => {
+  const unboundEntry = {
+    channel: "@synthetictitle",
+    developer_slug: "the-title",
+    developer_name: "The Title",
+    project_slug: "synthetic-project",
+    project_name: "Synthetic Project",
+    telegram_channel_id: null,
+    status: "active",
+  };
+
+  it("fails closed on the first run of an unbound channel and reports the claimed identity", async () => {
+    const outRoot = join(base, "watch");
+    const registry = writeRegistry([unboundEntry]);
+    const result = await watch(outRoot, RUN_1, "@synthetictitle", RUN_AT_1, registry);
+    expect(result.exitCode).toBe(6);
+    expect(result.error).toContain("watch_channel_unbound");
+    expect(result.error).toContain("1000000001");
+    expect(result.error).toContain("Synthetic Title Channel");
+    // Nothing was ingested.
+    expect(existsSync(join(outRoot, "channels", "synthetictitle", "channel-ledger.json"))).toBe(
+      false,
+    );
+  });
+
+  it("rejects an export whose channel id contradicts the registry binding", async () => {
+    const outRoot = join(base, "watch");
+    const result = await watch(outRoot, OTHER, "@synthetictitle", RUN_AT_1);
+    expect(result.exitCode).toBe(6);
+    expect(result.error).toContain("watch_channel_binding_mismatch");
+    expect(existsSync(join(outRoot, "channels", "synthetictitle", "channel-ledger.json"))).toBe(
+      false,
+    );
+  });
+
+  it("pins channel identity in state: a silently re-bound registry still fails closed", async () => {
+    const outRoot = join(base, "watch");
+    const registryV1 = writeRegistry([{ ...unboundEntry, telegram_channel_id: 1000000001 }]);
+    const first = await watch(outRoot, RUN_1, "@synthetictitle", RUN_AT_1, registryV1);
+    expect(first.exitCode).toBe(0);
+
+    // The registry is later edited to bind the SAME channel name to a
+    // different numeric id; the export matches the new binding, but the
+    // channel directory's recorded history does not.
+    const registryV2 = writeRegistry([{ ...unboundEntry, telegram_channel_id: 1000000002 }]);
+    const second = await watch(outRoot, OTHER, "@synthetictitle", RUN_AT_2, registryV2);
+    expect(second.exitCode).toBe(5);
+    expect(second.error).toContain("watch_channel_id_mismatch");
+
+    // Nothing was merged: ledger still has only the six original messages.
+    const ledger = readJson<ChannelLedger>(
+      join(outRoot, "channels", "synthetictitle", "channel-ledger.json"),
+    );
+    expect(ledger.messages).toHaveLength(6);
+  });
+});
+
 describe("runWatch fail-closed boundaries", () => {
   it("refuses paused and unregistered channels", async () => {
     const outRoot = join(base, "watch");
@@ -226,20 +304,6 @@ describe("runWatch fail-closed boundaries", () => {
     expect(result.error).toContain("watch_export_out_root_overlap");
   });
 
-  it("refuses an export whose channel id contradicts the pinned state", async () => {
-    const outRoot = join(base, "watch");
-    await watch(outRoot, RUN_1, "@synthetictitle", RUN_AT_1);
-    const result = await watch(outRoot, OTHER, "@synthetictitle", RUN_AT_2);
-    expect(result.exitCode).toBe(5);
-    expect(result.error).toContain("watch_channel_id_mismatch");
-
-    // Nothing was merged: ledger still has only the six original messages.
-    const ledger = readJson<ChannelLedger>(
-      join(outRoot, "channels", "synthetictitle", "channel-ledger.json"),
-    );
-    expect(ledger.messages).toHaveLength(6);
-  });
-
   it("refuses to run while another watcher holds the watch-root lock", async () => {
     const outRoot = join(base, "watch");
     mkdirSync(outRoot, { recursive: true });
@@ -258,5 +322,18 @@ describe("runWatch fail-closed boundaries", () => {
     const result = await watch(outRoot, join(base, "no-such-export"), "@synthetictitle", RUN_AT_1);
     expect(result.exitCode).toBe(3);
     expect(result.error).toContain("watch_export_dir_missing");
+  });
+
+  it("rejects an invalid attachment size limit", async () => {
+    const result = await runWatch({
+      channel: "@synthetictitle",
+      exportDir: RUN_1,
+      registryPath: REGISTRY,
+      outRoot: join(base, "watch"),
+      maxAttachmentBytes: 0,
+      runAt: RUN_AT_1,
+    });
+    expect(result.exitCode).toBe(5);
+    expect(result.error).toContain("watch_max_attachment_bytes_invalid");
   });
 });

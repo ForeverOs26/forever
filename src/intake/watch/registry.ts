@@ -2,10 +2,13 @@
  * TG-WATCH-001A — channel registry loading and validation.
  *
  * One committed registry maps every watched public channel to its developer
- * and project. The registry is configuration, never evidence: it decides where
- * quarantined material is filed for review, and proves nothing about content.
- * Validation fails closed — a malformed registry stops the run before any
- * filesystem write.
+ * and project, and carries the Owner-approved binding to the channel's stable
+ * numeric Telegram id. The registry is configuration, never evidence: it
+ * decides where quarantined material is filed for review, and proves nothing
+ * about content. Validation fails closed — a malformed registry, an unknown
+ * property, or a secret-shaped value stops the run before any filesystem
+ * write. The registry is committed and must never carry credentials, tokens,
+ * phone numbers, or any other secret.
  */
 
 import { readFileSync } from "node:fs";
@@ -25,8 +28,43 @@ export class WatchRegistryError extends Error {
   }
 }
 
+const ROOT_KEYS = ["watch_schema_version", "channels"] as const;
+const ENTRY_REQUIRED_KEYS = [
+  "channel",
+  "developer_slug",
+  "developer_name",
+  "project_slug",
+  "project_name",
+  "telegram_channel_id",
+  "status",
+] as const;
+const ENTRY_OPTIONAL_KEYS = ["notes"] as const;
+
+/**
+ * Patterns a committed registry value must never contain. These match the
+ * SHAPE of common credentials — bot tokens, long hex/base64 secrets, phone
+ * numbers — not any specific real value.
+ */
+const SECRET_LIKE_PATTERNS: ReadonlyArray<{ label: string; pattern: RegExp }> = [
+  { label: "bot_token", pattern: /\b\d{8,10}:[A-Za-z0-9_-]{30,}\b/ },
+  { label: "long_hex", pattern: /\b[a-fA-F0-9]{40,}\b/ },
+  { label: "long_base64", pattern: /[A-Za-z0-9+/]{40,}={0,2}/ },
+  { label: "phone_number", pattern: /\+\d{9,15}\b/ },
+  { label: "credential_keyword", pattern: /api[_-]?(id|hash)|2fa|password|session\s*string/i },
+];
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertNoSecretLikeValue(value: string, where: string): void {
+  for (const { label, pattern } of SECRET_LIKE_PATTERNS) {
+    if (pattern.test(value)) {
+      throw new WatchRegistryError(
+        `watch_registry_secret_like_value: ${where} matches ${label}; the committed registry must never carry credentials or personal data`,
+      );
+    }
+  }
 }
 
 /**
@@ -53,6 +91,17 @@ export function channelKey(channel: string): string {
 function validateEntry(value: unknown, index: number): ChannelRegistryEntry {
   if (!isRecord(value)) {
     throw new WatchRegistryError(`watch_registry_entry_invalid: index ${index}`);
+  }
+  const allowed = new Set<string>([...ENTRY_REQUIRED_KEYS, ...ENTRY_OPTIONAL_KEYS]);
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      throw new WatchRegistryError(`watch_registry_unknown_property: index ${index} "${key}"`);
+    }
+  }
+  for (const key of ENTRY_REQUIRED_KEYS) {
+    if (!(key in value)) {
+      throw new WatchRegistryError(`watch_registry_missing_property: index ${index} "${key}"`);
+    }
   }
   const channel = value.channel;
   if (typeof channel !== "string" || !TELEGRAM_PUBLIC_CHANNEL_PATTERN.test(channel)) {
@@ -91,6 +140,17 @@ function validateEntry(value: unknown, index: number): ChannelRegistryEntry {
   if (projectSlug === null && projectName !== null) {
     throw new WatchRegistryError(`watch_registry_project_name_without_slug: ${channel}`);
   }
+  const telegramChannelId = value.telegram_channel_id;
+  if (
+    telegramChannelId !== null &&
+    (typeof telegramChannelId !== "number" ||
+      !Number.isSafeInteger(telegramChannelId) ||
+      telegramChannelId <= 0)
+  ) {
+    throw new WatchRegistryError(
+      `watch_registry_telegram_channel_id_invalid: ${channel} — a positive integer or null (unbound)`,
+    );
+  }
   const status = value.status;
   if (status !== "active" && status !== "paused") {
     throw new WatchRegistryError(`watch_registry_status_invalid: ${channel}`);
@@ -99,12 +159,18 @@ function validateEntry(value: unknown, index: number): ChannelRegistryEntry {
   if (notes !== undefined && typeof notes !== "string") {
     throw new WatchRegistryError(`watch_registry_notes_invalid: ${channel}`);
   }
+  for (const [key, candidate] of Object.entries(value)) {
+    if (typeof candidate === "string") {
+      assertNoSecretLikeValue(candidate, `entry ${index} field "${key}"`);
+    }
+  }
   return {
     channel,
     developer_slug: developerSlug,
     developer_name: developerName,
     project_slug: projectSlug,
     project_name: projectName as string | null,
+    telegram_channel_id: telegramChannelId,
     status,
     ...(notes !== undefined ? { notes } : {}),
   };
@@ -115,12 +181,18 @@ export function parseChannelRegistry(raw: unknown): ChannelRegistry {
   if (!isRecord(raw) || raw.watch_schema_version !== WATCH_SCHEMA_VERSION) {
     throw new WatchRegistryError("watch_registry_schema_version_invalid");
   }
+  for (const key of Object.keys(raw)) {
+    if (!(ROOT_KEYS as readonly string[]).includes(key)) {
+      throw new WatchRegistryError(`watch_registry_unknown_property: root "${key}"`);
+    }
+  }
   if (!Array.isArray(raw.channels) || raw.channels.length === 0) {
     throw new WatchRegistryError("watch_registry_channels_invalid");
   }
   const entries = raw.channels.map(validateEntry);
   const seenChannels = new Set<string>();
   const seenKeys = new Set<string>();
+  const seenIds = new Set<number>();
   for (const entry of entries) {
     const lower = entry.channel.toLowerCase();
     if (seenChannels.has(lower)) {
@@ -134,6 +206,14 @@ export function parseChannelRegistry(raw: unknown): ChannelRegistry {
       throw new WatchRegistryError(`watch_registry_channel_key_collision: ${key}`);
     }
     seenKeys.add(key);
+    if (entry.telegram_channel_id !== null) {
+      if (seenIds.has(entry.telegram_channel_id)) {
+        throw new WatchRegistryError(
+          `watch_registry_duplicate_telegram_channel_id: ${entry.telegram_channel_id}`,
+        );
+      }
+      seenIds.add(entry.telegram_channel_id);
+    }
   }
   return { watch_schema_version: WATCH_SCHEMA_VERSION, channels: entries };
 }

@@ -114,105 +114,175 @@ Code: `src/intake/watch/` — `types.ts`, `registry.ts`, `export-adapter.ts`
 npm.cmd run tg-watch -- --channel @coralinakamala --export "C:\forever-incoming\tg-export\coralinakamala"
 ```
 
-Data (watch root, default `forever-data/watch/`, gitignored except the
-registry):
+**Committed configuration vs runtime data are strictly separate.** The only
+committed watch file is the channel registry
+(`forever-data/watch/channel-registry.json`). All runtime data — quarantine
+objects, ledgers, state, the duplicate index, reports, locks, and temp files —
+lives OUTSIDE the repository working tree in the runtime root: default
+`<home>/forever-watch` (e.g. `C:\Users\<owner>\forever-watch` on Windows),
+overridable with `--out-root`. The watcher rejects, before writing anything, a
+runtime root that is a filesystem root, is inside the repository, contains the
+repository, is a symlink/junction, or overlaps the export source; it likewise
+rejects a symlinked export directory.
 
 ```
-forever-data/watch/
-  channel-registry.json          committed config: channel → developer → project
-  object-index.json              SHA-256 → sightings across ALL channels
+<home>/forever-watch/               runtime root (never committed, never in-repo)
+  object-index.json                 SHA-256 → sightings across ALL channels
   channels/<channel_key>/
-    media/<sha256><ext>          content-addressed quarantine (originals, immutable)
-    channel-ledger.json          full message history; edits append versions
-    state.json                   cursor: last processed message id, channel-id pin
-    review/run-<stamp>.json      per-run Owner-review report (canonical JSON)
-    review/LATEST.md             the same report rendered for the Owner
+    media/<sha256><ext>             content-addressed quarantine (originals, immutable)
+    channel-ledger.json             full message history; edits append versions
+    state.json                      cursor: last processed id, channel-id pin
+    review/run-<stamp>.json         per-run Owner-review report (canonical JSON)
+    review/LATEST.md                the same report rendered for the Owner
 ```
 
 Key mechanics:
 
-- **Quarantine is content-addressed.** A file is stored under its own SHA-256
-  (plus a strictly allowlisted lowercase extension). Published filenames are
-  ledger DATA only and never become filesystem paths — this removes the
-  malicious-filename and collision surface entirely, and makes duplicate
-  detection a directory-existence check.
-- **The ledger is append-only history.** An edited post (or a re-export that
-  now includes previously omitted bytes) appends a new version with its own
-  content hash; nothing is overwritten or deleted. Messages absent from a
-  later, narrower export are preserved untouched.
+- **Channel identity is proven, never assumed.** The CLI flag and the export's
+  display name prove nothing. Each registry entry carries an Owner-approved
+  `telegram_channel_id` binding to the channel's stable numeric id. An
+  UNBOUND entry (`null`) fails closed on the first run: the watcher reports
+  the id and display name the export claims, ingests nothing, and instructs
+  the Owner to verify (export the channel themselves from Telegram Desktop)
+  and set the binding in the committed registry. Every later run re-verifies
+  the binding, and `state.json` additionally pins the id seen by this channel
+  directory's history, so even a silently re-edited registry fails closed.
+- **Quarantine is content-addressed and verified.** A file is stored under
+  its own SHA-256 (plus a strictly allowlisted lowercase extension).
+  Published filenames are ledger DATA only and never become filesystem paths.
+  An already-existing object is accepted as a duplicate ONLY after its actual
+  bytes re-verify against the expected hash and size; corruption,
+  substitution, truncation, a directory, a symlink, or any non-regular file
+  in an object slot fails the run closed.
+- **All hashing is streaming and size-bounded.** Files are never loaded fully
+  into memory; a per-attachment ceiling (default 512 MiB,
+  `--max-attachment-mb`) is enforced against the observed size before any
+  copy and against the actual bytes during reads and copies, so disk
+  consumption is bounded and partial staging files are always cleaned up
+  (including stale `.tmp-*` residue from a crashed run, removed under the
+  lock at run start). Oversized attachments are recorded honestly
+  (`presence: "oversized"`, observed size, no bytes stored) and re-ingested
+  automatically as new versions once the Owner raises the limit. A declared
+  export size that contradicts the actual bytes is stored (actual bytes win)
+  but flagged `declared_mismatch` and warned.
+- **The ledger is append-only history, including excluded events.** An edited
+  post (or a re-export that now includes previously omitted or
+  previously-oversized bytes) appends a new version with its own content
+  hash; nothing is overwritten or deleted. Service messages and unrecognized
+  message types are recorded durably in the ledger as excluded events with
+  their raw type — never interpreted, never silently dropped. An excluded
+  event without a usable id fails the run closed.
 - **Duplicates are detected at two levels**: inside a channel (repost of
   byte-identical files) and across channels (the shared `object-index.json`),
   both by SHA-256 of content, never by filename.
-- **Cursor semantics.** `last_processed_message_id` marks the review
-  watermark; every run still re-verifies all posts present in the snapshot by
-  version hash, so edits of OLD posts are always detected. The state pins the
-  numeric Telegram channel id on first run and fails closed if a later export
-  belongs to a different channel (wrong-folder protection).
+- **Cursor rule.** `last_processed_message_id` advances only past events that
+  are durably recorded — processed posts (ledger versions) or excluded events
+  (ledger `excluded_messages`). Nothing is skipped and then passed over.
+  Every run still re-verifies all posts present in the snapshot by version
+  hash, so edits of OLD posts are always detected. Previously recorded
+  messages missing from the current snapshot's id span are surfaced as
+  `possibly_deleted_message_ids` (deletion on Telegram, or a narrower export
+  range); the ledger keeps their full history either way.
+- **Symlink/reparse-point policy.** Every boundary uses real-path containment
+  (existing intake guards resolve through links) PLUS explicit lstat
+  rejection of links at the export root, the runtime root, every managed
+  directory the watcher writes through, every media source file, and every
+  stored object. Node reports Windows junctions/reparse points as symbolic
+  links to `lstat`, so the same checks apply there; a real-Windows
+  reparse-point validation step is part of the Codex audit (§12).
 - **Crash model.** Simpler than Fast Intake's journal and sufficient here:
-  media blobs are temp+rename writes verified by re-hash; ledger, index,
+  media blobs are staged temp+rename and verified by re-hash of the copied
+  bytes (a source mutated during the copy fails closed); ledger, index,
   state, and reports are whole-document atomic writes committed in dependency
   order (media → ledger → index → state → report). A crash leaves at worst an
-  unreferenced blob or a stale cursor; re-running the same export is
-  idempotent and converges byte-identically.
+  unreferenced staging/orphan blob or a cursor older than the ledger;
+  re-running the same export is idempotent and converges byte-identically.
 - **Determinism and portability.** Same input + same `--run-at` ⇒
   byte-identical artifacts; no absolute Owner-machine path appears in any
-  artifact (tested).
+  artifact (tested, including a real double-run CLI replay).
+- **Privacy.** The ledger retains the full text of channel posts — public
+  channel content, kept locally on the Owner's machine for provenance and
+  edit history; reports carry excerpts only; nothing is transmitted anywhere.
 
 ## 5. Classification and Owner review
 
 Each attachment gets a review bucket — `price_table`, `visual_master_plan`,
-`construction_media`, `document`, `other` — derived deterministically:
-published filename through the shared intake classifier first; deterministic
-English/Russian message-text keyword hints only for bare media and
-unclassifiable files; unhinted photos default to construction media. Buckets
-are routing for review, never facts about content (the same honesty rule as
-`src/intake/classify.ts`).
+`construction_media`, `document`, `manual_review_required`, `other` — derived
+deterministically and CONSERVATIVELY: the published filename through the
+shared intake classifier first, then deterministic English/Russian keyword
+hints in the filename itself, then the same hints in the message caption
+(bare media and unclassifiable files only — a named document or archive is
+never re-routed by a caption). **Media with no deterministic signal at all is
+`manual_review_required`, never assumed to be construction media**; archives
+are opaque containers routed to `other` and never opened by the watcher.
+Buckets are routing for review, never facts about content (the same honesty
+rule as `src/intake/classify.ts`).
 
 The run report lists every new/edited post with excerpts, hashes, duplicate
 flags, and a **recommended** next action per bucket — e.g. a price-table PDF
-recommends a separately owner-run `npm run sip:price-list`, a master plan
-recommends pairing via `npm run sip:package` after price-list review. The
-report carries explicit no-extraction / no-import / no-publication statements.
+recommends a separately owner-run `npm run sip:price-list` (non-PDF price
+candidates are flagged for manual handling instead, since SIP-001A extraction
+supports qualified text PDFs only), a master plan recommends pairing via
+`npm run sip:package` after price-list review. The report carries explicit
+no-extraction / no-import / no-publication statements.
 
 ## 6. Threat model (summary)
 
 All channel content is **untrusted data, never instruction** (Factory
 Constitution §18). Specific surfaces and mitigations:
 
-| Surface | Mitigation |
-| --- | --- |
-| Malicious published filename (traversal, reserved names, homoglyph extensions) | Filenames never become paths; storage names are `sha256` + allowlisted extension; ledger stores the raw name as JSON data only |
-| Hostile paths inside `result.json` (`../`, absolute, drive letter, backslash) | Fail-closed rejection; resolved paths must be strictly inside the export root (`isStrictlyInside`) |
-| Wrong export folder for a channel | Numeric channel-id pin in `state.json`; mismatch fails closed before any merge |
-| Quarantine/source tree overlap | Fail-closed boundary check between `--export` and `--out-root` |
-| Concurrent runs corrupting the shared index | One watch-root lock with safe stale-lock reclaim (reused from Fast Intake) |
-| Archive bombs / nested archives | Archives are quarantined as opaque bytes, never extracted by the watcher; extraction stays behind Fast Intake's hardened ZIP boundary |
-| Prompt-injection text in posts | Text is stored and excerpted as data; no AI processing exists in the watcher |
-| Fabrication pressure (captions "proving" facts) | Buckets/hints are routing only; facts can only enter Forever through the existing SIP/Fast Intake review gates |
+| Surface                                                                        | Mitigation                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Malicious published filename (traversal, reserved names, homoglyph extensions) | Filenames never become paths; storage names are `sha256` + allowlisted extension; ledger stores the raw name as JSON data only                                                                                          |
+| Hostile paths inside `result.json` (`../`, absolute, drive letter, backslash)  | Fail-closed rejection; resolved paths must be strictly inside the export root (`isStrictlyInside`, real-path based)                                                                                                     |
+| Symlink / Windows junction escapes                                             | lstat rejection of links at the export dir, runtime root, managed dirs, media files, and object slots, on top of real-path containment; real-Windows reparse validation assigned to the Codex audit                     |
+| Impersonated channel export (wrong or hostile source folder)                   | Owner-approved `telegram_channel_id` registry binding verified every run; unbound channels fail closed on first run; `state.json` id pin catches later registry tampering                                               |
+| Quarantine corruption or substitution                                          | Existing objects re-verified byte-for-byte (streaming SHA-256 + size) before being accepted as duplicates; mismatch fails closed                                                                                        |
+| Disk exhaustion via huge attachments                                           | Streaming, size-bounded hashing/copying with a 512 MiB default ceiling (`--max-attachment-mb`); oversized files recorded honestly, no partial writes, stale temp files cleaned under the lock                           |
+| Quarantine/source tree overlap; runtime data inside the repo                   | Fail-closed boundary checks: export vs runtime root overlap, runtime root inside/containing the repository, filesystem roots                                                                                            |
+| Secrets or personal data creeping into committed config                        | Registry schema rejects unknown properties and secret-shaped values (token/hex/base64/phone/credential-keyword patterns)                                                                                                |
+| Concurrent runs corrupting the shared index                                    | One watch-root lock with safe stale-lock reclaim (reused from Fast Intake)                                                                                                                                              |
+| Archive bombs / nested archives                                                | Archives are quarantined as opaque bytes, never extracted or hint-routed by the watcher; extraction stays behind Fast Intake's hardened ZIP boundary                                                                    |
+| Silently lost source events                                                    | Service/unrecognized messages are recorded durably as excluded ledger events (fail closed if id-less); the cursor advances only past recorded events; missing previously-seen messages are surfaced as possibly deleted |
+| Prompt-injection text in posts                                                 | Text is stored and excerpted as data; no AI processing exists in the watcher                                                                                                                                            |
+| Fabrication pressure (captions "proving" facts)                                | Buckets/hints are routing only, conservative by default (`manual_review_required`); facts can only enter Forever through the existing SIP/Fast Intake review gates                                                      |
 
 ## 7. Owner runbook (Windows)
 
-One-time per channel: add a registry entry to
-`forever-data/watch/channel-registry.json` (channel, developer, project slug,
-`"status": "active"`).
+One-time per channel:
+
+1. Add a registry entry to `forever-data/watch/channel-registry.json`
+   (channel, developer, project slug, `"telegram_channel_id": null`,
+   `"status": "active"`).
+2. **First-run binding.** Export the channel yourself (step A below) and run
+   the watcher. It will refuse to ingest and print the numeric channel id the
+   export claims. Verify the export really is the right channel (you opened
+   it yourself in Telegram Desktop), then set that id as
+   `telegram_channel_id` in the registry and re-run. From then on every run
+   verifies this binding automatically.
 
 Per update cycle:
 
-1. In **Telegram Desktop**, open the channel → ⋮ menu → **Export chat
-   history**. Format: **Machine-readable JSON**. Enable photos, videos, and
-   files with a generous size limit. Choose the date range (a full re-export
-   is safe — the watcher is idempotent; overlapping ranges are deduplicated).
-2. Wait for the export to finish and note the export folder (it contains
-   `result.json`).
-3. Run, in PowerShell or cmd.exe:
-   `npm.cmd run tg-watch -- --channel @coralinakamala --export "<export folder>"`
-4. Read `forever-data/watch/channels/coralinakamala/review/LATEST.md` and act
-   on recommendations (each is a separate, owner-authorized command).
-5. Re-run any time; a run with no channel news reports zero changes.
+A. In **Telegram Desktop**, open the channel → ⋮ menu → **Export chat
+history**. Format: **Machine-readable JSON**. Enable photos, videos, and
+files with a generous size limit. Choose the date range (a full re-export
+is safe — the watcher is idempotent; overlapping ranges are deduplicated).
+B. Wait for the export to finish and note the export folder (it contains
+`result.json`).
+C. Run, in PowerShell or cmd.exe:
+`npm.cmd run tg-watch -- --channel @coralinakamala --export "<export folder>"`
+Runtime data goes to `C:\Users\<you>\forever-watch` by default; use
+`--out-root` to choose another location OUTSIDE the repository. For videos
+larger than 512 MiB, raise the ceiling, e.g. `--max-attachment-mb 2048`.
+D. Read `<runtime root>\channels\coralinakamala\review\LATEST.md` and act on
+recommendations (each is a separate, owner-authorized command).
+E. Re-run any time; a run with no channel news reports zero changes.
 
-Notes: attachments the export omitted are listed as `not_exported` with a
-warning — re-export with files enabled to capture their bytes. The
-`--run-at` flag exists for deterministic repeat proofs and tests.
+Notes: attachments the export omitted are listed as `not_exported`, and
+attachments over the size ceiling as `oversized`, each with a warning —
+re-export with files enabled or raise `--max-attachment-mb` to capture their
+bytes on the next run. The `--run-at` flag exists for deterministic repeat
+proofs and tests.
 
 ## 8. Live transport recommendation (TG-WATCH-001B — not implemented, not authorized here)
 
@@ -254,31 +324,51 @@ connection, import, lead, or publication; no OCR/AI classification; no
 archive extraction; no admin UI; no Factory autonomy change; no
 modification of Coralina's existing draft or of SIP/Fast Intake behavior.
 
+## 10a. Self-review hardening (2026-07-20, second pass on PR #91)
+
+An independent self-review pass hardened the initial implementation. In brief:
+runtime storage moved out of the repository (default `<home>/forever-watch`,
+strict boundary validation); channel identity now requires an Owner-approved
+numeric registry binding with fail-closed first-run behavior; existing
+content-addressed objects are byte-verified before dedupe; symlink/junction
+rejection was added at every read/write boundary; attachment handling became
+streaming and size-bounded with honest oversized reporting; classification
+became conservative (`manual_review_required` instead of assumed construction
+media; archives never hint-routed); excluded source events are recorded
+durably in the ledger and the cursor advances only past recorded events;
+candidate deletions are surfaced; the registry rejects unknown properties and
+secret-shaped values; stale staging files are cleaned under the lock.
+
 ## 11. Validation executed (Linux CI-like environment, Node 22)
 
-- `npx vitest run src/intake/watch` — 6 files, 42 tests, all passing: export
-  adapter (fail-closed shapes, traversal, placeholders, service messages),
-  registry validation, classification, cli-args, full e2e (quarantine,
-  dedupe in/cross channel, edit versioning, cursor, idempotency,
-  byte-identical determinism, no-absolute-path portability, lock, channel-id
-  pin, overlap rejection), and a strict local-only test with all
-  network/process/database paths stubbed to throw.
-- Full `npm test` (whole repository) — 2,975 tests passed across 311 files;
-  the only failures (3 tests in `src/import/importer-preflight.test.ts` and a
-  collection failure in
-  `src/features/project-detail/partner-demo-data.test.ts`) were re-verified as
-  IDENTICAL at the base commit with this change stashed: both require
-  gitignored Owner-machine local data (Coralina dry-run receipt inputs and
-  Modeva extracted data) that this environment does not have.
-- `npm run build` — production build passed in this environment.
-- `npx eslint src/intake/watch` and `npx prettier --check` — clean.
-- `npx tsc --noEmit` — no errors from this change; one PRE-EXISTING,
-  environment-specific error remains (`partner-demo-data.ts` imports
-  gitignored Modeva extracted data that exists only on the Owner's machine);
-  identical at the base commit.
+After the self-review hardening pass (§10a):
+
+- `npx vitest run src/intake/watch` — 7 files, 70 tests, all passing: export
+  adapter (fail-closed shapes, traversal, symlinks, placeholders,
+  service/unknown message recording), registry validation (unknown
+  properties, binding ids, secret-shaped values), conservative
+  classification, cli-args (incl. `--max-attachment-mb`), object integrity
+  (substitution, corruption, directory/symlink slots), bounded attachments
+  (oversized, limit-raise upgrade, declared-size mismatch, temp cleanup),
+  runtime-root policy (in-repo, contains-repo, symlinked roots/dirs),
+  channel-identity binding (unbound first run, mismatch, state pin),
+  cursor durability with excluded events, possibly-deleted detection, full
+  e2e (quarantine, dedupe in/cross channel, edit versioning, idempotency,
+  byte-identical determinism, no-absolute-path portability, lock), and a
+  strict local-only test with all network/process/database paths stubbed to
+  throw.
+- Deterministic replay via the real CLI: two `npm run tg-watch` runs into
+  fresh runtime roots with the same `--run-at` produced byte-identical trees
+  (`diff -r`), with no absolute path in any artifact.
+- Full `npm test`, `npm run build`, `npx eslint`, `npx prettier --check`,
+  `npx tsc --noEmit` — see the PR record for exact counts; the only failures
+  are the two PRE-EXISTING baseline items (importer-preflight tests and the
+  partner-demo-data collection failure) that require gitignored Owner-machine
+  local data and reproduce identically at the base commit.
 - Real-Windows validation (PowerShell/cmd.exe `npm.cmd run tg-watch`, real
-  Telegram Desktop export of `@coralinakamala`) has NOT been performed in
-  this environment and remains for the Owner/Codex — see §12.
+  Telegram Desktop export of `@coralinakamala`, junction/reparse-point
+  boundary checks) has NOT been performed in this environment and remains for
+  the Owner/Codex — see §12.
 
 ## 12. Next steps after this stage
 
@@ -286,11 +376,18 @@ modification of Coralina's existing draft or of SIP/Fast Intake behavior.
    (`docs/CURRENT_STAGE.md`, `docs/FOREVER_STATUS.md`, `docs/DECISIONS.md`)
    in the established ledger flow.
 2. **Local Windows pilot (Owner + Codex):** real Telegram Desktop JSON export
-   of `@coralinakamala`, run the watcher, verify the review report against
-   the channel, and compare the quarantined 2026-07-17 price list/master plan
-   hashes with the committed SIP-001B `source-bundle.json` fingerprints
-   (`268c2fa3…`, `1f7d70c8…`) — a real-world provenance cross-check.
-3. Owner selects and authorizes the second Title pilot channel; add its
-   registry entry.
-4. Only then, and behind its own gate: TG-WATCH-001B live-transport design
+   of `@coralinakamala`; perform the first-run binding (§7); run the watcher;
+   verify the review report against the channel; and compare the quarantined
+   2026-07-17 price list/master plan hashes with the committed SIP-001B
+   `source-bundle.json` fingerprints (`268c2fa3…`, `1f7d70c8…`) — a
+   real-world provenance cross-check.
+3. **Real-Windows reparse-point audit (Codex):** on the Owner's machine,
+   verify the lstat-based link rejection against actual NTFS junctions and
+   symbolic links — (a) a junction as `--out-root`, (b) a junction as the
+   export folder, (c) a junction planted as `channels\<key>\media`, and (d) a
+   symlinked media file inside an export — each must fail closed with the
+   corresponding `*_symlink` / `media_path_unsafe` error and write nothing.
+4. Owner selects and authorizes the second Title pilot channel; add its
+   registry entry and perform its first-run binding.
+5. Only then, and behind its own gate: TG-WATCH-001B live-transport design
    (§8).

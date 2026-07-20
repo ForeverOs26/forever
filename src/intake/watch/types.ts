@@ -33,6 +33,13 @@ export interface ChannelRegistryEntry {
   /** Project slug for a per-project channel; null for a developer-wide channel. */
   project_slug: string | null;
   project_name: string | null;
+  /**
+   * Owner-approved binding to the channel's stable numeric Telegram id.
+   * `null` means UNBOUND: the watcher fails closed on the first run, reports
+   * the id the export claims, and the Owner binds it here after verifying.
+   * A display name or CLI flag alone never proves channel identity.
+   */
+  telegram_channel_id: number | null;
   status: ChannelStatus;
   notes?: string;
 }
@@ -55,7 +62,9 @@ export type AttachmentPresence =
   /** The export deliberately omitted the file (size/type export settings). */
   | "not_exported"
   /** The snapshot references a file that is absent on disk. */
-  | "missing_on_disk";
+  | "missing_on_disk"
+  /** The file exceeds the configured attachment size limit; not quarantined. */
+  | "oversized";
 
 export interface NormalizedAttachment {
   kind: "file" | "photo";
@@ -63,7 +72,7 @@ export interface NormalizedAttachment {
   original_filename: string | null;
   mime_type: string | null;
   media_type: string | null;
-  presence: AttachmentPresence;
+  presence: Exclude<AttachmentPresence, "oversized">;
   /** Resolved absolute path inside the snapshot root; only when presence is "present". */
   absolute_path: string | null;
   declared_byte_size: number | null;
@@ -81,16 +90,27 @@ export interface NormalizedPost {
   attachments: NormalizedAttachment[];
 }
 
+/**
+ * A source event the watcher recognizes but deliberately does not interpret:
+ * a Telegram service message, or a message type this version does not know.
+ * Excluded events carry a durable identity so the cursor may only advance
+ * past events that are recorded, never past events that were silently lost.
+ */
+export interface ExcludedMessage {
+  message_id: number;
+  kind: "service" | "unsupported_type";
+  raw_type: string;
+}
+
 export interface ChannelSnapshot {
-  /** Channel display name as recorded by the transport; data only. */
+  /** Channel display name as recorded by the transport; data only, never identity. */
   channel_name: string;
   channel_type: "public_channel";
   channel_id: number;
-  /** Ascending by message_id; ids are unique. */
+  /** Ascending by message_id; ids are unique across posts and excluded events. */
   posts: NormalizedPost[];
-  skipped_service_message_count: number;
-  /** Message ids whose transport `type` was unrecognized; skipped, never guessed. */
-  unsupported_message_ids: number[];
+  /** Service and unrecognized messages, ascending by message_id. */
+  excluded_messages: ExcludedMessage[];
   /** SHA-256 + byte size of the raw transport document (result.json). */
   snapshot_sha256: string;
   snapshot_byte_size: number;
@@ -106,6 +126,7 @@ export const WATCH_BUCKETS = [
   "visual_master_plan",
   "construction_media",
   "document",
+  "manual_review_required",
   "other",
 ] as const;
 
@@ -115,7 +136,7 @@ export interface AttachmentClassification {
   /** Category from the shared intake classifier applied to the original filename. */
   intake_category: string;
   bucket: WatchBucket;
-  /** True when the bucket came from deterministic message-text keywords. */
+  /** True when the bucket came from deterministic message-caption keywords. */
   from_text_hint: boolean;
 }
 
@@ -130,11 +151,14 @@ export interface LedgerAttachment {
   mime_type: string | null;
   media_type: string | null;
   presence: AttachmentPresence;
-  /** SHA-256 of the quarantined bytes; null unless presence is "present". */
+  /** SHA-256 of the quarantined bytes; null unless the bytes were hashed. */
   sha256: string | null;
+  /** Actual observed byte size (never the transport's declared size). */
   byte_size: number | null;
   /** Content-addressed object name inside the channel `media/` store. */
   stored_object: string | null;
+  /** "declared_mismatch" when the transport's declared size differed from actual bytes. */
+  size_check: "ok" | "declared_mismatch" | null;
   intake_category: string | null;
   bucket: WatchBucket | null;
   bucket_from_text_hint: boolean;
@@ -159,6 +183,14 @@ export interface LedgerMessage {
   versions: LedgerMessageVersion[];
 }
 
+/** Durable record of a recognized-but-uninterpreted source event. */
+export interface LedgerExcludedMessage {
+  message_id: number;
+  kind: "service" | "unsupported_type";
+  raw_type: string;
+  first_recorded_at_run: string;
+}
+
 export interface ChannelLedger {
   watch_schema_version: typeof WATCH_SCHEMA_VERSION;
   channel: string;
@@ -166,6 +198,7 @@ export interface ChannelLedger {
   developer_slug: string;
   project_slug: string | null;
   messages: LedgerMessage[];
+  excluded_messages: LedgerExcludedMessage[];
 }
 
 // ---------------------------------------------------------------------------
@@ -175,8 +208,12 @@ export interface ChannelLedger {
 export interface ChannelState {
   watch_schema_version: typeof WATCH_SCHEMA_VERSION;
   channel: string;
-  /** Numeric Telegram channel id pinned on first run; a later mismatch fails closed. */
+  /** Numeric Telegram channel id confirmed by the registry binding; continuity pin. */
   channel_id: number;
+  /**
+   * Advances only past events that are durably processed (ledger message
+   * version) or durably recorded as excluded (ledger excluded_messages).
+   */
   last_processed_message_id: number;
   message_count: number;
   stored_object_count: number;
@@ -217,6 +254,7 @@ export interface ReviewAttachment {
   byte_size: number | null;
   stored_object: string | null;
   presence: AttachmentPresence;
+  size_check: "ok" | "declared_mismatch" | null;
   bucket: WatchBucket | null;
   bucket_from_text_hint: boolean;
   /** True when these bytes were already quarantined before this run. */
@@ -267,8 +305,16 @@ export interface WatchRunReport {
     attachments_duplicate_cross_channel: number;
     attachments_not_exported: number;
     attachments_missing_on_disk: number;
+    attachments_oversized: number;
+    attachments_size_mismatch: number;
     bucket_counts: Record<WatchBucket, number>;
   };
+  /**
+   * Ledger message ids inside this snapshot's id span that the snapshot no
+   * longer contains — candidate deletions (or a narrower export range).
+   * Reported for Owner awareness; the ledger never deletes history.
+   */
+  possibly_deleted_message_ids: number[];
   items: ReviewMessageItem[];
   warnings: string[];
   /** Owner-review boundary: the watcher prepared and recommended ONLY. */

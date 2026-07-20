@@ -34,6 +34,31 @@ describe("parseWatchInvocation", () => {
     expect(parseWatchInvocation(["--nope", "x"]).ok).toBe(false);
     expect(parseWatchInvocation(["positional"]).ok).toBe(false);
   });
+
+  it("parses and validates --max-attachment-mb", () => {
+    const good = parseWatchInvocation([
+      "--channel",
+      "@coralinakamala",
+      "--export",
+      "x",
+      "--max-attachment-mb",
+      "2048",
+    ]);
+    expect(good.ok).toBe(true);
+    if (good.ok) expect(good.options.maxAttachmentBytes).toBe(2048 * 1024 * 1024);
+    for (const bad of ["0", "-5", "1.5", "big", "999999"]) {
+      expect(
+        parseWatchInvocation([
+          "--channel",
+          "@coralinakamala",
+          "--export",
+          "x",
+          "--max-attachment-mb",
+          bad,
+        ]).ok,
+      ).toBe(false);
+    }
+  });
 });
 
 describe("storage naming primitives", () => {

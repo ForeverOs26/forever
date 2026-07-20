@@ -7,6 +7,7 @@
       "developer_name": "The Title",
       "project_slug": "synthetic-project",
       "project_name": "Synthetic Project",
+      "telegram_channel_id": 1000000001,
       "status": "active",
       "notes": "Test fixture channel; export fixtures export-run-1 / export-run-2."
     },
@@ -16,6 +17,7 @@
       "developer_name": "Other Developer",
       "project_slug": null,
       "project_name": null,
+      "telegram_channel_id": 1000000002,
       "status": "active",
       "notes": "Developer-wide test channel without an assigned project."
     },
@@ -25,6 +27,7 @@
       "developer_name": "The Title",
       "project_slug": "paused-project",
       "project_name": "Paused Project",
+      "telegram_channel_id": 1000000003,
       "status": "paused"
     }
   ]

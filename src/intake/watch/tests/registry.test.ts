@@ -20,6 +20,7 @@ function validEntry(overrides: Record<string, unknown> = {}): Record<string, unk
     developer_name: "The Title",
     project_slug: "synthetic-project",
     project_name: "Synthetic Project",
+    telegram_channel_id: 1000000001,
     status: "active",
     ...overrides,
   };
@@ -47,6 +48,7 @@ describe("parseChannelRegistry", () => {
     const registry = loadChannelRegistry(FIXTURE_REGISTRY);
     expect(registry.channels).toHaveLength(3);
     expect(registry.channels[0].channel).toBe("@synthetictitle");
+    expect(registry.channels[0].telegram_channel_id).toBe(1000000001);
     expect(registry.channels[1].project_slug).toBeNull();
   });
 
@@ -57,16 +59,74 @@ describe("parseChannelRegistry", () => {
     expect(() => parseChannelRegistry(registryWith())).toThrow(WatchRegistryError);
   });
 
+  it("rejects unknown properties at the root and in entries", () => {
+    expect(() =>
+      parseChannelRegistry({ watch_schema_version: "1", channels: [validEntry()], extra: 1 }),
+    ).toThrow(/unknown_property/);
+    expect(() =>
+      parseChannelRegistry(registryWith(validEntry({ api_credentials: "anything" }))),
+    ).toThrow(/unknown_property/);
+  });
+
+  it("rejects entries missing a required property", () => {
+    const missing = validEntry();
+    delete missing.telegram_channel_id;
+    expect(() => parseChannelRegistry(registryWith(missing))).toThrow(/missing_property/);
+  });
+
+  it("accepts a null (unbound) channel id and rejects invalid or duplicate ids", () => {
+    expect(
+      parseChannelRegistry(registryWith(validEntry({ telegram_channel_id: null }))).channels[0]
+        .telegram_channel_id,
+    ).toBeNull();
+    for (const bad of ["1000000001", 0, -5, 1.5]) {
+      expect(() =>
+        parseChannelRegistry(registryWith(validEntry({ telegram_channel_id: bad }))),
+      ).toThrow(/telegram_channel_id_invalid/);
+    }
+    expect(() =>
+      parseChannelRegistry(
+        registryWith(
+          validEntry(),
+          validEntry({ channel: "@otherchannel", telegram_channel_id: 1000000001 }),
+        ),
+      ),
+    ).toThrow(/duplicate_telegram_channel_id/);
+  });
+
+  it("rejects secret-shaped values anywhere in the committed registry", () => {
+    const cases: Array<Record<string, unknown>> = [
+      { notes: "bot token 12345678:AAHf3kZaVXQ9rTlWbY2cD4eF6gH8iJ0kLmN" },
+      { notes: `sha ${"a".repeat(40)}` },
+      { developer_name: "QWxhZGRpbjpvcGVuIHNlc2FtZUFsYWRkaW46b3BlbiBzZXNhbWU" },
+      { notes: "call me at +66812345678" },
+      { notes: "the api_hash goes here later" },
+    ];
+    for (const overrides of cases) {
+      expect(() => parseChannelRegistry(registryWith(validEntry(overrides)))).toThrow(
+        /secret_like_value/,
+      );
+    }
+  });
+
   it("rejects duplicate channels case-insensitively", () => {
     expect(() =>
-      parseChannelRegistry(registryWith(validEntry(), validEntry({ channel: "@SyntheticTitle" }))),
+      parseChannelRegistry(
+        registryWith(
+          validEntry(),
+          validEntry({ channel: "@SyntheticTitle", telegram_channel_id: 7 }),
+        ),
+      ),
     ).toThrow(/duplicate_channel/);
   });
 
   it("rejects channel-key collisions after underscore mapping", () => {
     expect(() =>
       parseChannelRegistry(
-        registryWith(validEntry({ channel: "@the_title" }), validEntry({ channel: "@the-title" })),
+        registryWith(
+          validEntry({ channel: "@the_title" }),
+          validEntry({ channel: "@the-title", telegram_channel_id: 7 }),
+        ),
       ),
     ).toThrow(WatchRegistryError);
   });
