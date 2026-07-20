@@ -13,11 +13,15 @@ import { PremiumProjectCard } from "./PremiumProjectCard";
 import type { Property } from "@/lib/data";
 
 /**
- * FOREVER-TRUTH-001A: the project card is the widest evidence surface
- * (home, catalogue, discovery). These tests prove that a record with no
- * recorded evidence renders no verification badge, no verdict, no verified
- * price, no score, and no substitute imagery — and that the "Not available"
- * sentinel itself is never displayed as if it were data.
+ * FOREVER-TRUTH-001A: the project card is the widest claim surface (home,
+ * catalogue, discovery). These tests prove the card's display gating over the
+ * `Property` model: an absent value renders no badge, verdict, verified
+ * price, score, or substitute imagery, and the "Not available" sentinel is
+ * never displayed as data. Note that the public mappers currently NEVER emit
+ * the positive values (the legacy advisory scalars are suppressed as
+ * evidence-unproven — see `EVIDENCE_UNPROVEN_ADVISORY_COLUMNS`); the second
+ * test exercises the display path a future evidence contract would use, not
+ * a claim that such evidence exists today.
  */
 
 function property(overrides: Partial<Property> = {}): Property {
@@ -101,7 +105,7 @@ describe("PremiumProjectCard fail-closed rendering", () => {
     expect(screen.getByText("Price on request")).toBeInTheDocument();
   });
 
-  it("renders evidence-backed claims when the record carries them", async () => {
+  it("renders claim elements only when the model explicitly carries values (future evidence-contract path)", async () => {
     await renderInRouter(
       <PremiumProjectCard
         project={property({

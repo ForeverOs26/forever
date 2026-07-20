@@ -12,7 +12,7 @@ export function Footer() {
           <p className="mt-3 max-w-sm text-sm text-primary-foreground/70">
             {partnerDemo
               ? "A guided property decision experience using the project evidence currently available."
-              : "An independent property advisory for Phuket. We help buyers reduce uncertainty with source-backed project records, structured analysis, and private advisory support."}
+              : "An independent property advisory for Phuket. We help buyers reduce uncertainty with structured project records, honest missing-data handling, and private advisory support."}
           </p>
         </div>
         <div>
@@ -32,18 +32,11 @@ export function Footer() {
                 </Link>
               </li>
             ) : (
-              <>
-                <li>
-                  <Link to="/discovery" className="hover:text-accent">
-                    Discovery
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/areas" className="hover:text-accent">
-                    Areas
-                  </Link>
-                </li>
-              </>
+              <li>
+                <Link to="/discovery" className="hover:text-accent">
+                  Discovery
+                </Link>
+              </li>
             )}
           </ul>
         </div>
@@ -69,7 +62,7 @@ export function Footer() {
       </Container>
       <div className="border-t border-primary-foreground/10">
         <Container className="flex flex-col justify-between gap-2 py-6 text-xs text-primary-foreground/60 sm:flex-row">
-          <div>© {new Date().getFullYear()} Forever. Forever Advisory, Phuket, Thailand.</div>
+          <div>© {new Date().getFullYear()} Forever.</div>
           <div>Independent. Buyer-side. Phuket.</div>
         </Container>
       </div>

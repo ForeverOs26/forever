@@ -76,7 +76,7 @@ export const Route = createFileRoute("/advisory")({
       { title: "Forever Advisory Workspace" },
       {
         name: "description",
-        content: "Advisory workspace using Forever's source-backed project data.",
+        content: "Advisory workspace using Forever's recorded project data.",
       },
     ],
     links: [

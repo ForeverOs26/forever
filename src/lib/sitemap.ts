@@ -1,12 +1,12 @@
 /**
  * Sitemap composition (FOREVER-TRUTH-001A).
  *
- * Only surfaces that present real, source-backed content are advertised.
- * `/offers` and `/reviews` are intentionally absent: no verified offer or
- * consented client review is published yet, so those routes render honest
- * empty states and are not promoted to crawlers. Project URLs come from
- * `ProjectService.listActiveSlugs()`, which excludes known-fictitious seed
- * slugs (see `@/lib/public-truth`).
+ * Only surfaces with real published content are advertised. `/offers`,
+ * `/reviews`, and `/areas` are intentionally absent: no confirmed offer,
+ * consented client review, or source-backed area guide is published yet, so
+ * those routes render honest empty states and are not promoted to crawlers.
+ * Project URLs come from `ProjectService.listActiveSlugs()`, which excludes
+ * known-fictitious seed slugs (see `@/lib/public-truth`).
  */
 
 export const SITEMAP_BASE_URL = "https://forever-home-core.lovable.app";
@@ -21,7 +21,6 @@ export const SITEMAP_STATIC_ENTRIES: readonly SitemapEntry[] = [
   { path: "/", changefreq: "weekly", priority: "1.0" },
   { path: "/projects", changefreq: "weekly", priority: "0.9" },
   { path: "/discovery", changefreq: "weekly", priority: "0.9" },
-  { path: "/areas", changefreq: "monthly", priority: "0.7" },
   { path: "/about", changefreq: "monthly", priority: "0.5" },
   { path: "/contact", changefreq: "yearly", priority: "0.5" },
 ];

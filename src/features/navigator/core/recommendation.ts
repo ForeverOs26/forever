@@ -21,7 +21,7 @@ export interface RecommendationPath {
 }
 
 export const DEFAULT_RECOMMENDATION_PATH: RecommendationPath = {
-  primaryRecommendation: "A source-backed Phuket project shortlist",
+  primaryRecommendation: "A structured Phuket project shortlist",
   whyItFits:
     "You are still shaping the decision, so the right first step is a calm shortlist that compares ownership clarity, area fit, budget comfort, and long-term confidence before narrowing to a specific project type.",
   investmentProfile:

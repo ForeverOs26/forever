@@ -53,12 +53,19 @@ const SELECT = `
 ` as const;
 
 /**
- * Fail-closed row mapping (FOREVER-TRUTH-001A). A missing database fact must
- * never become a positive public claim: null verification is NOT verified,
- * a missing verdict/market position/rental demand is "Not available", a
- * missing price is absent, and only `verified_price` may ever appear behind
- * a "Forever Verified Price" label. This mirrors the null policy already
- * used by `mapProjectDetail` and the Advisory/Passport engines.
+ * Fail-closed row mapping (FOREVER-TRUTH-001A). Two rules apply:
+ *
+ * 1. A missing database fact never becomes a positive public claim — it maps
+ *    to its absence sentinel ("Not available", "", 0, false).
+ * 2. The legacy advisory scalars (`EVIDENCE_UNPROVEN_ADVISORY_COLUMNS` in
+ *    `@/lib/public-truth`) are suppressed even when present: the canonical
+ *    Modeva seed proves they are placeholders (verified=true next to
+ *    "Awaiting full Forever inspection data"), and no code binds them to an
+ *    evidence contract. Their raw values stay in the database; the public
+ *    claim is withheld until a real evidence contract exists.
+ *
+ * Descriptive record data (name, location, type, statuses, sizes, recorded
+ * prices, distances, media) continues to map through normally.
  */
 function mapToProperty(row: ProjectWithRelations): Property {
   const media = [...(row.media ?? [])].sort((a, b) => a.sort_order - b.sort_order);
@@ -99,15 +106,15 @@ function mapToProperty(row: ProjectWithRelations): Property {
     priceRange: row.price_range ?? "",
     pricePerSqm: row.price_per_sqm_display ?? "",
     lastPriceUpdate: row.last_price_update ?? "",
-    verifiedPrice: row.verified_price ?? "",
-    promotion: row.promotion ?? "",
-
-    foreverVerified: row.forever_verified === true,
-    trustScore: Number(row.trust_score ?? 0),
-    trustNote: row.trust_note ?? "",
-    investmentValue: Number(row.investment_value ?? 0),
-    marketPosition: (row.market_position ?? "Not available") as MarketPosition,
-    verdict: (row.verdict ?? "Not available") as ForeverVerdict,
+    // Suppressed evidence-unproven legacy scalars (see module comment).
+    verifiedPrice: "",
+    promotion: "",
+    foreverVerified: false,
+    trustScore: 0,
+    trustNote: "",
+    investmentValue: 0,
+    marketPosition: "Not available" as MarketPosition,
+    verdict: "Not available" as ForeverVerdict,
 
     distanceToBeach: row.distance_to_beach ?? "",
     distanceToAirport: row.distance_to_airport ?? "",
@@ -115,13 +122,15 @@ function mapToProperty(row: ProjectWithRelations): Property {
     nearbyHospitals: row.nearby_hospitals ?? [],
     lifestyle: row.lifestyle ?? [],
 
-    rentalYield: row.rental_yield ?? "",
-    rentalDemand: (row.rental_demand ?? "Not available") as RentalDemand,
-    capitalGrowthEstimate: row.capital_growth_estimate ?? "",
+    // Suppressed evidence-unproven legacy scalars (see module comment).
+    rentalYield: "",
+    rentalDemand: "Not available" as RentalDemand,
+    capitalGrowthEstimate: "",
 
     startDate: row.start_date_display ?? "",
     completionDate: row.completion_date_display ?? "",
-    lastInspection: row.last_inspection ?? "",
+    // Suppressed evidence-unproven legacy scalar (see module comment).
+    lastInspection: "",
 
     image,
     gallery,

@@ -16,7 +16,7 @@ export const Route = createFileRoute("/about")({
       {
         property: "og:description",
         content:
-          "Independent Phuket property advisory powered by source-backed project records and structured analysis.",
+          "Independent Phuket property advisory built on structured project records and honest missing-data handling.",
       },
     ],
   }),
@@ -35,8 +35,8 @@ function AboutPage() {
             Independent property advisory for clearer decisions.
           </h1>
           <p className="mt-6 max-w-2xl text-lg text-muted-foreground">
-            Forever helps buyers evaluate Phuket property with source-backed project records,
-            structured analysis, and private advisory support.
+            Forever helps buyers evaluate Phuket property with structured project records, honest
+            missing-data handling, and private advisory support.
           </p>
         </Container>
       </section>
@@ -58,7 +58,7 @@ function AboutPage() {
           <div className="grid gap-6 sm:grid-cols-2">
             {[
               [
-                "Source-Backed Data",
+                "Structured Data",
                 "Project facts are structured, traceable, and honest about gaps.",
               ],
               ["Clear Analysis", "Scores and recommendations explain the evidence behind them."],

@@ -193,15 +193,22 @@ describe("ProjectService fail-closed mapping (FOREVER-TRUTH-001A)", () => {
     expect(sparse.gallery).toEqual([]);
   });
 
-  it("keeps explicitly recorded evidence intact", async () => {
+  it("suppresses the evidence-unproven legacy advisory scalars even when the row carries values", async () => {
     stubQueryResult({
       data: [
-        projectRow("recorded", {
+        projectRow("legacy-scalars", {
           forever_verified: true,
           verdict: "Wait for Better Pricing",
           market_position: "Below market",
           rental_demand: "High",
+          rental_yield: "6-8%",
+          capital_growth_estimate: "5% p.a.",
+          trust_score: 9.4,
+          investment_value: 9.1,
+          trust_note: "A legacy note.",
           verified_price: "THB 5,000,000",
+          promotion: "Furniture package",
+          last_inspection: "2026-06-01",
           main_image_url: "https://cdn.example.com/recorded.jpg",
         }),
       ],
@@ -209,13 +216,60 @@ describe("ProjectService fail-closed mapping (FOREVER-TRUTH-001A)", () => {
     });
     listDemoPreviewProperties.mockResolvedValue([]);
 
-    const [recorded] = await ProjectService.listActive();
-    expect(recorded.foreverVerified).toBe(true);
-    expect(recorded.verdict).toBe("Wait for Better Pricing");
-    expect(recorded.marketPosition).toBe("Below market");
-    expect(recorded.rentalDemand).toBe("High");
-    expect(recorded.verifiedPrice).toBe("THB 5,000,000");
-    expect(recorded.image).toBe("https://cdn.example.com/recorded.jpg");
+    const [mapped] = await ProjectService.listActive();
+    // No code binds these columns to an evidence contract, so none of them
+    // may surface as a public claim — regardless of the stored value.
+    expect(mapped.foreverVerified).toBe(false);
+    expect(mapped.verdict).toBe("Not available");
+    expect(mapped.marketPosition).toBe("Not available");
+    expect(mapped.rentalDemand).toBe("Not available");
+    expect(mapped.rentalYield).toBe("");
+    expect(mapped.capitalGrowthEstimate).toBe("");
+    expect(mapped.trustScore).toBe(0);
+    expect(mapped.investmentValue).toBe(0);
+    expect(mapped.trustNote).toBe("");
+    expect(mapped.verifiedPrice).toBe("");
+    expect(mapped.promotion).toBe("");
+    expect(mapped.lastInspection).toBe("");
+    // Descriptive record data continues to map through.
+    expect(mapped.image).toBe("https://cdn.example.com/recorded.jpg");
+  });
+
+  it("never turns the real Modeva legacy placeholder row into a verification claim", async () => {
+    // The exact advisory shape seeded by FDB-001 for the genuine Modeva
+    // record: verified=true stored as a placeholder NEXT TO a trust note
+    // saying inspection data is still awaited.
+    stubQueryResult({
+      data: [
+        projectRow("modeva", {
+          name: "Modeva",
+          forever_verified: true,
+          trust_score: 0,
+          trust_note: "Awaiting full Forever inspection data.",
+          investment_value: 0,
+          market_position: "Under review",
+          verdict: "Under Review",
+          verified_price: "",
+          rental_demand: "",
+          last_inspection: "",
+          sales_status: "Available",
+          construction_status: "Planning",
+          project_type: "Condominium",
+        }),
+      ],
+      error: null,
+    });
+    listDemoPreviewProperties.mockResolvedValue([]);
+
+    const [modeva] = await ProjectService.listActive();
+    expect(modeva.foreverVerified).toBe(false);
+    expect(modeva.verdict).toBe("Not available");
+    expect(modeva.marketPosition).toBe("Not available");
+    expect(modeva.trustNote).toBe("");
+    // Recorded descriptive facts survive.
+    expect(modeva.status).toBe("Available");
+    expect(modeva.constructionStatus).toBe("Planning");
+    expect(modeva.propertyType).toBe("Condominium");
   });
 });
 

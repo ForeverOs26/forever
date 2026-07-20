@@ -69,57 +69,129 @@ catalogue is publicly served unless production was manually cleaned.
 - The unused `src/components/ProjectCard.tsx` rendered "Forever Score 0.0"
   and empty "Verified Offer"/"Forever Verified Price" labels unconditionally.
 
+### Additional defects confirmed in the corrective review pass
+
+- Discovery still ranked publicly by unproven signals: "Forever Recommended"
+  default sort and "Forever Score high to low" ordered by
+  `foreverVerified`/`trustScore`/`investmentValue`, and a "Forever Verified
+  only" filter keyed on the placeholder boolean.
+- The JSON-LD builder mapped every non-empty status except "Sold Out" to
+  `schema.org/InStock` (including unknown values), hardcoded
+  `addressRegion: Phuket` / `addressCountry: TH` without a recorded source
+  field, and re-emitted the legacy advisory scalars as structured facts.
+- The legacy `forever_verified === true` scalar was treated as sufficient
+  proof for a public "Forever Verified" badge although the canonical Modeva
+  seed stores it as a placeholder next to "Awaiting full Forever inspection
+  data."; the same applies to trust/investment scores, verdicts, market
+  position, rental demand/yield, growth estimates, inspection dates,
+  promotions, and the verified-price string — none are bound to an evidence
+  contract.
+- The first source-scan test compared unnormalized `path.relative` output and
+  would have scanned its own forbidden-name list on Windows.
+- Unconfirmed contact/office claims remained public (Cherng Talay office,
+  `advisors@forever.property`, WhatsApp availability, appointment days,
+  "Forever Private Office", a response-time promise in the contact form).
+- The retained area descriptions still carried unverifiable factual claims
+  (sheltered beaches, travel times, international schools, branded resorts,
+  deep-water access, residence patterns).
+- The home page still promised title checks, developer track-record review,
+  EIA approvals, and occupancy/net-yield benchmarks that the repository does
+  not contain, and linked a "Decision Guide" that does not exist.
+- Catalogue-wide "source-backed project records" phrasing overstated the
+  current per-record source coverage (Modeva knowledge readiness is
+  incomplete).
+
 ### Already fail-closed (verified, unchanged)
 
-Passport, Intelligence scoring/verdict thresholds, Navigator matching
-(NAV-001 sentinels), Advisory derivations, `mapProjectDetail`, Project Detail
-components, `projects/$slug` JSON-LD guards, Partner Demo data modules, and
-the demo-preview production-bundle boundary.
+Passport and Intelligence internal scoring thresholds, Navigator matching
+(NAV-001 sentinels), Advisory derivations and their "Not available"
+handling, Partner Demo data modules, and the demo-preview production-bundle
+boundary. These derive from the (now suppressed) public model and degrade to
+their honest empty states.
 
 ## Chosen policy and architecture
 
 One small truth-policy module, `src/lib/public-truth.ts`, plus alignment of
-the single optimistic layer with the fail-closed conventions the rest of the
-codebase already uses (`"Not available"` sentinels, empty string / 0 / null,
-strict `=== true` verification):
+every public boundary with the fail-closed conventions the rest of the
+codebase already uses (`"Not available"` sentinels, empty string / 0 / null):
 
-1. **Fail-closed mapping** — `mapToProperty` now maps every missing field to
-   its absence sentinel; `verifiedPrice` comes only from `verified_price` in
-   both mappers; `foreverVerified` requires an explicit `true`.
-2. **Fail-closed media** — a project image is only the project's own recorded
+1. **Fail-closed mapping** — `mapToProperty` and `mapProjectDetail` map every
+   missing descriptive field to its absence sentinel.
+2. **Evidence-unproven scalar suppression** — the legacy advisory scalars
+   (`forever_verified`, `verified_price`, `trust_score`, `investment_value`,
+   `verdict`, `market_position`, `rental_demand`, `rental_yield`,
+   `capital_growth_estimate`, `last_inspection`, `promotion`, `trust_note`)
+   are suppressed in BOTH public mappers even when the row carries values:
+   the canonical Modeva seed proves they are placeholders (`forever_verified
+   = true` stored next to "Awaiting full Forever inspection data."), and no
+   code binds them to a source, inspection record, or Owner-recorded
+   verification action. Raw values stay in the database; the public claim is
+   withheld until a real evidence contract exists. Passport/Intelligence
+   derive from the suppressed model and therefore degrade to their honest
+   empty states.
+3. **Fail-closed media** — a project image is only the project's own recorded
    URL; the bundled stock villa photos and the `image_key` mechanism were
    deleted; cards show "Media preview pending".
-3. **Quarantine of known-fictitious entities** — `ProjectService.listActive`,
+4. **Quarantine of known-fictitious entities** — `ProjectService.listActive`,
    `getBySlug`, `listActiveSlugs`, and `ProjectDetailService.getBySlug` refuse
    the six seeded slugs, so catalogue, detail URLs, sitemap, Navigator, Booth,
    and Advisory candidate lists cannot render them regardless of current
    production contents.
-4. **Removal of fabricated content** — offers, reviews, and area listing
-   counts removed from `src/lib/data.ts` and all rendering components;
-   `/offers` and `/reviews` are honest empty-state pages, out of the primary
-   navigation and sitemap; `/areas` is an editorial orientation without counts
-   or performance claims.
-5. **Honest framing copy** — "verified project data" → "source-backed project
-   records" and equivalents across root metadata, home, catalogue, Discovery,
-   About, and Advisory heads; positional "Forever Recommended" and the
-   non-functional intent-tile theater removed from Discovery.
-6. **Sentinel-aware display** — the card treats `"Not available"` as absent
+5. **Removal of fabricated content and behavior** — static offers, reviews,
+   and the area guide removed entirely; `/offers`, `/reviews`, and `/areas`
+   are honest empty-state pages, out of primary navigation and the sitemap;
+   Discovery's positional "Forever Recommended" banner, its "Forever
+   Recommended"/"Forever Score" sorts, its "Forever Verified only" filter,
+   and its non-functional intent tiles are removed — sorting is neutral
+   (catalogue order, name, recorded price with missing prices last).
+6. **Truthful structured data** — the JSON-LD builder
+   (`src/features/project-detail/project-structured-data.ts`) emits only
+   recorded descriptive facts; availability uses a closed whitelist
+   (recorded `Available`/`Selling` → InStock, recorded `Sold Out` → SoldOut,
+   everything else omitted); no region/country is inferred; the absence
+   sentinel is never serialized; the evidence-unproven scalars have no code
+   path into structured data.
+7. **Honest framing copy** — catalogue-wide "verified project data" /
+   "independently reviewed" / blanket "source-backed" claims replaced with
+   language that is true for every record capable of appearing ("structured
+   project records", "honest missing-data handling"); unsupported service
+   promises (title checks, EIA approvals, occupancy/net-yield benchmarks,
+   response-time promises) removed or reworded to advisor-dependent topics.
+8. **No unconfirmed contact claims** — the office line, email address,
+   WhatsApp availability, opening days, and Twitter handle are removed until
+   the Owner confirms exact details; the contact form is the supported
+   channel.
+9. **Sentinel-aware display** — the card treats `"Not available"` as absent
    (hidden), never as displayable data.
 
 ## Regression protection added
 
 - `src/lib/project-service.test.ts` — missing fields cannot become positive
-  claims; recorded evidence is preserved; fictitious slugs are excluded from
-  lists, slug enumeration, and direct lookup.
+  claims; the evidence-unproven scalars are suppressed even when present,
+  proven against the real Modeva legacy placeholder shape; fictitious slugs
+  are excluded from lists, slug enumeration, and direct lookup.
 - `src/lib/public-truth.test.ts` — a full `src/` source scan proving no
-  fictitious project, reviewer, or developer name appears anywhere in
-  application source, fictitious slugs appear only inside the quarantine
-  policy, fabricated exports are gone, and the stock villa photos are gone.
+  fictitious project, reviewer, or developer name and no unconfirmed contact
+  claim appears anywhere in application source; fictitious slugs appear only
+  inside the quarantine policy; fabricated exports are gone; the stock villa
+  photos are gone; path comparison is Windows-safe (backslash-normalized,
+  with its own regression test).
 - `src/lib/sitemap.test.ts` — sitemap advertises only real surfaces and the
-  provided project slugs.
-- `src/components/premium-project-card.truth.test.tsx` — a record without
-  evidence renders no badge, verdict, verified price, score, inspection date,
-  or substitute imagery, and never displays the sentinel itself.
+  provided project slugs; `/offers`, `/reviews`, `/areas` are absent.
+- `src/features/discovery/discovery-filters.test.ts` — no recommendation,
+  score, or verification sort/filter exists; catalogue order ignores
+  verification/score signals; price sorts put missing prices last.
+- `src/features/project-detail/project-structured-data.test.ts` — JSON-LD
+  availability whitelist, no inferred geography, no sentinel serialization,
+  no channel for suppressed scalars, and an end-to-end check with the real
+  Modeva legacy row shape.
+- `src/lib/production-cleanup-plan.test.ts` — the prepared cleanup plan stays
+  prepared-only, slug-scoped, transactional, fail-closed, ellipsis-free, and
+  lead-untouched.
+- `src/components/premium-project-card.truth.test.tsx` — display gating over
+  the `Property` model: absent values render no badge, verdict, verified
+  price, score, inspection date, or substitute imagery, and the sentinel is
+  never displayed.
 
 ## What cannot be known from the repository
 
@@ -134,8 +206,10 @@ These require the separately authorized read-only inventory in
 
 ## Prepared but not executed
 
-The exact production inventory queries, single-transaction deactivation of the
-six fictitious projects, verification, and rollback are prepared in
+The exact production inventory (dynamic foreign-key discovery via
+`pg_constraint`, per-relation counts, pre-change snapshot), the
+single-transaction fail-closed deactivation of the six fictitious projects,
+verification, and an exact-value rollback are prepared in
 `docs/FOREVER_TRUTH_001A_PRODUCTION_CLEANUP_PLAN.md`. No production
 connection, migration, or write occurred in this checkpoint.
 
@@ -149,14 +223,20 @@ modified. Publication is a separate Owner-gated checkpoint
 
 1. Owner: authorize and run the read-only production inventory (Step 1).
 2. Owner: decide and execute the prepared deactivation (Step 3) — production
-   truth currently relies on the repository quarantine alone.
-3. Owner: confirm or correct the public contact details
-   (`advisors@forever.property`, the Cherng Talay office line) — kept in the
-   UI but unverifiable from the repository.
-4. Codex/Owner (Windows): reproduce the two inherited baseline failures
+   truth currently relies on the repository suppression alone.
+3. Owner: confirm the exact public contact details (office, email, phone,
+   hours) — they were removed from the UI until confirmed; the contact form
+   remains the supported channel.
+4. Owner: correct the stored Modeva copy at the source when next editing it —
+   its tagline/highlights still contain legacy "Verified" wording (see the
+   cleanup plan's recommended follow-up corrections).
+5. Owner/Architect: define the future evidence contract that would allow
+   verification badges, scores, verdicts, market positions, yields,
+   inspections, and verified prices to return publicly.
+6. Codex/Owner (Windows): reproduce the two inherited baseline failures
    (`partner-demo-data` imports and `importer-preflight` Coralina dry-run)
    that depend on untracked local source files, and confirm they pass there.
-5. Codex: regenerate `src/integrations/supabase/types.ts` when a connection
+7. Codex: regenerate `src/integrations/supabase/types.ts` when a connection
    is next authorized (missing `public_status` and post-FDB tables).
-6. Owner: Partner Demo presentation and guest walkthroughs — the business
+8. Owner: Partner Demo presentation and guest walkthroughs — the business
    half of this stage — remain open; code alone does not close it.

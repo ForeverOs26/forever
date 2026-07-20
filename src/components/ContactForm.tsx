@@ -76,7 +76,7 @@ export function ContactForm({
         <p className="mt-2 text-sm text-muted-foreground">
           {isPartnerDemo
             ? "The advisory request passed local validation. No contact details were saved or sent."
-            : "A member of our private client team will be in touch within one business day."}
+            : "Your request was received. A Forever advisor will come back to you personally."}
         </p>
         {import.meta.env.DEV && isDemoLeadModeEnabled() && (
           <p className="mt-4 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">

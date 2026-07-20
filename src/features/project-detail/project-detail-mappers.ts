@@ -252,25 +252,33 @@ export function mapProjectDetail(row: ProjectDetailRecord): ProjectDetail {
       displayPrice: formatStartingPriceTHB(startingPriceTHB),
       priceRange: text(row.price_range),
       pricePerSqm: text(row.price_per_sqm_display),
-      // Only an explicitly verified price may carry a verified-price label; an
-      // unverified marketing price range must never be promoted into it.
-      verifiedPrice: text(row.verified_price),
-      promotion: text(row.promotion),
+      // Suppressed evidence-unproven legacy scalars (FOREVER-TRUTH-001A, see
+      // EVIDENCE_UNPROVEN_ADVISORY_COLUMNS in `@/lib/public-truth`): no code
+      // binds these columns to a source, inspection record, or Owner-recorded
+      // verification, and the canonical Modeva seed proves they are
+      // placeholders. The raw values stay in the database; the public claim
+      // is withheld until a real evidence contract exists.
+      verifiedPrice: "",
+      promotion: "",
       lastPriceUpdate: text(row.last_price_update),
     },
     trust: {
-      foreverVerified: row.forever_verified,
-      trustScore: numberValue(row.trust_score),
-      trustNote: text(row.trust_note),
-      marketPosition: text(row.market_position),
-      verdict: text(row.verdict),
-      lastInspection: text(row.last_inspection),
+      // Suppressed evidence-unproven legacy scalars (see pricing note above).
+      foreverVerified: false,
+      trustScore: 0,
+      trustNote: "",
+      marketPosition: "",
+      verdict: "",
+      lastInspection: "",
     },
     investment: {
-      investmentValue: numberValue(row.investment_value),
-      rentalYield: text(row.rental_yield),
-      rentalDemand: text(row.rental_demand),
-      capitalGrowthEstimate: text(row.capital_growth_estimate),
+      // Suppressed evidence-unproven legacy scalars (see pricing note above).
+      // `rows` are recorded per-row data and continue to map through; the
+      // Advisory derivations already handle their gaps with "Not available".
+      investmentValue: 0,
+      rentalYield: "",
+      rentalDemand: "",
+      capitalGrowthEstimate: "",
       rows: investmentRows,
     },
     location: {

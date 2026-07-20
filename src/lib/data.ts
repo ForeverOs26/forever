@@ -104,70 +104,14 @@ export type Project = Property;
 
 /**
  * Project data is loaded from Supabase via `ProjectService`
- * (see `@/lib/project-service`). This file now only holds:
- *   • the shared `Property` / `Project` types
- *   • the editorial Phuket area guide (geographic orientation only)
+ * (see `@/lib/project-service`). This file now only holds the shared
+ * `Property` / `Project` types.
  *
- * FOREVER-TRUTH-001A removed the earlier static `offers` and `reviews`
- * arrays and the per-area `listings` counts: they were fabricated content
- * (invented promotions, invented testimonials, invented inventory counts)
- * and the public product is fail-closed — evidence-dependent content must
- * come from real, source-backed records or not appear at all.
+ * FOREVER-TRUTH-001A removed the earlier static `offers`, `reviews`, and
+ * `areas` content: the offers and reviews were fabricated (invented
+ * promotions and testimonials with invented inventory counts), and the area
+ * descriptions carried unverifiable factual and qualitative claims (travel
+ * times, schools, resorts, residence patterns) with no source model behind
+ * them. Evidence-dependent content must come from real, source-backed
+ * records or not appear at all.
  */
-
-export type Area = {
-  slug: string;
-  name: string;
-  region: string;
-  description: string;
-};
-
-/**
- * Editorial area orientation. Descriptions are limited to geography and
- * character; they must not claim inventory counts, yields, returns, or any
- * project-level fact.
- */
-export const areas: Area[] = [
-  {
-    slug: "surin",
-    name: "Surin",
-    region: "West Coast",
-    description:
-      "Quiet luxury above one of Phuket's most sheltered beaches. Sunset-facing villas and boutique residences.",
-  },
-  {
-    slug: "kamala",
-    name: "Kamala",
-    region: "West Coast",
-    description:
-      "Beachfront condominiums and hillside villas, ten minutes from Patong but a world away in tempo.",
-  },
-  {
-    slug: "layan-bangtao",
-    name: "Layan & Bang Tao",
-    region: "Laguna Corridor",
-    description:
-      "Phuket's most established luxury enclave — a long beachfront corridor with international schools and branded resorts.",
-  },
-  {
-    slug: "kata-karon",
-    name: "Kata & Karon",
-    region: "South West",
-    description:
-      "Family-friendly bays with cliffside residences overhead and a walkable beach-town rhythm.",
-  },
-  {
-    slug: "rawai-nai-harn",
-    name: "Rawai & Nai Harn",
-    region: "South Cape",
-    description:
-      "The southern cape — quieter, more local, favored by long-stay residents and yachting families.",
-  },
-  {
-    slug: "cape-yamu",
-    name: "Cape Yamu",
-    region: "East Coast",
-    description:
-      "Sunrise-facing estates on Phuket's calm east coast, with deep-water access and Phang Nga Bay views.",
-  },
-];

@@ -2,6 +2,7 @@ import { createFileRoute, Link, notFound, useRouter } from "@tanstack/react-rout
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { ProjectDetailEngine } from "@/features/project-detail/components/ProjectDetailEngine";
 import { projectDetailQuery } from "@/features/project-detail/project-detail-query";
+import { buildProjectStructuredData } from "@/features/project-detail/project-structured-data";
 import type { ProjectDetail } from "@/features/project-detail/project-detail-types";
 import { SiteShell } from "@/components/SiteShell";
 import { Section } from "@/components/layout/Section";
@@ -22,11 +23,19 @@ export const Route = createFileRoute("/projects/$slug")({
 function buildProjectHead(slug: string, project?: ProjectDetail) {
   const image = project?.media.hero?.url ?? project?.media.gallery[0]?.url;
   const title = project
-    ? `${project.core.name} - Forever Advisory Report`
-    : "Project Details - Forever";
+    ? `${project.core.name} - Forever Project Record`
+    : "Project Record - Forever";
   const description = project
-    ? `${project.core.name} in ${project.core.location}. ${project.core.tagline}.${project.trust.foreverVerified ? " Reviewed by Forever." : " Available project record."}`
-    : "Independent Forever advisory report on a Phuket residence.";
+    ? [
+        project.core.location
+          ? `${project.core.name} in ${project.core.location}.`
+          : `${project.core.name}.`,
+        project.core.tagline ? `${project.core.tagline}.` : null,
+        "Forever project record.",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : "Forever project record for a Phuket development.";
   const url = `https://forever-home-core.lovable.app/projects/${slug}`;
   const meta = [
     { title },
@@ -48,131 +57,13 @@ function buildProjectHead(slug: string, project?: ProjectDetail) {
   return { meta, links, scripts };
 }
 
-function buildProjectStructuredData(project: ProjectDetail, url: string, image?: string) {
-  const images = image ? [image] : [];
-  const additionalProperty = [
-    project.trust.trustScore > 0
-      ? {
-          "@type": "PropertyValue",
-          name: "Forever Score",
-          value: project.trust.trustScore,
-          maxValue: 10,
-        }
-      : null,
-    project.investment.investmentValue > 0
-      ? {
-          "@type": "PropertyValue",
-          name: "Investment Value",
-          value: project.investment.investmentValue,
-          maxValue: 10,
-        }
-      : null,
-    project.trust.marketPosition
-      ? { "@type": "PropertyValue", name: "Market Position", value: project.trust.marketPosition }
-      : null,
-    project.trust.verdict
-      ? { "@type": "PropertyValue", name: "Forever Verdict", value: project.trust.verdict }
-      : null,
-    project.core.constructionStatus
-      ? {
-          "@type": "PropertyValue",
-          name: "Construction Status",
-          value: project.core.constructionStatus,
-        }
-      : null,
-    project.investment.rentalYield
-      ? { "@type": "PropertyValue", name: "Rental Yield", value: project.investment.rentalYield }
-      : null,
-    project.investment.capitalGrowthEstimate
-      ? {
-          "@type": "PropertyValue",
-          name: "Capital Growth Estimate",
-          value: project.investment.capitalGrowthEstimate,
-        }
-      : null,
-  ].filter(Boolean);
-
-  return [
-    {
-      type: "application/ld+json",
-      children: JSON.stringify({
-        "@context": "https://schema.org",
-        "@type": "Product",
-        name: project.core.name,
-        description: project.core.description,
-        image: images,
-        url,
-        category: project.core.type,
-        brand: project.developer
-          ? { "@type": "Organization", name: project.developer.name }
-          : undefined,
-        ...(project.pricing.startingPriceTHB > 0
-          ? {
-              offers: {
-                "@type": "Offer",
-                price: project.pricing.startingPriceTHB,
-                priceCurrency: "THB",
-                // Availability is asserted only when a sales status is
-                // actually recorded — an unrecorded status must not become
-                // an "InStock" claim (FOREVER-TRUTH-001A).
-                ...(project.core.status
-                  ? {
-                      availability:
-                        project.core.status === "Sold Out"
-                          ? "https://schema.org/SoldOut"
-                          : "https://schema.org/InStock",
-                    }
-                  : {}),
-                url,
-              },
-            }
-          : {}),
-        additionalProperty,
-      }),
-    },
-    {
-      type: "application/ld+json",
-      children: JSON.stringify({
-        "@context": "https://schema.org",
-        "@type": "Place",
-        name: project.core.name,
-        description: project.core.tagline,
-        image,
-        url,
-        address: {
-          "@type": "PostalAddress",
-          addressLocality: project.core.location,
-          addressRegion: "Phuket",
-          addressCountry: "TH",
-        },
-      }),
-    },
-    {
-      type: "application/ld+json",
-      children: JSON.stringify({
-        "@context": "https://schema.org",
-        "@type": "BreadcrumbList",
-        itemListElement: [
-          {
-            "@type": "ListItem",
-            position: 1,
-            name: "Projects",
-            item: "https://forever-home-core.lovable.app/projects",
-          },
-          { "@type": "ListItem", position: 2, name: project.core.name, item: url },
-        ],
-      }),
-    },
-  ];
-}
-
 function NotFoundView() {
   const { slug } = Route.useParams();
   return (
     <SiteShell>
-      <Section eyebrow="Not found" title="This project isn't in our advisory list">
+      <Section eyebrow="Not found" title="We couldn't find this project record">
         <p className="text-sm text-muted-foreground">
-          We couldn't find a Forever-reviewed project matching "{slug}".
+          There is no project record matching "{slug}".
         </p>
         <div className="mt-6">
           <Button asChild>

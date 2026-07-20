@@ -7,7 +7,6 @@ import { Container } from "@/components/layout/Container";
 import { Section } from "@/components/layout/Section";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import { DiscoveryCard } from "@/components/DiscoveryCard";
 import {
   discoveryAreaOptions,
@@ -31,12 +30,12 @@ export const Route = createFileRoute("/discovery")({
       {
         name: "description",
         content:
-          "Filter Forever's Phuket project records by area, budget, type, and completion — with honest, source-backed data.",
+          "Filter Forever's Phuket project records by area, budget, type, and completion. Missing facts stay visibly missing.",
       },
       { property: "og:title", content: "Forever Discovery — Guided Property Advisory" },
       {
         property: "og:description",
-        content: "Filter Forever's Phuket project records with honest, source-backed data.",
+        content: "Filter Forever's Phuket project records. Missing facts stay visibly missing.",
       },
     ],
   }),
@@ -55,7 +54,6 @@ function DiscoveryPage() {
     discoveryCompletionOptions[0],
   );
   const [beach, setBeach] = useState<DiscoveryBeachFilter>(discoveryBeachOptions[0]);
-  const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [compare, setCompare] = useState<string[]>([]);
   const [shortlist, setShortlist] = useState<string[]>([]);
 
@@ -81,9 +79,8 @@ function DiscoveryPage() {
       propertyType: type,
       completionStatus: completion,
       beachDistance: beach,
-      verifiedOnly,
     });
-  }, [area, beach, budget, completion, projects, search, sortBy, type, verifiedOnly]);
+  }, [area, beach, budget, completion, projects, search, sortBy, type]);
 
   return (
     <SiteShell>
@@ -98,8 +95,8 @@ function DiscoveryPage() {
               Find the right property, not just another listing.
             </h1>
             <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-              Explore Forever&apos;s Phuket project records. Evidence-backed labels appear only
-              where the recorded data supports them.
+              Explore Forever&apos;s Phuket project records. Missing facts stay visibly missing
+              rather than assumed.
             </p>
             <div className="mt-8">
               <Button asChild size="lg">
@@ -149,14 +146,6 @@ function DiscoveryPage() {
             <Field label="Beach Distance">
               <Select value={beach} onChange={setBeach} options={discoveryBeachOptions} />
             </Field>
-            <label className="flex cursor-pointer items-center gap-3 self-end rounded-md border border-border/60 bg-secondary/40 px-4 py-2.5">
-              <Checkbox
-                checked={verifiedOnly}
-                onCheckedChange={(v) => setVerifiedOnly(v === true)}
-                id="verified-only"
-              />
-              <span className="text-sm text-foreground">Forever Verified only</span>
-            </label>
           </div>
         </div>
       </Section>

@@ -5,10 +5,8 @@ import { SiteShell } from "@/components/SiteShell";
 import { Container } from "@/components/layout/Container";
 import { Section } from "@/components/layout/Section";
 import { PremiumProjectCard } from "@/components/PremiumProjectCard";
-import { AreaCard } from "@/components/AreaCard";
 import { ContactForm } from "@/components/ContactForm";
 import { Button } from "@/components/ui/button";
-import { areas } from "@/lib/data";
 import { projectListQuery } from "@/lib/project-service";
 import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";
 import heroImage from "@/assets/phuket-hero.jpg";
@@ -48,7 +46,7 @@ function HomePage() {
     : [
         {
           icon: Search,
-          title: "Source-Backed Project Records",
+          title: "Structured Project Records",
           body: "Each project record is organized around documents, pricing context, and recorded facts — and shows plainly what is still missing.",
         },
         {
@@ -58,8 +56,8 @@ function HomePage() {
         },
         {
           icon: LineChart,
-          title: "Forever Intelligence",
-          body: "Forever Intelligence turns structured project data into explainable scores, strengths, risks, and buyer-fit guidance — only where the data supports them.",
+          title: "Honest Analysis",
+          body: "Forever's analysis stays explainable and conservative: conclusions are tied to recorded facts, and nothing is claimed when data is missing.",
         },
         {
           icon: LifeBuoy,
@@ -79,10 +77,18 @@ function HomePage() {
         ],
       ]
     : [
-        ["01", "Ownership", "Freehold, leasehold, and Thai company structures."],
-        ["02", "Due Diligence", "Title checks, developer track record, EIA approvals."],
-        ["03", "Taxes & Fees", "Transfer fees, stamp duty, and annual holding costs."],
-        ["04", "Rental Yields", "Realistic occupancy and net yield benchmarks by area."],
+        [
+          "01",
+          "Ownership",
+          "Freehold, leasehold, and Thai company structures — and what each means for you.",
+        ],
+        [
+          "02",
+          "Due Diligence",
+          "The checks worth completing before committing, and who should perform them.",
+        ],
+        ["03", "Taxes & Fees", "The cost categories to account for beyond the purchase price."],
+        ["04", "Rental Reality", "The questions to ask before relying on projected rental income."],
       ];
   return (
     <SiteShell>
@@ -108,8 +114,8 @@ function HomePage() {
             </h1>
             <p className="mt-8 max-w-xl text-base leading-relaxed text-primary-foreground/85 sm:text-lg">
               {partnerDemo
-                ? "Forever brings a guided decision flow, source-backed project records, and advisory context into one buyer experience."
-                : "Forever combines source-backed project records, Forever Passport records, and honest missing-data handling so buyers can understand a property before they act."}
+                ? "Forever brings a guided decision flow, structured project records, and advisory context into one buyer experience."
+                : "Forever combines structured project records, Forever Passport records, and honest missing-data handling so buyers can understand a property before they act."}
             </p>
             <div className="mt-10 flex flex-wrap gap-3">
               <Button asChild size="lg">
@@ -151,7 +157,7 @@ function HomePage() {
         description={
           partnerDemo
             ? "The presentation uses committed local records and leaves unsupported scores, yields, dates, and verification claims blank."
-            : "Phuket project records built from source documents. Where a fact is not recorded, it stays visibly missing rather than assumed."
+            : "Current Phuket project records. Where a fact is not recorded, it stays visibly missing rather than assumed."
         }
       >
         {featured.length > 0 ? (
@@ -162,8 +168,8 @@ function HomePage() {
           </div>
         ) : (
           <div className="max-w-xl rounded-2xl border border-border/60 bg-card p-8 text-sm leading-relaxed text-muted-foreground">
-            Project records are being prepared for publication. Each record is published only once
-            its facts are source-backed.
+            Project records are being prepared for publication. Each record is published with its
+            recorded facts and its open gaps shown honestly.
           </div>
         )}
         <div className="mt-10">
@@ -175,35 +181,19 @@ function HomePage() {
         </div>
       </Section>
 
-      {!partnerDemo ? (
-        /* 3. Explore Areas */
-        <Section
-          className="bg-secondary/60"
-          eyebrow="Phuket Orientation"
-          title="Understand the location before the listing"
-          description="Each Phuket area has a different character, pace, and access profile. Forever helps buyers understand the context first."
-        >
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {areas.slice(0, 6).map((a) => (
-              <AreaCard key={a.slug} area={a} />
-            ))}
-          </div>
-        </Section>
-      ) : null}
-
-      {/* 6. Investment Guide */}
+      {/* 3. Decision Guide */}
       <Section eyebrow="Decision Guide" title="Real estate decisions, clearly explained">
         <div className="grid gap-10 lg:grid-cols-12">
           <div className="lg:col-span-5">
             <p className="text-base text-muted-foreground sm:text-lg">
               {partnerDemo
                 ? "A clear way to discuss ownership, due diligence, available pricing evidence, and the questions to ask before choosing a project."
-                : "A concise, jargon-free guide to ownership structures, freehold and leasehold, taxes, rental yields, due diligence, and the questions to ask before choosing a project."}
+                : "These are the topics a Forever advisor works through with you before you choose a project — plainly, and without pressure."}
             </p>
             <div className="mt-8">
               <Button asChild>
-                <Link to="/about">
-                  Read the Decision Guide <ArrowRight className="h-4 w-4" />
+                <Link to="/contact">
+                  Discuss with an advisor <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
             </div>
@@ -251,22 +241,6 @@ function HomePage() {
               Tell us what you are trying to decide. We will prepare a focused advisory response
               based on your goals, budget, and risk profile.
             </p>
-            {!partnerDemo ? (
-              <dl className="mt-10 space-y-6 text-sm">
-                <div>
-                  <dt className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                    Office
-                  </dt>
-                  <dd className="mt-1 text-foreground">Cherng Talay, Phuket 83110, Thailand</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                    Email
-                  </dt>
-                  <dd className="mt-1 text-foreground">advisors@forever.property</dd>
-                </div>
-              </dl>
-            ) : null}
           </div>
           <div className="lg:col-span-7">
             <ContactForm source="home_page" />

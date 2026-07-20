@@ -8,16 +8,17 @@ import { SITEMAP_STATIC_ENTRIES, buildSitemapXml } from "./sitemap";
  * and must not be promoted to crawlers until real content exists.
  */
 describe("sitemap composition", () => {
-  it("does not advertise the offers or reviews placeholders", () => {
+  it("does not advertise the offers, reviews, or areas placeholders", () => {
     const paths = SITEMAP_STATIC_ENTRIES.map((entry) => entry.path);
     expect(paths).not.toContain("/offers");
     expect(paths).not.toContain("/reviews");
+    expect(paths).not.toContain("/areas");
   });
 
   it("keeps the core public surfaces", () => {
     const paths = SITEMAP_STATIC_ENTRIES.map((entry) => entry.path);
     expect(paths).toEqual(
-      expect.arrayContaining(["/", "/projects", "/discovery", "/areas", "/about", "/contact"]),
+      expect.arrayContaining(["/", "/projects", "/discovery", "/about", "/contact"]),
     );
   });
 
@@ -26,6 +27,7 @@ describe("sitemap composition", () => {
     expect(xml).toContain("<loc>https://forever-home-core.lovable.app/projects/modeva</loc>");
     expect(xml).not.toContain("/offers");
     expect(xml).not.toContain("/reviews");
+    expect(xml).not.toContain("/areas");
     const projectUrls = xml.match(/\/projects\/[a-z0-9-]+<\/loc>/g) ?? [];
     expect(projectUrls).toEqual(["/projects/modeva</loc>"]);
   });
