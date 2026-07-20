@@ -1,6 +1,6 @@
 # SIP-001A Implementation and Independent Windows Audit
 
-Status: real Rainpalm execution completed successfully on the Owner's Windows machine. PR #89 remains an open implementation PR and this report does not canonicalize SIP-001A in `CURRENT_STAGE`, `FOREVER_STATUS`, or `ROADMAP`.
+Status: SIP-001A is implemented, independently audited, real-Windows validated, Owner approved, and canonical. This report remains the implementation and evidence record; `CURRENT_STAGE`, `FOREVER_STATUS`, and `ROADMAP` set SIP-001B as the next active checkpoint.
 
 ## Repository and review scope
 
@@ -113,4 +113,4 @@ Partner Demo remains canonical. Rainpalm remains unimported and unpublished. Cor
 
 ## Verdict
 
-PASS — SIP-001A READY FOR OWNER MERGE
+PASS — SIP-001A CANONICAL; SIP-001B ACTIVE

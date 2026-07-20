@@ -19,6 +19,13 @@ Each decision should include:
 
 ## Approved decisions
 
+### 2026-07-20 - Canonicalize SIP-001A and advance to SIP-001B
+
+- **Decision:** SIP-001A is implemented, independently audited, real-Windows validated, Owner approved, and canonical. Its authorized Rainpalm text-PDF result, deterministic reviewed artifacts, currency policy, and unchanged Fast Intake compatibility are retained. The next active checkpoint is SIP-001B: validate the canonical text-PDF extractor against one additional real authorized qualified price-list PDF before adding another source format.
+- **Context:** SIP-001A cleared its portable-path and live PowerShell parity integration gates, then passed two consecutive full repository suites (305 files, 2,917 tests each). It preserves 21 Rainpalm units, 9 positive prices, 12 null prices, THB `inferred_default` where selling-price currency is absent, and no inferred content date.
+- **Consequence:** Rainpalm remains unimported and unpublished; Coralina remains unpublished; Factory remains A0 - Propose only. Partner Demo v1 remains canonical and a parallel non-blocking business checkpoint. SIP-001B does not authorize another source format, OCR, cloud/AI extraction, database connection, import, publication, or Factory expansion.
+- **Review trigger:** Review after the additional real authorized qualified text-PDF validation is complete, or before adding another source format.
+
 ### 2026-07-20 - Approve Structured Input Preparation Design v1 and advance to SIP-001A
 
 - **Decision:** Structured Input Preparation Design v1 is independently reviewed, Owner approved, and canonical. SIP-001 begins with local deterministic extraction from qualified text-based PDF price lists using version-preflighted Poppler text output, deterministic TypeScript, unchanged Fast Intake contracts/validators, and reused Fast Intake inventory, path, ZIP, hashing, duplicate, and classification safety boundaries. High-confidence deterministic cells may pass without per-cell Owner review only when every validator and source-reference requirement passes; all medium/low, inferred, ambiguous, conflicting, recovery, duplicate, and unclear date/currency cases require review. Editing and explicit Owner verification remain separate actions. Reviewed non-sensitive final JSON and preparation reports may be tracked; raw materials, temporary output, renders, review queues, and sensitive data must not be tracked. The raw-dossier-to-reviewed-JSON target of 60 minutes or less is a pilot objective, not a proven guarantee.

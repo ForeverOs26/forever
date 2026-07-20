@@ -5,7 +5,7 @@ Last updated: 2026-07-20
 
 ## Stage name
 
-Structured Input Preparation Design v1 is independently reviewed, Owner approved, and canonical. The active development checkpoint is SIP-001A: qualify and deterministically extract one supported text-based PDF price list into candidate `ExtractedPriceList` JSON, validate it, produce an exception-only review summary, and prove current Fast Intake consumes the reviewed result unchanged. Partner Demo v1 remains canonical and presentation-ready, with its presentation pending scheduling in parallel; it does not block SIP-001A. Shared Forever Navigator (website + Booth Mode), Fast Intake v1, ordinary new-project draft import simplification, and RC5.5D canonical-application closure remain canonical and unchanged.
+Structured Input Preparation Design v1 and SIP-001A are independently audited, real-Windows validated, Owner approved, and canonical. SIP-001A qualified and deterministically extracted the authorized Rainpalm text-PDF layout into reviewed `ExtractedPriceList` JSON, with repeatable artifacts and unchanged Fast Intake compatibility. The active development checkpoint is SIP-001B: validate the canonical text-PDF extractor against one additional real authorized qualified price-list PDF before adding another source format. Partner Demo v1 remains canonical and presentation-ready, with its presentation pending scheduling in parallel; it does not block SIP-001B. Shared Forever Navigator (website + Booth Mode), Fast Intake v1, ordinary new-project draft import simplification, and RC5.5D canonical-application closure remain canonical and unchanged.
 
 Completed prerequisites for this stage:
 
@@ -15,13 +15,13 @@ Completed prerequisites for this stage:
 - Fast Intake v1 canonical;
 - ordinary Progressive draft import canonical.
 
-## Structured Input Preparation Design v1 - canonical
+## Structured Input Preparation Design v1 and SIP-001A - canonical
 
-SIP-001 begins with authorized local raw price-list PDF input and reuses the existing Fast Intake safe inventory, path, ZIP, hashing, duplicate, and classification boundaries. SIP-001A adds local Poppler executable/version preflight, PDF text-layer qualification, deterministic extraction of one supported table layout, exact source page and row references, candidate normalization, duplicate and ambiguity blocking, an exception-only CLI review summary, reviewed final `ExtractedPriceList` JSON, deterministic repeat proof, and unchanged Fast Intake compatibility proof.
+SIP-001 begins with authorized local raw price-list PDF input and reuses the existing Fast Intake safe inventory, path, ZIP, hashing, duplicate, and classification boundaries. Canonical SIP-001A adds local PDF-tool executable/version preflight, PDF text-layer qualification, deterministic extraction of one supported table layout, exact source page and row references, candidate normalization, duplicate and ambiguity blocking, an exception-only CLI review summary, reviewed final `ExtractedPriceList` JSON, deterministic repeat proof, and unchanged Fast Intake compatibility proof. Its real Rainpalm result remains unimported and unpublished.
 
 SIP-001A explicitly excludes project-facts automation, XLSX/CSV extraction, OCR, scanned PDFs, images and floor plans, AI extraction, cloud processing, database connection, import, publication, admin UI, and Factory autonomy expansion.
 
-Rainpalm is the intended first pilot only when its actual raw price-list PDF is confirmed in an authorized local source folder. The committed Rainpalm payload is comparison ground truth, not proof that the raw PDF is present. Absence of that PDF blocks the real Rainpalm pilot but does not invalidate the design or prevent qualification/parser infrastructure work with safe fixtures.
+SIP-001B must validate this canonical extractor against one additional real authorized qualified price-list PDF before any new source format is added. It does not authorize XLSX/CSV extraction, OCR, scanned-PDF/image handling, AI/cloud extraction, import, publication, or Factory expansion.
 
 ## Partner Demo v1 — canonical
 
@@ -113,27 +113,28 @@ The ordinary draft importer does not authorize publication. Schema, migration, R
 | Rainpalm Fast Intake Pilot 01                                       | Codex / Owner     | Completed successfully — 39.834s, unpublished validated partial draft |
 | Partner Demo v1 (runbook, launcher, no-write lead demo mode)        | Claude / Owner    | Completed and canonical on `main`                                     |
 | Structured Input Preparation Design v1                              | Codex / Owner     | Completed; independently reviewed, Owner approved, and canonical      |
-| SIP-001A supported text-PDF extraction                              | Codex / Owner     | Active development checkpoint                                         |
+| SIP-001A supported text-PDF extraction                              | Codex / Owner     | Implemented, independently audited, real-Windows validated, canonical |
+| SIP-001B additional real qualified text-PDF validation              | Codex / Owner     | Active development checkpoint                                         |
 | Present Partner Demo v1 to the partner                              | Owner             | Parallel pending business checkpoint; scheduling dependent            |
 | Publication of any imported draft                                   | Owner             | Later, separate action                                                |
 
 ## Active development checkpoint
 
-SIP-001A qualifies and deterministically extracts one supported text-based PDF price list into candidate `ExtractedPriceList` JSON, validates it, produces an exception-only review summary, and proves current Fast Intake consumes the reviewed result unchanged. The implementation must remain local, deterministic, source-referenced, fail closed on duplicates and ambiguity, and byte-identical on repeat.
+SIP-001B validates the canonical text-PDF extractor against one additional real authorized qualified price-list PDF before adding another source format. It must retain local deterministic execution, exact source references, duplicate/ambiguity fail-closed behavior, repeatability, unchanged Fast Intake compatibility, and the existing no-import/no-publication boundaries.
 
 ## Parallel pending business checkpoint
 
 Present Forever Partner Demo v1 when the partner is available, using `docs/PARTNER_DEMO_V1.md`, collect structured feedback, and classify every item as one of: demo blocker; product improvement; future roadmap idea; or commercial/partnership decision. This presentation remains pending scheduling and does not block SIP-001A.
 
-## Pilot prerequisite
+## SIP-001B prerequisite
 
-The real Rainpalm SIP-001A pilot requires the actual raw Rainpalm price-list PDF in an authorized local source folder. Until confirmed, safe fixtures may prove qualification and parser infrastructure, but cannot claim a real Rainpalm raw-PDF pilot. Rainpalm remains unimported and unpublished.
+The next validation requires one additional authorized qualified text-based price-list PDF. Rainpalm remains unimported and unpublished; Coralina remains unpublished.
 
 ## Acceptance criteria for the active development checkpoint
 
-- One qualified supported text-based PDF price-list layout is extracted deterministically into candidate `ExtractedPriceList` JSON.
-- Every accepted value has exact source page and row references; duplicate, inferred, ambiguous, conflicting, recovery, and unclear date/currency cases are blocked for review.
-- The reviewed final JSON is byte-identical across a deterministic repeat and passes unchanged Fast Intake compatibility validation.
+- One additional authorized qualified text-PDF price list is validated by the canonical SIP-001A extractor without extending its source-format scope.
+- Every accepted value remains source-referenced; duplicate, inferred, ambiguous, conflicting, recovery, and unclear date/currency cases remain fail-closed or review-bound.
+- The reviewed final JSON remains repeatable and passes unchanged Fast Intake compatibility validation.
 - No project-facts automation, XLSX/CSV extraction, OCR, scanned-PDF/image/floor-plan processing, AI/cloud extraction, database connection, import, publication, admin UI, or Factory autonomy expansion occurs.
 - Shared Navigator behavior at `/navigator` and `/booth` remains canonical over one NAV-001 Navigator Core, with Booth still unlinked from normal public navigation unless separately authorized.
 - Coralina remains an unpublished draft and Factory autonomy remains A0 throughout.
@@ -148,4 +149,4 @@ The real Rainpalm SIP-001A pilot requires the actual raw Rainpalm price-list PDF
 
 ## Definition of done
 
-The active checkpoint is complete when SIP-001A proves qualification, deterministic extraction of one supported text-PDF layout, exact source references, exception-only review, reviewed final JSON, duplicate/ambiguity blocking, deterministic repeat, and unchanged Fast Intake consumption. The partner presentation remains a parallel pending business checkpoint; when delivered, its feedback is classified as demo blocker / product improvement / future roadmap idea / commercial-partnership decision, with no production lead, import, publication, or production write. Coralina remains unpublished, Rainpalm remains unimported and unpublished, and Factory autonomy remains A0.
+The active checkpoint is complete when SIP-001B validates the canonical extractor against one additional real authorized qualified text-PDF without adding a source format and preserves all SIP-001A safety and compatibility evidence. The partner presentation remains a parallel pending business checkpoint; when delivered, its feedback is classified as demo blocker / product improvement / future roadmap idea / commercial-partnership decision, with no production lead, import, publication, or production write. Coralina remains unpublished, Rainpalm remains unimported and unpublished, and Factory autonomy remains A0.
