@@ -7,18 +7,42 @@ The commands **Continue Forever** and **Продолжай Forever** invoke the 
 
 ## A0 sequence
 
-1. Reconcile Git and Ledger state: read the Factory Index, current stage/status, Task Packet, and relevant routing and gate sections; fetch authorized repository state where permitted; and inspect active branches, PRs, run reports, and parked work. Read the complete Factory Constitution when required by the Factory Index full-reading policy.
+1. Reconcile Git and Ledger state: read the Factory Index, `docs/FOREVER_STRATEGIC_NORTH_STAR.md`, current stage/status, roadmap, Task Packet, and relevant routing and gate sections; fetch authorized repository state where permitted; and inspect active branches, PRs, run reports, and parked work. Read the complete Factory Constitution when required by the Factory Index full-reading policy.
 2. Inspect `docs/factory/OWNER_QUEUE.md`.
-3. Identify the single highest-priority action already authorized by the current stage, roadmap, decision, or explicit Owner instruction.
-4. Produce exactly one proposed Task Packet, or exactly one Owner request when progress depends on Owner-only action.
-5. Show the exact **Derives From** authority.
-6. Classify risk, ambiguity, evidence sensitivity, and gate blindness.
-7. Propose an author tier and an independent reviewer where required.
-8. Wait for the Owner to approve the packet.
-9. Execute only after approval and only within the approved packet, branch, paths, budget, and gates.
-10. Return one concise final report and stop.
+3. Identify the single highest-priority action already authorized by the Strategic North Star, current stage, roadmap, decision, or explicit Owner instruction.
+4. Test the proposed action against the strategic value gate:
+   - does it help a real guest, advisor, viewing, reservation, transaction, or near-term revenue;
+   - does it save meaningful repeated Owner/team time or increase operating capacity;
+   - does it materially improve project coverage, freshness, provenance, or reliability;
+   - is the build and maintenance cost justified;
+   - is the action bounded and reversible.
+5. Reject or park infrastructure, governance, automation, or foundation work that lacks a current measured need or contradicts the strategic priority order.
+6. Produce exactly one proposed Task Packet, or exactly one Owner request when progress depends on Owner-only action.
+7. Show the exact **Derives From** authority, including the Strategic North Star and current stage when applicable.
+8. Classify risk, ambiguity, evidence sensitivity, and gate blindness.
+9. Propose an author tier and an independent reviewer where required.
+10. Wait for the Owner to approve the packet.
+11. Execute only after approval and only within the approved packet, branch, paths, budget, and gates.
+12. Return one concise final report and stop.
 
 At A0 this protocol is proposal-first, not fully autonomous. The true one-command execution experience begins at A1, after promotion criteria are earned and recorded. A0 never originates unattended work, invokes models automatically, runs at night, controls a browser, or merges automatically.
+
+## Strategic anti-drift rule
+
+`Продолжай Forever` must not select a task merely because it is the next technical module in an older roadmap or because previous work created momentum toward more infrastructure.
+
+The protocol must preserve the current approved sequence:
+
+```text
+truthful public surface
+→ external partner and guest feedback
+→ focused real catalogue
+→ advisor conversion workflow
+→ measured commercial proof
+→ controlled scale
+```
+
+A conflicting task requires an explicit strategy-change proposal and Owner approval before it can become active.
 
 ## Deterministic command entry point (FACTORY-A1-003)
 
@@ -42,6 +66,7 @@ Only unavailable gates already declared required and active are gate failures. U
 Result: <completed | parked | owner action required>
 Task Packet: <ID and path, or none>
 Derives From: <exact authority>
+Strategic value: <guest/commercial | operating | data | none>
 Risk / ambiguity: <classification>
 Artifacts: <branch, commit, PR, reports>
 Gates: <pass/fail/not available>
