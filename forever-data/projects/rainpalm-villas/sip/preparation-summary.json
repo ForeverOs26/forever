@@ -1,0 +1,33 @@
+{
+  "sip_schema_version": "1",
+  "project_slug": "rainpalm-villas",
+  "poppler_version": null,
+  "pdf_text_tool": {
+    "name": "pdftotext",
+    "vendor": "xpdf",
+    "version": "4.06",
+    "executable_sha256": "9699be3ec5726d33010295d96fd9eff43c5a6f4201aefe5c1678e70ec9fe3948"
+  },
+  "qualification_status": "QUALIFIED_SUPPORTED_LAYOUT",
+  "pages_detected": 1,
+  "tables_detected": 1,
+  "rows_detected": 21,
+  "candidate_row_count": 21,
+  "accepted_row_count": 21,
+  "review_item_count": 0,
+  "rejected_row_count": 0,
+  "safely_omitted_value_count": 0,
+  "blocking_issues": [],
+  "finalized": true,
+  "generation_id": "e53dc8006ab0bccc67ea5267058ba88087dd3e973935b65182f2e159c93d06e8",
+  "source_pdf_sha256": "4ddee05fe5063bd8548ca8d2833c20bb4ca9b6b81a23aee8f21b065e1b5260b6",
+  "artifact_hashes": {
+    "source_proof": "f2d3e5f6b397eaa866ed8f61b5d8f08d5c09e10b6bd6aac226ad56e0d049adfd",
+    "qualification": "06f12bb599ede40f2af65ccb950a9c77cda0db5abcf142a46c7a600692e4a645",
+    "candidate_price_list": "3cc4cfd9cb06b1b9f3929fb7f5cb8ab8d39af482358f77c393327d39e4213d55",
+    "review_summary": "6be80b78fcf01b5f6958d5379595bf2d6154f62f5b27024b0eaafbb1b74a2ec8",
+    "reviewed_price_list": "3cc4cfd9cb06b1b9f3929fb7f5cb8ab8d39af482358f77c393327d39e4213d55"
+  },
+  "no_import_statement": "No Progressive import, database client, or production write occurred in this preparation run.",
+  "no_publication_statement": "No project was published by this run; Rainpalm remains unimported and unpublished."
+}
