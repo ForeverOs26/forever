@@ -55,6 +55,11 @@ dist-ssr
 forever-data/
 !forever-data/
 forever-data/*
+# TG-WATCH-001A: only the channel registry is committed; quarantine, ledgers,
+# cursors, and review artifacts stay owner-local.
+!forever-data/watch/
+forever-data/watch/*
+!forever-data/watch/channel-registry.json
 !forever-data/projects/
 forever-data/projects/*
 !forever-data/projects/coralina/

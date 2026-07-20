@@ -1,0 +1,15 @@
+{
+  "watch_schema_version": "1",
+  "channels": [
+    {
+      "channel": "@coralinakamala",
+      "developer_slug": "the-title",
+      "developer_name": "The Title",
+      "project_slug": "coralina",
+      "project_name": "Coralina",
+      "telegram_channel_id": 3033667337,
+      "status": "active",
+      "notes": "TG-WATCH-001 pilot channel, UNBOUND: the first watcher run fails closed and reports the numeric channel id the export claims; after verifying the export really is this channel, the Owner sets telegram_channel_id here to bind it. The second authorized Title pilot channel is selected by the Owner during TG-WATCH-001 and added as a new entry; no code change is required."
+    }
+  ]
+}
