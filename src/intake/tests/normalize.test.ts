@@ -79,11 +79,11 @@ describe("Fast Intake normalization and anti-fabrication", () => {
     expect(codes(batch)).not.toContain("currency_unresolved");
   });
 
-  it("warns and keeps currency NULL when country is missing (missing currency)", async () => {
+  it("warns on missing country and applies the Owner-approved THB default", async () => {
     const { batch } = await run({ ...FULL_FACTS, country: undefined }, priceList());
-    expect(batch.prices?.[0]?.currency).toBeNull();
+    expect(batch.prices?.[0]?.currency).toBe("THB");
     expect(codes(batch)).toContain("country_missing");
-    expect(codes(batch)).toContain("currency_unresolved");
+    expect(codes(batch)).not.toContain("currency_unresolved");
   });
 
   it("preserves a source-stated currency verbatim", async () => {

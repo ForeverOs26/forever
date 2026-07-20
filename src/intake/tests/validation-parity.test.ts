@@ -34,6 +34,15 @@ function tsVerdict(name: string): "accept" | "reject" {
   }
 }
 
+function liveHarnessArguments(executable: string, harness: string): string[] {
+  // Windows PowerShell's execution policy is process-scoped here. pwsh on
+  // non-Windows receives only arguments it supports; it is not evidence of a
+  // Windows execution-policy bypass.
+  return process.platform === "win32" && /^powershell(?:\.exe)?$/i.test(executable)
+    ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", harness]
+    : ["-NoProfile", "-File", harness];
+}
+
 describe("Draft validation importer-compatibility (TypeScript vs PowerShell -ValidateOnly)", () => {
   it("has an expected verdict for every corpus payload and vice versa", () => {
     const files = readdirSync(CORPUS)
@@ -95,17 +104,19 @@ describe("Draft validation importer-compatibility (TypeScript vs PowerShell -Val
     "runs the LIVE PowerShell boundary via the child-process harness when PowerShell is available",
     { timeout: 300_000 },
     async () => {
-      const pwsh = ["pwsh", "powershell"].find((bin) => {
-        try {
-          return (
-            spawnSync(bin, ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"], {
-              encoding: "utf8",
-            }).status === 0
-          );
-        } catch {
-          return false;
-        }
-      });
+      const pwsh = (process.platform === "win32" ? ["powershell", "pwsh"] : ["pwsh"]).find(
+        (bin) => {
+          try {
+            return (
+              spawnSync(bin, ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"], {
+                encoding: "utf8",
+              }).status === 0
+            );
+          } catch {
+            return false;
+          }
+        },
+      );
       if (!pwsh) {
         console.warn(
           "[validation-parity] PowerShell not available in this environment; the LIVE half did not run. " +
@@ -115,9 +126,15 @@ describe("Draft validation importer-compatibility (TypeScript vs PowerShell -Val
         return;
       }
       const harness = resolve("scripts/import/tests/Compare-DraftValidationParity.ps1");
+      const args = liveHarnessArguments(pwsh, harness);
+      if (process.platform === "win32" && /^powershell(?:\.exe)?$/i.test(pwsh)) {
+        expect(args).toEqual(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", harness]);
+      } else {
+        expect(args).toEqual(["-NoProfile", "-File", harness]);
+      }
       const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>(
         (complete) => {
-          const child = spawn(pwsh, ["-NoProfile", "-File", harness], {
+          const child = spawn(pwsh, args, {
             windowsHide: true,
           });
           let stdout = "";

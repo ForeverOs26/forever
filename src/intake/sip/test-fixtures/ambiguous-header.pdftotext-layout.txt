@@ -1,0 +1,4 @@
+Rainpalm Villas - Price List
+
+Unit    Type    Price (THB)   Price (USD)
+A1      Type A  12,500,000    350,000

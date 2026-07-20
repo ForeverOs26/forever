@@ -1,0 +1,1532 @@
+{
+  "currency_decision": {
+    "value": "THB",
+    "status": "inferred_default",
+    "confidence": "medium",
+    "inferenceRule": "project_country_default_currency",
+    "inferenceRuleVersion": "1.0.0",
+    "inferredFromCountry": "Thailand",
+    "priceEvidence": [
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      },
+      {
+        "value": null,
+        "status": "unresolved",
+        "confidence": "none",
+        "context": "selling-price row"
+      }
+    ],
+    "reviewFindings": []
+  },
+  "unit_inventory": [
+    {
+      "source_row": 1,
+      "unit_number": {
+        "value": "A1",
+        "raw_value": "A1",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "A",
+        "raw_value": "A",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 346.4,
+        "raw_value": "346.40",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": null,
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "none",
+        "status": "unresolved"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 2,
+      "unit_number": {
+        "value": "A2",
+        "raw_value": "A2",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "A",
+        "raw_value": "A",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 346.4,
+        "raw_value": "346.40",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": null,
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "none",
+        "status": "unresolved"
+      },
+      "availability_status": {
+        "value": "Reserved",
+        "raw_value": "Reserved",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 3,
+      "unit_number": {
+        "value": "A3",
+        "raw_value": "A3",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "A",
+        "raw_value": "A",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 516.59,
+        "raw_value": "516.59",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": 47151443,
+        "raw_value": "47,151,443",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "availability_status": {
+        "value": "Available",
+        "raw_value": "Available",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 4,
+      "unit_number": {
+        "value": "A4",
+        "raw_value": "A4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "A",
+        "raw_value": "A",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 349.77,
+        "raw_value": "349.77",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": null,
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "none",
+        "status": "unresolved"
+      },
+      "availability_status": {
+        "value": "Sold",
+        "raw_value": "SOLD",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 5,
+      "unit_number": {
+        "value": "A5",
+        "raw_value": "A5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "A",
+        "raw_value": "A",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 349.77,
+        "raw_value": "349.77",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": 33186548,
+        "raw_value": "33,186,548",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "availability_status": {
+        "value": "Available",
+        "raw_value": "Available",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 6,
+      "unit_number": {
+        "value": "A7",
+        "raw_value": "A7",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "A",
+        "raw_value": "A",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 349.77,
+        "raw_value": "349.77",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": 36237866,
+        "raw_value": "36,237,866",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "availability_status": {
+        "value": "Available",
+        "raw_value": "Available",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 7,
+      "unit_number": {
+        "value": "A8",
+        "raw_value": "A8",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "A",
+        "raw_value": "A",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 349.77,
+        "raw_value": "349.77",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": null,
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "none",
+        "status": "unresolved"
+      },
+      "availability_status": {
+        "value": "Sold",
+        "raw_value": "SOLD",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 8,
+      "unit_number": {
+        "value": "A9",
+        "raw_value": "A9",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "A",
+        "raw_value": "A",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 349.77,
+        "raw_value": "349.77",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": null,
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "none",
+        "status": "unresolved"
+      },
+      "availability_status": {
+        "value": "Sold",
+        "raw_value": "SOLD",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 9,
+      "unit_number": {
+        "value": "B1",
+        "raw_value": "B1",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "B",
+        "raw_value": "B",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 335.63,
+        "raw_value": "335.63",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": 30448502,
+        "raw_value": "30,448,502",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "availability_status": {
+        "value": "Available",
+        "raw_value": "Available",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 10,
+      "unit_number": {
+        "value": "B6",
+        "raw_value": "B6",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "B",
+        "raw_value": "B",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 335.63,
+        "raw_value": "335.63",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": 29026458,
+        "raw_value": "29,026,458",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "availability_status": {
+        "value": "Available",
+        "raw_value": "Available",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 11,
+      "unit_number": {
+        "value": "B7",
+        "raw_value": "B7",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "B",
+        "raw_value": "B",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 335.63,
+        "raw_value": "335.63",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": 28605602,
+        "raw_value": "28,605,602",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "availability_status": {
+        "value": "Available",
+        "raw_value": "Available",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 12,
+      "unit_number": {
+        "value": "B8",
+        "raw_value": "B8",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "B",
+        "raw_value": "B",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 342.4,
+        "raw_value": "342.40",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": null,
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "none",
+        "status": "unresolved"
+      },
+      "availability_status": {
+        "value": "Sold",
+        "raw_value": "SOLD",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 13,
+      "unit_number": {
+        "value": "C1",
+        "raw_value": "C1",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "C",
+        "raw_value": "C",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 320.25,
+        "raw_value": "320.25",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": 27230068,
+        "raw_value": "27,230,068",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "availability_status": {
+        "value": "Available",
+        "raw_value": "Available",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 14,
+      "unit_number": {
+        "value": "C2",
+        "raw_value": "C2",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "C",
+        "raw_value": "C",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 309.38,
+        "raw_value": "309.38",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": null,
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "none",
+        "status": "unresolved"
+      },
+      "availability_status": {
+        "value": "Sold",
+        "raw_value": "SOLD",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 15,
+      "unit_number": {
+        "value": "C3",
+        "raw_value": "C3",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "C",
+        "raw_value": "C",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 298.94,
+        "raw_value": "298.94",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": null,
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "none",
+        "status": "unresolved"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 16,
+      "unit_number": {
+        "value": "C4",
+        "raw_value": "C4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "C",
+        "raw_value": "C",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 307.97,
+        "raw_value": "307.97",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": null,
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "none",
+        "status": "unresolved"
+      },
+      "availability_status": {
+        "value": "Sold",
+        "raw_value": "SOLD",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 17,
+      "unit_number": {
+        "value": "D1",
+        "raw_value": "D1",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "D",
+        "raw_value": "D",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 303.59,
+        "raw_value": "303.59",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": null,
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "none",
+        "status": "unresolved"
+      },
+      "availability_status": {
+        "value": "Reserved",
+        "raw_value": "Reserved",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 18,
+      "unit_number": {
+        "value": "D2",
+        "raw_value": "D2",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "D",
+        "raw_value": "D",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 320.96,
+        "raw_value": "320.96",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": null,
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "none",
+        "status": "unresolved"
+      },
+      "availability_status": {
+        "value": "Reserved",
+        "raw_value": "Reserved",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 19,
+      "unit_number": {
+        "value": "D3",
+        "raw_value": "D3",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "D",
+        "raw_value": "D",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 303.59,
+        "raw_value": "303.59",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": 27550098,
+        "raw_value": "27,550,098",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "availability_status": {
+        "value": "Available",
+        "raw_value": "Available",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 20,
+      "unit_number": {
+        "value": "D4",
+        "raw_value": "D4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "D",
+        "raw_value": "D",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 303.59,
+        "raw_value": "303.59",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": null,
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "none",
+        "status": "unresolved"
+      },
+      "availability_status": {
+        "value": "Reserved",
+        "raw_value": "Reserved",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    },
+    {
+      "source_row": 21,
+      "unit_number": {
+        "value": "D5",
+        "raw_value": "D5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "unit_type": {
+        "value": "D",
+        "raw_value": "D",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bedrooms": {
+        "value": 4,
+        "raw_value": "4",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "bathrooms": {
+        "value": 5,
+        "raw_value": "5",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "size_sqm": {
+        "value": 303.59,
+        "raw_value": "303.59",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "price": {
+        "value": 26428666,
+        "raw_value": "26,428,666",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "availability_status": {
+        "value": "Available",
+        "raw_value": "Available",
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "high",
+        "status": "source_verified"
+      },
+      "currency": {
+        "value": "THB",
+        "raw_value": null,
+        "source_file": "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        "page_number": 1,
+        "confidence": "medium",
+        "status": "inferred_default"
+      }
+    }
+  ]
+}

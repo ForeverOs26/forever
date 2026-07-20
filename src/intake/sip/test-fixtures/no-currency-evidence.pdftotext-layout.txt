@@ -1,0 +1,5 @@
+Rainpalm Villas - Price List
+
+Unit    Type    Price         Status
+A1      Type A  12,500,000    Available
+A2      Type A  12,800,000    Available

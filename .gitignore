@@ -16,6 +16,9 @@ dist-ssr
 
 # Fast Intake v1 temporary archive-extraction workspace (never committed)
 .intake-workspace/
+
+# SIP-001A temporary pdftotext workspace (never committed)
+.sip-workspace/
 .nitro
 .codex/
 .forever-factory/inbox/*

@@ -57,7 +57,7 @@ Use `npm.cmd` — a normal execution policy may block `npm.ps1`, so plain `npm`
 is not guaranteed to work in PowerShell. Single line:
 
 ```
-npm.cmd run intake -- --project marina-bay --name "Marina Bay" --source "C:\forever-incoming\Marina Bay"
+npm.cmd run intake -- --project marina-bay --name "Marina Bay" --source "<OWNER_LOCAL_INCOMING>/Marina Bay"
 ```
 
 Multiple ZIP sources (PowerShell backtick continuation, if a single line is too
@@ -65,8 +65,8 @@ long):
 
 ```
 npm.cmd run intake -- --project marina-bay --name "Marina Bay" `
-  --source "C:\forever-incoming\Marina Bay brochure.zip" `
-  --source "C:\forever-incoming\Marina Bay price list.zip"
+  --source "<OWNER_LOCAL_INCOMING>/Marina Bay brochure.zip" `
+  --source "<OWNER_LOCAL_INCOMING>/Marina Bay price list.zip"
 ```
 
 ### Windows cmd.exe
@@ -74,7 +74,7 @@ npm.cmd run intake -- --project marina-bay --name "Marina Bay" `
 The same single-line `npm.cmd` command:
 
 ```
-npm.cmd run intake -- --project marina-bay --name "Marina Bay" --source "C:\forever-incoming\Marina Bay"
+npm.cmd run intake -- --project marina-bay --name "Marina Bay" --source "<OWNER_LOCAL_INCOMING>/Marina Bay"
 ```
 
 (For continuation in cmd.exe use the caret `^`, never a backslash.)
@@ -268,12 +268,15 @@ present source reference, and a valid ISO `source_date` when one is given:
 ## Anti-fabrication rules
 
 Raw source values are preserved. Fast Intake never infers an unsupported
-developer, location, country, currency, price, yield, completion date,
+developer, location, country, price, yield, completion date,
 ownership, bedroom count, unit type, or publication status — and never infers a
 fact from a filename, folder name, classification, the CLI project name, or a
 placeholder. Missing information stays `null`/omitted and becomes an explicit
 warning — never `"Not available"`, `"Unknown"`, `0`, an empty string, or a demo
-placeholder.
+placeholder. Currency follows the single Owner-approved policy: preserve any
+explicit selling-price currency as `source_verified`; when currency is absent,
+default to THB as `inferred_default` because all current Forever projects are
+Thailand projects. An explicit non-THB currency is never overwritten.
 
 Price-list rows are sanitized before the canonical builder sees them: every
 positive fact requires a non-placeholder value, `high`/`medium`/`low`
@@ -287,8 +290,9 @@ inventory. The CLI project name
 may supply the display name, but when a source-backed name differs the conflict
 is recorded explicitly (`project_name_source_differs`).
 
-Country drives only the existing currency inference rule; it is never stored as
-a fabricated field. Canonical developer/location ids stay `NULL` — dependency
+The existing currency policy owns that default and its provenance; no parallel
+Fast Intake rule exists. Country is never stored as a fabricated field.
+Canonical developer/location ids stay `NULL` — dependency
 resolution runs offline and never auto-creates canonical records.
 
 ## Payload invariants

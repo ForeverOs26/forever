@@ -1,0 +1,15 @@
+Cedar Grove - Inventory
+Effective: 03.07.26
+
+Unit    Type       Bed  Bath  Size (sqm)  Price (THB)   Status
+X101    Courtyard  3    3     201.5       18,750,000    Available
+X102    Courtyard  3    3     201.5       -             Sold
+X103    Courtyard  3    3     201.5       0             Available
+X104    Courtyard  3    3     201.5       pending       Available
+X105    Garden     2    2     148         15,400,000    Reserved -
+                                                        pending contract
+Y201    Garden     2    2     148         15,650,000    AvailableCedar Grove - Inventory (continued)
+
+Unit    Type       Bed  Bath  Size (sqm)  Price (THB)   Status
+Y202    Pavilion   4    4     286         24,100,000    Available
+Y203    Pavilion   4    4     286         -             Sold

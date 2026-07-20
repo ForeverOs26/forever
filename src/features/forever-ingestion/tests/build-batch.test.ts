@@ -27,17 +27,19 @@ function priceListRow(overrides: Record<string, unknown> = {}) {
 }
 
 describe("currency doctrine (builder)", () => {
-  it("keeps unknown currency NULL and emits one currency_unresolved warning", async () => {
+  it("applies the Owner-approved THB default when currency is absent", async () => {
     const priceList = { unit_inventory: [priceListRow()] } as unknown as ExtractedPriceList;
     const batch = await buildProgressiveBatch(emptyReader, {
       mode: "create",
       project: { slug: "coralina", name: "Coralina" },
       priceList,
     });
-    expect(batch.prices?.[0]?.currency).toBeNull();
-    const warning = batch.warnings?.find((item) => item.code === "currency_unresolved");
-    expect(warning).toBeDefined();
-    expect(warning?.payload).toMatchObject({ rows: 1 });
+    expect(batch.prices?.[0]?.currency).toBe("THB");
+    expect(batch.warnings?.some((item) => item.code === "currency_unresolved")).toBeFalsy();
+    expect(batch.prices?.[0]?.metadata?.currency_decision).toMatchObject({
+      value: "THB",
+      status: "inferred_default",
+    });
   });
 
   it("stores extracted currency when the source states it", async () => {
@@ -184,9 +186,7 @@ describe("owner_verified precedence (builder + canReplaceField)", () => {
     const unit = batch.units?.find((item) => item.unit_code === "A1");
     expect(unit?.bedrooms).toBeUndefined();
     expect(
-      batch.warnings?.filter(
-        (item) => item.code === "field_conflict" && item.entity === "unit",
-      ),
+      batch.warnings?.filter((item) => item.code === "field_conflict" && item.entity === "unit"),
     ).toHaveLength(1);
   });
 
@@ -219,13 +219,19 @@ describe("owner_verified precedence (builder + canReplaceField)", () => {
       prices: {
         '["A1","developer_price_list","price-list.pdf",null,"2026-07-01"]': {
           values: { price: 5_000_000, currency: "USD" },
-          fieldProvenance: { price: { status: "owner_verified" as const }, currency: { status: "owner_verified" as const } },
+          fieldProvenance: {
+            price: { status: "owner_verified" as const },
+            currency: { status: "owner_verified" as const },
+          },
         },
       },
       media: {
         '["gallery","https://example.test/a.jpg"]': {
           values: { title: "Owner title", sort_order: 9 },
-          fieldProvenance: { title: { status: "owner_verified" as const }, sort_order: { status: "owner_verified" as const } },
+          fieldProvenance: {
+            title: { status: "owner_verified" as const },
+            sort_order: { status: "owner_verified" as const },
+          },
         },
       },
     };
@@ -233,13 +239,20 @@ describe("owner_verified precedence (builder + canReplaceField)", () => {
       mode: "enrich",
       project: { slug: "protected" },
       priceList,
-      media: [{
-        media_type: "gallery",
-        url: "https://example.test/a.jpg",
-        title: "Extracted title",
-        sort_order: 1,
-        metadata: { field_provenance: { title: { status: "extracted" }, sort_order: { status: "extracted" } } },
-      }],
+      media: [
+        {
+          media_type: "gallery",
+          url: "https://example.test/a.jpg",
+          title: "Extracted title",
+          sort_order: 1,
+          metadata: {
+            field_provenance: {
+              title: { status: "extracted" },
+              sort_order: { status: "extracted" },
+            },
+          },
+        },
+      ],
       existing,
     });
     expect(batch.prices).toBeUndefined();
@@ -262,6 +275,6 @@ describe("owner_verified precedence (builder + canReplaceField)", () => {
       existing,
     });
     expect(newer.prices).toHaveLength(1);
-    expect(newer.prices?.[0].currency).toBeNull();
+    expect(newer.prices?.[0].currency).toBe("THB");
   });
 });

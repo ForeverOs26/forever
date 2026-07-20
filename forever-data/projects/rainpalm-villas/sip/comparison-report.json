@@ -1,0 +1,59 @@
+{
+  "sip_schema_version": "1",
+  "project_slug": "rainpalm-villas",
+  "source_pdf_sha256": "4ddee05fe5063bd8548ca8d2833c20bb4ca9b6b81a23aee8f21b065e1b5260b6",
+  "generation_id": "e53dc8006ab0bccc67ea5267058ba88087dd3e973935b65182f2e159c93d06e8",
+  "finalized_price_list_sha256": "3cc4cfd9cb06b1b9f3929fb7f5cb8ab8d39af482358f77c393327d39e4213d55",
+  "ground_truth_sha256": "6ce4a187711f1fdcc26eed84689a0ef0f7a461262a4630b895c251781d10a73f",
+  "extracted_unit_row_recall": {
+    "numerator": 21,
+    "denominator": 21
+  },
+  "exact_unit_identity_agreement": {
+    "numerator": 21,
+    "denominator": 21
+  },
+  "exact_unit_type_agreement": {
+    "numerator": 21,
+    "denominator": 21
+  },
+  "bedrooms_agreement": {
+    "numerator": 21,
+    "denominator": 21
+  },
+  "bathrooms_agreement": {
+    "numerator": 21,
+    "denominator": 21
+  },
+  "size_agreement": {
+    "numerator": 21,
+    "denominator": 21
+  },
+  "availability_agreement": {
+    "numerator": 18,
+    "denominator": 21
+  },
+  "positive_price_agreement": {
+    "numerator": 9,
+    "denominator": 14
+  },
+  "null_price_preservation": {
+    "numerator": 7,
+    "denominator": 7
+  },
+  "currency_agreement": {
+    "numerator": 14,
+    "denominator": 14
+  },
+  "source_reference_completeness": {
+    "numerator": 166,
+    "denominator": 166
+  },
+  "fabricated_row_count": 0,
+  "fabricated_price_count": 0,
+  "lost_null_price_count": 0,
+  "missing_expected_row_count": 0,
+  "unexpected_row_count": 0,
+  "review_item_count": 0,
+  "manual_review_time_seconds": 0
+}

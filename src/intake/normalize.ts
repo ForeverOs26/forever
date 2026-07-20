@@ -231,7 +231,7 @@ export async function normalizeToBatch(input: NormalizeInput): Promise<Normalize
       code: "country_missing",
       severity: "warning",
       message:
-        "No source-backed country was provided; currency cannot be inferred and remains NULL unless a price row states it.",
+        "No source-backed country was provided; the Owner-approved current Thailand-project scope defaults an absent selling-price currency to THB.",
     });
   }
 

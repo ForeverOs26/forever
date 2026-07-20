@@ -1,0 +1,67 @@
+{
+  "status": "QUALIFIED_SUPPORTED_LAYOUT",
+  "reasons": [
+    "qualified_tables=1",
+    "qualified_rows=21"
+  ],
+  "pageCount": 1,
+  "nonWhitespaceCharCount": 1216,
+  "headerMappings": [
+    {
+      "page": 1,
+      "rawHeaderLine": "No.  Villa       Pool Villa                       Land Area       Living Area  Bedroom  Bathroom  Price       Furniture Package  Maintenance Fees  Sinking Fund  Status",
+      "columns": {
+        "unit_number": "Villa",
+        "unit_type": "Pool Villa",
+        "land_area_sqm": "Land Area",
+        "size_sqm": "Living Area",
+        "bedrooms": "Bedroom",
+        "bathrooms": "Bathroom",
+        "price": "Price",
+        "availability_status": "Status"
+      },
+      "columnStarts": [
+        0,
+        5,
+        17,
+        50,
+        66,
+        79,
+        88,
+        98,
+        110,
+        129,
+        147,
+        161
+      ],
+      "columnFields": [
+        null,
+        "unit_number",
+        "unit_type",
+        "land_area_sqm",
+        "size_sqm",
+        "bedrooms",
+        "bathrooms",
+        "price",
+        null,
+        null,
+        null,
+        "availability_status"
+      ],
+      "currencyFromHeader": null,
+      "tableIndex": 0
+    }
+  ],
+  "parser_mode": "table",
+  "source_pdf_sha256": "4ddee05fe5063bd8548ca8d2833c20bb4ca9b6b81a23aee8f21b065e1b5260b6",
+  "text_output_hashes": {
+    "layout": "ee836c1c2a0aabbcf94e5c64c93970651913fd51186952094bc5c02da2d51e8c",
+    "table": "800968494c9e597f140274303b7b872e8dcfd2cb4ddbe69d0d148552d62568d5"
+  },
+  "tool": {
+    "name": "pdftotext",
+    "vendor": "xpdf",
+    "version": "4.06",
+    "executable_sha256": "9699be3ec5726d33010295d96fd9eff43c5a6f4201aefe5c1678e70ec9fe3948"
+  }
+}
