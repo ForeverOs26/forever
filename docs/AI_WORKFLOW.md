@@ -53,7 +53,7 @@ The standing procedure is:
 5. Claude must distinguish verified results from recommendations, untested assumptions, and work that still requires local Windows, production, credentials, or Owner action.
 6. ChatGPT independently reviews Claude's result for architecture fit, safety, overengineering, reuse of existing Forever primitives, product value, and hidden defects.
 7. After review, a corrective prompt may be specific and detailed because it addresses proven findings rather than prematurely dictating the original solution.
-8. Codex is reserved for work Claude cannot complete reliably in its environment, especially local `C:\forever` integration, Windows and PowerShell validation, external local source folders, final repository audit, Git integration, and approved merge preparation.
+8. Codex is reserved for work Claude cannot complete reliably in its environment, especially local Windows repository integration, Windows and PowerShell validation, external local source folders, final repository audit, Git integration, and approved merge preparation.
 
 A short autonomous prompt must still be precise about the desired outcome and hard boundaries. “Short” means freedom in the solution path, not absence of context or safety requirements.
 
