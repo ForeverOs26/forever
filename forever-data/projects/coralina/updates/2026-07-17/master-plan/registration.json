@@ -4,15 +4,7 @@
   "sha256": "1f7d70c83a53b96981dabba3e03206996f8c1c6bfdfc37983a48c9e16eadd2fa",
   "byte_size": 1474832,
   "page_count": 7,
-  "visible_floor_page_sequence": [
-    1,
-    2,
-    3,
-    4,
-    5,
-    6,
-    7
-  ],
+  "floor_sequence_status": "not_machine_interpreted_in_sip_001b",
   "document_role": "visual_master_plan_companion",
   "paired_update_date": "2026-07-17",
   "paired_primary_source": "CLK - Price List V.2. - Updated 17.07.26.pdf",

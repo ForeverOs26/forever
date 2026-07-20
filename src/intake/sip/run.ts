@@ -18,8 +18,7 @@
  * artifacts under `forever-data/projects/<slug>/sip/`.
  */
 
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
 
 import type { ExtractedPriceList } from "@/import/types";
@@ -44,6 +43,7 @@ import { PdfToolError, preflightPdftotext, runPdftotextLayout } from "./pdf-tool
 import { qualifyPdfText } from "./pdf-qualify";
 import { extractDocumentTables, mergeLayoutCoreCells } from "./price-table";
 import { buildReviewSummary, canFinalize } from "./review";
+import { assertSourceUnchanged, fingerprintSourceFile } from "./source-integrity";
 import type {
   PdfToolPreflight,
   PreparationSummary,
@@ -84,10 +84,6 @@ export interface RunSipResult {
   reviewedPriceList: ExtractedPriceList | null;
   preparationSummary: PreparationSummary;
   paths: ReturnType<typeof sipArtifactPaths>;
-}
-
-function sha256File(path: string): string {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 function emptyQualification(reason: string): QualificationResult {
@@ -132,14 +128,18 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
     throw new SipInputError("sip_artifact_dir_escapes_project_dir");
   }
 
-  const fileStat = statSync(pdfPath);
+  const sourcePreProcessing = fingerprintSourceFile(pdfPath);
   const sourceFilename = basename(pdfPath);
   let sourceProof: SourceProof = {
     sip_schema_version: SIP_SCHEMA_VERSION,
     project_slug: options.projectSlug,
     source_filename: sourceFilename,
-    sha256: sha256File(pdfPath),
-    byte_size: fileStat.size,
+    sha256: sourcePreProcessing.sha256,
+    byte_size: sourcePreProcessing.byte_size,
+    pre_processing: sourcePreProcessing,
+    // This temporary value is never emitted: any outcome writes artifacts only
+    // after the post-processing comparison below has succeeded.
+    post_processing: sourcePreProcessing,
     hash_verified_unchanged_after_extraction: false,
   };
 
@@ -246,12 +246,19 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
     }
   }
 
-  const postRunStat = statSync(pdfPath);
-  const postRunSha256 = sha256File(pdfPath);
-  if (postRunStat.size !== sourceProof.byte_size || postRunSha256 !== sourceProof.sha256) {
-    throw new SipInputError("sip_source_pdf_changed_during_extraction");
+  let sourcePostProcessing;
+  try {
+    sourcePostProcessing = assertSourceUnchanged(sourcePreProcessing, pdfPath);
+  } catch (error) {
+    throw new SipInputError(
+      `sip_source_pdf_changed_during_extraction: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
-  sourceProof = { ...sourceProof, hash_verified_unchanged_after_extraction: true };
+  sourceProof = {
+    ...sourceProof,
+    post_processing: sourcePostProcessing,
+    hash_verified_unchanged_after_extraction: true,
+  };
   qualification = {
     ...qualification,
     source_pdf_sha256: sourceProof.sha256,
@@ -344,8 +351,7 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
       : {}),
     no_import_statement:
       "No Progressive import, database client, or production write occurred in this preparation run.",
-    no_publication_statement:
-      "No project was published by this run; Rainpalm remains unimported and unpublished.",
+    no_publication_statement: "No project was published by this run.",
   };
 
   writeSipArtifacts({

@@ -1,37 +1,43 @@
+/** SIP-001B package CLI — explicit, generic, local-only post-freeze packaging. */
 import { readFileSync } from "node:fs";
-import { writeSIP001BPackage } from "./update-package";
-const values: Record<string, string> = {};
-const args = process.argv.slice(2).filter((arg) => arg !== "--");
-for (let i = 0; i < args.length; i += 2) {
-  if (!args[i]?.startsWith("--") || !args[i + 1]) throw new Error("sip_package_invalid_arguments");
-  values[args[i]] = args[i + 1];
+
+import type { ExtractedPriceList } from "@/import/types";
+
+import { parseSipPackageArgs } from "./package-cli-args";
+import { writeSIP001BPackage, type BoundPriceArtifactPaths } from "./update-package";
+
+function read(path: string): unknown {
+  return JSON.parse(readFileSync(path, "utf8"));
 }
-const required = [
-  "--price-pdf",
-  "--master-pdf",
-  "--reviewed",
-  "--previous",
-  "--summary",
-  "--out-dir",
-  "--workspace",
-];
-if (required.some((key) => !values[key])) throw new Error("sip_package_required_arguments_missing");
-const read = (path: string) => JSON.parse(readFileSync(path, "utf8"));
-const result = writeSIP001BPackage({
-  projectSlug: "coralina",
-  updateDate: "2026-07-17",
-  pricePdfPath: values["--price-pdf"],
-  masterPdfPath: values["--master-pdf"],
-  priceList: read(values["--reviewed"]),
-  previousPriceList: read(values["--previous"]),
-  priceArtifactHashes: read(values["--summary"]).artifact_hashes,
-  outDir: values["--out-dir"],
-  workspaceRoot: values["--workspace"],
-});
-console.log(
-  JSON.stringify({
-    bundle_id: result.sourceBundle.bundle_id,
-    version_diff: result.diff.summary_counts,
-    master_pages: result.masterRegistration.page_count,
-  }),
-);
+
+function main(): void {
+  const values = parseSipPackageArgs(process.argv.slice(2).filter((arg) => arg !== "--"));
+  const priceArtifacts: BoundPriceArtifactPaths = {
+    source_proof: values["--price-source-proof"],
+    qualification: values["--price-qualification"],
+    candidate_price_list: values["--price-candidate"],
+    review_summary: values["--price-review-summary"],
+    preparation_summary: values["--price-preparation-summary"],
+    reviewed_price_list: values["--reviewed"],
+  };
+  const result = writeSIP001BPackage({
+    projectSlug: values["--project-slug"],
+    updateDate: values["--update-date"],
+    ...(values["--origin-channel"] ? { originChannel: values["--origin-channel"] } : {}),
+    pricePdfPath: values["--price-pdf"],
+    masterPdfPath: values["--master-pdf"],
+    priceArtifacts,
+    previousPriceList: read(values["--previous"]) as ExtractedPriceList,
+    outDir: values["--out-dir"],
+    workspaceRoot: values["--workspace"],
+  });
+  console.log(
+    JSON.stringify({
+      bundle_id: result.sourceBundle.bundle_id,
+      version_diff: result.diff.summary_counts,
+      master_pages: result.masterRegistration.page_count,
+    }),
+  );
+}
+
+main();

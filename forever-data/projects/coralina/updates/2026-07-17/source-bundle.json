@@ -3,6 +3,14 @@
   "project_slug": "coralina",
   "update_date": "2026-07-17",
   "origin_channel": "@coralinakamala",
+  "price_artifact_hashes": {
+    "source_proof": "2a1be52f24e9a3af5df8d798b8454597d5a3b4eb2499380d61b8436db73cef9c",
+    "qualification": "9e1e08e4f1101df383389b0466291154d83ae8ecede0d650a2ffa9d617a2013d",
+    "candidate_price_list": "3e18f3eeb2f877afd5ac078b01e1097f5b942133fd95a70fa65d6a2a5a9b0533",
+    "review_summary": "e197de598b3ca56b0ccfb03af09088cb21c8eb5de28f32c04407ecc9b2d2399d",
+    "preparation_summary": "e055403f01c0fed17e4c5a6d0266bb6ae81f1ebef38dac80c2a050d57613a014",
+    "reviewed_price_list": "066f2ddc40cfcabb663ffb8ecf7b492dbde1fc064c7381827d8019b46a5a0c14"
+  },
   "sources": [
     {
       "basename": "CLK - Price List V.2. - Updated 17.07.26.pdf",
@@ -17,5 +25,5 @@
       "role": "visual_master_plan_companion"
     }
   ],
-  "bundle_id": "b8c9d9fac9b0b4ca74044b1229bf0d178f77820dc84f946ae76e2b2416eb7a5f"
+  "bundle_id": "0b6ad8b6dbc900c8069a76d3aefa668b63812bdd6327d1376185cedc9c13d430"
 }

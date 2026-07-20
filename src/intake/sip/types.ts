@@ -176,6 +176,10 @@ export interface SourceProof {
   source_filename: string;
   sha256: string;
   byte_size: number;
+  /** Captured immediately before the authorized read-only processing operation. */
+  pre_processing: { sha256: string; byte_size: number };
+  /** Captured immediately after processing; must exactly equal pre_processing. */
+  post_processing: { sha256: string; byte_size: number };
   hash_verified_unchanged_after_extraction: boolean;
   generation_id?: string;
 }

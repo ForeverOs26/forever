@@ -1,16 +1,191 @@
 /** SIP-001B portable, post-freeze version-package helpers. */
 import { createHash } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+
+import type { ExtractedPriceList, ExtractedPriceListRow, Fact } from "@/import/types";
 
 import { atomicWriteJson, toCanonicalJson } from "../fs-utils";
-import { removeManagedDir } from "../paths";
-import type { ExtractedPriceList, ExtractedPriceListRow, Fact } from "@/import/types";
+import { assertPathBoundaries, assertSafeSlug, removeManagedDir } from "../paths";
 import { preflightPdftotext, runPdftotextLayout } from "./pdf-tool";
+import {
+  fingerprintSourceFile,
+  processWithSourceIntegrity,
+  type SourceFileFingerprint,
+} from "./source-integrity";
+import type { PdfTextExtraction, PdfToolPreflight, PreparationSummary, SourceProof } from "./types";
+
+export const BOUND_PRICE_ARTIFACT_KEYS = [
+  "source_proof",
+  "qualification",
+  "candidate_price_list",
+  "review_summary",
+  "preparation_summary",
+  "reviewed_price_list",
+] as const;
+
+const PREPARATION_HASH_KEYS = BOUND_PRICE_ARTIFACT_KEYS.filter(
+  (key) => key !== "preparation_summary",
+);
+const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+const TELEGRAM_PUBLIC_CHANNEL_PATTERN = /^@[A-Za-z][A-Za-z0-9_]{4,31}$/;
+
+export type BoundPriceArtifactKey = (typeof BOUND_PRICE_ARTIFACT_KEYS)[number];
+export type BoundPriceArtifactPaths = Record<BoundPriceArtifactKey, string>;
+
+export interface SIP001BPackageInput {
+  projectSlug: string;
+  updateDate: string;
+  /** Optional public Telegram channel reference only; never a message identifier or timestamp. */
+  originChannel?: string;
+  pricePdfPath: string;
+  masterPdfPath: string;
+  priceArtifacts: BoundPriceArtifactPaths;
+  previousPriceList: ExtractedPriceList;
+  outDir: string;
+  workspaceRoot: string;
+  /** Test-only deterministic local tool injection; the CLI never exposes this. */
+  toolOverride?: PdfToolPreflight;
+  /** Test-only read-only extraction injection; production always invokes local pdftotext. */
+  masterExtractionOverride?: (input: {
+    tool: PdfToolPreflight;
+    pdfPath: string;
+    workspaceDir: string;
+  }) => PdfTextExtraction;
+}
 
 function sha256File(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readJson(path: string, artifactName: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    throw new Error(`sip_package_artifact_unreadable: ${artifactName}`);
+  }
+}
+
+function assertIsoDate(date: string): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("sip_package_update_date_invalid");
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.valueOf()) || parsed.toISOString().slice(0, 10) !== date) {
+    throw new Error("sip_package_update_date_invalid");
+  }
+}
+
+function normalizeOriginChannel(originChannel: string | undefined): string | null {
+  if (originChannel === undefined) return null;
+  if (!TELEGRAM_PUBLIC_CHANNEL_PATTERN.test(originChannel)) {
+    throw new Error("sip_package_origin_channel_invalid");
+  }
+  return originChannel;
+}
+
+function assertExactKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+  code: string,
+): void {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+    throw new Error(code);
+  }
+}
+
+function readBoundPriceArtifacts(input: BoundPriceArtifactPaths): {
+  hashes: Record<BoundPriceArtifactKey, string>;
+  reviewedPriceList: ExtractedPriceList;
+  sourceProof: SourceProof;
+} {
+  if (!isRecord(input)) throw new Error("sip_package_artifact_paths_invalid");
+  assertExactKeys(input, BOUND_PRICE_ARTIFACT_KEYS, "sip_package_artifact_keys_invalid");
+
+  const resolvedPaths = new Map<BoundPriceArtifactKey, string>();
+  const seenPaths = new Set<string>();
+  const parsed = new Map<BoundPriceArtifactKey, unknown>();
+  const hashes = {} as Record<BoundPriceArtifactKey, string>;
+  for (const key of BOUND_PRICE_ARTIFACT_KEYS) {
+    const candidate = input[key];
+    if (typeof candidate !== "string" || candidate.trim() === "") {
+      throw new Error(`sip_package_artifact_path_invalid: ${key}`);
+    }
+    const path = resolve(candidate);
+    if (seenPaths.has(path)) throw new Error("sip_package_duplicate_artifact_path");
+    seenPaths.add(path);
+    resolvedPaths.set(key, path);
+    hashes[key] = sha256File(path);
+    parsed.set(key, readJson(path, key));
+  }
+
+  const summary = parsed.get("preparation_summary");
+  if (!isRecord(summary) || !isRecord(summary.artifact_hashes)) {
+    throw new Error("sip_package_preparation_summary_invalid");
+  }
+  assertExactKeys(
+    summary.artifact_hashes,
+    PREPARATION_HASH_KEYS,
+    "sip_package_preparation_hash_keys_invalid",
+  );
+  for (const key of PREPARATION_HASH_KEYS) {
+    const expected = summary.artifact_hashes[key];
+    if (
+      typeof expected !== "string" ||
+      !SHA256_PATTERN.test(expected) ||
+      expected !== hashes[key]
+    ) {
+      throw new Error(`sip_package_artifact_hash_mismatch: ${key}`);
+    }
+  }
+
+  const reviewed = parsed.get("reviewed_price_list");
+  if (!isRecord(reviewed) || !Array.isArray(reviewed.unit_inventory)) {
+    throw new Error("sip_package_reviewed_price_list_invalid");
+  }
+  const sourceProof = parsed.get("source_proof");
+  if (!isRecord(sourceProof)) throw new Error("sip_package_source_proof_invalid");
+  return {
+    hashes,
+    reviewedPriceList: reviewed as ExtractedPriceList,
+    sourceProof: sourceProof as unknown as SourceProof,
+  };
+}
+
+function assertPriceSourceProof(sourceProof: SourceProof, actual: SourceFileFingerprint): void {
+  const validFingerprint = (value: unknown): value is SourceFileFingerprint =>
+    isRecord(value) &&
+    typeof value.sha256 === "string" &&
+    SHA256_PATTERN.test(value.sha256) &&
+    typeof value.byte_size === "number" &&
+    Number.isSafeInteger(value.byte_size) &&
+    value.byte_size >= 0;
+  if (
+    !sourceProof.hash_verified_unchanged_after_extraction ||
+    !validFingerprint(sourceProof.pre_processing) ||
+    !validFingerprint(sourceProof.post_processing) ||
+    sourceProof.sha256 !== actual.sha256 ||
+    sourceProof.byte_size !== actual.byte_size ||
+    sourceProof.pre_processing.sha256 !== actual.sha256 ||
+    sourceProof.pre_processing.byte_size !== actual.byte_size ||
+    sourceProof.post_processing.sha256 !== actual.sha256 ||
+    sourceProof.post_processing.byte_size !== actual.byte_size
+  ) {
+    throw new Error("sip_package_price_source_proof_mismatch");
+  }
+}
+
+function assertUpdateDateMatchesPriceList(priceList: ExtractedPriceList, updateDate: string): void {
+  const fact = priceList.price_list_date as Fact<unknown> | undefined;
+  if (typeof fact?.value !== "string" || fact.value !== updateDate) {
+    throw new Error("sip_package_update_date_price_list_mismatch");
+  }
+}
+
 function value(fact: Fact<unknown> | undefined): unknown {
   return fact?.value ?? null;
 }
@@ -156,47 +331,51 @@ export function buildVersionDiff(previous: ExtractedPriceList, latest: Extracted
   };
 }
 
-export function writeSIP001BPackage(input: {
-  projectSlug: string;
-  updateDate: string;
-  pricePdfPath: string;
-  masterPdfPath: string;
-  priceList: ExtractedPriceList;
-  previousPriceList: ExtractedPriceList;
-  priceArtifactHashes: Record<string, string>;
-  outDir: string;
-  workspaceRoot: string;
-}) {
-  const price = {
-    basename: basename(input.pricePdfPath),
-    sha256: sha256File(input.pricePdfPath),
-    byte_size: statSync(input.pricePdfPath).size,
-  };
-  const master = {
-    basename: basename(input.masterPdfPath),
-    sha256: sha256File(input.masterPdfPath),
-    byte_size: statSync(input.masterPdfPath).size,
-  };
-  const tool = preflightPdftotext();
+export function writeSIP001BPackage(input: SIP001BPackageInput) {
+  assertSafeSlug(input.projectSlug);
+  assertIsoDate(input.updateDate);
+  const originChannel = normalizeOriginChannel(input.originChannel);
+  const pricePdfPath = resolve(input.pricePdfPath);
+  const masterPdfPath = resolve(input.masterPdfPath);
+  const outDir = resolve(input.outDir);
+  const workspaceRoot = resolve(input.workspaceRoot);
+  const workspaceDir = join(workspaceRoot, `sip-master-${process.pid}-${Date.now()}`);
+  assertPathBoundaries({
+    outRoot: dirname(outDir),
+    projectDir: outDir,
+    workspaceDir,
+    sources: [dirname(pricePdfPath), dirname(masterPdfPath)],
+  });
+
+  const price = { basename: basename(pricePdfPath), ...fingerprintSourceFile(pricePdfPath) };
+  const bound = readBoundPriceArtifacts(input.priceArtifacts);
+  assertPriceSourceProof(bound.sourceProof, price);
+  assertUpdateDateMatchesPriceList(bound.reviewedPriceList, input.updateDate);
+
+  const tool = input.toolOverride ?? preflightPdftotext();
   if (!tool.found) throw new Error("sip_visual_registration_pdftotext_required");
-  const workspaceDir = join(input.workspaceRoot, `sip-master-${process.pid}-${Date.now()}`);
-  let extraction;
+  let masterIntegrity: {
+    value: PdfTextExtraction;
+    before: SourceFileFingerprint;
+    after: SourceFileFingerprint;
+  };
   try {
-    extraction = runPdftotextLayout({
-      tool,
-      pdfPath: input.masterPdfPath,
-      workspaceDir,
-      mode: "layout",
-    });
+    masterIntegrity = processWithSourceIntegrity(masterPdfPath, () =>
+      input.masterExtractionOverride
+        ? input.masterExtractionOverride({ tool, pdfPath: masterPdfPath, workspaceDir })
+        : runPdftotextLayout({ tool, pdfPath: masterPdfPath, workspaceDir, mode: "layout" }),
+    );
   } finally {
-    removeManagedDir(workspaceDir, [resolve(input.workspaceRoot)]);
+    removeManagedDir(workspaceDir, [workspaceRoot]);
   }
-  const diff = buildVersionDiff(input.previousPriceList, input.priceList);
+  const master = { basename: basename(masterPdfPath), ...masterIntegrity.before };
+  const diff = buildVersionDiff(input.previousPriceList, bound.reviewedPriceList);
   const bundleCore = {
     sip_schema_version: "1",
     project_slug: input.projectSlug,
     update_date: input.updateDate,
-    origin_channel: "@coralinakamala",
+    origin_channel: originChannel,
+    price_artifact_hashes: bound.hashes,
     sources: [
       { ...price, role: "canonical_price_table" },
       { ...master, role: "visual_master_plan_companion" },
@@ -206,13 +385,23 @@ export function writeSIP001BPackage(input: {
     ...bundleCore,
     bundle_id: createHash("sha256").update(toCanonicalJson(bundleCore)).digest("hex"),
   };
+  const masterSourceProof = {
+    sip_schema_version: "1",
+    project_slug: input.projectSlug,
+    source_filename: master.basename,
+    sha256: master.sha256,
+    byte_size: master.byte_size,
+    pre_processing: masterIntegrity.before,
+    post_processing: masterIntegrity.after,
+    hash_verified_unchanged_after_extraction: true,
+  };
   const masterRegistration = {
     sip_schema_version: "1",
     source_filename: master.basename,
     sha256: master.sha256,
     byte_size: master.byte_size,
-    page_count: extraction.pageCount,
-    visible_floor_page_sequence: Array.from({ length: extraction.pageCount }, (_, i) => i + 1),
+    page_count: masterIntegrity.value.pageCount,
+    floor_sequence_status: "not_machine_interpreted_in_sip_001b",
     document_role: "visual_master_plan_companion",
     paired_update_date: input.updateDate,
     paired_primary_source: price.basename,
@@ -229,17 +418,10 @@ export function writeSIP001BPackage(input: {
     future_spatial_extraction: "requires_a_separate_approved_checkpoint",
     telegram_monitoring: "not_implemented_in_sip_001b",
   };
-  atomicWriteJson(join(input.outDir, "source-bundle.json"), sourceBundle);
-  atomicWriteJson(join(input.outDir, "master-plan", "source-proof.json"), {
-    sip_schema_version: "1",
-    project_slug: input.projectSlug,
-    source_filename: master.basename,
-    sha256: master.sha256,
-    byte_size: master.byte_size,
-    hash_verified_unchanged_after_extraction: true,
-  });
-  atomicWriteJson(join(input.outDir, "master-plan", "registration.json"), masterRegistration);
-  atomicWriteJson(join(input.outDir, "version-diff.json"), diff);
-  atomicWriteJson(join(input.outDir, "cross-source-summary.json"), crossSource);
-  return { sourceBundle, masterRegistration, diff, crossSource, price, master };
+  atomicWriteJson(join(outDir, "source-bundle.json"), sourceBundle);
+  atomicWriteJson(join(outDir, "master-plan", "source-proof.json"), masterSourceProof);
+  atomicWriteJson(join(outDir, "master-plan", "registration.json"), masterRegistration);
+  atomicWriteJson(join(outDir, "version-diff.json"), diff);
+  atomicWriteJson(join(outDir, "cross-source-summary.json"), crossSource);
+  return { sourceBundle, masterSourceProof, masterRegistration, diff, crossSource, price, master };
 }

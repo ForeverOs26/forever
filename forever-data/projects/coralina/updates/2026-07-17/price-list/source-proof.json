@@ -4,6 +4,14 @@
   "source_filename": "CLK - Price List V.2. - Updated 17.07.26.pdf",
   "sha256": "268c2fa30e39e89c7dd5e3d7751326e3cf958ec2783e5953eabccbece9b3f3c0",
   "byte_size": 251902,
+  "pre_processing": {
+    "sha256": "268c2fa30e39e89c7dd5e3d7751326e3cf958ec2783e5953eabccbece9b3f3c0",
+    "byte_size": 251902
+  },
+  "post_processing": {
+    "sha256": "268c2fa30e39e89c7dd5e3d7751326e3cf958ec2783e5953eabccbece9b3f3c0",
+    "byte_size": 251902
+  },
   "hash_verified_unchanged_after_extraction": true,
   "generation_id": "6cd54c35402b55777a3adeeac6366d05b3021ed371b7393ae2bdaa00b7d4140b"
 }

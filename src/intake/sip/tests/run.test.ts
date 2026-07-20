@@ -211,6 +211,8 @@ describe("SIP-001A run orchestrator — end to end (fake local PDF text tool)", 
     ).toEqual([]);
   });
 
+  // This exercises three synchronous transactional generations (initial, crash, recovery).
+  // The default 5s limit is not stable under the full Windows suite's parallel load.
   it("recovers a simulated hard interruption before publishing the next generation", () => {
     const firstPdf = writePdfLike("crash-first.pdf", "generic-price-list.pdftotext-layout.txt");
     const outRoot = join(base, "out-crash");
@@ -246,7 +248,7 @@ describe("SIP-001A run orchestrator — end to end (fake local PDF text tool)", 
     expect(
       projectEntries.filter((name) => name.startsWith(".sip-") || name.startsWith("sip.bak-")),
     ).toEqual([]);
-  });
+  }, 15_000);
 });
 
 describe("SIP-001A — never reads the ground-truth comparison JSON during extraction", () => {

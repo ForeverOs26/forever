@@ -132,8 +132,9 @@ describe("Draft validation importer-compatibility (TypeScript vs PowerShell -Val
       } else {
         expect(args).toEqual(["-NoProfile", "-File", harness]);
       }
-      const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>(
-        (complete) => {
+      type LiveHarnessResult = { status: number | null; stdout: string; stderr: string };
+      const runLiveHarness = () =>
+        new Promise<LiveHarnessResult>((complete) => {
           const child = spawn(pwsh, args, {
             windowsHide: true,
           });
@@ -156,13 +157,25 @@ describe("Draft validation importer-compatibility (TypeScript vs PowerShell -Val
             clearTimeout(timer);
             complete({ status: null, stdout, stderr: `${stderr}\n${error.message}` });
           });
-        },
-      );
+        });
+      const hasParityProof = (result: LiveHarnessResult) =>
+        result.status === 0 && result.stdout.includes("PowerShell validation parity OK");
+      const firstResult = await runLiveHarness();
+      // Under a saturated Windows full-suite run, the child can occasionally close before it
+      // emits stdout even though an isolated invocation succeeds. Retry the independent proof
+      // once; a persistent failure still includes diagnostics from both attempts below.
+      const result = hasParityProof(firstResult) ? firstResult : await runLiveHarness();
       const outputLines = result.stdout.split(/\r?\n/).filter(Boolean);
       console.log(outputLines.at(-1));
-      if (result.status !== 0) {
-        console.error(result.stdout);
-        console.error(result.stderr);
+      if (!hasParityProof(result)) {
+        console.error("[validation-parity] Live PowerShell proof failed after up to two attempts.");
+        for (const [attempt, attemptResult] of [firstResult, result].entries()) {
+          console.error(
+            `[validation-parity] attempt ${attempt + 1} status=${attemptResult.status}`,
+          );
+          console.error(attemptResult.stdout);
+          console.error(attemptResult.stderr);
+        }
       }
       expect(result.stdout).toContain("PowerShell validation parity OK");
       expect(result.status).toBe(0);

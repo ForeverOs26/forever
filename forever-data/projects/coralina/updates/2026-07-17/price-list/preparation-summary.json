@@ -22,7 +22,7 @@
   "generation_id": "6cd54c35402b55777a3adeeac6366d05b3021ed371b7393ae2bdaa00b7d4140b",
   "source_pdf_sha256": "268c2fa30e39e89c7dd5e3d7751326e3cf958ec2783e5953eabccbece9b3f3c0",
   "artifact_hashes": {
-    "source_proof": "a3bc11c60746753c52f7300716d428cb8bf825052105652e0562b33a013c055a",
+    "source_proof": "2a1be52f24e9a3af5df8d798b8454597d5a3b4eb2499380d61b8436db73cef9c",
     "qualification": "9e1e08e4f1101df383389b0466291154d83ae8ecede0d650a2ffa9d617a2013d",
     "candidate_price_list": "3e18f3eeb2f877afd5ac078b01e1097f5b942133fd95a70fa65d6a2a5a9b0533",
     "review_summary": "e197de598b3ca56b0ccfb03af09088cb21c8eb5de28f32c04407ecc9b2d2399d",
@@ -47,5 +47,5 @@
     }
   ],
   "no_import_statement": "No Progressive import, database client, or production write occurred in this preparation run.",
-  "no_publication_statement": "No project was published by this run; Rainpalm remains unimported and unpublished."
+  "no_publication_statement": "No project was published by this run."
 }
