@@ -15,11 +15,16 @@ export const SIP_SCHEMA_VERSION = "1" as const;
 export interface PdfToolPreflight {
   found: boolean;
   executablePath: string | null;
+  /** Operational argument prefix used by tests/wrappers; never serialized canonically. */
+  argumentPrefix?: string[];
+  /** Executable family reported by `-v`; kept honest when the local tool is Xpdf. */
+  vendor: "poppler" | "xpdf" | "unknown" | null;
   /** Raw `pdftotext -v` stderr/stdout text, when found. */
   versionOutput: string | null;
   /** Parsed semantic version, e.g. "24.02.0", when parseable. */
   version: string | null;
   pdfinfoAvailable: boolean;
+  pdfinfoVersion: string | null;
   executableSha256: string | null;
   error: string | null;
 }
@@ -32,6 +37,7 @@ export interface PdfTextPage {
 }
 
 export interface PdfTextExtraction {
+  mode: "layout" | "table";
   toolVersion: string | null;
   exitCode: number;
   pages: PdfTextPage[];
@@ -69,12 +75,24 @@ export interface QualificationResult {
   pageCount: number;
   nonWhitespaceCharCount: number;
   headerMappings: HeaderMapping[];
+  /** Portable, content-addressed evidence for the exact text outputs used. */
+  text_output_hashes?: Partial<Record<"layout" | "table", string>>;
+  parser_mode?: "layout" | "table";
+  source_pdf_sha256?: string;
+  tool?: {
+    name: string;
+    vendor: "poppler" | "xpdf" | "unknown";
+    version: string | null;
+    executable_sha256: string | null;
+  };
 }
 
 /** The fixed set of price-table columns SIP-001A knows how to map. Never guessed. */
 export type PriceTableField =
   | "unit_number"
   | "unit_type"
+  /** Source-preserved parsing field; omitted because the unchanged intake contract has no slot. */
+  | "land_area_sqm"
   | "building"
   | "bedrooms"
   | "bathrooms"
@@ -121,7 +139,7 @@ export type ReviewReasonCode =
   | "unsupported_table_region"
   | "price_unsupported_value";
 
-export type ReviewAction = "accept" | "reject" | "edit" | "unresolved" | "accept-as-owner-verified";
+export type ReviewAction = "accept" | "reject" | "edit" | "unresolved";
 
 export interface ReviewItem {
   id: string;
@@ -144,6 +162,8 @@ export interface ReviewSummary {
   items: ReviewItem[];
   blocking_issue_count: number;
   review_required_count: number;
+  source_pdf_sha256?: string;
+  generation_id?: string;
 }
 
 export interface SourceProof {
@@ -153,14 +173,20 @@ export interface SourceProof {
   source_filename: string;
   sha256: string;
   byte_size: number;
-  /** Operational-only field; excluded from canonical determinism hashing. */
-  local_only_path: string;
+  hash_verified_unchanged_after_extraction: boolean;
+  generation_id?: string;
 }
 
 export interface PreparationSummary {
   sip_schema_version: typeof SIP_SCHEMA_VERSION;
   project_slug: string;
   poppler_version: string | null;
+  pdf_text_tool: {
+    name: string;
+    vendor: "poppler" | "xpdf" | "unknown" | null;
+    version: string | null;
+    executable_sha256: string | null;
+  };
   qualification_status: QualificationStatus;
   pages_detected: number;
   tables_detected: number;
@@ -169,8 +195,11 @@ export interface PreparationSummary {
   accepted_row_count: number;
   review_item_count: number;
   rejected_row_count: number;
+  safely_omitted_value_count: number;
   blocking_issues: string[];
   finalized: boolean;
+  generation_id: string;
+  source_pdf_sha256: string;
   artifact_hashes: Record<string, string>;
   no_import_statement: string;
   no_publication_statement: string;

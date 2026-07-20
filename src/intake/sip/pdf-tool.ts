@@ -28,6 +28,10 @@ const WINDOWS_CANDIDATE_PATHS = [
   "C:\\poppler\\Library\\bin\\pdftotext.exe",
   "C:\\Program Files\\poppler\\Library\\bin\\pdftotext.exe",
   "C:\\Program Files\\poppler-24.02.0\\Library\\bin\\pdftotext.exe",
+  // Git for Windows currently ships the compatible Xpdf pdftotext utility
+  // here. SIP records the vendor honestly and uses its table mode only when
+  // the executable identifies itself as Xpdf.
+  "C:\\Program Files\\Git\\mingw64\\bin\\pdftotext.exe",
 ];
 
 function parseVersion(output: string): string | null {
@@ -35,18 +39,27 @@ function parseVersion(output: string): string | null {
   return match ? match[1] : null;
 }
 
-function tryVersion(executable: string): { output: string; version: string | null } | null {
+function parseVendor(output: string): "poppler" | "xpdf" | "unknown" {
+  if (/poppler/i.test(output)) return "poppler";
+  if (/xpdfreader\.com|glyph\s*&\s*cog/i.test(output)) return "xpdf";
+  return "unknown";
+}
+
+function tryVersion(
+  executable: string,
+  argumentPrefix: string[] = [],
+): { output: string; version: string | null } | null {
   // `spawnSync` (unlike `execFileSync`) reliably returns BOTH stdout and
   // stderr regardless of exit status — Poppler's `-v` writes its version to
   // stderr, and some builds exit non-zero even on success.
-  const result = spawnSync(executable, ["-v"], {
+  const result = spawnSync(executable, [...argumentPrefix, "-v"], {
     timeout: VERSION_TIMEOUT_MS,
     encoding: "utf8",
     windowsHide: true,
   });
   if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") return null;
   const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-  if (combined.trim().length === 0) return null;
+  if (combined.trim().length === 0 || !parseVersion(combined)) return null;
   return { output: combined, version: parseVersion(combined) };
 }
 
@@ -88,22 +101,37 @@ function hashExecutable(resolvedPath: string | null): string | null {
  * `where.exe`/`Get-Command`/POSIX PATH lookup), then repository-documented
  * Windows install paths. Installs nothing; never downloads.
  */
-export function preflightPdftotext(): PdfToolPreflight {
-  const candidates = [
-    "pdftotext",
-    ...(process.platform === "win32" ? WINDOWS_CANDIDATE_PATHS : []),
-  ];
+export interface PdfToolCandidate {
+  executable: string;
+  argumentPrefix?: string[];
+}
+
+export function preflightPdftotext(candidateOverride?: PdfToolCandidate[]): PdfToolPreflight {
+  const candidates: PdfToolCandidate[] =
+    candidateOverride ??
+    ["pdftotext", ...(process.platform === "win32" ? WINDOWS_CANDIDATE_PATHS : [])].map(
+      (executable) => ({ executable }),
+    );
 
   for (const candidate of candidates) {
-    const found = tryVersion(candidate);
+    const found = tryVersion(candidate.executable, candidate.argumentPrefix);
     if (!found) continue;
-    const resolvedPath = resolveAbsolutePath(candidate);
+    const resolvedPath = resolveAbsolutePath(candidate.executable);
+    const siblingPdfinfo = resolvedPath
+      ? join(dirname(resolvedPath), process.platform === "win32" ? "pdfinfo.exe" : "pdfinfo")
+      : null;
+    const pdfinfo =
+      (siblingPdfinfo && existsSync(siblingPdfinfo) ? tryVersion(siblingPdfinfo) : null) ??
+      tryVersion("pdfinfo");
     return {
       found: true,
-      executablePath: resolvedPath ?? candidate,
+      executablePath: resolvedPath ?? candidate.executable,
+      ...(candidate.argumentPrefix ? { argumentPrefix: candidate.argumentPrefix } : {}),
+      vendor: parseVendor(found.output),
       versionOutput: found.output,
       version: found.version,
-      pdfinfoAvailable: tryVersion("pdfinfo") !== null,
+      pdfinfoAvailable: pdfinfo !== null,
+      pdfinfoVersion: pdfinfo?.version ?? null,
       executableSha256: hashExecutable(resolvedPath),
       error: null,
     };
@@ -112,9 +140,11 @@ export function preflightPdftotext(): PdfToolPreflight {
   return {
     found: false,
     executablePath: null,
+    vendor: null,
     versionOutput: null,
     version: null,
-    pdfinfoAvailable: tryVersion("pdfinfo") !== null,
+    pdfinfoAvailable: false,
+    pdfinfoVersion: null,
     executableSha256: null,
     error:
       "pdftotext was not found on PATH or at any repository-documented local Poppler install path. " +
@@ -135,7 +165,7 @@ function splitPages(rawText: string): PdfTextPage[] {
   // stay traceable. A trailing form-feed produces one trailing empty page,
   // which is dropped.
   const rawPages = rawText.split("\f");
-  if (rawPages.length > 1 && rawPages[rawPages.length - 1] === "") rawPages.pop();
+  if (rawPages.length > 1 && rawPages[rawPages.length - 1].trim() === "") rawPages.pop();
   return rawPages.map((text, index) => ({
     pageNumber: index + 1,
     text,
@@ -150,6 +180,8 @@ export interface RunPdftotextInput {
   workspaceDir: string;
   /** Test-only override of the execution-time bound; defaults to the production constant. */
   timeoutMs?: number;
+  /** Xpdf's table-preserving mode is used only for the verified Rainpalm layout. */
+  mode?: "layout" | "table";
 }
 
 /**
@@ -172,11 +204,22 @@ export function runPdftotextLayout(input: RunPdftotextInput): PdfTextExtraction 
   let exitCode = 0;
   let stderrExcerpt: string | null = null;
   const timeoutMs = input.timeoutMs ?? PDFTOTEXT_RUN_TIMEOUT_MS;
+  const mode = input.mode ?? "layout";
+  if (mode === "table" && input.tool.vendor !== "xpdf") {
+    throw new PdfToolError("pdftotext_table_mode_requires_xpdf");
+  }
 
   try {
     execFileSync(
       input.tool.executablePath,
-      ["-layout", "-enc", "UTF-8", input.pdfPath, outputPath],
+      [
+        ...(input.tool.argumentPrefix ?? []),
+        `-${mode}`,
+        "-enc",
+        "UTF-8",
+        input.pdfPath,
+        outputPath,
+      ],
       { timeout: timeoutMs, windowsHide: true, encoding: "buffer" },
     );
   } catch (error) {
@@ -212,6 +255,7 @@ export function runPdftotextLayout(input: RunPdftotextInput): PdfTextExtraction 
     const pages = splitPages(rawText);
 
     return {
+      mode,
       toolVersion: input.tool.version,
       exitCode,
       pages,
@@ -229,7 +273,7 @@ export function runPdftotextLayout(input: RunPdftotextInput): PdfTextExtraction 
 function cleanupOutput(outputPath: string): void {
   try {
     rmSync(outputPath, { force: true });
-  } catch {
-    // Best-effort; the workspace directory itself is cleaned by the caller.
+  } catch (error) {
+    throw new PdfToolError(`pdftotext_cleanup_failed: ${String(error)}`);
   }
 }

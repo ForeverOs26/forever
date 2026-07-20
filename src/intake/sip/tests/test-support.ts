@@ -19,7 +19,7 @@ export function readFixture(name: string): string {
 /** Split raw pdftotext-layout-style text into pages exactly like pdf-tool.ts does. */
 export function textToPages(rawText: string): PdfTextPage[] {
   const rawPages = rawText.split("\f");
-  if (rawPages.length > 1 && rawPages[rawPages.length - 1] === "") rawPages.pop();
+  if (rawPages.length > 1 && rawPages[rawPages.length - 1].trim() === "") rawPages.pop();
   return rawPages.map((text, index) => ({
     pageNumber: index + 1,
     text,
@@ -34,6 +34,7 @@ export function fixtureExtraction(
   const rawText = readFixture(fixtureName);
   const pages = textToPages(rawText);
   return {
+    mode: "layout",
     toolVersion: "24.02.0",
     exitCode: 0,
     pages,

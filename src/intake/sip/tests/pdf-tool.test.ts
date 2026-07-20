@@ -23,7 +23,7 @@ describe("SIP-001A pdftotext preflight", () => {
 
   it("reports found=false with an explicit external-prerequisite message when pdftotext is missing", () => {
     process.env.PATH = "/nonexistent-bin-only";
-    const result = preflightPdftotext();
+    const result = preflightPdftotext([]);
     expect(result.found).toBe(false);
     expect(result.executablePath).toBeNull();
     expect(result.error).toMatch(/pdftotext was not found/i);
@@ -32,8 +32,9 @@ describe("SIP-001A pdftotext preflight", () => {
   it("locates a real pdftotext on PATH and records its version", () => {
     const fake = writeFakePdftotext();
     fakeDir = fake.dir;
-    process.env.PATH = `${fake.dir}${process.platform === "win32" ? ";" : ":"}${ORIGINAL_PATH}`;
-    const result = preflightPdftotext();
+    const result = preflightPdftotext([
+      { executable: process.execPath, argumentPrefix: [fake.scriptPath] },
+    ]);
     expect(result.found).toBe(true);
     expect(result.version).toBe("24.02.0");
     expect(result.versionOutput).toMatch(/pdftotext version/);
@@ -57,10 +58,13 @@ describe("SIP-001A pdftotext -layout invocation", () => {
   function tool(executablePath = fake.scriptPath) {
     return {
       found: true,
-      executablePath,
+      executablePath: executablePath === fake.scriptPath ? process.execPath : executablePath,
+      ...(executablePath === fake.scriptPath ? { argumentPrefix: [fake.scriptPath] } : {}),
+      vendor: "unknown" as const,
       versionOutput: "pdftotext version 24.02.0",
       version: "24.02.0",
       pdfinfoAvailable: false,
+      pdfinfoVersion: null,
       executableSha256: null,
       error: null,
     };
@@ -144,9 +148,11 @@ describe("SIP-001A pdftotext -layout invocation", () => {
         tool: {
           found: false,
           executablePath: null,
+          vendor: null,
           versionOutput: null,
           version: null,
           pdfinfoAvailable: false,
+          pdfinfoVersion: null,
           executableSha256: null,
           error: "missing",
         },

@@ -9,7 +9,7 @@
  *   → deterministic table extraction (one supported layout)
  *   → candidate normalization (no fabrication)
  *   → exception-only review summary
- *   → reviewed final JSON (only when no blocking issue remains)
+ *   → finalized deterministic JSON (only when no blocking issue remains)
  *
  * This module NEVER reads the manually reviewed ground-truth comparison
  * JSON. That file is read only by the separate `compare.ts` module, after
@@ -20,13 +20,18 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { basename, extname, resolve } from "node:path";
+import { basename, dirname, extname, resolve } from "node:path";
 
 import type { ExtractedPriceList } from "@/import/types";
 
-import { assertSafeSlug, removeManagedDir } from "../paths";
+import { assertPathBoundaries, assertSafeSlug, removeManagedDir } from "../paths";
 import { sanitizePriceList } from "../sanitize";
-import { sipArtifactPaths, sha256OfJson, writeSipArtifacts } from "./artifacts";
+import {
+  sipArtifactPaths,
+  sha256OfJson,
+  writeSipArtifacts,
+  type SipArtifactHooks,
+} from "./artifacts";
 import {
   buildPriceListCandidates,
   buildReviewedPriceList,
@@ -35,9 +40,15 @@ import {
 } from "./candidate-normalize";
 import { PdfToolError, preflightPdftotext, runPdftotextLayout } from "./pdf-tool";
 import { qualifyPdfText } from "./pdf-qualify";
-import { extractDocumentTables } from "./price-table";
+import { extractDocumentTables, mergeLayoutCoreCells } from "./price-table";
 import { buildReviewSummary, canFinalize } from "./review";
-import type { PreparationSummary, QualificationResult, ReviewItem, SourceProof } from "./types";
+import type {
+  PdfToolPreflight,
+  PreparationSummary,
+  QualificationResult,
+  ReviewItem,
+  SourceProof,
+} from "./types";
 import { SIP_SCHEMA_VERSION } from "./types";
 
 const DEFAULT_OUT_ROOT = "forever-data/projects";
@@ -55,6 +66,10 @@ export interface RunSipOptions {
   pdfPath: string;
   outRoot?: string;
   workspaceRoot?: string;
+  /** Test-only generation-transaction failpoints. */
+  artifactHooks?: SipArtifactHooks;
+  /** Test-only preflight injection; the CLI never exposes this. */
+  toolOverride?: PdfToolPreflight;
 }
 
 export interface RunSipResult {
@@ -95,23 +110,32 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
 
   const outRoot = options.outRoot ?? DEFAULT_OUT_ROOT;
   const workspaceRoot = options.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT;
+  const projectDir = resolve(outRoot, options.projectSlug);
   const workspaceDir = resolve(
     workspaceRoot,
     `${options.projectSlug}-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e9)}`,
   );
+  assertPathBoundaries({
+    outRoot: resolve(outRoot),
+    projectDir,
+    workspaceDir,
+    // Treat the authorized PDF's containing directory as the protected source
+    // boundary so no temporary or canonical output can be written beside it.
+    sources: [dirname(pdfPath)],
+  });
 
   const fileStat = statSync(pdfPath);
   const sourceFilename = basename(pdfPath);
-  const sourceProof: SourceProof = {
+  let sourceProof: SourceProof = {
     sip_schema_version: SIP_SCHEMA_VERSION,
     project_slug: options.projectSlug,
     source_filename: sourceFilename,
     sha256: sha256File(pdfPath),
     byte_size: fileStat.size,
-    local_only_path: pdfPath,
+    hash_verified_unchanged_after_extraction: false,
   };
 
-  const tool = preflightPdftotext();
+  const tool = options.toolOverride ?? preflightPdftotext();
   const reviewItems: ReviewItem[] = [];
   const blockingIssues: string[] = [];
   let qualification: QualificationResult;
@@ -124,9 +148,65 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
     );
   } else {
     try {
-      const extraction = runPdftotextLayout({ tool, pdfPath, workspaceDir });
-      qualification = qualifyPdfText(extraction);
-      const { regions } = extractDocumentTables(extraction.pages);
+      const layoutExtraction = runPdftotextLayout({
+        tool,
+        pdfPath,
+        workspaceDir,
+        mode: "layout",
+      });
+      let parserExtraction = layoutExtraction;
+      let parserQualification = qualifyPdfText(layoutExtraction);
+
+      // The verified Git-for-Windows executable is Xpdf. Its `-table` mode is
+      // materially more faithful for the actual Rainpalm multi-row table than
+      // its `-layout` row geometry, while still using the same local binary,
+      // source hash, argument-array boundary, and deterministic text parser.
+      let tableExtraction: ReturnType<typeof runPdftotextLayout> | null = null;
+      if (tool.vendor === "xpdf") {
+        tableExtraction = runPdftotextLayout({
+          tool,
+          pdfPath,
+          workspaceDir,
+          mode: "table",
+        });
+        const tableQualification = qualifyPdfText(tableExtraction);
+        if (
+          tableQualification.status === "QUALIFIED_SUPPORTED_LAYOUT" ||
+          tableQualification.status === "REVIEW_REQUIRED"
+        ) {
+          parserExtraction = tableExtraction;
+          parserQualification = tableQualification;
+        }
+      }
+
+      qualification = {
+        ...parserQualification,
+        parser_mode: parserExtraction.mode,
+        source_pdf_sha256: sourceProof.sha256,
+        text_output_hashes: {
+          layout: layoutExtraction.outputSha256,
+          ...(tableExtraction ? { table: tableExtraction.outputSha256 } : {}),
+        },
+        tool: {
+          name: "pdftotext",
+          vendor: tool.vendor ?? "unknown",
+          version: tool.version,
+          executable_sha256: tool.executableSha256,
+        },
+      };
+      let { regions } = extractDocumentTables(parserExtraction.pages);
+      if (parserExtraction.mode === "table") {
+        const merged = mergeLayoutCoreCells(regions, layoutExtraction.pages);
+        regions = merged.regions;
+        if (merged.conflicts.length > 0) {
+          blockingIssues.push(...merged.conflicts);
+          qualification = {
+            ...qualification,
+            status: "REVIEW_REQUIRED",
+            reasons: [...qualification.reasons, ...merged.conflicts],
+          };
+        }
+      }
       const built = buildPriceListCandidates(regions, sourceFilename);
       candidatePriceList = built.priceList;
       reviewItems.push(...built.reviewItems);
@@ -135,7 +215,7 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
           `intake_duplicate_unit_identifiers: ${built.duplicateUnitIdentities.join(", ")}`,
         );
       }
-      const dateResult = extractPriceListDate(extraction.pages, sourceFilename);
+      const dateResult = extractPriceListDate(layoutExtraction.pages, sourceFilename);
       if (dateResult.fact) {
         candidatePriceList = { ...candidatePriceList, price_list_date: dateResult.fact };
       }
@@ -156,7 +236,26 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
     }
   }
 
-  const reviewSummary = buildReviewSummary(options.projectSlug, reviewItems);
+  const postRunStat = statSync(pdfPath);
+  const postRunSha256 = sha256File(pdfPath);
+  if (postRunStat.size !== sourceProof.byte_size || postRunSha256 !== sourceProof.sha256) {
+    throw new SipInputError("sip_source_pdf_changed_during_extraction");
+  }
+  sourceProof = { ...sourceProof, hash_verified_unchanged_after_extraction: true };
+  qualification = {
+    ...qualification,
+    source_pdf_sha256: sourceProof.sha256,
+    tool:
+      qualification.tool ??
+      ({
+        name: "pdftotext",
+        vendor: tool.vendor ?? "unknown",
+        version: tool.version,
+        executable_sha256: tool.executableSha256,
+      } as const),
+  };
+
+  let reviewSummary = buildReviewSummary(options.projectSlug, reviewItems);
   const hasCandidateRows = (candidatePriceList.unit_inventory?.length ?? 0) > 0;
   const finalizable =
     qualification.status !== "TOOL_FAILURE" &&
@@ -167,12 +266,32 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
   let reviewedPriceList: ExtractedPriceList | null = null;
   if (finalizable) {
     reviewedPriceList = buildReviewedPriceList(candidatePriceList);
-    // Prove the reviewed output passes the existing, unchanged Fast Intake
+    // Prove the finalized output passes the existing, unchanged Fast Intake
     // anti-fabrication sanitizer before it is written.
     sanitizePriceList(reviewedPriceList);
   }
 
   const paths = sipArtifactPaths(outRoot, options.projectSlug);
+
+  const generationId = sha256OfJson({
+    source_pdf_sha256: sourceProof.sha256,
+    source_pdf_byte_size: sourceProof.byte_size,
+    pdf_text_tool: {
+      vendor: tool.vendor,
+      version: tool.version,
+      executable_sha256: tool.executableSha256,
+    },
+    qualification,
+    candidate_price_list: candidatePriceList,
+    review_items: reviewItems,
+    finalized_price_list: reviewedPriceList,
+  });
+  sourceProof = { ...sourceProof, generation_id: generationId };
+  reviewSummary = {
+    ...reviewSummary,
+    source_pdf_sha256: sourceProof.sha256,
+    generation_id: generationId,
+  };
 
   const artifactHashes: Record<string, string> = {
     source_proof: sha256OfJson(sourceProof),
@@ -185,7 +304,13 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
   const preparationSummary: PreparationSummary = {
     sip_schema_version: SIP_SCHEMA_VERSION,
     project_slug: options.projectSlug,
-    poppler_version: tool.version,
+    poppler_version: tool.vendor === "poppler" ? tool.version : null,
+    pdf_text_tool: {
+      name: "pdftotext",
+      vendor: tool.vendor,
+      version: tool.version,
+      executable_sha256: tool.executableSha256,
+    },
     qualification_status: qualification.status,
     pages_detected: qualification.pageCount,
     tables_detected: qualification.headerMappings.length,
@@ -194,8 +319,13 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
     accepted_row_count: reviewedPriceList?.unit_inventory?.length ?? 0,
     review_item_count: reviewItems.length,
     rejected_row_count: reviewItems.filter((item) => item.recommendedAction === "reject").length,
+    safely_omitted_value_count: reviewItems.filter(
+      (item) => !item.blocking && item.recommendedAction === "unresolved",
+    ).length,
     blocking_issues: blockingIssues,
     finalized: reviewedPriceList !== null,
+    generation_id: generationId,
+    source_pdf_sha256: sourceProof.sha256,
     artifact_hashes: artifactHashes,
     no_import_statement:
       "No Progressive import, database client, or production write occurred in this preparation run.",
@@ -211,6 +341,7 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
     reviewSummary,
     preparationSummary,
     reviewedPriceList,
+    hooks: options.artifactHooks,
   });
 
   return {

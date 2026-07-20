@@ -13,14 +13,14 @@ describe("SIP-001A column splitting", () => {
   it("recognizes syntactically valid unit identities only", () => {
     expect(isSyntacticUnitIdentity("A1")).toBe(true);
     expect(isSyntacticUnitIdentity("B-101")).toBe(true);
-    expect(isSyntacticUnitIdentity("Villa A4")).toBe(true);
+    expect(isSyntacticUnitIdentity("Villa A4")).toBe(false);
     expect(isSyntacticUnitIdentity("Available")).toBe(false); // no digit
     expect(isSyntacticUnitIdentity("")).toBe(false);
   });
 });
 
 describe("SIP-001A table extraction — supported layout fixture", () => {
-  const extraction = fixtureExtraction("rainpalm-price-list.pdftotext-layout.txt");
+  const extraction = fixtureExtraction("generic-price-list.pdftotext-layout.txt");
   const { regions, pagesWithoutHeader } = extractDocumentTables(extraction.pages);
 
   it("preserves page boundaries and detects a header-bearing region on every data page", () => {
@@ -39,26 +39,41 @@ describe("SIP-001A table extraction — supported layout fixture", () => {
   it("extracts every syntactically valid row, in source order, on page 1", () => {
     const page1Rows = regions.filter((r) => r.page === 1).flatMap((r) => r.rows);
     const identities = page1Rows.map((r) => r.cells.unit_number);
-    expect(identities).toEqual(["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8"]);
+    expect(identities).toEqual(["X101", "X102", "X103", "X104", "X105", "Y201"]);
     page1Rows.forEach((row, index) => expect(row.sourceRow).toBe(index + 1));
   });
 
   it("recognizes a repeated header on page 2 as a continuation, not a new ambiguous table", () => {
     const page2Regions = regions.filter((r) => r.page === 2);
     expect(page2Regions).toHaveLength(1);
-    expect(page2Regions[0].rows.map((r) => r.cells.unit_number)).toEqual(["B1", "B2", "B3"]);
+    expect(page2Regions[0].rows.map((r) => r.cells.unit_number)).toEqual(["Y202", "Y203"]);
   });
 
   it("merges a wrapped continuation line into the previous row and marks it", () => {
-    const a7 = regions.flatMap((r) => r.rows).find((r) => r.cells.unit_number === "A7");
-    expect(a7?.isContinuation).toBe(true);
-    expect(a7?.cells.availability_status).toBe("Reserved - pending contract");
+    const x105 = regions.flatMap((r) => r.rows).find((r) => r.cells.unit_number === "X105");
+    expect(x105?.isContinuation).toBe(true);
+    expect(x105?.cells.availability_status).toBe("Reserved - pending contract");
   });
 
   it("keeps a sold row with a dash price cell as a row (not dropped)", () => {
-    const a4 = regions.flatMap((r) => r.rows).find((r) => r.cells.unit_number === "A4");
-    expect(a4).toBeDefined();
-    expect(a4?.cells.price).toBe("-");
+    const x102 = regions.flatMap((r) => r.rows).find((r) => r.cells.unit_number === "X102");
+    expect(x102).toBeDefined();
+    expect(x102?.cells.price).toBe("-");
+  });
+
+  it("maps the actual-layout structural features without treating land area as living size", () => {
+    const multi = extractDocumentTables(
+      fixtureExtraction("generic-multirow-table.pdftotext-layout.txt").pages,
+    );
+    expect(multi.regions).toHaveLength(1);
+    expect(multi.regions[0].header.columns.land_area_sqm).toBe("Land Area");
+    expect(multi.regions[0].header.columns.size_sqm).toBe("Living Area");
+    expect(multi.regions[0].rows.map((row) => row.cells.unit_number)).toEqual([
+      "Z11",
+      "Z12",
+      "Q21",
+    ]);
+    expect(multi.regions[0].rows[0].cells.size_sqm).toBe("305.50");
   });
 });
 

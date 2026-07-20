@@ -4,8 +4,8 @@ import { qualifyPdfText } from "../pdf-qualify";
 import { fixtureExtraction } from "./test-support";
 
 describe("SIP-001A text-layer qualification", () => {
-  it("qualifies the supported Rainpalm-like layout", () => {
-    const result = qualifyPdfText(fixtureExtraction("rainpalm-price-list.pdftotext-layout.txt"));
+  it("qualifies the supported generic layout", () => {
+    const result = qualifyPdfText(fixtureExtraction("generic-price-list.pdftotext-layout.txt"));
     expect(result.status).toBe("QUALIFIED_SUPPORTED_LAYOUT");
     expect(result.pageCount).toBe(2);
     expect(result.headerMappings.length).toBeGreaterThan(0);
@@ -33,7 +33,7 @@ describe("SIP-001A text-layer qualification", () => {
   it("returns REVIEW_REQUIRED when a qualified table coexists with an ambiguous header elsewhere", () => {
     // Two pages: page 1 is the fully supported fixture, page 2 has an
     // ambiguous duplicate-Price header — a realistic mixed document.
-    const supported = fixtureExtraction("rainpalm-price-list.pdftotext-layout.txt");
+    const supported = fixtureExtraction("generic-price-list.pdftotext-layout.txt");
     const ambiguous = fixtureExtraction("ambiguous-header.pdftotext-layout.txt");
     const combined = {
       ...supported,
@@ -46,14 +46,14 @@ describe("SIP-001A text-layer qualification", () => {
 
   it("returns TOOL_FAILURE when pdftotext itself did not exit successfully", () => {
     const result = qualifyPdfText(
-      fixtureExtraction("rainpalm-price-list.pdftotext-layout.txt", { exitCode: 1 }),
+      fixtureExtraction("generic-price-list.pdftotext-layout.txt", { exitCode: 1 }),
     );
     expect(result.status).toBe("TOOL_FAILURE");
   });
 
   it("returns TOOL_FAILURE when pdftotext timed out", () => {
     const result = qualifyPdfText(
-      fixtureExtraction("rainpalm-price-list.pdftotext-layout.txt", { timedOut: true }),
+      fixtureExtraction("generic-price-list.pdftotext-layout.txt", { timedOut: true }),
     );
     expect(result.status).toBe("TOOL_FAILURE");
   });

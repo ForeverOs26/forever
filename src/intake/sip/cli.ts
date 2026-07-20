@@ -47,7 +47,10 @@ function printSummary(result: RunSipResult): void {
   console.log(`Source file    : ${result.sourceProof.source_filename}`);
   console.log(`SHA-256        : ${result.sourceProof.sha256}`);
   console.log(`Byte size      : ${result.sourceProof.byte_size}`);
-  console.log(`Poppler version: ${result.preparationSummary.poppler_version ?? "(not found)"}`);
+  const tool = result.preparationSummary.pdf_text_tool;
+  console.log(
+    `PDF text tool  : ${tool.name} ${tool.version ?? "(version unknown)"} (${tool.vendor ?? "unknown vendor"})`,
+  );
   console.log(
     `Detected       : pages=${result.preparationSummary.pages_detected} tables=${result.preparationSummary.tables_detected} rows=${result.preparationSummary.rows_detected}`,
   );
@@ -66,7 +69,9 @@ function printSummary(result: RunSipResult): void {
     console.log(`  ${name}: ${hash}`);
   }
   console.log(line);
-  console.log(`Finalized reviewed JSON: ${result.preparationSummary.finalized ? "yes" : "no"}`);
+  console.log(
+    `Finalized deterministic JSON: ${result.preparationSummary.finalized ? "yes" : "no"}`,
+  );
   console.log("Artifacts:");
   console.log(`  ${result.paths.source_proof}`);
   console.log(`  ${result.paths.qualification}`);

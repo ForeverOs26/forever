@@ -182,7 +182,7 @@ Price History records preserve pricing evidence over time.
 
 ### Standard Values
 
-- Default project currency for Phuket imports: THB unless source data proves otherwise.
+- Default currency for all current Forever Thailand projects: THB with `inferred_default` provenance when the source omits selling-price currency. Any explicitly stated currency, including non-THB, is preserved as `source_verified` and takes priority.
 - Developer price list source label: `developer_price_list`.
 - Price list dates must be normalized to ISO format: `YYYY-MM-DD`.
 

@@ -2,6 +2,9 @@ import type { Fact } from "./types";
 
 export const CURRENCY_RULE_ID = "project_country_default_currency";
 export const CURRENCY_RULE_VERSION = "1.0.0";
+/** Owner-approved product scope: Forever currently handles Thailand projects in THB only. */
+export const OWNER_SCOPE_COUNTRY = "Thailand" as const;
+export const OWNER_SCOPE_CURRENCY = "THB" as const;
 
 export type CurrencyDecisionStatus =
   | "source_verified"
@@ -37,7 +40,7 @@ export interface CurrencyDecision {
 }
 
 const COUNTRY_DEFAULTS: Readonly<Record<string, string>> = {
-  Thailand: "THB",
+  [OWNER_SCOPE_COUNTRY]: OWNER_SCOPE_CURRENCY,
 };
 
 function normalizeCurrency(value: unknown): string | null {
@@ -48,16 +51,23 @@ function normalizeCurrency(value: unknown): string | null {
 
 export function currencyEvidenceFromFact(fact: Fact<string> | undefined): CurrencyEvidence {
   const value = normalizeCurrency(fact?.value);
+  const sourceVerified =
+    value !== null &&
+    fact?.confidence !== "none" &&
+    (fact?.status === undefined || fact.status === "source_verified");
   return {
     value,
-    status: value && fact?.confidence !== "none" ? "source_verified" : "unresolved",
+    status: sourceVerified ? "source_verified" : "unresolved",
     confidence:
       fact?.confidence === "high" || fact?.confidence === "medium" || fact?.confidence === "low"
         ? fact.confidence
         : "none",
     sourceFile: fact?.source_file,
     sourcePage: fact?.page_number,
-    context: "selling-price row",
+    context:
+      fact?.status === "inferred_default"
+        ? "selling-price row (Owner-approved default, not source evidence)"
+        : "selling-price row",
   };
 }
 
@@ -102,9 +112,9 @@ export function decideCurrency(input: {
     };
   }
 
-  const country = input.countryEvidence?.value;
+  const country = input.countryEvidence?.value ?? OWNER_SCOPE_COUNTRY;
   const inferred =
-    input.countryEvidence?.status === "source_verified" && country
+    (!input.countryEvidence || input.countryEvidence.status === "source_verified") && country
       ? COUNTRY_DEFAULTS[country]
       : undefined;
 

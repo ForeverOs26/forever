@@ -1,14 +1,23 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { runSipPriceListExtraction } from "../run";
+import { SipCrashSimulation } from "../artifacts";
 import { readFixture, writeFakePdftotext } from "./test-support";
 
 const ORIGINAL_PATH = process.env.PATH;
 
-describe("SIP-001A run orchestrator — end to end (fake local Poppler)", () => {
+describe("SIP-001A run orchestrator — end to end (fake local PDF text tool)", () => {
   let fake: { dir: string; scriptPath: string };
   let base: string;
 
@@ -24,21 +33,39 @@ describe("SIP-001A run orchestrator — end to end (fake local Poppler)", () => 
   });
 
   function writePdfLike(name: string, fixtureName: string): string {
-    const path = join(base, name);
+    const sourceDir = join(base, "source");
+    mkdirSync(sourceDir, { recursive: true });
+    const path = join(sourceDir, name);
     writeFileSync(path, readFixture(fixtureName), "utf8");
     return path;
   }
 
-  it("qualifies, extracts, and finalizes the supported Rainpalm-like fixture", () => {
+  function fakeTool() {
+    return {
+      found: true,
+      executablePath: process.execPath,
+      argumentPrefix: [fake.scriptPath],
+      vendor: "unknown" as const,
+      versionOutput: "pdftotext version 24.02.0",
+      version: "24.02.0",
+      pdfinfoAvailable: false,
+      pdfinfoVersion: null,
+      executableSha256: null,
+      error: null,
+    };
+  }
+
+  it("qualifies, extracts, and finalizes the supported generic fixture", () => {
     const pdfPath = writePdfLike(
       "rainpalm-villas-price-list.pdf",
-      "rainpalm-price-list.pdftotext-layout.txt",
+      "generic-price-list.pdftotext-layout.txt",
     );
     const result = runSipPriceListExtraction({
       projectSlug: "rainpalm-villas",
       pdfPath,
       outRoot: join(base, "out"),
       workspaceRoot: join(base, "ws"),
+      toolOverride: fakeTool(),
     });
 
     expect(result.qualification.status).toBe("QUALIFIED_SUPPORTED_LAYOUT");
@@ -59,12 +86,23 @@ describe("SIP-001A run orchestrator — end to end (fake local Poppler)", () => 
 
   it("never writes reviewed-price-list.json when the pdftotext tool is unavailable", () => {
     process.env.PATH = "/nonexistent-bin-only";
-    const pdfPath = writePdfLike("no-tool.pdf", "rainpalm-price-list.pdftotext-layout.txt");
+    const pdfPath = writePdfLike("no-tool.pdf", "generic-price-list.pdftotext-layout.txt");
     const result = runSipPriceListExtraction({
       projectSlug: "rainpalm-villas",
       pdfPath,
       outRoot: join(base, "out2"),
       workspaceRoot: join(base, "ws2"),
+      toolOverride: {
+        found: false,
+        executablePath: null,
+        vendor: null,
+        versionOutput: null,
+        version: null,
+        pdfinfoAvailable: false,
+        pdfinfoVersion: null,
+        executableSha256: null,
+        error: "missing",
+      },
     });
 
     expect(result.qualification.status).toBe("TOOL_FAILURE");
@@ -82,6 +120,7 @@ describe("SIP-001A run orchestrator — end to end (fake local Poppler)", () => 
       pdfPath,
       outRoot: join(base, "out3"),
       workspaceRoot: join(base, "ws3"),
+      toolOverride: fakeTool(),
     });
 
     expect(result.preparationSummary.finalized).toBe(false);
@@ -94,13 +133,14 @@ describe("SIP-001A run orchestrator — end to end (fake local Poppler)", () => 
   });
 
   it("produces a byte-identical deterministic repeat run", () => {
-    const pdfPath = writePdfLike("det.pdf", "rainpalm-price-list.pdftotext-layout.txt");
+    const pdfPath = writePdfLike("det.pdf", "generic-price-list.pdftotext-layout.txt");
     const runOnce = () =>
       runSipPriceListExtraction({
         projectSlug: "rainpalm-villas",
         pdfPath,
         outRoot: join(base, `out-${Math.random()}`),
         workspaceRoot: join(base, `ws-${Math.random()}`),
+        toolOverride: fakeTool(),
       });
 
     const a = runOnce();
@@ -118,25 +158,94 @@ describe("SIP-001A run orchestrator — end to end (fake local Poppler)", () => 
     expect(readFileSync(a.paths.qualification, "utf8")).toBe(
       readFileSync(b.paths.qualification, "utf8"),
     );
-    // source-proof's sha256/byte_size are deterministic; only local_only_path
-    // (explicitly operational) is expected to differ between the two temp dirs.
+    // Source proof is fully portable and deterministic; no local path exists.
     const sourceProofA = JSON.parse(readFileSync(a.paths.source_proof, "utf8"));
     const sourceProofB = JSON.parse(readFileSync(b.paths.source_proof, "utf8"));
     expect(sourceProofA.sha256).toBe(sourceProofB.sha256);
     expect(sourceProofA.byte_size).toBe(sourceProofB.byte_size);
+    expect(sourceProofA).toEqual(sourceProofB);
   });
 
   it("leaves no lock, staging, or temporary residue in the workspace after a run", () => {
-    const pdfPath = writePdfLike("clean.pdf", "rainpalm-price-list.pdftotext-layout.txt");
+    const pdfPath = writePdfLike("clean.pdf", "generic-price-list.pdftotext-layout.txt");
     const workspaceRoot = join(base, "ws-clean");
     runSipPriceListExtraction({
       projectSlug: "rainpalm-villas",
       pdfPath,
       outRoot: join(base, "out-clean"),
       workspaceRoot,
+      toolOverride: fakeTool(),
     });
     const remaining = existsSync(workspaceRoot) ? readdirSync(workspaceRoot) : [];
     expect(remaining).toHaveLength(0);
+  });
+
+  it("rolls back the whole generation after an in-process failure between backup and install", () => {
+    const firstPdf = writePdfLike("first.pdf", "generic-price-list.pdftotext-layout.txt");
+    const outRoot = join(base, "out-transaction");
+    const first = runSipPriceListExtraction({
+      projectSlug: "rainpalm-villas",
+      pdfPath: firstPdf,
+      outRoot,
+      workspaceRoot: join(base, "ws-transaction-1"),
+      toolOverride: fakeTool(),
+    });
+    const before = readFileSync(first.paths.source_proof, "utf8");
+    const secondPdf = writePdfLike("second.pdf", "no-currency-evidence.pdftotext-layout.txt");
+
+    expect(() =>
+      runSipPriceListExtraction({
+        projectSlug: "rainpalm-villas",
+        pdfPath: secondPdf,
+        outRoot,
+        workspaceRoot: join(base, "ws-transaction-2"),
+        toolOverride: fakeTool(),
+        artifactHooks: { failAt: "after-backup" },
+      }),
+    ).toThrow(/sip_injected_failure/);
+
+    expect(readFileSync(first.paths.source_proof, "utf8")).toBe(before);
+    const projectEntries = readdirSync(join(outRoot, "rainpalm-villas"));
+    expect(
+      projectEntries.filter((name) => name.startsWith(".sip-") || name.startsWith("sip.bak-")),
+    ).toEqual([]);
+  });
+
+  it("recovers a simulated hard interruption before publishing the next generation", () => {
+    const firstPdf = writePdfLike("crash-first.pdf", "generic-price-list.pdftotext-layout.txt");
+    const outRoot = join(base, "out-crash");
+    runSipPriceListExtraction({
+      projectSlug: "rainpalm-villas",
+      pdfPath: firstPdf,
+      outRoot,
+      workspaceRoot: join(base, "ws-crash-1"),
+      toolOverride: fakeTool(),
+    });
+    const secondPdf = writePdfLike("crash-second.pdf", "no-currency-evidence.pdftotext-layout.txt");
+
+    expect(() =>
+      runSipPriceListExtraction({
+        projectSlug: "rainpalm-villas",
+        pdfPath: secondPdf,
+        outRoot,
+        workspaceRoot: join(base, "ws-crash-2"),
+        toolOverride: fakeTool(),
+        artifactHooks: { crashAt: "after-backup" },
+      }),
+    ).toThrow(SipCrashSimulation);
+
+    const recovered = runSipPriceListExtraction({
+      projectSlug: "rainpalm-villas",
+      pdfPath: secondPdf,
+      outRoot,
+      workspaceRoot: join(base, "ws-crash-3"),
+      toolOverride: fakeTool(),
+    });
+    expect(recovered.sourceProof.source_filename).toBe("crash-second.pdf");
+    const projectEntries = readdirSync(join(outRoot, "rainpalm-villas"));
+    expect(
+      projectEntries.filter((name) => name.startsWith(".sip-") || name.startsWith("sip.bak-")),
+    ).toEqual([]);
   });
 });
 

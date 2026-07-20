@@ -3,9 +3,9 @@
  *
  * This is the ONLY module in SIP-001A authorized to read the manually
  * reviewed ground-truth comparison JSON. It runs strictly AFTER the
- * reviewed final `ExtractedPriceList` is already fixed — it never feeds
+ * finalized deterministic `ExtractedPriceList` is already fixed — it never feeds
  * anything back into extraction, qualification, normalization, or review,
- * and it never modifies the reviewed output to match the ground truth. It
+ * and it never modifies extraction output to match the ground truth. It
  * is a read-only oracle check, not an extraction input.
  *
  * Every metric is reported as an explicit numerator/denominator pair; there
@@ -22,6 +22,12 @@ export interface Ratio {
 }
 
 export interface ComparisonReport {
+  sip_schema_version?: "1";
+  project_slug?: string;
+  source_pdf_sha256?: string;
+  generation_id?: string;
+  finalized_price_list_sha256?: string;
+  ground_truth_sha256?: string;
   extracted_unit_row_recall: Ratio;
   exact_unit_identity_agreement: Ratio;
   exact_unit_type_agreement: Ratio;
@@ -67,8 +73,20 @@ function fieldEquals(a: unknown, b: unknown): boolean {
   return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 }
 
+function comparablePrice(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim().replace(/,/g, "");
+  if (!/^\d+(?:\.\d+)?$/.test(normalized)) return null;
+  return Number(normalized);
+}
+
+function comparableUnitType(value: unknown): string | null {
+  const normalized = normalizeIdentity(value);
+  return normalized?.replace(/^POOL\s+VILLA\s+TYPE\s+/, "") ?? null;
+}
+
 /**
- * Compare a reviewed final `ExtractedPriceList` against a ground-truth
+ * Compare a finalized deterministic `ExtractedPriceList` against a ground-truth
  * `ExtractedPriceList`-shaped file, read-only. Never mutates either input.
  */
 export function compareAgainstGroundTruth(
@@ -107,8 +125,6 @@ export function compareAgainstGroundTruth(
   for (const [key, gtRow] of groundTruthByIdentity) {
     const extractedRow = extractedByIdentity.get(key);
     if (!extractedRow) {
-      const gtPrice = factValue(gtRow.price);
-      if (gtPrice === null) lostNullPriceCount += 1;
       continue;
     }
     recallHits += 1;
@@ -119,7 +135,9 @@ export function compareAgainstGroundTruth(
     const gtType = factValue(gtRow.unit_type);
     if (gtType !== null) {
       unitTypeComparable += 1;
-      if (fieldEquals(gtType, factValue(extractedRow.unit_type))) unitTypeHits += 1;
+      if (comparableUnitType(gtType) === comparableUnitType(factValue(extractedRow.unit_type))) {
+        unitTypeHits += 1;
+      }
     }
     const gtBed = factValue(gtRow.bedrooms);
     if (gtBed !== null) {
@@ -149,16 +167,19 @@ export function compareAgainstGroundTruth(
       if (fieldEquals(gtCurrency, factValue(extractedRow.currency))) currencyHits += 1;
     }
 
-    const gtPrice = factValue(gtRow.price);
-    const extractedPrice = factValue(extractedRow.price);
-    if (gtPrice !== null && Number(gtPrice) > 0) {
+    const gtPrice = comparablePrice(factValue(gtRow.price));
+    const extractedPrice = comparablePrice(factValue(extractedRow.price));
+    if (gtPrice !== null && gtPrice > 0) {
       positivePriceComparable += 1;
-      if (fieldEquals(gtPrice, extractedPrice)) positivePriceHits += 1;
+      if (gtPrice === extractedPrice) positivePriceHits += 1;
     }
     if (gtPrice === null) {
       nullPriceComparable += 1;
       if (extractedPrice === null) nullPriceHits += 1;
-      else fabricatedPriceCount += 1;
+      else {
+        fabricatedPriceCount += 1;
+        lostNullPriceCount += 1;
+      }
     }
   }
 
@@ -166,14 +187,18 @@ export function compareAgainstGroundTruth(
     (key) => !groundTruthByIdentity.has(key),
   ).length;
 
-  const sourceRefTotal = reviewedRows.length;
-  const sourceRefComplete = reviewedRows.filter((row) => {
-    const price = row.price;
-    return (
-      Boolean(price && price.source_file && price.page_number != null) ||
-      factValue(row.price) === null
-    );
-  }).length;
+  const sourceFacts = reviewedRows.flatMap((row) =>
+    Object.entries(row)
+      .filter(([name]) => name !== "source_row")
+      .map(([, value]) => value)
+      .filter((value): value is Fact<unknown> =>
+        Boolean(value && typeof value === "object" && "status" in value),
+      ),
+  );
+  const sourceRefTotal = sourceFacts.length;
+  const sourceRefComplete = sourceFacts.filter(
+    (fact) => Boolean(fact.source_file) && fact.page_number != null,
+  ).length;
 
   return {
     extracted_unit_row_recall: { numerator: recallHits, denominator: groundTruthByIdentity.size },

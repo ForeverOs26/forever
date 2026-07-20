@@ -7,7 +7,7 @@ import { loadManifest } from "./manifest";
 import { createImportPlan } from "./planner";
 import { validateImportPlanRelationships } from "./plan-validator";
 import { validateProjectImport } from "./validator";
-import { decideCurrency, type CurrencyEvidence } from "./currency-policy";
+import { currencyEvidenceFromFact, decideCurrency, type CurrencyEvidence } from "./currency-policy";
 import { createPriceHistoryPersistencePayload, type PriceHistoryInput } from "./database";
 
 const MODEVA_CURRENCY_FIXTURE_ROOT = resolve(process.cwd(), "src/import/test-fixtures");
@@ -36,10 +36,15 @@ const country = (value: string | null, verified = true): CurrencyEvidence => ({
 });
 
 describe("Forever currency policy", () => {
-  it.each(["THB", "USD"])("preserves explicit %s as source_verified", (value) => {
+  it("preserves explicit THB as source_verified", () => {
     expect(
-      decideCurrency({ priceEvidence: [explicit(value)], countryEvidence: country("Thailand") }),
-    ).toMatchObject({ value, status: "source_verified", confidence: "high" });
+      decideCurrency({ priceEvidence: [explicit("THB")], countryEvidence: country("Thailand") }),
+    ).toMatchObject({ value: "THB", status: "source_verified", confidence: "high" });
+  });
+
+  it("preserves an explicitly stated non-THB source currency", () => {
+    const decision = decideCurrency({ priceEvidence: [explicit("USD")] });
+    expect(decision).toMatchObject({ value: "USD", status: "source_verified", confidence: "high" });
   });
 
   it("infers THB only from source-verified Thailand", () => {
@@ -51,6 +56,14 @@ describe("Forever currency policy", () => {
       confidence: "medium",
       inferenceRule: "project_country_default_currency",
       inferenceRuleVersion: "1.0.0",
+      inferredFromCountry: "Thailand",
+    });
+  });
+
+  it("defaults to THB when no country evidence is supplied under the current Owner scope", () => {
+    expect(decideCurrency({ priceEvidence: [absent] })).toMatchObject({
+      value: "THB",
+      status: "inferred_default",
       inferredFromCountry: "Thailand",
     });
   });
@@ -68,6 +81,21 @@ describe("Forever currency policy", () => {
     expect(
       decideCurrency({ priceEvidence: [explicit("USD")], countryEvidence: country("Thailand") }),
     ).toMatchObject({ value: "USD", status: "source_verified" });
+  });
+
+  it("does not relabel an inferred-default Fact as source evidence", () => {
+    const evidence = currencyEvidenceFromFact({
+      value: "THB",
+      source_file: "price-list.pdf",
+      page_number: 1,
+      confidence: "medium",
+      status: "inferred_default",
+    });
+    expect(evidence).toMatchObject({ value: "THB", status: "unresolved", confidence: "medium" });
+    expect(decideCurrency({ priceEvidence: [evidence] })).toMatchObject({
+      value: "THB",
+      status: "inferred_default",
+    });
   });
 
   it("returns a blocking review finding for conflicting explicit currencies", () => {

@@ -1,0 +1,10 @@
+Cedar Grove - Inventory
+
+No.  Villa       Pool Villa                       Land Area       Living Area  Bedroom  Bathroom  Price       Furniture Package  Maintenance Fees  Sinking Fund  Status
+
+     Number                      Type             (sq.m.)         (sq.m.)
+1    Z11                         Courtyard        410.00          305.50       3        4         21,500,000  1,200,000          82,000            152,750       Available
+2    Z12                         Courtyard        395.00          305.50       3        4                                                               152,750       Sold
+3    Q21                         Pavilion         520.00          440.25       4        5         29,750,000  1,600,000          95,000            220,125       Reserved
+
+Common fees 30 THB per Sqm. / Monthly

@@ -20,184 +20,203 @@ function rowFor(
   rows: ReturnType<typeof candidatesFor>["priceList"]["unit_inventory"],
   unit: string,
 ) {
-  return rows?.find((r) => r.unit_number?.value === unit);
+  return rows?.find((row) => row.unit_number?.value === unit);
 }
 
-describe("SIP-001A candidate normalization — the Rainpalm-like fixture", () => {
+describe("SIP-001A candidate normalization - independent generic fixture", () => {
   const { priceList, reviewItems, duplicateUnitIdentities } = candidatesFor(
-    "rainpalm-price-list.pdftotext-layout.txt",
+    "generic-price-list.pdftotext-layout.txt",
   );
   const rows = priceList.unit_inventory ?? [];
 
-  it("produces no duplicate identities on the happy-path fixture", () => {
+  it("produces no duplicate identities", () => {
     expect(duplicateUnitIdentities).toEqual([]);
   });
 
-  it("wraps a positive price as a high-confidence source-verified numeric fact with source refs", () => {
-    const a1 = rowFor(rows, "A1")!;
-    expect(a1.price?.value).toBe(12500000);
-    expect(a1.price?.confidence).toBe("high");
-    expect(a1.price?.status).toBe("source_verified");
-    expect(a1.price?.source_file).toBe("price-list.pdf");
-    expect(a1.price?.page_number).toBe(1);
-    expect(a1.price?.raw_value).toBe("12,500,000");
+  it("wraps a positive price as a source-verified numeric fact with exact refs", () => {
+    const row = rowFor(rows, "X101")!;
+    expect(row.price).toMatchObject({
+      value: 18750000,
+      raw_value: "18,750,000",
+      confidence: "high",
+      status: "source_verified",
+      source_file: "price-list.pdf",
+      page_number: 1,
+    });
   });
 
-  it("nulls a dash/sentinel price with confidence none and status unresolved, without a review item", () => {
-    const a4 = rowFor(rows, "A4")!;
-    expect(a4.price?.value).toBeNull();
-    expect(a4.price?.confidence).toBe("none");
-    expect(a4.price?.status).toBe("unresolved");
-    expect(reviewItems.some((i) => i.row === a4.source_row && i.column === "price")).toBe(false);
+  it("preserves a source-null sold row without creating a review item for the dash", () => {
+    const row = rowFor(rows, "X102")!;
+    expect(row.price).toMatchObject({ value: null, confidence: "none", status: "unresolved" });
+    expect(reviewItems.some((item) => item.row === row.source_row && item.column === "price")).toBe(
+      false,
+    );
   });
 
-  it("nulls a zero price and raises a review item (never a fabricated value)", () => {
-    const a5 = rowFor(rows, "A5")!;
-    expect(a5.price?.value).toBeNull();
-    const item = reviewItems.find((i) => i.column === "price" && i.row === a5.source_row);
-    expect(item?.reasonCode).toBe("price_unsupported_value");
+  it("nulls zero and non-numeric prices and creates review items", () => {
+    for (const unit of ["X103", "X104"]) {
+      const row = rowFor(rows, unit)!;
+      expect(row.price?.value).toBeNull();
+      expect(
+        reviewItems.some(
+          (item) => item.row === row.source_row && item.reasonCode === "price_unsupported_value",
+        ),
+      ).toBe(true);
+    }
   });
 
-  it("nulls a non-numeric price and raises a review item", () => {
-    const a6 = rowFor(rows, "A6")!;
-    expect(a6.price?.value).toBeNull();
-    const item = reviewItems.find((i) => i.column === "price" && i.row === a6.source_row);
-    expect(item?.reasonCode).toBe("price_unsupported_value");
+  it("never calculates price-per-sqm", () => {
+    const row = rowFor(rows, "X101")!;
+    expect(row.size_sqm?.value).toBe(201.5);
+    expect(row.price?.value).toBe(18750000);
+    expect((row as unknown as Record<string, unknown>).price_per_sqm).toBeUndefined();
   });
 
-  it("never performs price arithmetic — size_sqm and price are independent facts", () => {
-    const a1 = rowFor(rows, "A1")!;
-    expect(a1.size_sqm?.value).toBe(220.5);
-    expect(a1.price?.value).toBe(12500000);
-    expect((a1 as unknown as Record<string, unknown>).price_per_sqm).toBeUndefined();
+  it("uses source THB when the selling-price header states THB", () => {
+    const row = rowFor(rows, "X101")!;
+    expect(row.currency?.value).toBe("THB");
+    expect(row.currency?.status).toBe("source_verified");
+    expect(priceList.currency_decision).toMatchObject({ value: "THB", status: "source_verified" });
   });
 
-  it("takes currency only from the mapped price column's own header evidence", () => {
-    const a1 = rowFor(rows, "A1")!;
-    expect(a1.currency?.value).toBe("THB");
-    expect(a1.currency?.status).toBe("source_verified");
-    expect(priceList.currency_decision?.value).toBe("THB");
-    expect(priceList.currency_decision?.status).toBe("source_verified");
+  it("normalizes mapped availability and reviews unmapped continuation text", () => {
+    expect(rowFor(rows, "X101")?.availability_status?.value).toBe("Available");
+    expect(rowFor(rows, "X105")?.availability_status?.raw_value).toBe(
+      "Reserved - pending contract",
+    );
+    expect(reviewItems.some((item) => item.reasonCode === "medium_confidence_cell")).toBe(true);
   });
 
-  it("normalizes a known availability label with high confidence", () => {
-    const a1 = rowFor(rows, "A1")!;
-    expect(a1.availability_status?.value).toBe("Available");
-    expect(a1.availability_status?.confidence).toBe("high");
-  });
-
-  it("merges a continuation line's text into the previous row's availability", () => {
-    const a7 = rowFor(rows, "A7")!;
-    expect(a7.availability_status?.raw_value).toBe("Reserved - pending contract");
-  });
-
-  it("keeps every row (source-null sold villas remain rows with null prices)", () => {
-    expect(rows.map((r) => r.unit_number?.value)).toEqual([
-      "A1",
-      "A2",
-      "A3",
-      "A4",
-      "A5",
-      "A6",
-      "A7",
-      "A8",
-      "B1",
-      "B2",
-      "B3",
+  it("keeps every source row in source order", () => {
+    expect(rows.map((row) => row.unit_number?.value)).toEqual([
+      "X101",
+      "X102",
+      "X103",
+      "X104",
+      "X105",
+      "Y201",
+      "Y202",
+      "Y203",
     ]);
   });
 
-  it("assigns stable, sequential review-item IDs", () => {
+  it("assigns stable sequential review IDs", () => {
     expect(
-      reviewItems.every((item, i) => item.id === `REVIEW-${String(i + 1).padStart(4, "0")}`),
+      reviewItems.every(
+        (item, index) => item.id === `REVIEW-${String(index + 1).padStart(4, "0")}`,
+      ),
     ).toBe(true);
   });
 });
 
-describe("SIP-001A candidate normalization — currency edge cases", () => {
-  it("leaves currency unresolved and flags review when the price column has no parenthetical evidence", () => {
+describe("SIP-001A Owner-approved THB scope", () => {
+  it("uses inferred_default THB when the selling-price header has no currency", () => {
     const { priceList, reviewItems } = candidatesFor("no-currency-evidence.pdftotext-layout.txt");
-    const rows = priceList.unit_inventory ?? [];
-    expect(rows.every((r) => r.currency === undefined)).toBe(true);
-    expect(priceList.currency_decision?.status).toBe("unresolved");
-    expect(reviewItems.some((i) => i.reasonCode === "unclear_or_inferred_currency")).toBe(true);
+    expect(
+      priceList.unit_inventory?.every(
+        (row) => row.currency?.value === "THB" && row.currency.status === "inferred_default",
+      ),
+    ).toBe(true);
+    expect(priceList.currency_decision).toMatchObject({ value: "THB", status: "inferred_default" });
+    expect(reviewItems.some((item) => item.reasonCode === "unclear_or_inferred_currency")).toBe(
+      false,
+    );
   });
 
-  it("never treats a fee column's currency as price-currency evidence", () => {
+  it("does not treat a THB fee column as selling-price source evidence", () => {
     const { priceList } = candidatesFor("fee-currency-not-applicable.pdftotext-layout.txt");
-    const rows = priceList.unit_inventory ?? [];
-    expect(rows[0].currency).toBeUndefined();
-    expect(priceList.currency_decision?.status).toBe("unresolved");
+    expect(priceList.unit_inventory?.[0].currency).toMatchObject({
+      value: "THB",
+      status: "inferred_default",
+    });
+    expect(priceList.currency_decision).toMatchObject({ value: "THB", status: "inferred_default" });
   });
 });
 
-describe("SIP-001A candidate normalization — numeric separators and identity", () => {
-  it("flags an ambiguous thousands/decimal separator instead of guessing a value", () => {
+describe("SIP-001A numeric separators and identity", () => {
+  it("flags an ambiguous thousands/decimal separator", () => {
     const { priceList, reviewItems } = candidatesFor(
       "ambiguous-numeric-separator.pdftotext-layout.txt",
     );
-    const row = priceList.unit_inventory?.[0];
-    expect(row?.price?.value).toBeNull();
-    expect(reviewItems.some((i) => i.reasonCode === "unsupported_numeric_separator")).toBe(true);
+    expect(priceList.unit_inventory?.[0].price?.value).toBeNull();
+    expect(reviewItems.some((item) => item.reasonCode === "unsupported_numeric_separator")).toBe(
+      true,
+    );
   });
 
-  it("blocks on duplicate normalized unit identities", () => {
+  it("blocks duplicate normalized unit identities", () => {
     const { duplicateUnitIdentities, reviewItems } = candidatesFor(
       "duplicate-identity.pdftotext-layout.txt",
     );
     expect(duplicateUnitIdentities).toEqual(["A1"]);
-    const blocking = reviewItems.filter((i) => i.reasonCode === "duplicate_identity");
+    const blocking = reviewItems.filter((item) => item.reasonCode === "duplicate_identity");
     expect(blocking).toHaveLength(2);
-    expect(blocking.every((i) => i.blocking)).toBe(true);
+    expect(blocking.every((item) => item.blocking)).toBe(true);
   });
 });
 
-describe("SIP-001A price-list date extraction — document content only", () => {
-  it("extracts a single unambiguous date from document text", () => {
+describe("SIP-001A date extraction - document content only", () => {
+  it("extracts one unambiguous content date", () => {
     resetReviewIdCounter();
-    const extraction = fixtureExtraction("rainpalm-price-list.pdftotext-layout.txt");
+    const extraction = fixtureExtraction("generic-price-list.pdftotext-layout.txt");
     const result = extractPriceListDate(extraction.pages, "price-list.pdf");
     expect(result.fact?.value).toBe("2026-07-03");
     expect(result.fact?.raw_value).toContain("03.07.26");
     expect(result.reviewItem).toBeNull();
   });
 
-  it("flags conflicting dates as unclear instead of picking one", () => {
+  it("flags conflicting dates", () => {
     resetReviewIdCounter();
-    const extraction = fixtureExtraction("conflicting-date.pdftotext-layout.txt");
-    const result = extractPriceListDate(extraction.pages, "price-list.pdf");
+    const result = extractPriceListDate(
+      fixtureExtraction("conflicting-date.pdftotext-layout.txt").pages,
+      "price-list.pdf",
+    );
     expect(result.fact).toBeNull();
     expect(result.reviewItem?.reasonCode).toBe("unclear_date");
   });
 
-  it("omits the date fact entirely when no date appears in the document", () => {
+  it("omits a date when document content has none", () => {
     resetReviewIdCounter();
-    const extraction = fixtureExtraction("no-currency-evidence.pdftotext-layout.txt");
-    const result = extractPriceListDate(extraction.pages, "price-list.pdf");
+    const result = extractPriceListDate(
+      fixtureExtraction("no-currency-evidence.pdftotext-layout.txt").pages,
+      "price-list.pdf",
+    );
     expect(result.fact).toBeNull();
     expect(result.reviewItem).toBeNull();
   });
+
+  it("rejects impossible calendar dates", () => {
+    resetReviewIdCounter();
+    const pages = [{ pageNumber: 1, text: "Effective: 31.02.2026", nonWhitespaceCharCount: 20 }];
+    const result = extractPriceListDate(pages, "price-list.pdf");
+    expect(result.fact).toBeNull();
+    expect(result.reviewItem?.reasonCode).toBe("unclear_date");
+  });
 });
 
-describe("SIP-001A reviewed final JSON — only high-confidence cells survive", () => {
-  it("nulls out medium-confidence cells rather than accepting them without review", () => {
-    resetReviewIdCounter();
-    const { priceList } = candidatesFor("rainpalm-price-list.pdftotext-layout.txt");
-    const reviewed = buildReviewedPriceList(priceList);
-    const a8 = rowFor(reviewed.unit_inventory, "A8")!;
-    // A8 is Studio / bed=2 / bath=2 — all clean numeric/text high-confidence
-    // cells, so nothing should be nulled for it.
-    expect(a8.unit_type?.value).toBe("Studio");
-    // The row structure survives finalization unchanged for a fully clean row.
-    expect(a8.price?.value).toBe(9500000);
+describe("SIP-001A finalized deterministic JSON", () => {
+  it("omits medium-confidence values while retaining clean rows", () => {
+    const { priceList } = candidatesFor("generic-price-list.pdftotext-layout.txt");
+    const finalized = buildReviewedPriceList(priceList);
+    const clean = rowFor(finalized.unit_inventory, "Y202")!;
+    expect(clean.unit_type?.value).toBe("Pavilion");
+    expect(clean.price?.value).toBe(24100000);
+    expect(rowFor(finalized.unit_inventory, "X105")?.availability_status?.value).toBeNull();
   });
 
-  it("keeps a source-null sold row as a null-price row in the reviewed output", () => {
-    resetReviewIdCounter();
-    const { priceList } = candidatesFor("rainpalm-price-list.pdftotext-layout.txt");
-    const reviewed = buildReviewedPriceList(priceList);
-    const a4 = rowFor(reviewed.unit_inventory, "A4")!;
-    expect(a4).toBeDefined();
-    expect(a4.price?.value).toBeNull();
+  it("keeps a source-null sold row", () => {
+    const { priceList } = candidatesFor("generic-price-list.pdftotext-layout.txt");
+    const finalized = buildReviewedPriceList(priceList);
+    expect(rowFor(finalized.unit_inventory, "X102")?.price?.value).toBeNull();
+  });
+
+  it("retains the Owner-approved inferred-default THB fact", () => {
+    const { priceList } = candidatesFor("no-currency-evidence.pdftotext-layout.txt");
+    const finalized = buildReviewedPriceList(priceList);
+    expect(finalized.unit_inventory?.[0].currency).toMatchObject({
+      value: "THB",
+      status: "inferred_default",
+      confidence: "medium",
+    });
   });
 });

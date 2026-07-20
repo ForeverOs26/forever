@@ -57,19 +57,49 @@ describe("SIP-001A ground-truth comparison — read-only, explicit numerators/de
     expect(report.missing_expected_row_count).toBe(1); // A9 never found
     expect(report.unexpected_row_count).toBe(1); // A99
     expect(report.fabricated_price_count).toBe(0);
+    expect(report.lost_null_price_count).toBe(0);
     expect(report.review_item_count).toBe(2);
+  });
+
+  it("compares formatted prices and equivalent compact unit-type labels", () => {
+    const reviewed = priceList([
+      { unit_number: fact("A1"), unit_type: fact("A"), price: fact(12500000) },
+    ]);
+    const formattedGroundTruth = priceList([
+      {
+        unit_number: fact("A1"),
+        unit_type: fact("Pool Villa Type A"),
+        price: fact("12,500,000"),
+      },
+    ]);
+    const report = compareAgainstGroundTruth(reviewed, formattedGroundTruth);
+    expect(report.exact_unit_type_agreement).toEqual({ numerator: 1, denominator: 1 });
+    expect(report.positive_price_agreement).toEqual({ numerator: 1, denominator: 1 });
   });
 
   it("counts a fabricated price when a ground-truth null-price unit gets a positive extracted price", () => {
     const reviewed = priceList([{ unit_number: fact("A4"), price: fact(5000000) }]);
     const report = compareAgainstGroundTruth(reviewed, groundTruth);
     expect(report.fabricated_price_count).toBe(1);
+    expect(report.lost_null_price_count).toBe(1);
   });
 
-  it("counts a lost null-price row when a ground-truth null-price unit is entirely missing", () => {
+  it("reports a missing null-price row separately without calling the absent value fabricated", () => {
     const reviewed = priceList([{ unit_number: fact("A1"), price: fact(12500000) }]);
     const report = compareAgainstGroundTruth(reviewed, groundTruth);
-    expect(report.lost_null_price_count).toBe(1); // A4 missing entirely
+    expect(report.lost_null_price_count).toBe(0);
+    expect(report.missing_expected_row_count).toBe(2);
+  });
+
+  it("requires source references even for an explicit null-price fact", () => {
+    const reviewed = priceList([
+      {
+        unit_number: fact("A4"),
+        price: fact<string | number>(null, { source_file: null, page_number: null }),
+      },
+    ]);
+    const report = compareAgainstGroundTruth(reviewed, groundTruth);
+    expect(report.source_reference_completeness).toEqual({ numerator: 1, denominator: 2 });
   });
 
   it("never mutates the reviewed or ground-truth input objects", () => {

@@ -148,6 +148,10 @@ export function buildPriceListCandidates(
       }
       rows.push(row);
     }
+
+    // Missing selling-price currency is resolved only by the existing
+    // Owner-approved Thailand/THB product-scope default in decideCurrency().
+    // It is never mislabeled as source evidence from this PDF.
   }
 
   const duplicateUnitIdentities = [...identityOccurrences.entries()]
@@ -182,6 +186,20 @@ export function buildPriceListCandidates(
   }
 
   const currencyDecision = decideCurrency({ priceEvidence });
+
+  if (currencyDecision.status === "inferred_default" && currencyDecision.value) {
+    for (const row of rows) {
+      if (row.currency) continue;
+      row.currency = {
+        value: currencyDecision.value,
+        raw_value: null,
+        source_file: sourceFilename,
+        page_number: row.unit_number?.page_number ?? null,
+        confidence: "medium",
+        status: "inferred_default",
+      };
+    }
+  }
 
   const priceList: ExtractedPriceList = {
     currency_decision: currencyDecision,
@@ -318,23 +336,6 @@ function buildRow(
     };
   }
   priceEvidence.push(currencyEvidenceFromFact(currency));
-  if (!currency) {
-    reviewItems.push(
-      makeReviewItem({
-        reasonCode: "unclear_or_inferred_currency",
-        candidateValue: null,
-        rawText: region.header.rawHeaderLine,
-        sourceRef: baseRef,
-        page: pageNumber,
-        table: region.tableIndex,
-        row: raw.sourceRow,
-        column: "price",
-        recommendedAction: "unresolved",
-        allowedActions: ["unresolved", "edit"],
-        blocking: false,
-      }),
-    );
-  }
 
   const availabilityRaw = raw.cells.availability_status?.trim();
   let availability: Fact<string> | undefined;
@@ -446,10 +447,10 @@ function numericOrTextFact(
 }
 
 /**
- * Build the reviewed final price list: only high-confidence (or already
+ * Build the finalized deterministic price list: only high-confidence (or already
  * null/none) cells are kept as-is. Any medium/low-confidence candidate cell
  * — logged as a review item above — is nulled out (never guessed into an
- * accepted value) pending separate Owner review/edit/accept-as-owner-verified.
+ * accepted value) pending separate Owner review or edit.
  * Rows are never dropped: a source-null sold villa stays a row with a null
  * price, exactly as the candidate had it.
  */
@@ -460,7 +461,10 @@ export function buildReviewedPriceList(candidate: ExtractedPriceList): Extracted
       if (key === "source_row") continue;
       const fact = row[key] as Fact | undefined;
       if (!fact || typeof fact !== "object" || !("value" in fact)) continue;
-      if (fact.confidence === "medium" || fact.confidence === "low") {
+      if (
+        (fact.confidence === "medium" || fact.confidence === "low") &&
+        fact.status !== "inferred_default"
+      ) {
         (nextRow as Record<string, unknown>)[key] = {
           value: null,
           source_file: fact.source_file ?? null,
@@ -502,10 +506,17 @@ export function extractPriceListDate(
       const year = yy.length === 2 ? Number(`20${yy}`) : Number(yy);
       const month = Number(mm);
       const day = Number(dd);
-      const iso =
-        month >= 1 && month <= 12 && day >= 1 && day <= 31
-          ? `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-          : null;
+      const date = new Date(Date.UTC(year, month - 1, day));
+      const valid =
+        month >= 1 &&
+        month <= 12 &&
+        day >= 1 &&
+        date.getUTCFullYear() === year &&
+        date.getUTCMonth() === month - 1 &&
+        date.getUTCDate() === day;
+      const iso = valid
+        ? `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+        : null;
       matches.push({ page: page.pageNumber, raw, iso });
     }
   }

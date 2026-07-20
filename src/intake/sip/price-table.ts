@@ -1,7 +1,7 @@
 /**
  * SIP-001A — deterministic price-table extraction for one supported layout.
  *
- * The supported Rainpalm-like layout is a fixed-width table produced by
+ * The supported layout is a narrow fixed-width table produced by
  * `pdftotext -layout`: one header line naming columns from a fixed
  * dictionary (never guessed), followed by data lines whose cells are sliced
  * at the header's column start offsets. Headers may repeat on later pages;
@@ -36,10 +36,14 @@ const HEADER_DICTIONARY: ReadonlyArray<{ field: PriceTableField; labels: string[
       "unit/villa",
     ],
   },
-  { field: "unit_type", labels: ["type", "unit type", "villa type"] },
+  { field: "unit_type", labels: ["type", "unit type", "villa type", "pool villa"] },
   { field: "building", labels: ["building", "block", "zone", "phase"] },
   { field: "bedrooms", labels: ["bed", "beds", "bedroom", "bedrooms", "bd", "bdr"] },
   { field: "bathrooms", labels: ["bath", "baths", "bathroom", "bathrooms", "ba"] },
+  {
+    field: "land_area_sqm",
+    labels: ["land area", "land area sqm", "plot area", "plot size"],
+  },
   {
     field: "size_sqm",
     labels: ["size", "area", "living area", "usable area", "sqm", "size sqm", "living/usable size"],
@@ -85,7 +89,7 @@ export function splitColumns(line: string): Array<{ text: string; start: number 
   return columns;
 }
 
-const UNIT_IDENTITY_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9\-/. ]{0,18}[A-Za-z0-9])?$/;
+const UNIT_IDENTITY_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9\-/.]{0,18}[A-Za-z0-9])?$/;
 
 export function isSyntacticUnitIdentity(value: string): boolean {
   const v = value.trim();
@@ -260,13 +264,30 @@ export function extractPageTables(page: PdfTextPage): PageTableExtraction {
     const hasOtherContent = Object.values(cells).some((value) => value && value.trim());
     if (unitCell === "" && hasOtherContent && current.rows.length > 0) {
       const previous = current.rows[current.rows.length - 1];
+      let merged = false;
       for (const [field, value] of Object.entries(cells) as Array<[PriceTableField, string]>) {
         if (!value || !value.trim()) continue;
-        previous.cells[field] = previous.cells[field]
-          ? `${previous.cells[field]} ${value.trim()}`
-          : value.trim();
+        const existing = previous.cells[field]?.trim();
+        if (existing) {
+          // Xpdf table mode can emit detached duplicates/numeric cells on the
+          // following line. Never append those to the prior row. A genuine
+          // wrapped continuation is limited to descriptive text columns.
+          if (existing.toLowerCase() === value.trim().toLowerCase()) continue;
+          if (
+            !new Set<PriceTableField>(["availability_status", "unit_type", "building"]).has(field)
+          ) {
+            continue;
+          }
+          previous.cells[field] = `${existing} ${value.trim()}`;
+          merged = true;
+        } else if (
+          new Set<PriceTableField>(["availability_status", "unit_type", "building"]).has(field)
+        ) {
+          previous.cells[field] = value.trim();
+          merged = true;
+        }
       }
-      previous.isContinuation = true;
+      if (merged) previous.isContinuation = true;
     }
     // Otherwise: footer/legend/notes text under a qualified table — ignored.
   }
@@ -296,4 +317,74 @@ export function extractDocumentTables(pages: PdfTextPage[]): DocumentTableExtrac
   }
 
   return { regions, ambiguousHeaderLines, pagesWithoutHeader };
+}
+
+const LAYOUT_CORE_ROW =
+  /^\s*\d{1,3}\s+([A-Za-z0-9][A-Za-z0-9\-/.]{0,19})\s+(\S+)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)(?:\s|$)/;
+
+/**
+ * Xpdf `-table` is reliable for Rainpalm's price/status geometry but can
+ * detach an occasional bedroom/bathroom cell. Its required `-layout` output
+ * preserves the stable left-hand row prefix. Merge only those six explicit
+ * prefix fields by exact unique unit identity; never use layout-mode price or
+ * status cells. Any disagreement fails closed through the returned conflicts.
+ */
+export function mergeLayoutCoreCells(
+  regions: TableRegion[],
+  layoutPages: PdfTextPage[],
+): { regions: TableRegion[]; conflicts: string[] } {
+  const coreByIdentity = new Map<
+    string,
+    Partial<Record<PriceTableField, string>> & { unit_number: string }
+  >();
+  const conflicts: string[] = [];
+  for (const page of layoutPages) {
+    for (const line of page.text.split(/\r?\n/)) {
+      const match = line.match(LAYOUT_CORE_ROW);
+      if (!match) continue;
+      const [, unit, type, land, living, bedrooms, bathrooms] = match;
+      const key = unit.toUpperCase();
+      const cells = {
+        unit_number: unit,
+        unit_type: type,
+        land_area_sqm: land,
+        size_sqm: living,
+        bedrooms,
+        bathrooms,
+      } satisfies Partial<Record<PriceTableField, string>> & { unit_number: string };
+      const previous = coreByIdentity.get(key);
+      if (previous && JSON.stringify(previous) !== JSON.stringify(cells)) {
+        conflicts.push(`layout_core_duplicate_conflict:${unit}`);
+      } else {
+        coreByIdentity.set(key, cells);
+      }
+    }
+  }
+
+  const fields: PriceTableField[] = [
+    "unit_type",
+    "land_area_sqm",
+    "size_sqm",
+    "bedrooms",
+    "bathrooms",
+  ];
+  for (const region of regions) {
+    for (const row of region.rows) {
+      const unit = row.cells.unit_number;
+      if (!unit) continue;
+      const core = coreByIdentity.get(unit.toUpperCase());
+      if (!core) continue;
+      for (const field of fields) {
+        const value = core[field];
+        if (!value) continue;
+        const current = row.cells[field];
+        if (current && current.trim() !== value.trim()) {
+          conflicts.push(`layout_table_core_conflict:${unit}:${field}`);
+        } else if (!current) {
+          row.cells[field] = value;
+        }
+      }
+    }
+  }
+  return { regions, conflicts: [...new Set(conflicts)].sort() };
 }

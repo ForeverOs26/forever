@@ -15,7 +15,7 @@ import { readFixture, writeFakePdftotext } from "./test-support";
 
 const ORIGINAL_PATH = process.env.PATH;
 
-describe("SIP-001A reviewed output — unchanged Fast Intake consumption", () => {
+describe("SIP-001A finalized output — unchanged Fast Intake consumption", () => {
   let fake: { dir: string; scriptPath: string };
   let base: string;
 
@@ -31,18 +31,32 @@ describe("SIP-001A reviewed output — unchanged Fast Intake consumption", () =>
   });
 
   it("validates a draft-ready payload from a SIP-reviewed price list, unmodified", async () => {
-    const pdfPath = join(base, "rainpalm-villas-price-list.pdf");
-    writeFileSync(pdfPath, readFixture("rainpalm-price-list.pdftotext-layout.txt"), "utf8");
+    const sourceDir = join(base, "source-pdf");
+    mkdirSync(sourceDir, { recursive: true });
+    const pdfPath = join(sourceDir, "rainpalm-villas-price-list.pdf");
+    writeFileSync(pdfPath, readFixture("generic-price-list.pdftotext-layout.txt"), "utf8");
 
     const sipResult = runSipPriceListExtraction({
       projectSlug: "rainpalm-villas",
       pdfPath,
       outRoot: join(base, "sip-out"),
       workspaceRoot: join(base, "sip-ws"),
+      toolOverride: {
+        found: true,
+        executablePath: process.execPath,
+        argumentPrefix: [fake.scriptPath],
+        vendor: "unknown",
+        versionOutput: "pdftotext version 24.02.0",
+        version: "24.02.0",
+        pdfinfoAvailable: false,
+        pdfinfoVersion: null,
+        executableSha256: null,
+        error: null,
+      },
     });
     expect(sipResult.preparationSummary.finalized).toBe(true);
 
-    // Feed the reviewed output into Fast Intake exactly as any other
+    // Feed the finalized output into Fast Intake exactly as any other
     // pre-prepared structured price-list artifact — copied verbatim, not
     // rebuilt by a second payload builder.
     const intakeSourceDir = join(base, "intake-source", "price-list");
