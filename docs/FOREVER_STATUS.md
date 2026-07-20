@@ -2,88 +2,219 @@
 
 ## Document role
 
-This document records current repository, product, database, website, and milestone status. The canonical active-stage plan, owners, acceptance criteria, and definition of done are maintained in `docs/CURRENT_STAGE.md`.
+This document records current repository, product, data, website, business-readiness, and milestone status. The exact active task and acceptance criteria are maintained in `docs/CURRENT_STAGE.md`. Product and business priority is governed by `docs/FOREVER_STRATEGIC_NORTH_STAR.md`.
 
-## Factory Activation
+## Current strategic status
 
-Forever Factory Constitution RC1 is active at A0 - Propose only. The bounded Factory routing, execution-connector, and Continue Forever foundations are deterministic decision-support and execution mechanics; they do not select project priorities, authorize consequential actions, or permit automatic merge. Product development remains the primary priority.
+Forever has completed a strong technical foundation but has not yet established sufficient external product and commercial validation.
 
-## Current Milestone
+The current strategic direction is:
 
-Structured Input Preparation Design v1, SIP-001A, and SIP-001B are independently reviewed, real-Windows validated, Owner-approved, and canonical. SIP-001B retained the authorized Coralina 2026-07-17 result: 198 accepted rows; 197 shared unchanged units; `CKD508` newly present; `CKF406` classified only as `missing_from_latest_price_list`; zero price, price-per-sqm, availability-text, or attribute changes; THB `inferred_default`; sinking fund 850 THB/sqm; common fee 85 THB/sqm/month; and a seven-page visual Master Plan companion with no spatial interpretation. The active development checkpoint is **TG-WATCH-001 — Universal Read-Only Telegram Source Watcher Design and Safe Pilot**: one universal local watcher, one protected Telegram user session, and a registry mapping channels to developers and project slugs, with a pilot for `@coralinakamala` plus one additional authorized Title channel to be selected during that task. It will read new posts and attachments only, quarantine locally with SHA-256 duplicate protection, classify source types, retain per-channel cursor and last-processed-message state, and produce Owner-review output; it authorizes no automatic database import, publication, or Factory autonomy expansion. Partner Demo v1 remains canonical and presentation-ready, pending partner scheduling in parallel; it does not block TG-WATCH-001. Coralina remains unpublished, Rainpalm remains unimported and unpublished, and Factory autonomy remains A0. See `docs/SIP_001B_CORALINA_20260717_REPORT.md`.
+> Evidence-led advisory brokerage for Phuket new developments, strengthened by source-backed project knowledge and AI-assisted internal operations.
 
-A shared Forever Navigator with two presentation shells — website (`/navigator`) and Booth Mode (`/booth`) — over a single Navigator Core is canonical on `main`. NAV-001 remains the shared Navigator source of truth; its approved Screens 00–08 questions, order, DecisionProfile, Forever Story, RecommendationPath, advisor invitation, and confirmation/edit behavior are preserved unchanged. The website and Booth shells consume the same core question definitions, DecisionProfile derivation, Forever Story generation, RecommendationPath, and one deterministic project-match evaluator with sentinel/unavailable-value guards, so identical answers produce identical results in either mode. Booth Mode is a presentation/employee workflow shell, not a second product: it reuses ProjectService, the universal `/projects/<slug>` Project Detail route, and the existing lead-service contract, and introduces no schema, migration, RLS, or new backend. Booth is intentionally not linked from normal public navigation. The local website preview is completed; Coralina remains unpublished and is excluded from the production client bundle, appearing only through the existing local development demo preview.
+The project now prioritizes:
 
-Coralina's production draft import is completed as a draft only: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, and 1 ingestion batch. Coralina remains unpublished; publication is a separate, later action. Fast Intake v1 with a 15-minute draft target is implemented, independently Windows-validated, and canonical on `main`; Coralina remains unpublished and Factory autonomy remains A0.
+1. a truthful public surface;
+2. real guest and partner feedback;
+3. Coralina publication readiness;
+4. a focused catalogue of commercially important real projects;
+5. fast advisor response and measurable conversion;
+6. controlled scale only after proof.
 
-Fast Intake v1 is a bounded, local, owner-only preparation-and-validation tool. The local owner command is `npm.cmd run intake -- ...` in Windows PowerShell and `cmd.exe`, and `npm run intake -- ...` in Bash, Linux, and macOS. It prepares and validates a deterministic, unpublished Progressive draft payload for the ordinary generic draft importer. Transactional output, journaled recovery, hardened ZIP safety, per-project locking, importer-compatibility validation, and anti-fabrication protections are canonical. It creates no database client, makes no production connection or network request, executes no database import, creates no lead, performs no publication or production write, and adds no schema, migration, RPC, RLS, grant, backend service, or UI. Its only writes are local managed artifacts and a gitignored temporary workspace.
+The active product checkpoint is **FOREVER-TRUTH-001A — Public Truth Audit and Fail-Closed Cleanup**.
 
-Scope honesty: Fast Intake v1 consumes only already-structured artifacts (extracted price-list JSON and `project-facts.json`); raw PDFs, Excel files, images, and videos are inventoried and classified only. It does not yet transform an ordinary raw developer dossier into structured units/prices by itself — the 15-minute target applies when compatible structured artifacts already exist. Raw-document extraction/OCR/spreadsheet parsing is a later Fast Intake stage. See `docs/FAST_INTAKE_V1.md`.
+This strategic documentation ratification does not itself change product behavior or authorize a production cleanup, publication, import, lead mutation, or production write.
 
-The ordinary new-project persistence path is simplified to one generic Progressive draft importer. Its normal workflow is payload validation → duplicate check → one atomic Progressive RPC transaction → exact graph verification → `COMMIT` → short post-commit verification.
+TG-WATCH-001A is canonical as a bounded offline internal source-watcher capability. Live Telegram transport and multi-channel scaling are deferred.
 
-RC5.5D remains completed, canonically applied, and verified, but is historical or exceptional maintenance capability rather than the ordinary import workflow. Schema, migration, RPC, RLS, grant, existing-data mutation, and partial-state recovery work use that separate maintenance path.
+Partner Demo v1 remains canonical and ready for presentation, pending scheduling.
 
-The Coralina production draft import through the generic importer is completed: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch. Coralina remains an unpublished draft; publication remains a later separate action. Factory autonomy remains A0.
+## Factory status
 
-RC5.5D Live Execution Boundary Preparation is completed, reviewed, integrated, canonically applied, and verified.
+Forever Factory Constitution RC1 remains active at **A0 — Propose only**.
 
-- Migration `20260715120000` is recorded exactly once; canonical migration history contains 12 rows total.
-- The canonical RC5.5D inventory contains 2 roles, 2 schemas, 2 boundary tables, 6 routines, and 10 dedicated policies.
-- Ownership, grants, role attributes, and exact policy definitions passed.
-- Effective `postgres` membership in `forever_import_execution_owner` passed with `MEMBER=true`, `USAGE=true`, and `SET=true`.
-- The manual logical backup was completed and verified before application.
-- No migration retry, repair, `GRANT`, or `REVOKE` is required.
+Factory does not:
 
-The retained RC5.5D boundary remains disabled for ordinary imports; it exists for exceptional maintenance only. Coralina is imported as an unpublished draft and Factory autonomy remains A0.
+- select business priority independently;
+- authorize consequential actions;
+- publish projects;
+- access production automatically;
+- merge automatically;
+- run unattended Night Shift;
+- expand autonomy without a separate Owner decision.
 
-## Completed Milestones
+Product and commercial proof remain higher priority than further Factory infrastructure.
 
-- FDB-001 through FDB-003 established and proved the Forever Core Database and Import Engine v1, including the Modeva import and idempotency validation.
-- RC2.4-RC2.8 completed the evidence-only Advisory layer.
-- RC3-001-RC3-005 completed the staged Import Engine planning foundation.
-- RC4.4-RC4.9 completed the deterministic intake foundation chain: source registry, extraction pipeline, canonical project database, cross-source validation, knowledge graph, and readiness.
-- RC5.0-RC5.1 proved the generic Project Knowledge Platform on Coralina and Modeva through internal `noindex` inspection routes.
-- RC5.3 preserved Coralina's source gaps honestly; RC5.4 later resolved them from official sources and produced the deterministic 405-operation dry-run.
-- RC5.5A completed deterministic plan fingerprints and fail-closed target preflight.
-- RC5.5B completed read-only collision inspection and was locally proven with 405 `absent` Coralina operations at that time.
-- RC5.5C completed the hermetic transaction and rollback preparation while keeping live execution disabled.
-- RC5.5D completed the server-side/live-boundary implementation, review, integration, canonical application, and post-application verification described above.
+## Product status
 
-## Current Tasks and Authorization Boundary
+### Canonical guest and advisor capabilities
 
-The Owner-authorized Coralina draft import through the generic importer is completed as a draft only; publication remains separately authorized. Shared Navigator (website + Booth Mode), Fast Intake v1, Partner Demo v1, Structured Input Preparation Design v1, SIP-001A, and SIP-001B are canonical on `main`. The active product-development checkpoint is TG-WATCH-001: one universal local read-only Telegram watcher with one protected user session, a channel-to-developer/project registry, local quarantine and SHA-256 duplicate protection, source classification, per-channel cursor state, and Owner-review output. Its pilot is `@coralinakamala` plus one additional authorized Title channel selected during TG-WATCH-001; it does not authorize database import, publication, or Factory autonomy expansion. Partner Demo v1 presentation remains pending in parallel and does not block TG-WATCH-001.
+- public website and project catalogue;
+- universal Project Detail route;
+- deterministic Intelligence foundations;
+- Forever Passport;
+- Advisory Workspace foundations;
+- Project Summary, Comparison, Recommendations, Advisor Report, and Client Strategy foundations;
+- shared Navigator at `/navigator`;
+- Booth Mode at `/booth` over the same Navigator Core;
+- existing lead-service boundary;
+- local Partner Demo v1 with no-write controls.
 
-Ordinary imports must not trigger platform recertification, a production rollback rehearsal, strict RC5.5D approval/receipt flow, `pg_stat_ssl`, project-specific production launchers, or repeated preflight/postflight infrastructure audits.
+Booth remains intentionally unlinked from normal public navigation.
 
-The retained RC5.5D approval and execution controls apply only when exceptional maintenance scope requires them. They are not prerequisites to the ordinary generic draft importer.
+### Product-readiness gap
 
-## Blockers and Gates
+The public surface requires a complete source-backed truth audit before broad external use.
 
-- Coralina has no knowledge-readiness blocker; RC5.4 resolved `developer` and `country` from official sources.
-- Coralina is imported as a draft; it awaits a separate Owner publication decision and remains excluded from production behavior.
-- Modeva's Project Knowledge Platform readiness remains separately blocked by the absence of a committed developer package, even though Modeva itself is already live from FDB-003C.
-- Future project onboarding requires committed source material under `forever-data/projects/{project_slug}/`.
-- SIP-001A's real Rainpalm validation is complete; Rainpalm remains unimported and unpublished. SIP-001B is canonical; its Coralina 2026-07-17 result retains 198 accepted rows, 197 shared unchanged units, `CKD508` newly present, `CKF406` only `missing_from_latest_price_list`, no price, price-per-sqm, availability-text, or attribute changes, and a seven-page visual Master Plan with no spatial interpretation.
+Known review areas include:
 
-## Database Status
+- static offers;
+- static reviews;
+- seeded or demo projects and developers;
+- listing counts;
+- verification badges;
+- scores and verdicts;
+- inspection and freshness wording;
+- optimistic defaults when project data is missing;
+- fallback project media.
 
-Modeva remains imported and validated with 7 buildings, 289 units, and 289 unit price-history rows. RC5.5D migration `20260715120000` exists exactly once in the canonical database as part of the exceptional-maintenance boundary. Coralina is imported as an unpublished draft: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch.
+Repository presence does not by itself prove current production-database state. FOREVER-TRUTH-001A begins with read-only inventory.
 
-## Website and Architecture Status
+## Project-data status
 
-The public website remains on the reusable Project Detail Engine, Forever Passport, deterministic Forever Intelligence, and Import Engine stack. The shared Navigator website route is implemented at `/navigator`; employee-guided Booth Mode is implemented at `/booth` but remains unlinked from normal public navigation. Both use one NAV-001 Navigator Core. The RC4.4-RC5.1 knowledge chain remains exposed only through internal, unlinked, `noindex` inspection routes and is not a public product surface. Architecture continues toward One Engine, Many Interfaces.
+### Modeva
 
-## AI Status
+- imported and published;
+- 7 buildings;
+- 289 units;
+- 289 price-history rows;
+- Project Knowledge readiness remains limited by missing committed developer-package evidence.
 
-No AI implementation is active in the product. Intelligence and project-knowledge logic remain deterministic and explainable.
+### Coralina
 
-## Validation Status
+- imported as an unpublished draft;
+- 1 project;
+- 8 buildings;
+- 198 units;
+- 198 prices;
+- 6 warnings;
+- 1 ingestion batch;
+- SIP-001B 2026-07-17 result is canonical;
+- latest version diff retained 197 shared unchanged units, `CKD508` newly present, and `CKF406` only `missing_from_latest_price_list`;
+- Master Plan retained as a seven-page visual companion with no spatial interpretation;
+- publication remains a separate Owner action.
 
-The generic importer focused tests, disposable PostgreSQL 17.6 import/duplicate/rollback checks, Progressive Ingestion focused tests, TypeScript check, and production build passed during simplification. The final R2 integration also requires Ledger/reference consistency, diff hygiene, and changed-diff secret scanning.
+### Rainpalm
 
-RC5.5D canonical application verification remains historical evidence for exceptional maintenance. Documentation consistency and Git hygiene govern this R2 integration.
+- real text-PDF SIP extraction completed;
+- Fast Intake pilot completed;
+- 21 units in the extracted source result;
+- remains unimported and unpublished.
 
-## Last Updated
+## Data and intake capabilities
+
+The following are canonical:
+
+- one generic Progressive draft importer;
+- Fast Intake v1;
+- structured input preparation policy;
+- SIP-001A qualified text-PDF extraction;
+- SIP-001B real Coralina multi-page validation and version comparison;
+- source hashing, provenance, deterministic artifacts, duplicate and path protection;
+- RC5.5D retained as exceptional maintenance capability, not ordinary import workflow.
+
+Ordinary project preparation and import do not automatically authorize publication.
+
+## TG-WATCH status
+
+PR #91 merged the independently developed and Windows-piloted TG-WATCH-001A offline core:
+
+- Telegram Desktop JSON export ingestion;
+- verified numeric channel binding;
+- local runtime storage outside the repository;
+- content-addressed quarantine;
+- source classification;
+- duplicate detection;
+- append-only channel history;
+- cursor durability;
+- Owner-review output;
+- no Telegram authentication or network access.
+
+TG-WATCH-001A is useful as a bounded manual internal capability. Live Telegram user-session authentication, recurring monitoring, and scaling to many channels remain deferred until project freshness work becomes a measured bottleneck.
+
+## Business-readiness status
+
+Forever is technically presentation-ready but commercially under-validated.
+
+Still required:
+
+- Partner Demo presentation;
+- structured partner feedback;
+- real guest walkthroughs;
+- public truth cleanup;
+- lead-response baseline;
+- contact, viewing, reservation, and transaction metrics;
+- Coralina publication readiness;
+- a focused 5–8 project catalogue pilot;
+- measured Owner time per project onboarding.
+
+Technical merge or test counts alone do not close these business gaps.
+
+## AI status
+
+No generative AI is active in the guest-facing product.
+
+Current product intelligence remains deterministic and evidence-oriented.
+
+The preferred AI workflow is:
+
+- Constantin — business authority, evidence, relationships, publication, money, and consequential decisions;
+- ChatGPT — strategic continuity, task priority, architecture review, and independent quality control;
+- strongest Claude / Fable — objective-led autonomous strategy and implementation within hard boundaries;
+- Codex — local Windows integration, external local sources, PowerShell, final repository audit, and approved Git integration.
+
+The goal is validated business progress, not maximum model activity.
+
+## Current metrics status
+
+The strategic North Star metric is not yet established in production:
+
+> reservations or closed transactions in which Forever materially influenced the guest's decision.
+
+The current stage introduces baseline measurement for:
+
+- qualified conversations;
+- median first-response time;
+- Navigator completion to contact;
+- contact to viewing;
+- guest comprehension and trust findings;
+- project-onboarding time;
+- public-data corrections.
+
+## Safety and authority state
+
+Current boundaries remain:
+
+- Coralina unpublished;
+- Rainpalm unimported and unpublished;
+- no automatic publication;
+- no automatic production import;
+- no live Telegram authentication authorized by TG-WATCH-001A;
+- no Factory autonomy expansion;
+- consequential production changes require explicit Owner approval;
+- public missing-data behavior must fail closed.
+
+## Immediate next work
+
+See `docs/CURRENT_STAGE.md` for the active FOREVER-TRUTH-001A checkpoint.
+
+The expected following sequence is:
+
+1. Coralina Publication Readiness;
+2. a focused 5–8 project real-catalogue pilot;
+3. Advisor conversion and lead-response workflow;
+4. controlled catalogue and partnership expansion based on evidence.
+
+## Last updated
 
 2026-07-20
