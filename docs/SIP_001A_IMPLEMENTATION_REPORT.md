@@ -1,359 +1,115 @@
-# SIP-001A Implementation Report — Local Text-PDF Price-List Extraction
+# SIP-001A Implementation and Independent Windows Audit
 
-Status: Implementation complete for the narrow SIP-001A slice; **the real
-Rainpalm pilot is BLOCKED by two external prerequisites that are absent from
-this execution environment**, not by the design or the implementation. This
-report is submitted for independent Codex review. It does not canonicalize
-SIP-001A in `docs/CURRENT_STAGE.md`, `docs/FOREVER_STATUS.md`, or
-`docs/ROADMAP.md`.
+Status: real Rainpalm execution completed successfully on the Owner's Windows machine. PR #89 remains an open implementation PR and this report does not canonicalize SIP-001A in `CURRENT_STAGE`, `FOREVER_STATUS`, or `ROADMAP`.
 
-## 1. Exact base and scope
+## Repository and review scope
 
-- Authoritative base: `9e8a615a242167052b833d1fac798af5a039c91d` (merge of PR
-  #88, "docs(intake): design structured input preparation v1").
-- Branch: `claude/sip-001a-rainpalm-pdf-extraction-4xbcrs`, created from that
-  exact commit with a clean tracked working tree.
-- Scope: the smallest canonical SIP-001A slice per
-  `docs/STRUCTURED_INPUT_PREPARATION_DESIGN_V1.md` — locate the authorized
-  Rainpalm raw PDF, qualify its text layer, extract one supported table
-  layout locally with Poppler `pdftotext -layout` and deterministic
-  TypeScript, normalize candidates into the unchanged `ExtractedPriceList`
-  contract, run an exception-only review, produce reviewed final JSON only
-  from deterministic accepted values, prove unchanged Fast Intake
-  consumption, and compare against the reviewed Rainpalm ground truth as a
-  post-extraction oracle.
+- Authoritative base: `9e8a615a242167052b833d1fac798af5a039c91d`.
+- Initially reviewed PR head: `fe7bf2ee7aaa865e7aede5b41646a5628f2de316`.
+- Existing branch: `claude/sip-001a-rainpalm-pdf-extraction-4xbcrs`.
+- PR #89 was independently audited without rebasing, history rewriting, merging, auto-merge, production access, or database work.
+- `docs/CURRENT_STAGE.md`, `docs/FOREVER_STATUS.md`, and `docs/ROADMAP.md` remain unchanged.
 
-## 2. Why the real Rainpalm pilot is blocked in this environment
+## Independent corrections
 
-This task runs in a Claude Code on the web (remote, ephemeral, Linux
-container) session, not on the Owner's local Windows machine. Two
-preflight facts were verified directly, honestly, and are reported exactly
-as found — this is the environment's structural limitation, not something
-this PR can work around:
+The audit corrected PR-owned defects before accepting a real result:
 
-1. **The authorized raw source folder does not exist here.**
-   `C:\forever-incoming\Rainpalm\raw\price-list` is a Windows path on the
-   Owner's machine. This container has no `C:\` drive and no
-   `forever-incoming` directory anywhere on its filesystem (confirmed with
-   an exhaustive `find`). The real Rainpalm raw PDF and the ground-truth
-   `C:\forever-incoming\Rainpalm\price-list\price-list.json` are therefore
-   both unreachable from this session.
-2. **No local Poppler `pdftotext` executable is available.** `where.exe` is
-   not applicable (Linux); `pdftotext`/`pdfinfo` are absent from `PATH`;
-   only the `libpoppler134` runtime *library* is installed (no
-   `poppler-utils` package, confirmed via `dpkg -l` and `find`). SIP-001A
-   installs nothing — per `docs/STRUCTURED_INPUT_PREPARATION_DESIGN_V1.md`
-   §5, this is recorded as the exact missing external prerequisite, not
-   worked around.
+- replaced sequential multi-file writes with a same-filesystem, lock-protected generation transaction with staging, backup, journal, rollback, and crash recovery;
+- bound every generation to one source hash, tool identity, qualification, candidate, review summary, and finalized output;
+- removed absolute local paths from canonical artifacts and applied the existing path boundary guard to protect the raw PDF directory;
+- detected Git-for-Windows Xpdf honestly instead of calling it Poppler, retained the required `-layout` evidence, and added Xpdf `-table` parsing because its layout mode shifts right-hand price/status cells;
+- fixed Windows child-process tests to prove executable-plus-argument-array invocation, Unicode/spaced paths, timeout, exit-code, output-limit, and cleanup behavior;
+- added the observed multi-row header, separate land/living-area columns, pool-villa type, and stable left-core merge while retaining fail-closed unknown-layout behavior;
+- tightened unit identity, continuation, calendar-date, duplicate, and footer handling;
+- replaced a Rainpalm-shaped fixture with independently authored generic fixtures;
+- corrected comparison metrics for formatted numeric prices, equivalent unit-type labels, null-price loss, and source-reference completeness;
+- removed unsupported `accept-as-owner-verified` SIP actions and corrected CLI wording from human-reviewed to deterministic finalization;
+- applied the Owner currency rule through the existing policy: explicit source currency wins; absent currency becomes THB with `inferred_default`, including downstream Fast Intake provenance.
 
-This is the exact contingency `docs/CURRENT_STAGE.md` and
-`docs/STRUCTURED_INPUT_PREPARATION_DESIGN_V1.md` already anticipate:
-*"Absence of that PDF blocks the real Rainpalm pilot but does not invalidate
-the design or prevent qualification/parser infrastructure work with safe
-fixtures."* Accordingly, this PR implements and proves the full pipeline
-against a small, committed, sanitized **fixture** representing authorized
-`pdftotext -layout` output — invented for testing, not derived from or
-shaped to match the real Rainpalm ground truth — and reports the real pilot
-as blocked rather than claiming a result that did not happen.
+## Authorized source and local tools
 
-Repository-recorded evidence used to design the fixture (already public in
-this repo before this PR, not fetched from the protected ground-truth file):
-`docs/FAST_INTAKE_PILOT_01_RAINPALM.md` records 21 units, 14 positive
-prices, 7 source-null prices, villa identifiers such as `A4`/`A8`/`A9`, THB
-currency, developer `Tonsai Company`, and location `Bang Tao, Phuket`. The
-fixture used in this PR intentionally does **not** reproduce these exact
-counts or identifiers — it is a structurally similar but independently
-authored table used only to exercise the parser, never to make the
-extraction output match the known answer.
+- File: `Rainpalm - Price List（for In house) update 04.2025.pdf`.
+- Size: 77,091 bytes.
+- SHA-256 before, between, and after real runs: `4ddee05fe5063bd8548ca8d2833c20bb4ca9b6b81a23aee8f21b065e1b5260b6`.
+- The file is outside the repository and was never modified or committed.
+- PDF text tool: `C:\Program Files\Git\mingw64\bin\pdftotext.exe`, Xpdf 4.06, SHA-256 `9699be3ec5726d33010295d96fd9eff43c5a6f4201aefe5c1678e70ec9fe3948`.
+- PDF inspection tool: bundled Poppler `pdfinfo` 26.05.0, SHA-256 `bc2c0f980c9a2a29cd1e06aacd8d1c7b67a5304e9d1d6f75190bdeb9c81a4365`.
+- The one-page letter-landscape PDF is tagged, unencrypted, has no JavaScript, and contains no obvious personal data.
 
-## 3. Supported layout implemented
+Exact command, run twice with fresh managed workspaces:
 
-One fixed-width table layout, as produced by `pdftotext -layout`:
-
-- a header line naming columns from a fixed dictionary (`Unit`/`Villa`,
-  `Type`, `Bed(s)`, `Bath(s)`, `Size`/`Area`, `Price (CCC)`,
-  `Status`/`Availability`) — matched case-insensitively against literal
-  label variants, never guessed;
-- data lines whose cells are sliced at the header's own column start
-  offsets (columns separated by 2+ spaces or a tab);
-- a header line may repeat verbatim on a later page (recognized as a
-  continuation, not re-parsed as data or a second table);
-- a data line with a blank unit-identity cell but content elsewhere is
-  treated as a wrapped continuation of the previous row;
-- currency is accepted only from a `(CCC)` parenthetical on the column
-  literally mapped to `price` — a `Transfer Fee (THB)` column is never
-  price-currency evidence;
-- the date is read only from document content matching
-  `date|updated|effective|as of ... DD.MM.YY(YY)`, never a filename or file
-  timestamp.
-
-Unknown headers, a header missing the unit-identity or price column, and a
-duplicate-mapped header (e.g. two `Price` columns) never enter a usable
-table — they are reported and excluded, and other qualified tables/pages
-still proceed (partial success). This is one supported layout, not a
-general PDF table engine — an unrecognized layout returns
-`UNSUPPORTED_LAYOUT`, never an OCR fallback.
-
-## 4. Modules implemented
-
-All under `src/intake/sip/` (new directory; nothing in `src/intake/*.ts`
-outside it was modified):
-
-| Module | Responsibility |
-| --- | --- |
-| `types.ts` | SIP-001A types only; reuses `Fact`/`ExtractedPriceList` from `@/import/types` unchanged. |
-| `pdf-tool.ts` | Local `pdftotext` preflight (PATH + documented Windows install paths, installs nothing) and bounded, argument-array `pdftotext -layout` invocation. |
-| `pdf-qualify.ts` | Text-layer qualification → `QUALIFIED_SUPPORTED_LAYOUT` / `UNSUPPORTED_NO_TEXT_LAYER` / `UNSUPPORTED_LAYOUT` / `REVIEW_REQUIRED` / `TOOL_FAILURE`. |
-| `price-table.ts` | Fixed-dictionary header mapping, column splitting, row/continuation extraction — the one supported layout. |
-| `candidate-normalize.ts` | Builds candidate `ExtractedPriceListRow[]` with exact `Fact.status` vocabulary; anti-fabrication price/availability/currency/date rules; duplicate-identity detection; reviewed-JSON construction. |
-| `review.ts` | Exception-only `ReviewSummary` + `canFinalize`. |
-| `artifacts.ts` | Atomic JSON artifact writer (reuses `../fs-utils`). |
-| `run.ts` | Orchestrator; never imports or reads the ground-truth file. |
-| `cli-args.ts` / `cli.ts` / `run-cli.mjs` | `sip:price-list` CLI, mirrors `src/intake/cli*.ts` conventions. |
-| `compare.ts` / `compare-cli.ts` / `compare-run-cli.mjs` | The **only** SIP-001A code authorized to read the ground-truth comparison file — a separate command run strictly after the reviewed JSON is already fixed. |
-
-Reused unchanged: `src/intake/paths.ts` (`assertSafeSlug`, `removeManagedDir`),
-`src/intake/fs-utils.ts` (`atomicWriteJson`), `src/intake/sanitize.ts`
-(`sanitizePriceList`, called on the reviewed output as a compatibility
-proof), `src/import/types.ts` (`Fact`, `ExtractedPriceList` — unchanged),
-`src/import/currency-policy.ts` (`decideCurrency`,
-`currencyEvidenceFromFact` — unchanged). No second ZIP reader, path guard,
-`ExtractedPriceList` type, Fast Intake CLI, or Progressive builder was
-created.
-
-## 5. CLI
-
-```
-npm.cmd run sip:price-list -- --project rainpalm-villas --pdf "<resolved PDF path>" --out-root "forever-data/projects/rainpalm-villas/sip"
-npm run sip:price-list -- --project rainpalm-villas --pdf "<pdf-path>"                      # bash/Linux/macOS
+```powershell
+npm.cmd run sip:price-list -- --project rainpalm-villas --pdf "C:\forever-incoming\Rainpalm\raw\price-list\Rainpalm - Price List（for In house) update 04.2025.pdf"
 ```
 
-Separate, read-only, post-extraction-only comparison command:
-
-```
-npm run sip:compare-price-list -- --reviewed "<reviewed-price-list.json>" --ground-truth "<price-list.json>" --review-summary "<review-summary.json>"
-```
-
-Neither command searches the filesystem; the PDF/comparison paths are
-always explicit arguments. Verified real invocation in this environment
-(exit code 2, `TOOL_FAILURE`, no `reviewed-price-list.json` written — the
-honest result given the missing local prerequisite):
-
-```
-$ node src/intake/sip/run-cli.mjs --project rainpalm-villas-smoketest --pdf "/tmp/fake-rainpalm.pdf" --out-root "/tmp/sip-smoketest-out"
-SIP-001A price-list extraction — TOOL_FAILURE
-...
-Blocking issues:
-  - BLOCKED — AUTHORIZED PDF TEXT TOOL REQUIRED: pdftotext was not found on this machine.
-Finalized reviewed JSON: no
-```
-
-## 6. Generated artifacts
-
-`forever-data/projects/<slug>/sip/`: `source-proof.json`,
-`qualification.json`, `candidate-price-list.json`, `review-summary.json`,
-`preparation-summary.json`, and `reviewed-price-list.json` (only when
-finalization succeeds — no blocking duplicate identity, all candidates
-resolved or safely excluded). None of these were committed for a real
-Rainpalm run because none was produced; the module is proven against the
-fixture in tests only. `source-proof.json` and `preparation-summary.json`
-never contain an absolute Owner-machine path except the explicit,
-non-canonical `local_only_path` field, mirroring the existing Fast Intake
-`source-manifest.json` pattern. Temporary `pdftotext` output and the SIP
-workspace live under gitignored `.sip-workspace/` and are removed after
-both success and failure — never written beside the raw PDF, never
-committed.
-
-## 7. Fixture-proven results (not a real Rainpalm run)
-
-Using the committed fixture `rainpalm-price-list.pdftotext-layout.txt` (11
-rows across 2 pages, independently authored, not derived from the ground
-truth):
+## Real qualification and extraction
 
 - Qualification: `QUALIFIED_SUPPORTED_LAYOUT`.
-- Candidate rows: 11 (all retained — a source-null "Sold" row stays a row
-  with a null price, per the anti-fabrication rule).
-- Review items: 3 non-blocking — a zero price (`A5`) and a non-numeric price
-  (`A6`), both nulled with reason `price_unsupported_value`, and one
-  unmapped availability label (`A7`'s continuation-merged
-  "Reserved - pending contract" does not match the fixed availability
-  dictionary, so it is retained verbatim with `medium_confidence_cell`,
-  nulled out of the reviewed final JSON pending review, not guessed) — see
-  the fixture-driven test assertions in
-  `src/intake/sip/tests/candidate-normalize.test.ts`.
-- Accepted (reviewed) rows: 11; finalized: `true`.
-- Deterministic repeat: **byte-identical** `candidate-price-list.json`,
-  `review-summary.json`, `reviewed-price-list.json`, and `qualification.json`
-  across two independent runs with different temp directories (only the
-  explicit `local_only_path` operational field differs) —
-  `src/intake/sip/tests/run.test.ts`.
-- Fast Intake compatibility: the reviewed output was fed into the
-  **unchanged** `runIntake()` (`src/intake/run.ts`) exactly as any other
-  pre-prepared structured price-list artifact and validated successfully
-  (`validation.ok === true`, `units`/`prices` > 0) —
-  `src/intake/sip/tests/fast-intake-compat.test.ts`.
+- Parser input: required Xpdf `-layout` plus Xpdf `-table`; parser mode `table` with only stable identity/type/area/bed/bath cells merged from layout.
+- Text hashes: layout `ee836c1c2a0aabbcf94e5c64c93970651913fd51186952094bc5c02da2d51e8c`; table `800968494c9e597f140274303b7b872e8dcfd2cb4ddbe69d0d148552d62568d5`.
+- Layout: one table and 21 rows; columns include villa number, pool-villa type, land area, living area, bedrooms, bathrooms, price, furniture, maintenance, sinking fund, and status.
+- Candidate / accepted / safely omitted / review / rejected / blocking counts: `21 / 21 / 0 / 0 / 0 / 0`.
+- Positive/null source prices: `9 / 12`. These are the actual April PDF values; the older oracle has `14 / 7` and was not used to alter extraction.
+- Currency: the selling-price header states no currency. Per the later explicit Owner rule, all 21 rows carry THB as `inferred_default`. Any explicitly stated non-THB selling-price currency would be preserved as `source_verified`.
+- Date: omitted because the PDF content contains no applicable date. The filename was not used as evidence.
+- Generation ID: `e53dc8006ab0bccc67ea5267058ba88087dd3e973935b65182f2e159c93d06e8`.
+- Two post-correction real runs produced identical canonical hashes and left no lock, staging, transaction, backup, or text-output residue.
 
-## 8. Ground-truth comparison — not run against the real file
+Canonical file hashes:
 
-`compare.ts`/`compare-cli.ts` are implemented and unit-tested against a
-synthetic ground truth (recall, exact-identity, per-field agreement,
-positive-price agreement, null-price preservation, currency agreement,
-source-reference completeness, fabricated-row/price counts, lost-null-price
-count, missing/unexpected-row counts — every metric an explicit
-numerator/denominator pair, per
-`docs/STRUCTURED_INPUT_PREPARATION_DESIGN_V1.md` §7). The real comparison
-against `C:\forever-incoming\Rainpalm\price-list\price-list.json` (21
-units / 14 positive / 7 null, per the task brief and
-`docs/FAST_INTAKE_PILOT_01_RAINPALM.md`) **was not run** — that file is not
-reachable from this environment, and no real extraction exists to compare
-it against. Running `sip:compare-price-list` against the real ground truth,
-after a real `sip:price-list` run on the Owner's machine, is the exact
-next step.
+| Artifact                    | SHA-256                                                            |
+| --------------------------- | ------------------------------------------------------------------ |
+| `source-proof.json`         | `f2d3e5f6b397eaa866ed8f61b5d8f08d5c09e10b6bd6aac226ad56e0d049adfd` |
+| `qualification.json`        | `06f12bb599ede40f2af65ccb950a9c77cda0db5abcf142a46c7a600692e4a645` |
+| `candidate-price-list.json` | `3cc4cfd9cb06b1b9f3929fb7f5cb8ab8d39af482358f77c393327d39e4213d55` |
+| `review-summary.json`       | `6be80b78fcf01b5f6958d5379595bf2d6154f62f5b27024b0eaafbb1b74a2ec8` |
+| `preparation-summary.json`  | `caa39976f52efb0b61dfaa97f3950370ad9efc6b0fc37a83f1a6da34fbbb01ed` |
+| `reviewed-price-list.json`  | `3cc4cfd9cb06b1b9f3929fb7f5cb8ab8d39af482358f77c393327d39e4213d55` |
+| `comparison-report.json`    | `2b4fc0d06360771de18da601da9a8b0d07c096e54e05901c2d28f6de7e41264b` |
 
-## 9. Determinism
+## Oracle isolation and comparison
 
-Verified in `src/intake/sip/tests/run.test.ts`: two independent runs of
-`runSipPriceListExtraction` against the same fixture PDF-like input, from
-different temp directories with different PIDs/timestamps, produce
-byte-identical `qualification.json`, `candidate-price-list.json`,
-`review-summary.json`, and `reviewed-price-list.json`. `source-proof.json`'s
-`sha256`/`byte_size` are identical; only the explicit `local_only_path`
-field (excluded from canonical hashing, matching the existing Fast Intake
-`source-manifest.json` pattern) differs. No lock, staging, or temporary
-residue remains in the workspace after a run (`.sip-workspace/` is emptied
-in both the success and failure paths).
+The extraction orchestrator has no oracle path or oracle import. All extraction artifacts and their hashes were finalized twice before the separate comparison command read the oracle. Only then were the authorized input hashes checked:
 
-## 10. Tests and validation
+- `price-list.json`: `6ce4a187711f1fdcc26eed84689a0ef0f7a461262a4630b895c251781d10a73f` (exact match).
+- `project-facts.json`: `1e47032269fe2cd48ed93f436075915a05e1be7380d2afc58ce793e55d5c795b` (exact match).
 
-- New focused SIP-001A tests: **68 passed** across 8 files (`pdf-tool`,
-  `pdf-qualify`, `price-table`, `candidate-normalize`, `review`, `compare`,
-  `run` (includes determinism, no-ground-truth-access, and
-  no-database/network boundary checks), `fast-intake-compat`). Coverage
-  includes: real argument-array process spawning with a fake local
-  `pdftotext` (proving shell-injection safety and Unicode/spaced-path
-  handling against an actual child process, not a mock), missing-Poppler
-  preflight, a real timeout (`ETIMEDOUT`), a non-zero exit, page-boundary
-  preservation via the form-feed separator, unsupported/ambiguous headers,
-  repeated headers, row continuation, thousands-separator parsing,
-  ambiguous-separator rejection, sentinel/zero/negative/malformed prices,
-  sold rows with null prices, availability normalization, missing and
-  inapplicable (fee-column) currency evidence, date-from-content only,
-  duplicate-identity blocking, source page/row references, deterministic
-  repeat, structural proof that extraction never imports/reads the ground
-  truth, unchanged Fast Intake consumption, and a grep-based proof that no
-  SIP module imports a Supabase client, a raw `node:http(s)` module, or the
-  PowerShell/Progressive importer.
-- Full repository focused Fast Intake suite (`src/intake/tests/`):
-  unaffected, still **202 passed, 1 skipped** (the skip is the pre-existing,
-  documented PowerShell-unavailable-in-this-environment case).
-- Full repository suite (`npx vitest run`): **2903 passed, 1 skipped, 3
-  failed** — the 3 failures are in `src/import/importer-preflight.test.ts`
-  and are **reproduced identically on the unmodified base commit**
-  (verified via `git stash`), caused by Coralina/Modeva fixture data that
-  is gitignored and absent from this fresh container checkout. This is a
-  pre-existing, unrelated, host-environment gap, not a regression from this
-  PR.
-- TypeScript (`npx tsc --noEmit`): clean except one pre-existing,
-  unrelated error — `src/features/project-detail/partner-demo-data.ts`
-  cannot resolve `forever-data/projects/modeva/extracted/price-list.json`
-  (same gitignored-data gap, also reproduced on the unmodified base).
-- ESLint (`npx eslint src/intake/sip .gitignore package.json`): clean (0
-  errors; 2 informational "no matching configuration" warnings for the two
-  non-TS files, expected).
-- Prettier (`npx prettier --check src/intake/sip package.json`): clean.
-- `git diff --check`: clean.
-- Changed-diff secret scan (API keys, tokens, private-key headers, Supabase
-  keys, AWS keys): zero hits (grep false-positive on the word "token" as a
-  variable name only).
-- Changed-diff personal-data scan (emails, phone-shaped strings): zero
-  hits.
-- Production build (`npm run build`): succeeded. Bundle scan
-  (`grep -rl "pdftotext|SIP-001A|sip-price-list|runSipPriceListExtraction|intake/sip" .output/`):
-  **zero matches** — SIP-001A code, Poppler references, and raw-PDF
-  handling are entirely absent from both the server and client production
-  output, matching the existing `src/intake/*` boundary (this code is never
-  imported by any app/route/component).
-- Windows CLI smoke test using the real Rainpalm PDF: **not run** — the
-  file does not exist in this environment (§2). A Linux-equivalent smoke
-  test was run instead (§5), proving the CLI's argument handling, fail-closed
-  behavior, and artifact writing.
-- Real Rainpalm deterministic second run / real ValidateOnly against the
-  real reviewed JSON: **not run**, for the same reason.
+Comparison metrics against the older reviewed inventory:
 
-## 11. Limitations and unsupported layouts
+| Metric                        |  Result |
+| ----------------------------- | ------: |
+| Unit-row recall               |   21/21 |
+| Exact unit identity           |   21/21 |
+| Unit type                     |   21/21 |
+| Bedrooms                      |   21/21 |
+| Bathrooms                     |   21/21 |
+| Size                          |   21/21 |
+| Availability                  |   18/21 |
+| Positive price                |    9/14 |
+| Null-price preservation       |     7/7 |
+| Currency                      |   14/14 |
+| Source-reference completeness | 166/166 |
 
-- One layout only: a fixed-width `pdftotext -layout` table with a
-  literal-dictionary header naming a unit-identity column and a price
-  column. No XLSX/CSV, no OCR, no scanned PDFs, no image/floor-plan/master-plan
-  interpretation, no AI extraction.
-- Continuation-line handling is narrow: only a blank-identity line with
-  content elsewhere, merged into the immediately preceding row.
-- Date extraction recognizes one pattern family
-  (`date|updated|effective|as of ... DD.MM.YY(YY)`); anything else is
-  omitted, never guessed.
-- Numeric parsing accepts comma-thousands and a two-decimal-place period
-  suffix only; anything else (e.g. European `12.500.000`) is flagged
-  `unsupported_numeric_separator`, never guessed.
+Fabricated rows/prices, lost nulls, missing rows, and unexpected rows are all zero. Review items and manual review time are `0` and `0 seconds`. The five positive-price and three availability differences reflect the actual newer PDF, not a parser defect; no oracle value was copied into extraction.
 
-## 12. Privacy boundary
+## Fast Intake and ValidateOnly
 
-No raw PDF, temporary extracted text, credentials, or personal data is
-committed. Generated artifacts carry only a portable filename
-(`source_filename`), content hashes, and the fixed `local_only_path`
-operational field (excluded from canonical determinism, matching the
-existing Fast Intake pattern). The fixture text committed for tests is
-independently authored, not the real Rainpalm content.
+The finalized SIP JSON and unchanged authorized `project-facts.json` were passed through the existing public Fast Intake CLI in a temporary non-canonical destination. It produced a valid unpublished create payload with 21 units, 9 positive price-history rows, 17 honest warnings, no null price converted into a price, and THB decisions preserved as `inferred_default`. `project.publish` remained `false`. A second final-code run produced the same payload SHA-256, `06cc20cfdeb9ec0f8b8edd6a13f0d1e146ad8e2074235891f6047f923810d908`. PowerShell `Import-ForeverProjectDraft.ps1 -PayloadPath <temporary payload> -ValidateOnly` returned `DRAFT_PAYLOAD_VALID`; no database client, credential, network request, importer execution, or write was used.
 
-## 13. No-production proof
+## Validation and privacy
 
-No database client was created (grep-verified: no `supabase` import in any
-`src/intake/sip/*.ts`). No network request module (`node:http`/`node:https`)
-is imported. No Progressive/PowerShell importer
-(`Import-ForeverProjectDraft`) is invoked. `sip:price-list` never
-auto-invokes Fast Intake or the database importer. Production build output
-contains zero references to this code (§10).
+Focused SIP and currency tests pass: 87 tests across 9 files. The complete repository suite passes: 305 files and 2,917 tests, with the live PowerShell parity boundary enabled through process-local `ExecutionPolicy Bypass`. TypeScript, changed-file ESLint, Prettier, the production build, and `git diff --check` pass. The production bundle has zero matches for SIP, `pdftotext`, Poppler, fixture, incoming-folder, or raw-price-list identifiers. Changed-diff scans have zero secret and email hits; phone-shaped matches are SHA/diff-index false positives only. The seven tracked SIP JSON files have zero absolute-path matches and contain no PDF. No dependency or lockfile changed.
 
-## 14. Follow-up recommendation
+Tracked SIP artifacts contain no absolute paths, executable paths, usernames, raw PDF bytes, raw extracted text, renders, credentials, or personal data. No dependencies or lockfile were added or changed.
 
-On the Owner's Windows machine, with the authorized raw PDF present under
-`C:\forever-incoming\Rainpalm\raw\price-list` and a local Poppler
-`pdftotext` on `PATH` (or at a documented install path):
+## Limitations
 
-1. Run `npm.cmd run sip:price-list -- --project rainpalm-villas --pdf "<resolved PDF path>"` and record the qualification result.
-2. If `QUALIFIED_SUPPORTED_LAYOUT` (i.e. the real layout matches this
-   fixture-modeled layout), review `review-summary.json`, then run
-   `npm run sip:compare-price-list -- --reviewed "<reviewed-price-list.json>" --ground-truth "C:\forever-incoming\Rainpalm\price-list\price-list.json"` and record every metric.
-3. If the real layout does not qualify, extend `price-table.ts`'s header
-   dictionary or continuation handling narrowly against the real fixture
-   captured from that run (never against the ground truth), in a follow-up
-   PR — do not widen scope beyond one additional observed layout at a time.
-4. Only after a real, reviewed, independently audited comparison should
-   SIP-001A be considered for canonicalization in `docs/CURRENT_STAGE.md`.
+SIP-001A supports only qualified text PDFs with the fixture-covered fixed-table structures. It does not support OCR/scanned PDFs, XLSX/CSV, images, floor plans, master plans, AI extraction, cloud processing, or general-purpose table inference. Unknown layouts, unsafe identity mapping, duplicates, or contradictory explicit currency fail closed or require review.
 
 ## Confirmations
 
-- Raw PDF was not committed or modified (none was accessible in this
-  environment; no PDF bytes were written anywhere except the ephemeral,
-  gitignored `.sip-workspace/`, cleaned after every run).
-- Ground truth was not used during extraction: `compare.ts`/`compare-cli.ts`
-  are the only modules that read it, structurally isolated from `run.ts`
-  (proven by a dedicated test), and were not invoked against the real file
-  in this session.
-- Partner Demo remains canonical; unchanged by this PR.
-- Rainpalm remains unimported and unpublished.
-- Coralina remains unpublished.
-- Factory remains A0 — Propose only.
-- No production connection, database client, import, lead, publication, or
-  production write occurred at any point in this session.
+Partner Demo remains canonical. Rainpalm remains unimported and unpublished. Coralina remains unpublished. Factory remains A0 — Propose only. No production connection, database client, import, lead, publication, or production write occurred.
 
 ## Verdict
 
-**BLOCKED — AUTHORIZED PDF TEXT TOOL REQUIRED**
-
-The implementation, tests, and safe-fixture proof are complete and ready
-for independent review. The real Rainpalm pilot did not run because this
-remote execution environment has neither the authorized raw source folder
-nor a local Poppler `pdftotext` executable — both are external
-prerequisites on the Owner's machine, outside this PR's control. No claim
-of a completed real Rainpalm extraction is made anywhere in this report or
-in the generated artifacts (none were generated for a real run).
+PASS — SIP-001A READY FOR OWNER MERGE
