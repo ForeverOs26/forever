@@ -1,7 +1,7 @@
 # Forever AI Workflow
 
 Status: Canonical AI and development workflow
-Last updated: 2026-07-13
+Last updated: 2026-07-20
 
 ## Purpose
 
@@ -28,6 +28,43 @@ For every Factory-governed task, Codex reads `docs/factory/FOREVER_FACTORY_INDEX
 - Prepares specifications, copy, UX flows, audits, test plans, and isolated implementation drafts when appropriate.
 - Helps clarify acceptance criteria and edge cases.
 - Does not become the repository source of truth unless its output is reviewed and committed through GitHub.
+
+### Strongest Claude / Fable — autonomous solution design rule
+
+For high-value architecture, complex integration, substantial multi-file implementation, and difficult repository work assigned to the strongest available Claude / Fable model, Forever uses **short, objective-led prompts with broad implementation freedom**.
+
+The goal is to use the model's full architectural and problem-solving ability rather than pre-solving the method inside an overly prescriptive prompt.
+
+The standing procedure is:
+
+1. Before giving the task, ChatGPT explains to Constantin:
+   - what outcome is being delegated;
+   - why the strongest Claude / Fable model is appropriate;
+   - which canonical project state and repository history Claude must inspect;
+   - which product, safety, stage, production, and Owner-authority boundaries are non-negotiable;
+   - that Claude is expected to interpret the task independently and choose the best path for Forever.
+2. The task prompt states:
+   - the business or product objective;
+   - the authoritative repository and source-of-truth documents;
+   - the hard constraints and prohibited side effects;
+   - the expected reviewable result.
+3. The prompt does **not** prescribe the architecture, detailed file map, algorithm, technology, or implementation sequence unless those details are already canonical, legally or operationally mandatory, or required to correct a known reviewed defect.
+4. Claude must reconstruct the relevant Forever history from the repository, challenge assumptions, compare alternatives, choose the simplest robust and reusable solution, and implement as much as its actual environment safely permits.
+5. Claude must distinguish verified results from recommendations, untested assumptions, and work that still requires local Windows, production, credentials, or Owner action.
+6. ChatGPT independently reviews Claude's result for architecture fit, safety, overengineering, reuse of existing Forever primitives, product value, and hidden defects.
+7. After review, a corrective prompt may be specific and detailed because it addresses proven findings rather than prematurely dictating the original solution.
+8. Codex is reserved for work Claude cannot complete reliably in its environment, especially local Windows repository integration, Windows and PowerShell validation, external local source folders, final repository audit, Git integration, and approved merge preparation.
+
+A short autonomous prompt must still be precise about the desired outcome and hard boundaries. “Short” means freedom in the solution path, not absence of context or safety requirements.
+
+Long prescriptive prompts are exceptions, appropriate for:
+
+- production, migration, security, legal, financial, or destructive operations;
+- exact compatibility contracts and canonical protocol compliance;
+- narrow correction of already identified defects;
+- tasks where the method itself has been explicitly approved and must not change.
+
+Do not default back to long implementation scripts for strongest-Claude / Fable tasks merely because they feel safer. Preserve Claude's freedom to find a better solution, then use independent review to control quality and risk.
 
 ### Codex — Repository-aware implementation, integration, validation, commits, and pull requests
 
