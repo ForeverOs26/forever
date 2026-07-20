@@ -81,18 +81,17 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         name: "description",
         content:
-          "Forever is an independent Phuket property advisory platform that helps buyers reduce uncertainty with verified project data, structured analysis, and private advisory support.",
+          "Forever is an independent Phuket property advisory platform that helps buyers reduce uncertainty with source-backed project records, structured analysis, and private advisory support.",
       },
       { name: "author", content: "Forever" },
       { property: "og:title", content: "Forever — Phuket Property Advisory" },
       {
         property: "og:description",
         content:
-          "Independent Phuket property advisory powered by verified project data and structured analysis.",
+          "Independent Phuket property advisory powered by source-backed project records and structured analysis.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@ForeverProperty" },
     ],
     links: [
       {

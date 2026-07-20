@@ -69,7 +69,7 @@ export const Route = createFileRoute("/advisory_/report")({
       { title: "Forever Advisor Report" },
       {
         name: "description",
-        content: "Print-ready Forever advisory report composed from verified project evidence.",
+        content: "Print-ready Forever advisory report composed from recorded project evidence.",
       },
     ],
     links: [

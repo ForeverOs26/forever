@@ -112,10 +112,17 @@ function buildProjectStructuredData(project: ProjectDetail, url: string, image?:
                 "@type": "Offer",
                 price: project.pricing.startingPriceTHB,
                 priceCurrency: "THB",
-                availability:
-                  project.core.status === "Sold Out"
-                    ? "https://schema.org/SoldOut"
-                    : "https://schema.org/InStock",
+                // Availability is asserted only when a sales status is
+                // actually recorded — an unrecorded status must not become
+                // an "InStock" claim (FOREVER-TRUTH-001A).
+                ...(project.core.status
+                  ? {
+                      availability:
+                        project.core.status === "Sold Out"
+                          ? "https://schema.org/SoldOut"
+                          : "https://schema.org/InStock",
+                    }
+                  : {}),
                 url,
               },
             }

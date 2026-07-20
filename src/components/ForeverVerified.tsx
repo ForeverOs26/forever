@@ -1,10 +1,6 @@
 import * as React from "react";
 import { CheckCircle2 } from "lucide-react";
-import {
-  HoverCard,
-  HoverCardTrigger,
-  HoverCardContent,
-} from "@/components/ui/hover-card";
+import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
 
 interface ForeverVerifiedProps {
@@ -14,12 +10,19 @@ interface ForeverVerifiedProps {
   sideOffset?: number;
 }
 
+/**
+ * Describes what the Forever verification standard covers. The badge itself
+ * renders only when a project's record explicitly carries
+ * `forever_verified = true` (an Owner action) — never from a missing value —
+ * and this list defines the standard rather than asserting per-project
+ * activities beyond that record (FOREVER-TRUTH-001A).
+ */
 const verificationItems = [
-  "Personally inspected by Forever advisors.",
-  "Developer information verified.",
-  "Construction progress reviewed.",
-  "Promotion validated.",
-  "Legal documentation checked.",
+  "Site inspection by a Forever advisor.",
+  "Developer information review.",
+  "Construction progress review.",
+  "Pricing checked against developer sources.",
+  "Legal documentation review.",
 ];
 
 export function ForeverVerified({
@@ -54,11 +57,7 @@ export function ForeverVerified({
         className="w-[280px] rounded-2xl border border-accent/10 bg-popover p-6 shadow-[0_12px_40px_rgba(30,30,30,0.06)] backdrop-blur-sm"
       >
         <div className="flex items-center gap-2.5 pb-4">
-          <CheckCircle2
-            className="h-5 w-5 text-accent"
-            strokeWidth={1.8}
-            aria-hidden="true"
-          />
+          <CheckCircle2 className="h-5 w-5 text-accent" strokeWidth={1.8} aria-hidden="true" />
           <span className="font-serif text-[15px] font-semibold tracking-tight text-foreground">
             Forever Verified
           </span>

@@ -207,9 +207,10 @@ does not open.
 - Expect "No exact match found" for most personas today; matching only lights
   up dimensions the recorded data supports (for example, budget matching
   stays off until project prices and budget bands share a currency).
-- Early static offers, reviews, and area-count examples are removed from the
-  Partner Demo home and navigation. They remain outside the presentation path
-  in ordinary development pending separate product review.
+- Early static offers, reviews, and area-count examples were removed from the
+  product entirely by FOREVER-TRUTH-001A: `/offers` and `/reviews` now render
+  honest empty states everywhere, and the area guide carries no listing
+  counts. The Partner Demo needs no special handling for them anymore.
 - Coralina has no public media in the preview — its gallery is intentionally
   empty rather than filled with unverified images.
 - The browser dev console in local development shows warnings from local dev

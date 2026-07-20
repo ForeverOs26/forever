@@ -12,7 +12,7 @@ export function Footer() {
           <p className="mt-3 max-w-sm text-sm text-primary-foreground/70">
             {partnerDemo
               ? "A guided property decision experience using the project evidence currently available."
-              : "An independent property advisory for Phuket. We help buyers reduce uncertainty with verified project data, structured analysis, and private advisory support."}
+              : "An independent property advisory for Phuket. We help buyers reduce uncertainty with source-backed project records, structured analysis, and private advisory support."}
           </p>
         </div>
         <div>
@@ -34,18 +34,13 @@ export function Footer() {
             ) : (
               <>
                 <li>
-                  <Link to="/offers" className="hover:text-accent">
-                    Verified Offers
+                  <Link to="/discovery" className="hover:text-accent">
+                    Discovery
                   </Link>
                 </li>
                 <li>
                   <Link to="/areas" className="hover:text-accent">
                     Areas
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/reviews" className="hover:text-accent">
-                    Reviews
                   </Link>
                 </li>
               </>

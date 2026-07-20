@@ -88,7 +88,7 @@ export function ProjectTrustSummary({ project }: ProjectTrustSummaryProps) {
             {project.pricing.promotion && (
               <InspectionItem
                 icon={Sparkles}
-                label="Verified Offer"
+                label="Developer offer"
                 value={project.pricing.promotion}
               />
             )}

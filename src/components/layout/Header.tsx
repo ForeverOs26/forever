@@ -5,13 +5,17 @@ import { Container } from "./Container";
 import { Button } from "@/components/ui/button";
 import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";
 
+/**
+ * FOREVER-TRUTH-001A: `/offers` and `/reviews` left the primary navigation —
+ * they carry no published, source-backed content yet and must not be promoted
+ * as "Verified Offers"/"Reviews". The routes still exist as honest empty
+ * states for anyone holding an old link.
+ */
 const publicNav = [
   { to: "/", label: "Home" },
   { to: "/discovery", label: "Discovery" },
   { to: "/advisory", label: "Advisory" },
   { to: "/projects", label: "Projects" },
-  { to: "/offers", label: "Verified Offers" },
-  { to: "/reviews", label: "Reviews" },
   { to: "/areas", label: "Areas" },
   { to: "/about", label: "About" },
 ] as const;

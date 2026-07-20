@@ -23,33 +23,22 @@ import type {
   RentalDemand,
   SalesStatus,
 } from "@/lib/data";
-import villaSurin from "@/assets/villa-surin.jpg";
-import villaKamala from "@/assets/villa-kamala.jpg";
-import villaLayan from "@/assets/villa-layan.jpg";
-import villaBangtao from "@/assets/villa-bangtao.jpg";
-import villaKata from "@/assets/villa-kata.jpg";
-import villaRawai from "@/assets/villa-rawai.jpg";
+import { isKnownFictitiousProjectSlug } from "@/lib/public-truth";
 
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 type DeveloperRow = Database["public"]["Tables"]["developers"]["Row"];
 type MediaRow = Database["public"]["Tables"]["project_media"]["Row"];
 
-/** Bundled fallback assets keyed by `projects.image_key` (used until a CMS
- *  publishes real URLs into `main_image_url` / `project_media.url`). */
-const IMAGE_ASSETS: Record<string, string> = {
-  villaSurin,
-  villaKamala,
-  villaLayan,
-  villaBangtao,
-  villaKata,
-  villaRawai,
-};
-
-function resolveImage(url: string | null | undefined, key: string | null | undefined): string {
+/**
+ * A project image is only ever the project's own recorded media URL.
+ * FOREVER-TRUTH-001A removed the earlier bundled stock-photo fallback
+ * (`image_key` → villa-*.jpg, final fallback villa-surin.jpg): a missing
+ * photo must stay missing rather than silently become another project's
+ * photograph. Cards render an explicit "Media preview pending" state instead.
+ */
+function resolveMediaUrl(url: string | null | undefined): string {
   if (url && /^(https?:|\/)/.test(url)) return url;
-  if (url && IMAGE_ASSETS[url]) return IMAGE_ASSETS[url];
-  if (key && IMAGE_ASSETS[key]) return IMAGE_ASSETS[key];
-  return villaSurin; // final fallback
+  return "";
 }
 
 type ProjectWithRelations = ProjectRow & {
@@ -63,11 +52,20 @@ const SELECT = `
   media:project_media(media_type, url, sort_order)
 ` as const;
 
+/**
+ * Fail-closed row mapping (FOREVER-TRUTH-001A). A missing database fact must
+ * never become a positive public claim: null verification is NOT verified,
+ * a missing verdict/market position/rental demand is "Not available", a
+ * missing price is absent, and only `verified_price` may ever appear behind
+ * a "Forever Verified Price" label. This mirrors the null policy already
+ * used by `mapProjectDetail` and the Advisory/Passport engines.
+ */
 function mapToProperty(row: ProjectWithRelations): Property {
   const media = [...(row.media ?? [])].sort((a, b) => a.sort_order - b.sort_order);
   const gallery = media
     .filter((m) => m.media_type === "gallery" || m.media_type === "cover")
-    .map((m) => resolveImage(m.url, row.image_key));
+    .map((m) => resolveMediaUrl(m.url))
+    .filter((url) => url !== "");
   const floorPlans = media.filter((m) => m.media_type === "floor_plan").map((m) => m.url);
   const brochures = media.filter((m) => m.media_type === "brochure").map((m) => m.url);
   const videos = media.filter((m) => m.media_type === "video").map((m) => m.url);
@@ -77,7 +75,7 @@ function mapToProperty(row: ProjectWithRelations): Property {
   )?.url;
   const priceList = media.find((m) => m.media_type === "price_list")?.url;
 
-  const image = resolveImage(row.main_image_url, row.image_key);
+  const image = resolveMediaUrl(row.main_image_url) || gallery[0] || "";
   const startingPriceTHB = row.starting_price_thb ?? 0;
 
   return {
@@ -85,9 +83,9 @@ function mapToProperty(row: ProjectWithRelations): Property {
     name: row.name,
     developer: row.developer?.name ?? "",
     location: row.location_area ?? "",
-    propertyType: (row.project_type ?? "Villa") as PropertyType,
-    constructionStatus: (row.construction_status ?? "Planning") as ConstructionStatus,
-    status: (row.sales_status ?? "Available") as SalesStatus,
+    propertyType: (row.project_type ?? "Not available") as PropertyType,
+    constructionStatus: (row.construction_status ?? "Not available") as ConstructionStatus,
+    status: (row.sales_status ?? "Not available") as SalesStatus,
     tagline: row.tagline ?? "",
     description: row.full_description ?? row.short_description ?? "",
     highlights: row.highlights ?? [],
@@ -101,15 +99,15 @@ function mapToProperty(row: ProjectWithRelations): Property {
     priceRange: row.price_range ?? "",
     pricePerSqm: row.price_per_sqm_display ?? "",
     lastPriceUpdate: row.last_price_update ?? "",
-    verifiedPrice: row.verified_price ?? row.price_range ?? "",
+    verifiedPrice: row.verified_price ?? "",
     promotion: row.promotion ?? "",
 
-    foreverVerified: row.forever_verified ?? true,
+    foreverVerified: row.forever_verified === true,
     trustScore: Number(row.trust_score ?? 0),
     trustNote: row.trust_note ?? "",
     investmentValue: Number(row.investment_value ?? 0),
-    marketPosition: (row.market_position ?? "In line with market") as MarketPosition,
-    verdict: (row.verdict ?? "Strong Buy") as ForeverVerdict,
+    marketPosition: (row.market_position ?? "Not available") as MarketPosition,
+    verdict: (row.verdict ?? "Not available") as ForeverVerdict,
 
     distanceToBeach: row.distance_to_beach ?? "",
     distanceToAirport: row.distance_to_airport ?? "",
@@ -118,7 +116,7 @@ function mapToProperty(row: ProjectWithRelations): Property {
     lifestyle: row.lifestyle ?? [],
 
     rentalYield: row.rental_yield ?? "",
-    rentalDemand: (row.rental_demand ?? "Moderate") as RentalDemand,
+    rentalDemand: (row.rental_demand ?? "Not available") as RentalDemand,
     capitalGrowthEstimate: row.capital_growth_estimate ?? "",
 
     startDate: row.start_date_display ?? "",
@@ -126,7 +124,7 @@ function mapToProperty(row: ProjectWithRelations): Property {
     lastInspection: row.last_inspection ?? "",
 
     image,
-    gallery: gallery.length > 0 ? gallery : [image],
+    gallery,
     floorPlans,
     brochures,
     videos,
@@ -187,16 +185,22 @@ export const ProjectService = {
     if (filters.featuredOnly) query = query.eq("is_featured", true);
     const { data, error } = await query;
     if (error) throw error;
-    const projects = (data ?? []).map((row) =>
-      mapToProperty(row as unknown as ProjectWithRelations),
-    );
+    const projects = (data ?? [])
+      .filter((row) => !isKnownFictitiousProjectSlug((row as { slug: string }).slug))
+      .map((row) => mapToProperty(row as unknown as ProjectWithRelations));
     const previews = await loadDemoPreviewProperties();
     const combined = [...projects, ...previews];
     return filters.limit === undefined ? combined : combined.slice(0, filters.limit);
   },
 
-  /** Single active project by slug, or `null` if not found / inactive. */
+  /**
+   * Single active project by slug, or `null` if not found / inactive.
+   * Known-fictitious slugs resolve to `null` without querying: quarantined
+   * seed rows must not be reachable even by direct URL.
+   */
   async getBySlug(slug: string): Promise<Property | null> {
+    if (isKnownFictitiousProjectSlug(slug)) return null;
+
     const partnerDemoProjects = await loadPartnerDemoProperties();
     if (partnerDemoProjects) {
       return partnerDemoProjects.find((project) => project.slug === slug) ?? null;
@@ -220,7 +224,7 @@ export const ProjectService = {
 
     const { data, error } = await supabase.from("projects").select("slug").eq("is_active", true);
     if (error) throw error;
-    return (data ?? []).map((r) => r.slug);
+    return (data ?? []).map((r) => r.slug).filter((slug) => !isKnownFictitiousProjectSlug(slug));
   },
 };
 

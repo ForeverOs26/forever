@@ -16,7 +16,7 @@ export const Route = createFileRoute("/about")({
       {
         property: "og:description",
         content:
-          "Independent Phuket property advisory powered by verified project data and structured analysis.",
+          "Independent Phuket property advisory powered by source-backed project records and structured analysis.",
       },
     ],
   }),
@@ -35,7 +35,7 @@ function AboutPage() {
             Independent property advisory for clearer decisions.
           </h1>
           <p className="mt-6 max-w-2xl text-lg text-muted-foreground">
-            Forever helps buyers evaluate Phuket property with verified project data,
+            Forever helps buyers evaluate Phuket property with source-backed project records,
             structured analysis, and private advisory support.
           </p>
         </Container>
@@ -46,18 +46,21 @@ function AboutPage() {
           <div>
             <h2 className="font-serif text-3xl text-foreground">Our approach</h2>
             <p className="mt-4 text-muted-foreground">
-              Every Forever review starts with the decision, not the listing. We organize
-              project data, verification signals, risks, and buyer-fit evidence so clients
-              can understand what supports a property and what uncertainty remains.
+              Every Forever review starts with the decision, not the listing. We organize project
+              data, verification signals, risks, and buyer-fit evidence so clients can understand
+              what supports a property and what uncertainty remains.
             </p>
             <p className="mt-4 text-muted-foreground">
-              The platform is demo-ready for Phuket and designed around one principle:
-              reduce uncertainty before a buyer takes the next step.
+              The platform is demo-ready for Phuket and designed around one principle: reduce
+              uncertainty before a buyer takes the next step.
             </p>
           </div>
           <div className="grid gap-6 sm:grid-cols-2">
             {[
-              ["Verified Data", "Project facts are structured, checked, and kept traceable."],
+              [
+                "Source-Backed Data",
+                "Project facts are structured, traceable, and honest about gaps.",
+              ],
               ["Clear Analysis", "Scores and recommendations explain the evidence behind them."],
               ["Buyer Fit", "Projects are evaluated against goals, risk, and intended use."],
               ["Private Advisory", "Clients can request a focused review before they act."],

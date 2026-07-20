@@ -55,7 +55,7 @@ export function LocationIntelligence({
           Location Intelligence
         </h2>
         <p className={`mt-1 text-sm ${muted}`}>
-          Derived only from verified project data. Distances, demand, and travel times are never
+          Derived only from recorded project data. Distances, demand, and travel times are never
           estimated; missing evidence is shown as &ldquo;Not available&rdquo;.
         </p>
       </header>

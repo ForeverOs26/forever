@@ -54,7 +54,7 @@ export function RentalIntelligence({
           Rental Intelligence
         </h2>
         <p className={`mt-1 text-sm ${muted}`}>
-          Derived only from verified project data. Missing evidence is shown as &ldquo;Not
+          Derived only from recorded project data. Missing evidence is shown as &ldquo;Not
           available&rdquo;.
         </p>
       </header>

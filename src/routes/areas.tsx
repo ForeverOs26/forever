@@ -8,9 +8,12 @@ export const Route = createFileRoute("/areas")({
   head: () => ({
     meta: [
       { title: "Areas — Forever" },
-      { name: "description", content: "The Phuket areas Forever reviews through its decision framework." },
+      {
+        name: "description",
+        content: "An orientation to the Phuket areas Forever works in.",
+      },
       { property: "og:title", content: "Areas — Forever" },
-      { property: "og:description", content: "The Phuket areas Forever reviews." },
+      { property: "og:description", content: "An orientation to Phuket's residential areas." },
     ],
   }),
   component: AreasPage,
@@ -21,8 +24,8 @@ function AreasPage() {
     <SiteShell>
       <Section
         eyebrow="Neighborhoods"
-        title="Phuket areas we review"
-        description="Key Phuket areas reviewed through location quality, lifestyle fit, and investment context."
+        title="Phuket areas in focus"
+        description="A short orientation to Phuket's residential areas — geography and character, so a project's location can be read in context."
       >
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {areas.map((a) => (

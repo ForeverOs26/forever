@@ -17,6 +17,11 @@ type PremiumProjectCardProps = {
   project: Property;
 };
 
+/**
+ * "Not available" is the fail-closed sentinel for an absent fact
+ * (FOREVER-TRUTH-001A): the card hides the element rather than presenting
+ * the sentinel as if it were data.
+ */
 function hasValue(value: string | number | boolean | null | undefined): boolean {
   if (typeof value === "number") {
     return value > 0;
@@ -26,7 +31,11 @@ function hasValue(value: string | number | boolean | null | undefined): boolean 
     return value;
   }
 
-  return Boolean(value && value.trim().length > 0);
+  if (!value || value.trim().length === 0) {
+    return false;
+  }
+
+  return value !== "Not available";
 }
 
 function DetailItem({
@@ -93,9 +102,9 @@ export function PremiumProjectCard({ project }: PremiumProjectCardProps) {
               <ShieldCheck className="h-3 w-3 text-primary" />
               Forever Verified
             </Badge>
-          ) : (
+          ) : hasValue(project.status) ? (
             <Badge variant="secondary">{project.status}</Badge>
-          )}
+          ) : null}
 
           {hasValue(project.verifiedPrice) ? (
             <span className="inline-flex items-center gap-1.5 rounded-md border border-white/20 bg-background/95 px-2.5 py-1 text-[11px] font-medium text-foreground">
@@ -118,7 +127,7 @@ export function PremiumProjectCard({ project }: PremiumProjectCardProps) {
         ) : null}
 
         <div className="absolute bottom-3 left-3 right-24 text-primary-foreground">
-          {project.propertyType ? (
+          {hasValue(project.propertyType) ? (
             <div className="mb-1.5 text-[9px] font-medium uppercase tracking-[0.18em] text-primary-foreground/75">
               {project.propertyType}
             </div>
@@ -154,7 +163,7 @@ export function PremiumProjectCard({ project }: PremiumProjectCardProps) {
           ) : null}
         </div>
 
-        {hasValue(project.verdict) && project.verdict !== "Not available" ? (
+        {hasValue(project.verdict) ? (
           <div className="border-b border-border py-4">
             <div className="text-[9px] font-medium uppercase tracking-[0.16em] text-primary">
               Forever Verdict
@@ -178,8 +187,10 @@ export function PremiumProjectCard({ project }: PremiumProjectCardProps) {
 
         <div className="mt-auto space-y-3 border-t border-border pt-4">
           <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-            {project.status ? <div>{project.status}</div> : null}
-            {project.lastInspection ? <div>Inspected {project.lastInspection}</div> : null}
+            {hasValue(project.status) ? <div>{project.status}</div> : null}
+            {hasValue(project.lastInspection) ? (
+              <div>Inspected {project.lastInspection}</div>
+            ) : null}
           </div>
           <Button asChild size="sm" className="w-full">
             <Link to="/projects/$slug" params={{ slug: project.slug }}>

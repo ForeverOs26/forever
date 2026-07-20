@@ -32,7 +32,7 @@ function ContactPage() {
         description={
           isPartnerDemo
             ? "Use this form to demonstrate the advisory handoff. Requests are validated locally and are not saved."
-            : "Tell us what you're looking for. We'll respond within one business day."
+            : "Tell us what you're looking for. We'll come back to you personally, as quickly as we can."
         }
       >
         <div className="grid gap-10 lg:grid-cols-5">

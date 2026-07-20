@@ -72,7 +72,7 @@ export function ProjectSummary({
           Project Summary
         </h2>
         <p className={`mt-1 text-sm ${muted}`}>
-          A concise, evidence-only summary of the verified project data and the derived Advisory
+          A concise, evidence-only summary of the recorded project data and the derived Advisory
           intelligence. No new scores are calculated; missing evidence is shown as &ldquo;Not
           available&rdquo;.
         </p>

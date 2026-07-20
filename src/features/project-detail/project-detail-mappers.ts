@@ -252,7 +252,9 @@ export function mapProjectDetail(row: ProjectDetailRecord): ProjectDetail {
       displayPrice: formatStartingPriceTHB(startingPriceTHB),
       priceRange: text(row.price_range),
       pricePerSqm: text(row.price_per_sqm_display),
-      verifiedPrice: text(row.verified_price) || text(row.price_range),
+      // Only an explicitly verified price may carry a verified-price label; an
+      // unverified marketing price range must never be promoted into it.
+      verifiedPrice: text(row.verified_price),
       promotion: text(row.promotion),
       lastPriceUpdate: text(row.last_price_update),
     },
