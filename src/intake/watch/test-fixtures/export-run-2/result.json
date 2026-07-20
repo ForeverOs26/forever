@@ -1,0 +1,97 @@
+{
+  "name": "Synthetic Title Channel",
+  "type": "public_channel",
+  "id": 1000000001,
+  "messages": [
+    {
+      "id": 101,
+      "type": "message",
+      "date": "2026-07-01T10:00:00",
+      "edited": "2026-07-06T09:00:00",
+      "from": "Synthetic Title Channel",
+      "from_id": "channel1000000001",
+      "text": "Updated price list for July (v2, corrected)",
+      "file": "files/price-list-july.pdf",
+      "file_name": "Synthetic Price List 01.07.2026.pdf",
+      "file_size": 66,
+      "mime_type": "application/pdf"
+    },
+    {
+      "id": 102,
+      "type": "message",
+      "date": "2026-07-01T11:00:00",
+      "from": "Synthetic Title Channel",
+      "from_id": "channel1000000001",
+      "text": "Construction progress on site",
+      "photo": "photos/photo_1@01-07-2026_11-00-00.jpg",
+      "photo_file_size": 29
+    },
+    {
+      "id": 103,
+      "type": "service",
+      "date": "2026-07-01T12:00:00",
+      "actor": "Synthetic Title Channel",
+      "action": "edit_group_photo",
+      "text": ""
+    },
+    {
+      "id": 104,
+      "type": "message",
+      "date": "2026-07-02T09:30:00",
+      "from": "Synthetic Title Channel",
+      "from_id": "channel1000000001",
+      "text": [
+        "Промоакция июля: скидка на юниты. Подробности: ",
+        { "type": "link", "text": "https://example.invalid/promo" }
+      ]
+    },
+    {
+      "id": 105,
+      "type": "message",
+      "date": "2026-07-03T10:00:00",
+      "from": "Synthetic Title Channel",
+      "from_id": "channel1000000001",
+      "text": "Master plan with current prices",
+      "file": "files/master-plan-prices.pdf",
+      "file_name": "Master Plan Prices.pdf",
+      "file_size": 71,
+      "mime_type": "application/pdf",
+      "thumbnail": "files/master-plan-prices.pdf_thumb.jpg"
+    },
+    {
+      "id": 106,
+      "type": "message",
+      "date": "2026-07-04T10:00:00",
+      "from": "Synthetic Title Channel",
+      "from_id": "channel1000000001",
+      "text": "",
+      "file": "files/price-list-copy.pdf",
+      "file_name": "Price List repost.pdf",
+      "file_size": 66,
+      "mime_type": "application/pdf"
+    },
+    {
+      "id": 107,
+      "type": "message",
+      "date": "2026-07-05T10:00:00",
+      "from": "Synthetic Title Channel",
+      "from_id": "channel1000000001",
+      "text": "Full brochure attached",
+      "file": "(File not included. Change data exporting settings to download.)",
+      "file_name": "Big Brochure.pdf",
+      "mime_type": "application/pdf"
+    },
+    {
+      "id": 108,
+      "type": "message",
+      "date": "2026-07-08T10:00:00",
+      "from": "Synthetic Title Channel",
+      "from_id": "channel1000000001",
+      "text": "Price list v2 for July",
+      "file": "files/price-list-v2.pdf",
+      "file_name": "Synthetic Price List 08.07.2026.pdf",
+      "file_size": 75,
+      "mime_type": "application/pdf"
+    }
+  ]
+}

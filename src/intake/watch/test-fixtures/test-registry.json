@@ -1,0 +1,31 @@
+{
+  "watch_schema_version": "1",
+  "channels": [
+    {
+      "channel": "@synthetictitle",
+      "developer_slug": "the-title",
+      "developer_name": "The Title",
+      "project_slug": "synthetic-project",
+      "project_name": "Synthetic Project",
+      "status": "active",
+      "notes": "Test fixture channel; export fixtures export-run-1 / export-run-2."
+    },
+    {
+      "channel": "@syntheticother",
+      "developer_slug": "other-developer",
+      "developer_name": "Other Developer",
+      "project_slug": null,
+      "project_name": null,
+      "status": "active",
+      "notes": "Developer-wide test channel without an assigned project."
+    },
+    {
+      "channel": "@pausedchannel",
+      "developer_slug": "the-title",
+      "developer_name": "The Title",
+      "project_slug": "paused-project",
+      "project_name": "Paused Project",
+      "status": "paused"
+    }
+  ]
+}

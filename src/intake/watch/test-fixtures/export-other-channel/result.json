@@ -1,0 +1,19 @@
+{
+  "name": "Synthetic Other Channel",
+  "type": "public_channel",
+  "id": 1000000002,
+  "messages": [
+    {
+      "id": 11,
+      "type": "message",
+      "date": "2026-07-09T10:00:00",
+      "from": "Synthetic Other Channel",
+      "from_id": "channel1000000002",
+      "text": "Shared marketing document",
+      "file": "files/shared-brochure.pdf",
+      "file_name": "Shared Brochure.pdf",
+      "file_size": 66,
+      "mime_type": "application/pdf"
+    }
+  ]
+}
