@@ -1,11 +1,11 @@
 # Forever Current Stage
 
 Status: Canonical active-stage document
-Last updated: 2026-07-19
+Last updated: 2026-07-20
 
 ## Stage name
 
-Rainpalm Fast Intake Pilot 01 completed successfully: the measured Rainpalm Villas structured-input pilot completed locally in 39.834 seconds (`target_met=true`) without import or publication. The active development checkpoint is to design the smallest source-backed Structured Input Preparation stage. Partner Demo v1 remains canonical and presentation-ready, with its presentation pending scheduling in parallel; it does not block current development. Shared Forever Navigator (website + Booth Mode), Fast Intake v1, ordinary new-project draft import simplification, and RC5.5D canonical-application closure remain canonical and unchanged.
+Structured Input Preparation Design v1 is independently reviewed, Owner approved, and canonical. The active development checkpoint is SIP-001A: qualify and deterministically extract one supported text-based PDF price list into candidate `ExtractedPriceList` JSON, validate it, produce an exception-only review summary, and prove current Fast Intake consumes the reviewed result unchanged. Partner Demo v1 remains canonical and presentation-ready, with its presentation pending scheduling in parallel; it does not block SIP-001A. Shared Forever Navigator (website + Booth Mode), Fast Intake v1, ordinary new-project draft import simplification, and RC5.5D canonical-application closure remain canonical and unchanged.
 
 Completed prerequisites for this stage:
 
@@ -14,6 +14,14 @@ Completed prerequisites for this stage:
 - Coralina local preview complete (unpublished draft, local development only);
 - Fast Intake v1 canonical;
 - ordinary Progressive draft import canonical.
+
+## Structured Input Preparation Design v1 - canonical
+
+SIP-001 begins with authorized local raw price-list PDF input and reuses the existing Fast Intake safe inventory, path, ZIP, hashing, duplicate, and classification boundaries. SIP-001A adds local Poppler executable/version preflight, PDF text-layer qualification, deterministic extraction of one supported table layout, exact source page and row references, candidate normalization, duplicate and ambiguity blocking, an exception-only CLI review summary, reviewed final `ExtractedPriceList` JSON, deterministic repeat proof, and unchanged Fast Intake compatibility proof.
+
+SIP-001A explicitly excludes project-facts automation, XLSX/CSV extraction, OCR, scanned PDFs, images and floor plans, AI extraction, cloud processing, database connection, import, publication, admin UI, and Factory autonomy expansion.
+
+Rainpalm is the intended first pilot only when its actual raw price-list PDF is confirmed in an authorized local source folder. The committed Rainpalm payload is comparison ground truth, not proof that the raw PDF is present. Absence of that PDF blocks the real Rainpalm pilot but does not invalidate the design or prevent qualification/parser infrastructure work with safe fixtures.
 
 ## Partner Demo v1 — canonical
 
@@ -85,7 +93,10 @@ Current state remains:
 
 - live capability is disabled;
 - no executor credential has been provisioned for live use;
+- Partner Demo v1 remains canonical;
+- Rainpalm remains unimported and unpublished;
 - Coralina is imported as a draft only and remains unpublished;
+- no production connection, import, publication, lead, or production write is authorized by SIP-001A;
 - Factory autonomy remains A0 - Propose only.
 
 The ordinary draft importer does not authorize publication. Schema, migration, RPC, RLS, grant, existing-data mutation, and partial-state recovery work remains exceptional maintenance subject to its own review and validation.
@@ -101,30 +112,29 @@ The ordinary draft importer does not authorize publication. Schema, migration, R
 | Fast Intake v1 with a 15-minute draft target                        | Codex / Owner     | Implemented, independently Windows-validated, and canonical on `main` |
 | Rainpalm Fast Intake Pilot 01                                       | Codex / Owner     | Completed successfully — 39.834s, unpublished validated partial draft |
 | Partner Demo v1 (runbook, launcher, no-write lead demo mode)        | Claude / Owner    | Completed and canonical on `main`                                     |
-| Structured Input Preparation design                                 | Codex / Owner     | Active development checkpoint; design only                            |
+| Structured Input Preparation Design v1                              | Codex / Owner     | Completed; independently reviewed, Owner approved, and canonical      |
+| SIP-001A supported text-PDF extraction                              | Codex / Owner     | Active development checkpoint                                         |
 | Present Partner Demo v1 to the partner                              | Owner             | Parallel pending business checkpoint; scheduling dependent            |
 | Publication of any imported draft                                   | Owner             | Later, separate action                                                |
 
 ## Active development checkpoint
 
-Design the smallest reliable, source-backed Structured Input Preparation process that converts an ordinary developer project dossier into compatible `project-facts.json` and extracted price-list JSON. This is a design checkpoint only; do not implement it in this PR.
-
-The design must preserve exact source references, provenance, confidence, and missing-fact handling. It must not infer facts from filenames or introduce an unsupported currency, price, date, developer, location, or project fact. It must not automatically import or publish anything.
+SIP-001A qualifies and deterministically extracts one supported text-based PDF price list into candidate `ExtractedPriceList` JSON, validates it, produces an exception-only review summary, and proves current Fast Intake consumes the reviewed result unchanged. The implementation must remain local, deterministic, source-referenced, fail closed on duplicates and ambiguity, and byte-identical on repeat.
 
 ## Parallel pending business checkpoint
 
-Present Forever Partner Demo v1 when the partner is available, using `docs/PARTNER_DEMO_V1.md`, collect structured feedback, and classify every item as one of: demo blocker; product improvement; future roadmap idea; or commercial/partnership decision. This presentation remains pending scheduling and does not block Structured Input Preparation design.
+Present Forever Partner Demo v1 when the partner is available, using `docs/PARTNER_DEMO_V1.md`, collect structured feedback, and classify every item as one of: demo blocker; product improvement; future roadmap idea; or commercial/partnership decision. This presentation remains pending scheduling and does not block SIP-001A.
 
-## Following development checkpoint
+## Pilot prerequisite
 
-After the Structured Input Preparation design is reviewed and approved, implement its smallest validated slice. Do not prematurely build a large OCR or computer-vision platform. The Rainpalm pilot prepared and validated an unpublished draft only; Rainpalm was neither imported nor published.
+The real Rainpalm SIP-001A pilot requires the actual raw Rainpalm price-list PDF in an authorized local source folder. Until confirmed, safe fixtures may prove qualification and parser infrastructure, but cannot claim a real Rainpalm raw-PDF pilot. Rainpalm remains unimported and unpublished.
 
 ## Acceptance criteria for the active development checkpoint
 
-- The design defines the smallest reliable source-backed path to compatible `project-facts.json` and extracted price-list JSON from an ordinary developer dossier.
-- Exact source references, provenance, confidence, and missing-fact handling are retained.
-- No filename-based fact inference or unsupported currency, price, date, developer, location, or project fact is permitted.
-- The design authorizes neither automatic import nor publication.
+- One qualified supported text-based PDF price-list layout is extracted deterministically into candidate `ExtractedPriceList` JSON.
+- Every accepted value has exact source page and row references; duplicate, inferred, ambiguous, conflicting, recovery, and unclear date/currency cases are blocked for review.
+- The reviewed final JSON is byte-identical across a deterministic repeat and passes unchanged Fast Intake compatibility validation.
+- No project-facts automation, XLSX/CSV extraction, OCR, scanned-PDF/image/floor-plan processing, AI/cloud extraction, database connection, import, publication, admin UI, or Factory autonomy expansion occurs.
 - Shared Navigator behavior at `/navigator` and `/booth` remains canonical over one NAV-001 Navigator Core, with Booth still unlinked from normal public navigation unless separately authorized.
 - Coralina remains an unpublished draft and Factory autonomy remains A0 throughout.
 
@@ -134,7 +144,8 @@ After the Structured Input Preparation design is reviewed and approved, implemen
 - Schema, migration, RPC, RLS, grant, existing-data mutation, or partial-state recovery work; these stay in the exceptional maintenance path.
 - Publication, update/upsert behavior, automatic retries, or disaster-recovery automation.
 - Linking Booth Mode from normal public navigation without a separate product decision.
+- Project-facts automation, XLSX/CSV extraction, OCR, scanned PDFs, images and floor plans, AI extraction, cloud processing, database connection, import, publication, admin UI, and Factory autonomy expansion.
 
 ## Definition of done
 
-The active checkpoint is complete when the Structured Input Preparation design is reviewed and approved with the stated source-backed, provenance, confidence, missing-fact, anti-fabrication, and no-auto-import/publication controls. The partner presentation remains a parallel pending business checkpoint; when delivered, its feedback is classified as demo blocker / product improvement / future roadmap idea / commercial-partnership decision, with no production lead, import, publication, or production write. Factory autonomy remains A0.
+The active checkpoint is complete when SIP-001A proves qualification, deterministic extraction of one supported text-PDF layout, exact source references, exception-only review, reviewed final JSON, duplicate/ambiguity blocking, deterministic repeat, and unchanged Fast Intake consumption. The partner presentation remains a parallel pending business checkpoint; when delivered, its feedback is classified as demo blocker / product improvement / future roadmap idea / commercial-partnership decision, with no production lead, import, publication, or production write. Coralina remains unpublished, Rainpalm remains unimported and unpublished, and Factory autonomy remains A0.

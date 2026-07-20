@@ -1,7 +1,7 @@
 # Forever Decisions
 
 Status: Canonical decision log
-Last updated: 2026-07-18
+Last updated: 2026-07-20
 
 ## Purpose
 
@@ -18,6 +18,13 @@ Each decision should include:
 - Review trigger, if any
 
 ## Approved decisions
+
+### 2026-07-20 - Approve Structured Input Preparation Design v1 and advance to SIP-001A
+
+- **Decision:** Structured Input Preparation Design v1 is independently reviewed, Owner approved, and canonical. SIP-001 begins with local deterministic extraction from qualified text-based PDF price lists using version-preflighted Poppler text output, deterministic TypeScript, unchanged Fast Intake contracts/validators, and reused Fast Intake inventory, path, ZIP, hashing, duplicate, and classification safety boundaries. High-confidence deterministic cells may pass without per-cell Owner review only when every validator and source-reference requirement passes; all medium/low, inferred, ambiguous, conflicting, recovery, duplicate, and unclear date/currency cases require review. Editing and explicit Owner verification remain separate actions. Reviewed non-sensitive final JSON and preparation reports may be tracked; raw materials, temporary output, renders, review queues, and sensitive data must not be tracked. The raw-dossier-to-reviewed-JSON target of 60 minutes or less is a pilot objective, not a proven guarantee.
+- **Context:** Fast Intake v1 proved compatible structured inputs can produce an unpublished validated draft quickly, but it does not extract price tables from raw documents. Coralina is the only machine-proven text-table extraction case; Modeva and Rainpalm raw PDFs require qualification. The committed Rainpalm payload is comparison ground truth but is not proof that the actual raw price-list PDF is present.
+- **Consequence:** SIP-001A is the active implementation checkpoint: qualify and deterministically extract one supported text-based PDF price list into candidate `ExtractedPriceList` JSON, validate it, produce an exception-only review summary, and prove unchanged Fast Intake consumes the reviewed result. The real Rainpalm pilot requires its raw price-list PDF in an authorized local source folder; absence blocks that pilot but not safe-fixture qualification/parser infrastructure. Project-facts automation, XLSX/CSV, OCR, scanned PDFs, images/floor plans, AI/cloud extraction, database connection, import, publication, admin UI, and Factory autonomy expansion remain excluded. Partner Demo v1 remains canonical and pending scheduling in parallel. Coralina remains unpublished; Rainpalm remains unimported and unpublished; Factory remains A0 - Propose only.
+- **Review trigger:** Review after SIP-001A evidence is complete, or before adding another input format, OCR/scanned-document handling, AI/cloud extraction, database/import/publication behavior, UI, or Factory autonomy.
 
 ### 2026-07-18 - One generic Progressive importer for ordinary new-project drafts
 
