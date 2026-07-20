@@ -1,0 +1,51 @@
+{
+  "sip_schema_version": "1",
+  "project_slug": "coralina",
+  "poppler_version": null,
+  "pdf_text_tool": {
+    "name": "pdftotext",
+    "vendor": "xpdf",
+    "version": "4.06",
+    "executable_sha256": "9699be3ec5726d33010295d96fd9eff43c5a6f4201aefe5c1678e70ec9fe3948"
+  },
+  "qualification_status": "QUALIFIED_SUPPORTED_LAYOUT",
+  "pages_detected": 4,
+  "tables_detected": 4,
+  "rows_detected": 198,
+  "candidate_row_count": 198,
+  "accepted_row_count": 198,
+  "review_item_count": 0,
+  "rejected_row_count": 0,
+  "safely_omitted_value_count": 0,
+  "blocking_issues": [],
+  "finalized": true,
+  "generation_id": "6cd54c35402b55777a3adeeac6366d05b3021ed371b7393ae2bdaa00b7d4140b",
+  "source_pdf_sha256": "268c2fa30e39e89c7dd5e3d7751326e3cf958ec2783e5953eabccbece9b3f3c0",
+  "artifact_hashes": {
+    "source_proof": "a3bc11c60746753c52f7300716d428cb8bf825052105652e0562b33a013c055a",
+    "qualification": "9e1e08e4f1101df383389b0466291154d83ae8ecede0d650a2ffa9d617a2013d",
+    "candidate_price_list": "3e18f3eeb2f877afd5ac078b01e1097f5b942133fd95a70fa65d6a2a5a9b0533",
+    "review_summary": "e197de598b3ca56b0ccfb03af09088cb21c8eb5de28f32c04407ecc9b2d2399d",
+    "reviewed_price_list": "066f2ddc40cfcabb663ffb8ecf7b492dbde1fc064c7381827d8019b46a5a0c14"
+  },
+  "supplemental_fees": [
+    {
+      "label": "common_fee",
+      "amount": 85,
+      "currency": "THB",
+      "unit": "sqm/month",
+      "source_file": "CLK - Price List V.2. - Updated 17.07.26.pdf",
+      "page_number": 4
+    },
+    {
+      "label": "sinking_fund",
+      "amount": 850,
+      "currency": "THB",
+      "unit": "sqm",
+      "source_file": "CLK - Price List V.2. - Updated 17.07.26.pdf",
+      "page_number": 4
+    }
+  ],
+  "no_import_statement": "No Progressive import, database client, or production write occurred in this preparation run.",
+  "no_publication_statement": "No project was published by this run; Rainpalm remains unimported and unpublished."
+}

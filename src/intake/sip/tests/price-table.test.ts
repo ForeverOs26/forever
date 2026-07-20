@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { extractDocumentTables, isSyntacticUnitIdentity, splitColumns } from "../price-table";
-import { fixtureExtraction } from "./test-support";
+import { fixtureExtraction, textToPages } from "./test-support";
 
 describe("SIP-001A column splitting", () => {
   it("splits on runs of 2+ spaces, keeping single interior spaces intact", () => {
@@ -55,6 +55,15 @@ describe("SIP-001A table extraction — supported layout fixture", () => {
     expect(x105?.cells.availability_status).toBe("Reserved - pending contract");
   });
 
+  it("does not append an unpunctuated detached fragment to a status", () => {
+    const fixture = fixtureExtraction("generic-price-list.pdftotext-layout.txt");
+    fixture.pages[0].text += "\n                                    fragment";
+    const rows = extractDocumentTables(fixture.pages).regions.flatMap((region) => region.rows);
+    expect(rows.find((row) => row.cells.unit_number === "Y201")?.cells.availability_status).toBe(
+      "Available",
+    );
+  });
+
   it("keeps a sold row with a dash price cell as a row (not dropped)", () => {
     const x102 = regions.flatMap((r) => r.rows).find((r) => r.cells.unit_number === "X102");
     expect(x102).toBeDefined();
@@ -74,6 +83,22 @@ describe("SIP-001A table extraction — supported layout fixture", () => {
       "Q21",
     ]);
     expect(multi.regions[0].rows[0].cells.size_sqm).toBe("305.50");
+  });
+
+  it("maps generic tower, room-number, code-type, room-type, and price-per-sqm headers", () => {
+    const layout = textToPages(
+      "Tower  Floor  Status  Room No.  Code Type  Room Type  Area  Price/sqm  Selling Price\nA  2  Available  A201  T-2  2 BEDROOM PLUS  64  150,000  9,600,000.00",
+    );
+    const region = extractDocumentTables(layout).regions[0];
+    expect(region.header.columns).toMatchObject({
+      building: "Tower",
+      floor: "Floor",
+      unit_number: "Room No.",
+      unit_code: "Code Type",
+      unit_type: "Room Type",
+      price_per_sqm: "Price/sqm",
+      price: "Selling Price",
+    });
   });
 });
 

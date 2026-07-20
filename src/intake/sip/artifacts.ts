@@ -45,6 +45,11 @@ export function sipArtifactPaths(outRoot: string, projectSlug: string): SipArtif
   return pathsForDir(join(outRoot, projectSlug, "sip"));
 }
 
+/** Versioned SIP packages may choose a safe, project-contained artifact directory. */
+export function sipArtifactPathsForDir(dir: string): SipArtifactPaths {
+  return pathsForDir(dir);
+}
+
 export function sha256OfJson(value: unknown): string {
   return createHash("sha256").update(toCanonicalJson(value)).digest("hex");
 }

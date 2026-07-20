@@ -30,6 +30,7 @@ function printUsage(): void {
   console.log("  --project <slug>   Lowercase project slug (required).");
   console.log('  --pdf "<path>"     Path to the single authorized raw price-list PDF (required).');
   console.log("  --out-root <dir>   Output root (default forever-data/projects).");
+  console.log("  --artifact-dir <dir> Versioned artifact directory inside the project output.");
   console.log(
     "  --workspace <dir>  Gitignored local pdftotext workspace (default .sip-workspace).",
   );

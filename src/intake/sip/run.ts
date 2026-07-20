@@ -24,10 +24,11 @@ import { basename, dirname, extname, resolve } from "node:path";
 
 import type { ExtractedPriceList } from "@/import/types";
 
-import { assertPathBoundaries, assertSafeSlug, removeManagedDir } from "../paths";
+import { assertPathBoundaries, assertSafeSlug, isStrictlyInside, removeManagedDir } from "../paths";
 import { sanitizePriceList } from "../sanitize";
 import {
   sipArtifactPaths,
+  sipArtifactPathsForDir,
   sha256OfJson,
   writeSipArtifacts,
   type SipArtifactHooks,
@@ -36,6 +37,7 @@ import {
   buildPriceListCandidates,
   buildReviewedPriceList,
   extractPriceListDate,
+  extractSupplementalFees,
   resetReviewIdCounter,
 } from "./candidate-normalize";
 import { PdfToolError, preflightPdftotext, runPdftotextLayout } from "./pdf-tool";
@@ -66,6 +68,8 @@ export interface RunSipOptions {
   pdfPath: string;
   outRoot?: string;
   workspaceRoot?: string;
+  /** Optional versioned, project-contained artifact directory. */
+  artifactDir?: string;
   /** Test-only generation-transaction failpoints. */
   artifactHooks?: SipArtifactHooks;
   /** Test-only preflight injection; the CLI never exposes this. */
@@ -123,6 +127,10 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
     // boundary so no temporary or canonical output can be written beside it.
     sources: [dirname(pdfPath)],
   });
+  const artifactDir = options.artifactDir ? resolve(options.artifactDir) : null;
+  if (artifactDir && !isStrictlyInside(artifactDir, projectDir)) {
+    throw new SipInputError("sip_artifact_dir_escapes_project_dir");
+  }
 
   const fileStat = statSync(pdfPath);
   const sourceFilename = basename(pdfPath);
@@ -140,6 +148,7 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
   const blockingIssues: string[] = [];
   let qualification: QualificationResult;
   let candidatePriceList: ExtractedPriceList = { unit_inventory: [] };
+  let supplementalFees: PreparationSummary["supplemental_fees"];
 
   if (!tool.found) {
     qualification = emptyQualification(tool.error ?? "pdftotext_not_available");
@@ -220,6 +229,7 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
         candidatePriceList = { ...candidatePriceList, price_list_date: dateResult.fact };
       }
       if (dateResult.reviewItem) reviewItems.push(dateResult.reviewItem);
+      supplementalFees = extractSupplementalFees(layoutExtraction.pages, sourceFilename);
     } catch (error) {
       const message = error instanceof PdfToolError ? error.message : String(error);
       qualification = emptyQualification(message);
@@ -271,7 +281,9 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
     sanitizePriceList(reviewedPriceList);
   }
 
-  const paths = sipArtifactPaths(outRoot, options.projectSlug);
+  const paths = artifactDir
+    ? sipArtifactPathsForDir(artifactDir)
+    : sipArtifactPaths(outRoot, options.projectSlug);
 
   const generationId = sha256OfJson({
     source_pdf_sha256: sourceProof.sha256,
@@ -327,6 +339,9 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
     generation_id: generationId,
     source_pdf_sha256: sourceProof.sha256,
     artifact_hashes: artifactHashes,
+    ...(supplementalFees && supplementalFees.length > 0
+      ? { supplemental_fees: supplementalFees }
+      : {}),
     no_import_statement:
       "No Progressive import, database client, or production write occurred in this preparation run.",
     no_publication_statement:

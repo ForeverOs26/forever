@@ -12,6 +12,7 @@
     "intake": "node src/intake/run-cli.mjs",
     "sip:price-list": "node src/intake/sip/run-cli.mjs",
     "sip:compare-price-list": "node src/intake/sip/compare-run-cli.mjs",
+    "sip:package": "node src/intake/sip/package-cli.mjs",
     "factory:continue": "jiti src/factory/continue-forever/cli.ts",
     "preview": "vite preview",
     "lint": "eslint .",
