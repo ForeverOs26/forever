@@ -15,17 +15,18 @@ Every Codex task must read these documents first:
 1. `docs/FOREVER_DOC_INDEX.md`
 2. `docs/factory/FOREVER_FACTORY_INDEX.md`
 3. `docs/CODEX_OPERATING_MANUAL.md`
-4. `docs/FOREVER_BLUEPRINT.md`
-5. `docs/CURRENT_STAGE.md`
-6. `docs/FOREVER_STATUS.md`
-7. `docs/ROADMAP.md`
-8. `docs/DATA_STANDARD.md`
+4. `docs/FOREVER_STRATEGIC_NORTH_STAR.md`
+5. `docs/FOREVER_BLUEPRINT.md`
+6. `docs/CURRENT_STAGE.md`
+7. `docs/FOREVER_STATUS.md`
+8. `docs/ROADMAP.md`
+9. `docs/DATA_STANDARD.md`
 
 For every Factory-governed task, also read the approved Task Packet and the relevant routing and gate sections. Read the complete `docs/FOREVER_FACTORY_CONSTITUTION.md` when the task involves Factory architecture, routing policy, autonomy, security, R2 or R3 work, shared contracts, constitutional interpretation, external side effects, production access, browser automation, or legal, financial, or privileged actions. For an isolated ordinary product task, the Factory Index and relevant task-specific documents are sufficient unless the Task Packet requires the complete Constitution.
 
 If a task involves project understanding, architecture, intelligence, Passport, Import Engine direction, or source-backed data policy, Codex must also read:
 
-6. `docs/CODEX_PROJECT_UNDERSTANDING.md`
+10. `docs/CODEX_PROJECT_UNDERSTANDING.md`
 
 If any required document is missing at the exact path, Codex must report the missing path before proceeding.
 
@@ -36,6 +37,7 @@ If any required document is missing at the exact path, Codex must report the mis
 | `docs/FOREVER_DOC_INDEX.md`                      | Canonical index for documentation paths, duplicate names, and new-doc rules.                                                                                                                                                                      | Yes                 |
 | `docs/factory/FOREVER_FACTORY_INDEX.md`          | Cold-clone start point for Forever Factory authority, state, routing, gates, Task Packets, recovery, and A0 operation.                                                                                                                            | Yes                 |
 | `docs/CODEX_OPERATING_MANUAL.md`                 | Operating rules for Codex work in Forever, including scope, quality, git, data, and communication rules.                                                                                                                                          | Yes                 |
+| `docs/FOREVER_STRATEGIC_NORTH_STAR.md`           | Canonical product and business direction: evidence-led Phuket advisory brokerage, public-truth boundary, commercial priority order, metrics, work-in-progress limits, and strategy review triggers.                                                | Yes                 |
 | `docs/FOREVER_BLUEPRINT.md`                      | Main constitutional and architectural document for Forever.                                                                                                                                                                                       | Yes                 |
 | `docs/FOREVER_FACTORY_CONSTITUTION.md`           | Ratified development-system Constitution; full reading is required for Factory architecture, policy, autonomy, security, R2/R3, shared-contract, constitutional, external, production, browser, legal, financial, or privileged work.             | Conditional         |
 | `docs/CURRENT_STAGE.md`                          | Canonical active-stage document: objective, scope, owners, acceptance criteria, definition of done, blockers, and next stage.                                                                                                                     | Yes                 |
@@ -77,7 +79,7 @@ If any required document is missing at the exact path, Codex must report the mis
 - Add a new document only when it has a clear owner and purpose that is not already covered by an existing canonical document.
 - Prefer updating a canonical document over creating a duplicate status, roadmap, architecture, or data-standard document.
 - When adding a new durable document, update this index in the same change.
-- Keep `docs/FOREVER_BLUEPRINT.md` as the product architecture and constitutional source of truth; `docs/FOREVER_FACTORY_CONSTITUTION.md` separately governs the development system.
+- Keep `docs/FOREVER_BLUEPRINT.md` as the product architecture and constitutional source of truth; `docs/FOREVER_STRATEGIC_NORTH_STAR.md` governs product and business priority; `docs/FOREVER_FACTORY_CONSTITUTION.md` separately governs the development system.
 - Keep `docs/CURRENT_STAGE.md` focused on the active stage only.
 - Keep `docs/FOREVER_STATUS.md` focused on current factual status, not historical logs or task-board detail.
 - Keep `docs/ROADMAP.md` focused on sequenced future phases and milestones.
