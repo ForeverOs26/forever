@@ -18,16 +18,16 @@
  * artifacts under `forever-data/projects/<slug>/sip/`.
  */
 
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
 
 import type { ExtractedPriceList } from "@/import/types";
 
-import { assertPathBoundaries, assertSafeSlug, removeManagedDir } from "../paths";
+import { assertPathBoundaries, assertSafeSlug, isStrictlyInside, removeManagedDir } from "../paths";
 import { sanitizePriceList } from "../sanitize";
 import {
   sipArtifactPaths,
+  sipArtifactPathsForDir,
   sha256OfJson,
   writeSipArtifacts,
   type SipArtifactHooks,
@@ -36,12 +36,14 @@ import {
   buildPriceListCandidates,
   buildReviewedPriceList,
   extractPriceListDate,
+  extractSupplementalFees,
   resetReviewIdCounter,
 } from "./candidate-normalize";
 import { PdfToolError, preflightPdftotext, runPdftotextLayout } from "./pdf-tool";
 import { qualifyPdfText } from "./pdf-qualify";
 import { extractDocumentTables, mergeLayoutCoreCells } from "./price-table";
 import { buildReviewSummary, canFinalize } from "./review";
+import { assertSourceUnchanged, fingerprintSourceFile } from "./source-integrity";
 import type {
   PdfToolPreflight,
   PreparationSummary,
@@ -66,6 +68,8 @@ export interface RunSipOptions {
   pdfPath: string;
   outRoot?: string;
   workspaceRoot?: string;
+  /** Optional versioned, project-contained artifact directory. */
+  artifactDir?: string;
   /** Test-only generation-transaction failpoints. */
   artifactHooks?: SipArtifactHooks;
   /** Test-only preflight injection; the CLI never exposes this. */
@@ -80,10 +84,6 @@ export interface RunSipResult {
   reviewedPriceList: ExtractedPriceList | null;
   preparationSummary: PreparationSummary;
   paths: ReturnType<typeof sipArtifactPaths>;
-}
-
-function sha256File(path: string): string {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 function emptyQualification(reason: string): QualificationResult {
@@ -123,15 +123,23 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
     // boundary so no temporary or canonical output can be written beside it.
     sources: [dirname(pdfPath)],
   });
+  const artifactDir = options.artifactDir ? resolve(options.artifactDir) : null;
+  if (artifactDir && !isStrictlyInside(artifactDir, projectDir)) {
+    throw new SipInputError("sip_artifact_dir_escapes_project_dir");
+  }
 
-  const fileStat = statSync(pdfPath);
+  const sourcePreProcessing = fingerprintSourceFile(pdfPath);
   const sourceFilename = basename(pdfPath);
   let sourceProof: SourceProof = {
     sip_schema_version: SIP_SCHEMA_VERSION,
     project_slug: options.projectSlug,
     source_filename: sourceFilename,
-    sha256: sha256File(pdfPath),
-    byte_size: fileStat.size,
+    sha256: sourcePreProcessing.sha256,
+    byte_size: sourcePreProcessing.byte_size,
+    pre_processing: sourcePreProcessing,
+    // This temporary value is never emitted: any outcome writes artifacts only
+    // after the post-processing comparison below has succeeded.
+    post_processing: sourcePreProcessing,
     hash_verified_unchanged_after_extraction: false,
   };
 
@@ -140,6 +148,7 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
   const blockingIssues: string[] = [];
   let qualification: QualificationResult;
   let candidatePriceList: ExtractedPriceList = { unit_inventory: [] };
+  let supplementalFees: PreparationSummary["supplemental_fees"];
 
   if (!tool.found) {
     qualification = emptyQualification(tool.error ?? "pdftotext_not_available");
@@ -220,6 +229,7 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
         candidatePriceList = { ...candidatePriceList, price_list_date: dateResult.fact };
       }
       if (dateResult.reviewItem) reviewItems.push(dateResult.reviewItem);
+      supplementalFees = extractSupplementalFees(layoutExtraction.pages, sourceFilename);
     } catch (error) {
       const message = error instanceof PdfToolError ? error.message : String(error);
       qualification = emptyQualification(message);
@@ -236,12 +246,19 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
     }
   }
 
-  const postRunStat = statSync(pdfPath);
-  const postRunSha256 = sha256File(pdfPath);
-  if (postRunStat.size !== sourceProof.byte_size || postRunSha256 !== sourceProof.sha256) {
-    throw new SipInputError("sip_source_pdf_changed_during_extraction");
+  let sourcePostProcessing;
+  try {
+    sourcePostProcessing = assertSourceUnchanged(sourcePreProcessing, pdfPath);
+  } catch (error) {
+    throw new SipInputError(
+      `sip_source_pdf_changed_during_extraction: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
-  sourceProof = { ...sourceProof, hash_verified_unchanged_after_extraction: true };
+  sourceProof = {
+    ...sourceProof,
+    post_processing: sourcePostProcessing,
+    hash_verified_unchanged_after_extraction: true,
+  };
   qualification = {
     ...qualification,
     source_pdf_sha256: sourceProof.sha256,
@@ -271,7 +288,9 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
     sanitizePriceList(reviewedPriceList);
   }
 
-  const paths = sipArtifactPaths(outRoot, options.projectSlug);
+  const paths = artifactDir
+    ? sipArtifactPathsForDir(artifactDir)
+    : sipArtifactPaths(outRoot, options.projectSlug);
 
   const generationId = sha256OfJson({
     source_pdf_sha256: sourceProof.sha256,
@@ -327,10 +346,12 @@ export function runSipPriceListExtraction(options: RunSipOptions): RunSipResult 
     generation_id: generationId,
     source_pdf_sha256: sourceProof.sha256,
     artifact_hashes: artifactHashes,
+    ...(supplementalFees && supplementalFees.length > 0
+      ? { supplemental_fees: supplementalFees }
+      : {}),
     no_import_statement:
       "No Progressive import, database client, or production write occurred in this preparation run.",
-    no_publication_statement:
-      "No project was published by this run; Rainpalm remains unimported and unpublished.",
+    no_publication_statement: "No project was published by this run.",
   };
 
   writeSipArtifacts({

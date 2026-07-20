@@ -26,6 +26,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# This explicit, flushed marker lets the TypeScript harness distinguish a
+# Windows process-start stall from a parity run that actually began. It is
+# deliberately emitted before resolving corpus paths or spawning validation
+# children, so a timeout after this point is never retried by that harness.
+[Console]::Out.WriteLine('VALIDATION_PARITY_STARTED')
+[Console]::Out.Flush()
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 if (-not $CorpusDir) { $CorpusDir = Join-Path $repoRoot 'src/intake/test-fixtures/validation-corpus' }
 if (-not $Importer) { $Importer = Join-Path $repoRoot 'scripts/import/Import-ForeverProjectDraft.ps1' }
@@ -72,6 +78,89 @@ function Invoke-ValidateOnly([string]$PayloadPath) {
   }
 }
 
+function Invoke-ValidateOnlyBatch([object[]]$Cases) {
+  # The generated array matrix contains independent payload files. Keep every
+  # validation at the ordinary child-process boundary, while bounding the
+  # number of concurrent PowerShell startups so this live proof remains
+  # reliable when the wider TypeScript suite is running.
+  $maxParallel = 4
+  $pending = New-Object System.Collections.Queue
+  foreach ($case in $Cases) { $pending.Enqueue($case) }
+  $active = @()
+  $results = @()
+  $index = 0
+
+  while ($pending.Count -gt 0 -or $active.Count -gt 0) {
+    while ($pending.Count -gt 0 -and $active.Count -lt $maxParallel) {
+      $case = $pending.Dequeue()
+      $active += [pscustomobject]@{
+        Case = $case
+        Index = $index
+        Process = Start-ValidateOnly $case.PayloadPath
+      }
+      $index++
+    }
+
+    # Waiting for the oldest active process preserves a bounded pool without
+    # changing any case's command line, output capture, or true exit code.
+    $entry = $active[0]
+    $results += [pscustomobject]@{
+      Case = $entry.Case
+      Index = $entry.Index
+      Result = Complete-ValidateOnly $entry.Process
+    }
+    if ($active.Count -eq 1) {
+      $active = @()
+    } else {
+      $active = @($active[1..($active.Count - 1)])
+    }
+  }
+
+  return @($results | Sort-Object Index)
+}
+
+function Start-ValidateOnly([string]$PayloadPath) {
+  # Windows PowerShell does not inherit an outer process's -ExecutionPolicy.
+  # Pass Bypass only to this disposable validation child; no machine, user, or
+  # repository policy is changed. pwsh does not need this Windows-only switch.
+  $arguments = @('-NoProfile')
+  if ($PSVersionTable.PSEdition -eq 'Desktop') { $arguments += @('-ExecutionPolicy', 'Bypass') }
+  $arguments += @('-File', $Importer, '-PayloadPath', $PayloadPath, '-ValidateOnly')
+  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $startInfo.FileName = $psExe
+  $startInfo.Arguments = (($arguments | ForEach-Object { ConvertTo-NativeArgument ([string]$_) }) -join ' ')
+  $startInfo.UseShellExecute = $false
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $startInfo
+  try {
+    if (-not $process.Start()) { throw "Could not start child PowerShell for $PayloadPath." }
+    return [pscustomobject]@{
+      Process = $process
+      StdoutTask = $process.StandardOutput.ReadToEndAsync()
+      StderrTask = $process.StandardError.ReadToEndAsync()
+    }
+  } catch {
+    $process.Dispose()
+    throw
+  }
+}
+
+function Complete-ValidateOnly($ValidationProcess) {
+  try {
+    $ValidationProcess.Process.WaitForExit()
+    return [pscustomobject]@{
+      ExitCode = $ValidationProcess.Process.ExitCode
+      Stdout = $ValidationProcess.StdoutTask.GetAwaiter().GetResult()
+      Stderr = $ValidationProcess.StderrTask.GetAwaiter().GetResult()
+    }
+  } finally {
+    $ValidationProcess.Process.Dispose()
+  }
+}
+
 $expected = Get-Content -Raw -LiteralPath (Join-Path $CorpusDir 'expected.json') | ConvertFrom-Json
 $failures = @()
 $rows = @()
@@ -113,6 +202,7 @@ $validBaseText = Get-Content -Raw -LiteralPath $validBasePath
 $tempDir = Join-Path ([IO.Path]::GetTempPath()) ("forever-array-corpus-{0}" -f [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($tempDir) | Out-Null
 try {
+  $arrayCases = @()
   foreach ($field in $arrayCorpus.fields) {
     foreach ($shape in $arrayCorpus.shapes) {
       $valueJson = switch ([string]$shape.name) {
@@ -131,7 +221,21 @@ try {
       $trimmed = $validBaseText.TrimEnd()
       $payloadText = $trimmed.Substring(0, $trimmed.Length - 1) + ",`n  `"$field`": $valueJson`n}`n"
       [IO.File]::WriteAllText($casePath, $payloadText, [Text.UTF8Encoding]::new($false))
-      $result = Invoke-ValidateOnly $casePath
+      $arrayCases += [pscustomobject]@{
+        CaseName = $caseName
+        Field = [string]$field
+        Shape = $shape
+        PayloadPath = $casePath
+      }
+    }
+  }
+
+  foreach ($batchResult in (Invoke-ValidateOnlyBatch $arrayCases)) {
+      $case = $batchResult.Case
+      $caseName = $case.CaseName
+      $field = $case.Field
+      $shape = $case.Shape
+      $result = $batchResult.Result
       $hasMarker = $result.Stdout -match 'DRAFT_PAYLOAD_VALID\|'
       $arrayCount = switch ([string]$shape.name) {
         'zero' { 0 }
@@ -162,7 +266,6 @@ try {
         Marker = $hasMarker
         Match = ($null -eq $problem)
       }
-    }
   }
 } finally {
   if ([IO.Directory]::Exists($tempDir)) { [IO.Directory]::Delete($tempDir, $true) }

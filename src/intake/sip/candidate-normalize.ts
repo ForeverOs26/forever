@@ -246,7 +246,17 @@ function buildRow(
   }
 
   const unitType = simpleTextFact(raw.cells.unit_type, sourceFilename, pageNumber);
+  const unitCode = simpleTextFact(raw.cells.unit_code, sourceFilename, pageNumber);
   const building = simpleTextFact(raw.cells.building, sourceFilename, pageNumber);
+  const floor = numericOrTextFact(
+    raw.cells.floor,
+    sourceFilename,
+    pageNumber,
+    "floor",
+    raw,
+    region,
+    reviewItems,
+  );
   const bedrooms = numericOrTextFact(
     raw.cells.bedrooms,
     sourceFilename,
@@ -324,6 +334,16 @@ function buildRow(
     );
   }
 
+  const pricePerSqm = numericOrTextFact(
+    raw.cells.price_per_sqm,
+    sourceFilename,
+    pageNumber,
+    "price_per_sqm",
+    raw,
+    region,
+    reviewItems,
+  );
+
   let currency: Fact<string> | undefined;
   if (region.header.currencyFromHeader) {
     currency = {
@@ -371,11 +391,14 @@ function buildRow(
   return {
     source_row: raw.sourceRow,
     unit_number: unitNumber,
+    ...(unitCode ? { unit_code: unitCode } : {}),
     ...(unitType ? { unit_type: unitType } : {}),
     ...(building ? { building } : {}),
+    ...(floor ? { floor } : {}),
     ...(bedrooms ? { bedrooms } : {}),
     ...(bathrooms ? { bathrooms } : {}),
     ...(sizeSqm ? { size_sqm: sizeSqm } : {}),
+    ...(pricePerSqm ? { price_per_sqm: pricePerSqm } : {}),
     price,
     ...(currency ? { currency } : {}),
     ...(availability ? { availability_status: availability } : {}),
@@ -492,6 +515,47 @@ const DATE_LINE_PATTERN =
 export interface DateExtractionResult {
   fact: Fact<string> | null;
   reviewItem: ReviewItem | null;
+}
+
+export interface SupplementalFeeEvidence {
+  label: "sinking_fund" | "common_fee";
+  amount: number;
+  currency: string;
+  unit: string;
+  source_file: string;
+  page_number: number;
+}
+
+/**
+ * Preserve explicitly labelled document-level fees without treating them as
+ * selling prices. This recognizes only a label, positive amount, ISO-style
+ * currency, and sqm-based unit on the same source line.
+ */
+export function extractSupplementalFees(
+  pages: PdfTextPage[],
+  sourceFilename: string,
+): SupplementalFeeEvidence[] {
+  const fees: SupplementalFeeEvidence[] = [];
+  for (const page of pages) {
+    for (const line of page.text.split(/\r?\n/)) {
+      const matched = line.match(
+        /^\s*(sinki?ng\s*fund|common\s*fee)\s*:\s*([\d,]+(?:\.\d+)?)\s*([A-Za-z]{3})\s*\/\s*(sqm(?:\/month)?)\s*$/i,
+      );
+      if (!matched) continue;
+      const [, rawLabel, rawAmount, rawCurrency, rawUnit] = matched;
+      const amount = Number(rawAmount.replace(/,/g, ""));
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      fees.push({
+        label: /^sinki?ng/i.test(rawLabel) ? "sinking_fund" : "common_fee",
+        amount,
+        currency: rawCurrency.toUpperCase(),
+        unit: rawUnit.toLowerCase(),
+        source_file: sourceFilename,
+        page_number: page.pageNumber,
+      });
+    }
+  }
+  return fees.sort((a, b) => a.label.localeCompare(b.label));
 }
 
 /** Extract the price-list date ONLY from document content — never a filename or timestamp. */

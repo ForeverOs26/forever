@@ -90,13 +90,16 @@ export interface QualificationResult {
 /** The fixed set of price-table columns SIP-001A knows how to map. Never guessed. */
 export type PriceTableField =
   | "unit_number"
+  | "unit_code"
   | "unit_type"
   /** Source-preserved parsing field; omitted because the unchanged intake contract has no slot. */
   | "land_area_sqm"
   | "building"
+  | "floor"
   | "bedrooms"
   | "bathrooms"
   | "size_sqm"
+  | "price_per_sqm"
   | "price"
   | "availability_status";
 
@@ -173,6 +176,10 @@ export interface SourceProof {
   source_filename: string;
   sha256: string;
   byte_size: number;
+  /** Captured immediately before the authorized read-only processing operation. */
+  pre_processing: { sha256: string; byte_size: number };
+  /** Captured immediately after processing; must exactly equal pre_processing. */
+  post_processing: { sha256: string; byte_size: number };
   hash_verified_unchanged_after_extraction: boolean;
   generation_id?: string;
 }
@@ -201,6 +208,14 @@ export interface PreparationSummary {
   generation_id: string;
   source_pdf_sha256: string;
   artifact_hashes: Record<string, string>;
+  supplemental_fees?: Array<{
+    label: "sinking_fund" | "common_fee";
+    amount: number;
+    currency: string;
+    unit: string;
+    source_file: string;
+    page_number: number;
+  }>;
   no_import_statement: string;
   no_publication_statement: string;
 }

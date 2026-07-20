@@ -16,6 +16,8 @@ import { validateDraftPayload, validateDraftPayloadFile } from "../validate-draf
  */
 
 const CORPUS = resolve("src/intake/test-fixtures/validation-corpus");
+const PARITY_STARTUP_TIMEOUT_MS = 15_000;
+const PARITY_COMPLETION_TIMEOUT_MS = 270_000;
 const expected = JSON.parse(readFileSync(join(CORPUS, "expected.json"), "utf8")) as Record<
   string,
   { powershell: "accept" | "reject"; typescript: "accept" | "reject"; note?: string }
@@ -24,6 +26,34 @@ const arrayShapes = JSON.parse(readFileSync(join(CORPUS, "array-shapes.json"), "
   fields: string[];
   shapes: Array<{ name: string; is_array: boolean; value: unknown }>;
 };
+
+type LiveHarnessResult = {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  parityStarted: boolean;
+};
+
+/**
+ * A retry is permitted only for the known Windows process-start contention
+ * shape: no exit result, no child output/diagnostics, and no emitted startup
+ * marker. A timeout is retryable only before that marker; any result from a
+ * child that actually began the parity run is meaningful proof (or meaningful
+ * failure) and must be reported directly.
+ */
+function isRetryableEmptyLiveHarnessResult(
+  result: LiveHarnessResult,
+  isWindows = process.platform === "win32",
+): boolean {
+  return (
+    isWindows &&
+    result.status === null &&
+    result.stdout.trim() === "" &&
+    result.stderr.trim() === "" &&
+    !result.parityStarted
+  );
+}
 
 function tsVerdict(name: string): "accept" | "reject" {
   try {
@@ -42,6 +72,42 @@ function liveHarnessArguments(executable: string, harness: string): string[] {
     ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", harness]
     : ["-NoProfile", "-File", harness];
 }
+
+describe("Draft validation parity live-harness retry classification", () => {
+  const emptyLaunchResult: LiveHarnessResult = {
+    status: null,
+    stdout: "",
+    stderr: "",
+    timedOut: false,
+    parityStarted: false,
+  };
+
+  it("retries only an empty Windows process-start result", () => {
+    expect(isRetryableEmptyLiveHarnessResult(emptyLaunchResult, true)).toBe(true);
+    expect(isRetryableEmptyLiveHarnessResult({ ...emptyLaunchResult, timedOut: true }, true)).toBe(
+      true,
+    );
+    expect(isRetryableEmptyLiveHarnessResult(emptyLaunchResult, false)).toBe(false);
+  });
+
+  it.each([
+    ["explicit non-zero exit", { ...emptyLaunchResult, status: 1 }],
+    ["marker contradiction", { ...emptyLaunchResult, status: 0, stdout: "DRAFT_PAYLOAD_VALID" }],
+    ["PowerShell diagnostic", { ...emptyLaunchResult, stderr: "validation failed" }],
+    ["partial case result", { ...emptyLaunchResult, stdout: "case valid-minimal: accept" }],
+    [
+      "timeout after parity start",
+      {
+        ...emptyLaunchResult,
+        timedOut: true,
+        parityStarted: true,
+        stdout: "VALIDATION_PARITY_STARTED",
+      },
+    ],
+  ] as const)("does not retry a %s", (_name, result) => {
+    expect(isRetryableEmptyLiveHarnessResult(result, true)).toBe(false);
+  });
+});
 
 describe("Draft validation importer-compatibility (TypeScript vs PowerShell -ValidateOnly)", () => {
   it("has an expected verdict for every corpus payload and vice versa", () => {
@@ -132,37 +198,80 @@ describe("Draft validation importer-compatibility (TypeScript vs PowerShell -Val
       } else {
         expect(args).toEqual(["-NoProfile", "-File", harness]);
       }
-      const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>(
-        (complete) => {
+      const runLiveHarness = () =>
+        new Promise<LiveHarnessResult>((complete) => {
           const child = spawn(pwsh, args, {
             windowsHide: true,
           });
           let stdout = "";
           let stderr = "";
+          let timedOut = false;
+          let parityStarted = false;
           child.stdout.setEncoding("utf8");
           child.stderr.setEncoding("utf8");
           child.stdout.on("data", (chunk: string) => {
             stdout += chunk;
+            parityStarted ||= stdout.includes("VALIDATION_PARITY_STARTED");
           });
           child.stderr.on("data", (chunk: string) => {
             stderr += chunk;
           });
-          const timer = setTimeout(() => child.kill(), 270_000);
+          const clearTimers = (): void => {
+            clearTimeout(startupTimer);
+            clearTimeout(completionTimer);
+          };
+          // A short, test-only startup bound makes Windows process-start
+          // contention observable while preserving the established 270-second
+          // complete-parity bound once the child emits its flushed start marker.
+          const startupTimer = setTimeout(() => {
+            if (parityStarted) return;
+            timedOut = true;
+            child.kill();
+          }, PARITY_STARTUP_TIMEOUT_MS);
+          const completionTimer = setTimeout(() => {
+            timedOut = true;
+            child.kill();
+          }, PARITY_COMPLETION_TIMEOUT_MS);
           child.once("close", (status) => {
-            clearTimeout(timer);
-            complete({ status, stdout, stderr });
+            clearTimers();
+            complete({ status, stdout, stderr, timedOut, parityStarted });
           });
           child.once("error", (error) => {
-            clearTimeout(timer);
-            complete({ status: null, stdout, stderr: `${stderr}\n${error.message}` });
+            clearTimers();
+            complete({
+              status: null,
+              stdout,
+              stderr: `${stderr}\n${error.message}`,
+              timedOut,
+              parityStarted,
+            });
           });
-        },
-      );
+        });
+      const hasParityProof = (result: LiveHarnessResult) =>
+        result.status === 0 && result.stdout.includes("PowerShell validation parity OK");
+      const firstResult = await runLiveHarness();
+      // Under a saturated Windows full-suite run, a PowerShell child can very
+      // occasionally stall before the child script emits its startup marker.
+      // Retry only that empty non-proof shape; a validation failure or any
+      // timeout after the parity run starts is never retried.
+      const attempts = [firstResult];
+      if (!hasParityProof(firstResult) && isRetryableEmptyLiveHarnessResult(firstResult)) {
+        attempts.push(await runLiveHarness());
+      }
+      const result = attempts.at(-1)!;
       const outputLines = result.stdout.split(/\r?\n/).filter(Boolean);
       console.log(outputLines.at(-1));
-      if (result.status !== 0) {
-        console.error(result.stdout);
-        console.error(result.stderr);
+      if (!hasParityProof(result)) {
+        console.error(
+          `[validation-parity] Live PowerShell proof failed after ${attempts.length} attempt(s).`,
+        );
+        for (const [attempt, attemptResult] of attempts.entries()) {
+          console.error(
+            `[validation-parity] attempt ${attempt + 1} status=${attemptResult.status} timedOut=${attemptResult.timedOut} parityStarted=${attemptResult.parityStarted}`,
+          );
+          console.error(attemptResult.stdout);
+          console.error(attemptResult.stderr);
+        }
       }
       expect(result.stdout).toContain("PowerShell validation parity OK");
       expect(result.status).toBe(0);

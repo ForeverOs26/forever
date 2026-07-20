@@ -5,7 +5,7 @@ Last updated: 2026-07-20
 
 ## Stage name
 
-Structured Input Preparation Design v1 and SIP-001A are independently audited, real-Windows validated, Owner approved, and canonical. SIP-001A qualified and deterministically extracted the authorized Rainpalm text-PDF layout into reviewed `ExtractedPriceList` JSON, with repeatable artifacts and unchanged Fast Intake compatibility. The active development checkpoint is SIP-001B: validate the canonical text-PDF extractor against one additional real authorized qualified price-list PDF before adding another source format. Partner Demo v1 remains canonical and presentation-ready, with its presentation pending scheduling in parallel; it does not block SIP-001B. Shared Forever Navigator (website + Booth Mode), Fast Intake v1, ordinary new-project draft import simplification, and RC5.5D canonical-application closure remain canonical and unchanged.
+Structured Input Preparation Design v1, SIP-001A, and SIP-001B are independently reviewed, real-Windows validated, Owner-approved, and canonical. SIP-001B retained the authorized Coralina 2026-07-17 result: 198 accepted rows; 197 shared unchanged units; `CKD508` newly present in the latest price table; `CKF406` only `missing_from_latest_price_list`; zero price, price-per-sqm, availability-text, or attribute changes; THB `inferred_default`; sinking fund 850 THB/sqm; common fee 85 THB/sqm/month; and a seven-page visual Master Plan companion with no spatial interpretation. The active development checkpoint is **TG-WATCH-001 — Universal Read-Only Telegram Source Watcher Design and Safe Pilot**. Partner Demo v1 remains canonical and presentation-ready, with its presentation pending scheduling in parallel; it does not block TG-WATCH-001. Shared Forever Navigator (website + Booth Mode), Fast Intake v1, ordinary new-project draft import simplification, and RC5.5D canonical-application closure remain canonical and unchanged.
 
 Completed prerequisites for this stage:
 
@@ -21,7 +21,7 @@ SIP-001 begins with authorized local raw price-list PDF input and reuses the exi
 
 SIP-001A explicitly excludes project-facts automation, XLSX/CSV extraction, OCR, scanned PDFs, images and floor plans, AI extraction, cloud processing, database connection, import, publication, admin UI, and Factory autonomy expansion.
 
-SIP-001B must validate this canonical extractor against one additional real authorized qualified price-list PDF before any new source format is added. It does not authorize XLSX/CSV extraction, OCR, scanned-PDF/image handling, AI/cloud extraction, import, publication, or Factory expansion.
+SIP-001B is canonical. Its authorized Coralina 2026-07-17 Price List retained 198 accepted rows, THB `inferred_default`, sinking fund 850 THB/sqm, and common fee 85 THB/sqm/month. Its version diff retained 197 shared unchanged units, `CKD508` newly present, `CKF406` only `missing_from_latest_price_list`, and zero price, price-per-sqm, availability-text, or attribute changes. The Master Plan is a seven-page visual companion only, with no spatial interpretation. Coralina remains unpublished; Rainpalm remains unimported and unpublished; no production connection, database client, import, lead, publication, or Telegram authentication occurred.
 
 ## Partner Demo v1 — canonical
 
@@ -114,30 +114,25 @@ The ordinary draft importer does not authorize publication. Schema, migration, R
 | Partner Demo v1 (runbook, launcher, no-write lead demo mode)        | Claude / Owner    | Completed and canonical on `main`                                     |
 | Structured Input Preparation Design v1                              | Codex / Owner     | Completed; independently reviewed, Owner approved, and canonical      |
 | SIP-001A supported text-PDF extraction                              | Codex / Owner     | Implemented, independently audited, real-Windows validated, canonical |
-| SIP-001B additional real qualified text-PDF validation              | Codex / Owner     | Active development checkpoint                                         |
+| SIP-001B Coralina 2026-07-17 qualified text-PDF validation          | Codex / Owner     | Completed; independently reviewed, real-Windows validated, canonical  |
+| TG-WATCH-001 universal read-only Telegram source watcher design     | Codex / Owner     | Active development checkpoint                                         |
 | Present Partner Demo v1 to the partner                              | Owner             | Parallel pending business checkpoint; scheduling dependent            |
 | Publication of any imported draft                                   | Owner             | Later, separate action                                                |
 
 ## Active development checkpoint
 
-SIP-001B validates the canonical text-PDF extractor against one additional real authorized qualified price-list PDF before adding another source format. It must retain local deterministic execution, exact source references, duplicate/ambiguity fail-closed behavior, repeatability, unchanged Fast Intake compatibility, and the existing no-import/no-publication boundaries.
+TG-WATCH-001 — Universal Read-Only Telegram Source Watcher Design and Safe Pilot. Define one universal local watcher, not one agent per channel, using one protected Telegram user session and a configuration registry mapping channels to developers and project slugs. Pilot `@coralinakamala` and one additional authorized Title channel selected during TG-WATCH-001. Read only new channel posts and attachments; quarantine them locally with SHA-256 duplicate protection; classify canonical price tables, visual Master Plans, construction photos/videos, and other documents; retain per-channel cursor and last-processed-message state; and produce Owner-review output. It does not authorize automatic database import, publication, or Factory autonomy expansion.
 
 ## Parallel pending business checkpoint
 
-Present Forever Partner Demo v1 when the partner is available, using `docs/PARTNER_DEMO_V1.md`, collect structured feedback, and classify every item as one of: demo blocker; product improvement; future roadmap idea; or commercial/partnership decision. This presentation remains pending scheduling and does not block SIP-001A.
-
-## SIP-001B prerequisite
-
-The next validation requires one additional authorized qualified text-based price-list PDF. Rainpalm remains unimported and unpublished; Coralina remains unpublished.
+Present Forever Partner Demo v1 when the partner is available, using `docs/PARTNER_DEMO_V1.md`, collect structured feedback, and classify every item as one of: demo blocker; product improvement; future roadmap idea; or commercial/partnership decision. This presentation remains pending scheduling and does not block TG-WATCH-001.
 
 ## Acceptance criteria for the active development checkpoint
 
-- One additional authorized qualified text-PDF price list is validated by the canonical SIP-001A extractor without extending its source-format scope.
-- Every accepted value remains source-referenced; duplicate, inferred, ambiguous, conflicting, recovery, and unclear date/currency cases remain fail-closed or review-bound.
-- The reviewed final JSON remains repeatable and passes unchanged Fast Intake compatibility validation.
-- No project-facts automation, XLSX/CSV extraction, OCR, scanned-PDF/image/floor-plan processing, AI/cloud extraction, database connection, import, publication, admin UI, or Factory autonomy expansion occurs.
-- Shared Navigator behavior at `/navigator` and `/booth` remains canonical over one NAV-001 Navigator Core, with Booth still unlinked from normal public navigation unless separately authorized.
-- Coralina remains an unpublished draft and Factory autonomy remains A0 throughout.
+- One universal local watcher is designed for multiple channels, using one protected Telegram user session and a configuration registry mapping channels to developers and project slugs.
+- The safe pilot scope is `@coralinakamala` and one additional authorized Title channel selected during TG-WATCH-001; posts and attachments are ingested read-only, quarantined locally, and protected by SHA-256 duplicate detection.
+- Canonical price tables, visual Master Plans, construction photos/videos, and other documents are classified, with per-channel cursor and last-processed-message state and Owner-review output.
+- No automatic database import or publication occurs; no Factory autonomy expansion occurs; Coralina remains unpublished, Rainpalm remains unimported and unpublished, and Factory remains A0 throughout.
 
 ## Out of scope
 
@@ -145,8 +140,9 @@ The next validation requires one additional authorized qualified text-based pric
 - Schema, migration, RPC, RLS, grant, existing-data mutation, or partial-state recovery work; these stay in the exceptional maintenance path.
 - Publication, update/upsert behavior, automatic retries, or disaster-recovery automation.
 - Linking Booth Mode from normal public navigation without a separate product decision.
-- Project-facts automation, XLSX/CSV extraction, OCR, scanned PDFs, images and floor plans, AI extraction, cloud processing, database connection, import, publication, admin UI, and Factory autonomy expansion.
+- Telegram authentication, external network access, recurring monitoring, credential/session storage, and implementation of the watcher; these require the separate TG-WATCH-001 task and its review gates.
+- Database connection, import, publication, admin UI, and Factory autonomy expansion.
 
 ## Definition of done
 
-The active checkpoint is complete when SIP-001B validates the canonical extractor against one additional real authorized qualified text-PDF without adding a source format and preserves all SIP-001A safety and compatibility evidence. The partner presentation remains a parallel pending business checkpoint; when delivered, its feedback is classified as demo blocker / product improvement / future roadmap idea / commercial-partnership decision, with no production lead, import, publication, or production write. Coralina remains unpublished, Rainpalm remains unimported and unpublished, and Factory autonomy remains A0.
+The active checkpoint is complete when TG-WATCH-001 has an approved safe-pilot design for one universal local read-only watcher: one protected Telegram user session, the channel registry, local quarantine and SHA-256 duplicate protection, source classification, per-channel cursor/last-processed-message state, and Owner-review output. It must preserve the no-automatic-import, no-publication, and Factory A0 boundaries. The partner presentation remains a parallel pending business checkpoint; when delivered, its feedback is classified as demo blocker / product improvement / future roadmap idea / commercial-partnership decision, with no production lead, import, publication, or production write. Coralina remains unpublished and Rainpalm remains unimported and unpublished.

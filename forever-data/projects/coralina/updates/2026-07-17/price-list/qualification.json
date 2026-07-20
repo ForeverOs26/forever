@@ -1,0 +1,179 @@
+{
+  "status": "QUALIFIED_SUPPORTED_LAYOUT",
+  "reasons": [
+    "qualified_tables=4",
+    "qualified_rows=198"
+  ],
+  "pageCount": 4,
+  "nonWhitespaceCharCount": 11410,
+  "headerMappings": [
+    {
+      "page": 1,
+      "rawHeaderLine": "Tower  Floor  Status     Room No.  Code Type  Room Type          Area   Price/sqm  Selling Price",
+      "columns": {
+        "building": "Tower",
+        "floor": "Floor",
+        "availability_status": "Status",
+        "unit_number": "Room No.",
+        "unit_code": "Code Type",
+        "unit_type": "Room Type",
+        "size_sqm": "Area",
+        "price_per_sqm": "Price/sqm",
+        "price": "Selling Price"
+      },
+      "columnStarts": [
+        0,
+        7,
+        14,
+        25,
+        35,
+        46,
+        65,
+        72,
+        83
+      ],
+      "columnFields": [
+        "building",
+        "floor",
+        "availability_status",
+        "unit_number",
+        "unit_code",
+        "unit_type",
+        "size_sqm",
+        "price_per_sqm",
+        "price"
+      ],
+      "currencyFromHeader": null,
+      "tableIndex": 0
+    },
+    {
+      "page": 2,
+      "rawHeaderLine": "Tower  Floor  Status     Room No.  Code Type  Room Type          Area   Price/sqm  Selling Price",
+      "columns": {
+        "building": "Tower",
+        "floor": "Floor",
+        "availability_status": "Status",
+        "unit_number": "Room No.",
+        "unit_code": "Code Type",
+        "unit_type": "Room Type",
+        "size_sqm": "Area",
+        "price_per_sqm": "Price/sqm",
+        "price": "Selling Price"
+      },
+      "columnStarts": [
+        0,
+        7,
+        14,
+        25,
+        35,
+        46,
+        65,
+        72,
+        83
+      ],
+      "columnFields": [
+        "building",
+        "floor",
+        "availability_status",
+        "unit_number",
+        "unit_code",
+        "unit_type",
+        "size_sqm",
+        "price_per_sqm",
+        "price"
+      ],
+      "currencyFromHeader": null,
+      "tableIndex": 0
+    },
+    {
+      "page": 3,
+      "rawHeaderLine": "Tower  Floor  Status     Room No.  Code Type  Room Type          Area   Price/sqm  Selling Price",
+      "columns": {
+        "building": "Tower",
+        "floor": "Floor",
+        "availability_status": "Status",
+        "unit_number": "Room No.",
+        "unit_code": "Code Type",
+        "unit_type": "Room Type",
+        "size_sqm": "Area",
+        "price_per_sqm": "Price/sqm",
+        "price": "Selling Price"
+      },
+      "columnStarts": [
+        0,
+        7,
+        14,
+        25,
+        35,
+        46,
+        65,
+        72,
+        83
+      ],
+      "columnFields": [
+        "building",
+        "floor",
+        "availability_status",
+        "unit_number",
+        "unit_code",
+        "unit_type",
+        "size_sqm",
+        "price_per_sqm",
+        "price"
+      ],
+      "currencyFromHeader": null,
+      "tableIndex": 0
+    },
+    {
+      "page": 4,
+      "rawHeaderLine": "Tower            Floor    Status     Room No.  Code Type  Room Type       Area       Price/sqm  Selling Price",
+      "columns": {
+        "building": "Tower",
+        "floor": "Floor",
+        "availability_status": "Status",
+        "unit_number": "Room No.",
+        "unit_code": "Code Type",
+        "unit_type": "Room Type",
+        "size_sqm": "Area",
+        "price_per_sqm": "Price/sqm",
+        "price": "Selling Price"
+      },
+      "columnStarts": [
+        0,
+        17,
+        26,
+        37,
+        47,
+        58,
+        74,
+        85,
+        96
+      ],
+      "columnFields": [
+        "building",
+        "floor",
+        "availability_status",
+        "unit_number",
+        "unit_code",
+        "unit_type",
+        "size_sqm",
+        "price_per_sqm",
+        "price"
+      ],
+      "currencyFromHeader": null,
+      "tableIndex": 0
+    }
+  ],
+  "parser_mode": "table",
+  "source_pdf_sha256": "268c2fa30e39e89c7dd5e3d7751326e3cf958ec2783e5953eabccbece9b3f3c0",
+  "text_output_hashes": {
+    "layout": "da412527978ce93d0d315a0f2ba9265443f4810d61fddba84e60306803759a56",
+    "table": "c638f5729b0c7a8ea73f4009efab36b899f20820240ff402230a89a64e80cd5f"
+  },
+  "tool": {
+    "name": "pdftotext",
+    "vendor": "xpdf",
+    "version": "4.06",
+    "executable_sha256": "9699be3ec5726d33010295d96fd9eff43c5a6f4201aefe5c1678e70ec9fe3948"
+  }
+}

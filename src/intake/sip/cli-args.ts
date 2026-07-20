@@ -11,11 +11,12 @@ export interface SipCliOptions {
   pdfPath: string;
   outRoot?: string;
   workspaceRoot?: string;
+  artifactDir?: string;
 }
 
 export type ParseSipResult = { ok: true; options: SipCliOptions } | { ok: false; error: string };
 
-const VALUE_FLAGS = new Set(["--project", "--pdf", "--out-root", "--workspace"]);
+const VALUE_FLAGS = new Set(["--project", "--pdf", "--out-root", "--workspace", "--artifact-dir"]);
 
 export function parseSipInvocation(args: string[]): ParseSipResult {
   const values: Record<string, string> = {};
@@ -59,6 +60,7 @@ export function parseSipInvocation(args: string[]): ParseSipResult {
       pdfPath,
       outRoot: values["--out-root"],
       workspaceRoot: values["--workspace"],
+      artifactDir: values["--artifact-dir"],
     },
   };
 }

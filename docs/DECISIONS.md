@@ -19,6 +19,13 @@ Each decision should include:
 
 ## Approved decisions
 
+### 2026-07-20 - Canonicalize SIP-001B and advance to TG-WATCH-001
+
+- **Decision:** SIP-001B is implemented, independently reviewed, real-Windows validated, Owner-approved, and canonical. Its authorized Coralina 2026-07-17 result retains 198 accepted rows; 197 shared unchanged units; `CKD508` newly present in the latest price table; `CKF406` only `missing_from_latest_price_list`; zero price, price-per-sqm, availability-text, or attribute changes; THB `inferred_default`; sinking fund 850 THB/sqm; common fee 85 THB/sqm/month; and a seven-page visual Master Plan companion with no spatial interpretation. The next active development checkpoint is TG-WATCH-001 — Universal Read-Only Telegram Source Watcher Design and Safe Pilot.
+- **Context:** SIP-001B completed generic, source-bound package review and two passing ordinary full suites of 307 files and 2,940 tests. The retained Coralina package is source-proven and does not authorize import or publication.
+- **Consequence:** TG-WATCH-001 is limited to designing a universal local read-only watcher, one protected Telegram user session, a channel-to-developer/project registry, a pilot for `@coralinakamala` plus one additional authorized Title channel selected during that task, local quarantine with SHA-256 duplicate protection, source classification, per-channel cursor/last-processed-message state, and Owner-review output. It does not authorize automatic database import, publication, Factory autonomy expansion, or selecting an additional pilot channel in advance. Coralina remains unpublished; Rainpalm remains unimported and unpublished; Partner Demo remains canonical and a parallel pending business checkpoint; Factory remains A0 - Propose only.
+- **Review trigger:** Review before Telegram authentication, any external network use, pilot-channel selection, database import, publication, or Factory autonomy change.
+
 ### 2026-07-20 - Canonicalize SIP-001A and advance to SIP-001B
 
 - **Decision:** SIP-001A is implemented, independently audited, real-Windows validated, Owner approved, and canonical. Its authorized Rainpalm text-PDF result, deterministic reviewed artifacts, currency policy, and unchanged Fast Intake compatibility are retained. The next active checkpoint is SIP-001B: validate the canonical text-PDF extractor against one additional real authorized qualified price-list PDF before adding another source format.

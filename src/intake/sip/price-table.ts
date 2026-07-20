@@ -34,16 +34,21 @@ const HEADER_DICTIONARY: ReadonlyArray<{ field: PriceTableField; labels: string[
       "villa no",
       "villa number",
       "unit/villa",
+      "room no",
+      "room number",
     ],
   },
-  { field: "unit_type", labels: ["type", "unit type", "villa type", "pool villa"] },
-  { field: "building", labels: ["building", "block", "zone", "phase"] },
+  { field: "unit_code", labels: ["code", "code type", "unit code"] },
+  { field: "unit_type", labels: ["type", "unit type", "villa type", "pool villa", "room type"] },
+  { field: "building", labels: ["building", "block", "zone", "phase", "tower"] },
+  { field: "floor", labels: ["floor", "level", "storey", "story"] },
   { field: "bedrooms", labels: ["bed", "beds", "bedroom", "bedrooms", "bd", "bdr"] },
   { field: "bathrooms", labels: ["bath", "baths", "bathroom", "bathrooms", "ba"] },
   {
     field: "land_area_sqm",
     labels: ["land area", "land area sqm", "plot area", "plot size"],
   },
+  { field: "price_per_sqm", labels: ["price/sqm", "price per sqm", "price sqm"] },
   {
     field: "size_sqm",
     labels: ["size", "area", "living area", "usable area", "sqm", "size sqm", "living/usable size"],
@@ -62,7 +67,15 @@ function stripParenthetical(token: string): string {
 function matchField(token: string): PriceTableField | null {
   const norm = normalizeToken(token);
   if (!norm) return null;
-  if (/\bprice\b/.test(norm) && !/\bfee\b/.test(norm)) return "price";
+  if (/(?:price\s*\/\s*sqm|price\s+per\s+sqm|price\s+sqm)/.test(norm)) {
+    return "price_per_sqm";
+  }
+  if (
+    /(?:selling\s+price|total\s+price|^price(?:\s*\([a-z]{3}\))?$)/.test(norm) &&
+    !/\bfee\b/.test(norm)
+  ) {
+    return "price";
+  }
   const stripped = stripParenthetical(norm);
   for (const { field, labels } of HEADER_DICTIONARY) {
     if (labels.includes(norm) || labels.includes(stripped)) return field;
@@ -273,16 +286,22 @@ export function extractPageTables(page: PdfTextPage): PageTableExtraction {
           // following line. Never append those to the prior row. A genuine
           // wrapped continuation is limited to descriptive text columns.
           if (existing.toLowerCase() === value.trim().toLowerCase()) continue;
+          if (!new Set<PriceTableField>(["availability_status", "unit_type"]).has(field)) {
+            continue;
+          }
+          // A real wrapped status continuation is explicitly punctuated
+          // (for example "Reserved - pending contract"). Do not append
+          // detached header/footer fragments such as unit labels to a status.
           if (
-            !new Set<PriceTableField>(["availability_status", "unit_type", "building"]).has(field)
+            field === "availability_status" &&
+            !value.trim().startsWith("-") &&
+            !existing.endsWith("-")
           ) {
             continue;
           }
           previous.cells[field] = `${existing} ${value.trim()}`;
           merged = true;
-        } else if (
-          new Set<PriceTableField>(["availability_status", "unit_type", "building"]).has(field)
-        ) {
+        } else if (new Set<PriceTableField>(["availability_status", "unit_type"]).has(field)) {
           previous.cells[field] = value.trim();
           merged = true;
         }

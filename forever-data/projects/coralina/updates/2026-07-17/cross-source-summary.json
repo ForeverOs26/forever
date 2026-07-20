@@ -1,0 +1,9 @@
+{
+  "sip_schema_version": "1",
+  "primary_table_authority": "The primary Price List is authoritative for structured availability and prices in this update package.",
+  "master_plan_role": "The Master Plan is registered as visual companion evidence.",
+  "unit_level_master_plan_extraction": "not_performed",
+  "automatic_conflict_resolution": "not_performed",
+  "future_spatial_extraction": "requires_a_separate_approved_checkpoint",
+  "telegram_monitoring": "not_implemented_in_sip_001b"
+}
