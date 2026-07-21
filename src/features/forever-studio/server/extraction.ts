@@ -45,7 +45,8 @@ export const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024; // 1 GiB
 /** Max bytes we will pull into memory to parse a JSON/PDF business file. */
 export const MAX_PARSE_BYTES = 20 * 1024 * 1024; // 20 MiB
 /** Max archive we will download and expand (entry-by-entry) on the server. */
-export const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024; // 100 MiB
+// Complete ZIP validation needs the archive buffer in memory before expansion.
+export const MAX_ARCHIVE_BYTES = 16 * 1024 * 1024; // 16 MiB
 /** Leading bytes captured while streaming, for magic-byte class detection. */
 export const HEAD_SNIFF_BYTES = 4096;
 

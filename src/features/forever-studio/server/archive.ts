@@ -34,10 +34,12 @@ import {
  * per-entry cap also bounds peak memory (one entry at a time).
  */
 export const STUDIO_ZIP_LIMITS: ZipLimits = {
-  maxArchiveBytes: 100 * 1024 * 1024, // matches MAX_ARCHIVE_BYTES
+  // The archive buffer and one inflated entry coexist in a Worker request.
+  // Keep their peak well below the practical 128 MiB runtime envelope.
+  maxArchiveBytes: 16 * 1024 * 1024, // matches MAX_ARCHIVE_BYTES
   maxEntries: 300,
-  maxFileBytes: 50 * 1024 * 1024, // one expanded entry at a time in memory
-  maxTotalBytes: 500 * 1024 * 1024,
+  maxFileBytes: 8 * 1024 * 1024, // one expanded entry at a time in memory
+  maxTotalBytes: 64 * 1024 * 1024,
   maxCompressionRatio: DEFAULT_ZIP_LIMITS.maxCompressionRatio,
   maxPathLength: 1024,
 };

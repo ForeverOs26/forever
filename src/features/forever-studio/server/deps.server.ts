@@ -350,18 +350,17 @@ async function statObjectImpl(bucket: string, path: string): Promise<StudioObjec
 /**
  * Stream one stored object through SHA-256: exact byte count, full digest,
  * and the leading `headBytes` for magic sniffing — memory stays bounded by
- * the chunk size no matter how large the object is. Falls back to a bounded
- * whole-read only when the runtime's Blob lacks stream() AND the object is
- * small; otherwise resolves null (the caller retains the file privately).
+ * the chunk size no matter how large the object is. It uses Storage JS's
+ * raw-response stream rather than its Blob-returning convenience method.
  */
-const HASH_FALLBACK_MAX_BYTES = 32 * 1024 * 1024;
-
 async function hashObjectImpl(
   bucket: string,
   path: string,
   headBytes: number,
 ): Promise<StudioObjectDigest | null> {
-  const { data, error } = await admin.storage.from(bucket).download(path);
+  // `download()` buffers through Response.blob(). Storage JS 2.110 exposes
+  // the raw response body through asStream(), which remains chunk-bounded.
+  const { data, error } = await admin.storage.from(bucket).download(path).asStream();
   if (error || !data) return null;
   const { createHash } = await import("node:crypto");
   const hash = createHash("sha256");
@@ -378,17 +377,11 @@ async function hashObjectImpl(
     }
   };
   try {
-    if (typeof data.stream === "function") {
-      const reader = data.stream().getReader();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) consume(Buffer.from(value));
-      }
-    } else if (data.size <= HASH_FALLBACK_MAX_BYTES) {
-      consume(Buffer.from(await data.arrayBuffer()));
-    } else {
-      return null;
+    const reader = data.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) consume(Buffer.from(value));
     }
   } catch {
     return null;

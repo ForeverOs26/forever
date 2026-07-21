@@ -96,7 +96,7 @@ real-database tests added.
    retained privately regardless of size; forged declared sizes are recorded
    as mismatches with a warning; duplicate content is skipped at any size;
    oversized files are retained, never blocking. Separate limits bound upload
-   size (1 GiB), server parse (20 MiB), and archive expansion (100 MiB).
+   size (1 GiB), server parse (20 MiB), and archive expansion (16 MiB).
 6. **No business-identity blocker.** The required project-name attribute is
    removed. A stable identity is derived from facts, an uploaded project-facts
    file, or a deterministic `new-project-<date>-<job8>` fallback — never a
@@ -160,8 +160,8 @@ server-boundary, direct-publication design.
    Windows reserved names, symlinks, encryption, ZIP64, unsupported methods,
    duplicate + case-insensitive and file/directory collisions — then streams
    entries ONE at a time (CRC + declared size verified) instead of
-   materializing the whole expansion. Studio limits: 100 MiB archive, 300
-   entries, 50 MiB/entry, 500 MiB total, ratio 200. A rejected archive
+   materializing the whole expansion. Studio limits: 16 MiB archive, 300
+   entries, 8 MiB/entry, 64 MiB total, ratio 200. A rejected archive
    expands nothing, stays privately retained, and never blocks the job's
    other materials. Regressions include a GENUINE deflate zip bomb and an
    excessive-total-expansion archive against the production code path.
@@ -251,6 +251,15 @@ confirmation objects. Contract pinned by
 `src/features/forever-studio/tests/migration-contract.test.ts`.
 
 ## Validation completed (this environment)
+
+### Independent audit correction (2026-07-21)
+
+The focused Studio suite is now 120 tests across 12 files. This audit found
+that the prior `Blob.stream()` hashing implementation still buffered a complete
+Storage response because Storage JS `download()` first calls `Response.blob()`.
+Hashing now uses `download().asStream()` and has an installed-client regression.
+Worker ZIP limits are 16 MiB archive, 8 MiB per entry, and 64 MiB total so the
+archive buffer and an inflated entry fit a practical Worker memory envelope.
 
 - **Focused Studio suite — 119 tests across 11 files, all passing**
   (`src/features/forever-studio/tests/`): authorization + cross-publisher job
@@ -343,9 +352,11 @@ camera/file-picker behavior need a real-device pilot to be measured honestly.
   sweep. We do NOT claim zero public orphans in every crash interleaving.
 - Any authorized upload publishes (per the rule); Unpublish is one tap.
 - `deps.server.ts` talks to PostgREST untyped until types are regenerated.
-- The streaming hash relies on `Blob.stream()` (standard on Workers and Node
-  18+); if a runtime lacked it, files above the bounded fallback would be
-  retained privately rather than published unverified (fail closed).
+- The streaming hash uses Supabase Storage JS `download().asStream()` so the
+  client exposes the response body directly. `download()` itself calls
+  `Response.blob()` and must not be used for large-object hashing. The
+  regression suite proves the installed 2.110.0 client does not materialize a
+  Blob on this path.
 
 ## Confirmations
 

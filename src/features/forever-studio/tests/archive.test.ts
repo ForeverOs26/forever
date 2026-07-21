@@ -132,11 +132,11 @@ describe("Studio ZIP safety contract (real archives)", () => {
 
   it("rejects excessive TOTAL declared expansion before touching any data", async () => {
     // 11 entries × 50 MiB declared = 550 MiB > the 500 MiB Studio budget.
-    const specs: ZipSpec[] = Array.from({ length: 11 }, (_, i) => ({
+    const specs: ZipSpec[] = Array.from({ length: 9 }, (_, i) => ({
       name: `part-${i}.bin`,
       data: Buffer.from("x"),
-      declaredUncompressed: 50 * 1024 * 1024,
-      declaredCompressed: 50 * 1024 * 1024,
+      declaredUncompressed: STUDIO_ZIP_LIMITS.maxFileBytes,
+      declaredCompressed: STUDIO_ZIP_LIMITS.maxFileBytes,
     }));
     const { entries, result } = await collect(buildZip(specs));
     expect(result.expanded).toBe(false);
