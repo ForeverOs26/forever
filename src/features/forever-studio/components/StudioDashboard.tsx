@@ -5,12 +5,14 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { useEffect } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 import {
   studioGetOverview,
+  studioResumePending,
   studioSetListingPublication,
   studioSetProjectPublication,
 } from "../studio.functions";
@@ -47,7 +49,28 @@ export function StudioDashboard() {
     queryKey: STUDIO_OVERVIEW_KEY,
     queryFn: () => studioGetOverview(),
     retry: false,
+    // Poll while any job is still working so status stays live and durable
+    // resume is visible without a manual refresh.
+    refetchInterval: (query) =>
+      query.state.data && query.state.data.activeJobs > 0 ? 5000 : false,
   });
+
+  // Automatic durable resume: on each poll, ask the server to pick up any
+  // received / retryable-failed / stale-processing job and drive it to
+  // completion. No second publication decision; safe to call repeatedly.
+  const activeJobs = overview.data?.activeJobs ?? 0;
+  useEffect(() => {
+    if (activeJobs <= 0) return;
+    let cancelled = false;
+    void studioResumePending({ data: undefined })
+      .then(() => {
+        if (!cancelled) void queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeJobs, overview.dataUpdatedAt, queryClient]);
 
   const projectPublication = useMutation({
     mutationFn: (input: { slug: string; publish: boolean }) =>
@@ -90,6 +113,12 @@ export function StudioDashboard() {
           {data.session.role === "owner" ? "Owner" : "Trusted Publisher"} · an upload publishes
           immediately; missing details can be added later.
         </p>
+        {data.activeJobs > 0 ? (
+          <p className="mt-3 rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            Processing {data.activeJobs} upload{data.activeJobs === 1 ? "" : "s"}… this continues
+            automatically even if you close the page.
+          </p>
+        ) : null}
       </section>
 
       <section className="space-y-3">

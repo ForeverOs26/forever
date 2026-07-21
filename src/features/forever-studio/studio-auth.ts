@@ -23,6 +23,14 @@ export const requireStudioMember = createMiddleware({ type: "function" })
     const deps = createStudioDeps();
     const claims = context.claims as Record<string, unknown>;
     const email = typeof claims.email === "string" ? claims.email : null;
-    const actor = await resolveStudioActor(deps, { userId: context.userId, email });
+    // Supabase stamps email_verified/email_confirmed into the access token;
+    // bootstrap-by-email requires a confirmed identity.
+    const emailVerified =
+      claims.email_verified === true ||
+      claims.email_confirmed_at != null ||
+      (typeof claims.user_metadata === "object" &&
+        claims.user_metadata != null &&
+        (claims.user_metadata as Record<string, unknown>).email_verified === true);
+    const actor = await resolveStudioActor(deps, { userId: context.userId, email, emailVerified });
     return next({ context: { deps, actor } });
   });

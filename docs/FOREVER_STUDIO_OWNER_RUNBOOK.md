@@ -1,8 +1,8 @@
 # Forever Studio — Owner Runbook
 
-Status: Companion runbook for FOREVER-STUDIO-001; effective once the Studio
-migrations are applied and the environment variables are configured.
-Written 2026-07-21.
+Status: Companion runbook for FOREVER-STUDIO-001; effective once the single
+pending Studio migration is applied and the environment variables are
+configured. Written 2026-07-21.
 
 Forever Studio is your publishing tool. You sign in on your phone, tablet,
 or computer, upload the materials you have, and the public page goes live
@@ -10,15 +10,25 @@ immediately. Missing information never blocks anything — add it later.
 
 ## One-time setup (done once, by whoever deploys)
 
-1. Apply the two prepared migrations to Supabase (progressive ingestion
-   first, then Studio). This is the only step that involves a database.
-2. Set two server environment variables: `SUPABASE_SERVICE_ROLE_KEY` and
-   `STUDIO_OWNER_EMAIL=<your email>`.
-3. Create your login (email + password) in Supabase Auth, or keep the one
-   you have.
-4. Open `<your site>/studio`, sign in with that email — you become the
-   Owner automatically. Nobody else can do this: the bootstrap works only
-   while the member list is empty and only for exactly your email.
+1. Apply the **one pending Studio migration**
+   `20260721120000_forever_studio_v1.sql` to Supabase, after Codex's read-only
+   live-schema check. The progressive ingestion migration is already applied
+   (Coralina is imported as an unpublished draft) — do not re-apply it. This is
+   the only step that involves a database.
+2. Set the server environment variables:
+   - `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` (used to verify the signed-in
+     publisher's token), and
+   - `SUPABASE_SERVICE_ROLE_KEY` (used only on the server for Studio writes),
+     plus
+   - either `STUDIO_OWNER_USER_ID=<your Supabase user id>` (preferred, exact
+     identity) or `STUDIO_OWNER_EMAIL=<your confirmed email>`.
+3. Create your login (email + password) in Supabase Auth, or keep the one you
+   have. Make sure the email is confirmed if you use the email option.
+4. Open `<your site>/studio`, sign in — you become the Owner automatically.
+   Nobody else can do this: the database allows exactly one self-bootstrapped
+   owner, only while the member list is empty, and only for your configured
+   identity. Optionally, turn off public sign-ups in the Supabase dashboard as
+   an extra layer (Studio already rejects any non-member).
 
 ## Daily use
 

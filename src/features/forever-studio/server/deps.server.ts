@@ -5,14 +5,14 @@
  * exclusively via dynamic import inside server-function handlers, never from
  * code that ships to the browser (asserted by the bundle-boundary tests).
  *
- * The service-role credential comes from the server process environment
- * (SUPABASE_SERVICE_ROLE_KEY) exactly like the existing owner tooling. It
- * never appears in source, output, or the client bundle.
+ * Runtime note: the app deploys to Cloudflare Workers (cloudflare-module,
+ * nodejs_compat). Node subprocesses and a writable filesystem are NOT
+ * available there, so SIP price-list PDF extraction runs only where a
+ * subprocess exists (local / self-hosted) and otherwise degrades to private
+ * retention + a warning. Node built-ins that only exist off-Worker are
+ * imported dynamically inside a try/catch so importing this module never
+ * crashes the Worker.
  */
-
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -45,8 +45,13 @@ import type {
   StudioData,
   StudioDeps,
   StudioJobRow,
+  StudioListingDetailRow,
+  StudioListingPublishRow,
   StudioListingRow,
   StudioMembershipRow,
+  StudioObjectStat,
+  StudioPrivateContact,
+  StudioProjectDetailRow,
   StudioProjectRow,
   StudioStorage,
 } from "./contracts";
@@ -67,8 +72,11 @@ function must<T>(result: { data: T; error: { message: string } | null }, context
 
 const PROJECT_COLUMNS =
   "id,slug,name,public_status,is_active,main_image_url,brochure_url,updated_at";
+const PROJECT_DETAIL_COLUMNS = "*";
 const LISTING_COLUMNS =
-  "id,slug,title,publication_status,project_id,price,currency,photos,updated_at,field_provenance";
+  "id,slug,title,publication_status,project_id,price,currency,photos,updated_at";
+const LISTING_DETAIL_COLUMNS =
+  "id,slug,title,publication_status,project_id,project_name_raw,location_id,location_name_raw,property_type,bedrooms,bathrooms,area_sqm,price,currency,availability_status,description,photos,field_provenance,updated_at";
 
 function createStudioData(): StudioData {
   return {
@@ -100,12 +108,14 @@ function createStudioData(): StudioData {
       if (result.error) throw new Error(`studio_members count failed: ${result.error.message}`);
       return result.count ?? 0;
     },
-    async countMembers() {
-      const result = await admin
-        .from("studio_members")
-        .select("user_id", { count: "exact", head: true });
-      if (result.error) throw new Error(`studio_members count failed: ${result.error.message}`);
-      return result.count ?? 0;
+    async bootstrapOwner(userId, email) {
+      const { data, error } = await admin.rpc("studio_bootstrap_owner", {
+        p_user_id: userId,
+        p_email: email,
+      });
+      if (error) throw new Error(`studio_bootstrap_owner failed: ${error.message}`);
+      const rows = (data ?? []) as StudioMembershipRow[];
+      return rows.length ? rows[0] : null;
     },
 
     async findProjectBySlug(slug) {
@@ -124,6 +134,29 @@ function createStudioData(): StudioData {
         .limit(200);
       return (must(result, "projects list failed") ?? []) as StudioProjectRow[];
     },
+    async getProjectDetail(slug) {
+      const projectResult = await admin
+        .from("projects")
+        .select(PROJECT_DETAIL_COLUMNS)
+        .eq("slug", slug)
+        .maybeSingle();
+      const project = must(projectResult, "project detail read failed") as
+        | (StudioProjectRow & Record<string, unknown>)
+        | null;
+      if (!project) return null;
+      const mediaResult = await admin
+        .from("project_media")
+        .select("url,media_type,title,sort_order")
+        .eq("project_id", project.id)
+        .order("sort_order", { ascending: true });
+      const media = (must(mediaResult, "project media read failed") ?? []) as Array<{
+        url: string;
+        media_type: string;
+        title: string | null;
+        sort_order: number;
+      }>;
+      return { project, media } satisfies StudioProjectDetailRow;
+    },
 
     async getListing(id) {
       const result = await admin
@@ -141,13 +174,37 @@ function createStudioData(): StudioData {
         .maybeSingle();
       return must(result, "listings read failed") as StudioListingRow | null;
     },
-    async insertListing(row) {
-      const result = await admin.from("listings").insert(row).select("id").single();
-      return must(result, "listings insert failed") as { id: string };
+    async getListingDetail(id) {
+      const listingResult = await admin
+        .from("listings")
+        .select(LISTING_DETAIL_COLUMNS)
+        .eq("id", id)
+        .maybeSingle();
+      const listing = must(listingResult, "listing detail read failed") as
+        | (StudioListingRow & Record<string, unknown>)
+        | null;
+      if (!listing) return null;
+      const contactResult = await admin
+        .from("studio_listing_contacts")
+        .select("contact_name,contact_phone,contact_email")
+        .eq("listing_id", id)
+        .maybeSingle();
+      const contact = (must(contactResult, "listing contact read failed") ?? {
+        contact_name: null,
+        contact_phone: null,
+        contact_email: null,
+      }) as StudioPrivateContact;
+      return { ...listing, contact } as StudioListingDetailRow;
     },
     async updateListing(id, patch) {
       const result = await admin.from("listings").update(patch).eq("id", id);
       must(result, "listings update failed");
+    },
+    async setListingContact(listingId, contact) {
+      const result = await admin
+        .from("studio_listing_contacts")
+        .upsert({ listing_id: listingId, ...contact }, { onConflict: "listing_id" });
+      must(result, "listing contact upsert failed");
     },
     async listListings() {
       const result = await admin
@@ -156,20 +213,6 @@ function createStudioData(): StudioData {
         .order("updated_at", { ascending: false })
         .limit(200);
       return (must(result, "listings list failed") ?? []) as StudioListingRow[];
-    },
-    async insertListingWarnings(listingId, warnings: ProgressiveWarning[]) {
-      if (!warnings.length) return;
-      const rows = warnings.map((warning) => ({
-        listing_id: listingId,
-        entity: warning.entity,
-        field: warning.field ?? null,
-        code: warning.code,
-        severity: warning.severity,
-        message: warning.message,
-        payload: warning.payload ?? {},
-      }));
-      const result = await admin.from("ingestion_warnings").insert(rows);
-      must(result, "ingestion_warnings insert failed");
     },
 
     async createJob(row: StudioJobRow) {
@@ -192,6 +235,64 @@ function createStudioData(): StudioData {
         .limit(limit);
       return (must(result, "studio_upload_jobs list failed") ?? []) as StudioJobRow[];
     },
+    async listDueJobs(staleSeconds, limit) {
+      const staleBefore = new Date(Date.now() - staleSeconds * 1000).toISOString();
+      // received | retryable-failed | stale-processing.
+      const result = await admin
+        .from("studio_upload_jobs")
+        .select("*")
+        .or(
+          `status.eq.received,and(status.eq.failed,retryable.eq.true),and(status.eq.processing,processing_started_at.lt.${staleBefore})`,
+        )
+        .order("created_at", { ascending: true })
+        .limit(limit);
+      return (must(result, "due jobs read failed") ?? []) as StudioJobRow[];
+    },
+
+    async claimJob(jobId, token, staleSeconds) {
+      const { data, error } = await admin.rpc("studio_claim_job", {
+        p_job_id: jobId,
+        p_token: token,
+        p_stale_seconds: staleSeconds,
+      });
+      if (error) throw new Error(`studio_claim_job failed: ${error.message}`);
+      const rows = (data ?? []) as StudioJobRow[];
+      return rows.length ? rows[0] : null;
+    },
+    async failJob(input) {
+      const { error } = await admin.rpc("studio_fail_job", {
+        p_job_id: input.jobId,
+        p_token: input.token,
+        p_error_code: input.errorCode,
+        p_error_message: input.message,
+        p_retryable: input.retryable,
+      });
+      if (error) throw new Error(`studio_fail_job failed: ${error.message}`);
+    },
+    async publishProject(input) {
+      const { data, error } = await admin.rpc("studio_publish_project", {
+        p_job_id: input.jobId,
+        p_token: input.token,
+        p_batch: input.batch,
+        p_publish: input.publish,
+        p_result: input.result,
+      });
+      if (error) throw new Error(`studio_publish_project failed: ${error.message}`);
+      return data as ProgressiveBatchSummary & { public_status: string; replayed: boolean };
+    },
+    async publishResale(input) {
+      const { data, error } = await admin.rpc("studio_publish_resale", {
+        p_job_id: input.jobId,
+        p_token: input.token,
+        p_listing: input.listing as unknown as Record<string, unknown>,
+        p_contact: input.contact as unknown as Record<string, unknown>,
+        p_warnings: input.warnings as unknown as Record<string, unknown>[],
+        p_result: input.result,
+      });
+      if (error) throw new Error(`studio_publish_resale failed: ${error.message}`);
+      const row = data as { listing_id: string; slug: string; replayed?: boolean };
+      return { listingId: row.listing_id, slug: row.slug, replayed: Boolean(row.replayed) };
+    },
 
     async recordAudit(entry: StudioAuditEntry) {
       const result = await admin.from("audit_log").insert(entry);
@@ -204,30 +305,68 @@ function createStudioData(): StudioData {
 // Storage
 // ---------------------------------------------------------------------------
 
+async function statObjectImpl(bucket: string, path: string): Promise<StudioObjectStat | null> {
+  const idx = path.lastIndexOf("/");
+  const folder = idx >= 0 ? path.slice(0, idx) : "";
+  const name = idx >= 0 ? path.slice(idx + 1) : path;
+  const { data, error } = await admin.storage
+    .from(bucket)
+    .list(folder, { search: name, limit: 100 });
+  if (error) throw new Error(`storage stat failed (${bucket}): ${error.message}`);
+  const item = (data ?? []).find((o) => o.name === name);
+  if (!item) return null;
+  const size = (item.metadata as { size?: number } | null)?.size ?? 0;
+  return { size };
+}
+
 function createStudioStorage(): StudioStorage {
   return {
     async createSignedUpload(bucket, path) {
       const { data, error } = await admin.storage.from(bucket).createSignedUploadUrl(path);
       if (error || !data) {
-        throw new Error(`signed upload creation failed (${bucket}/${path}): ${error?.message}`);
+        throw new Error(`signed upload creation failed (${bucket}): ${error?.message}`);
       }
       return { token: data.token };
     },
     async listNames(bucket, prefix) {
       const { data, error } = await admin.storage.from(bucket).list(prefix, { limit: 1000 });
-      if (error) throw new Error(`storage list failed (${bucket}/${prefix}): ${error.message}`);
+      if (error) throw new Error(`storage list failed (${bucket}): ${error.message}`);
       return new Set((data ?? []).map((item) => item.name));
     },
-    async download(bucket, path) {
+    statObject: statObjectImpl,
+    async downloadWithin(bucket, path, maxBytes) {
+      const stat = await statObjectImpl(bucket, path);
+      if (!stat) return null;
+      if (stat.size > maxBytes) return null;
       const { data, error } = await admin.storage.from(bucket).download(path);
       if (error || !data) return null;
       return Buffer.from(await data.arrayBuffer());
+    },
+    async copyObject(from, to) {
+      const first = await admin.storage
+        .from(from.bucket)
+        .copy(from.path, to.path, { destinationBucket: to.bucket });
+      if (!first.error) return;
+      // Idempotent overwrite for retries: clear then re-copy.
+      await admin.storage
+        .from(to.bucket)
+        .remove([to.path])
+        .catch(() => undefined);
+      const retry = await admin.storage
+        .from(from.bucket)
+        .copy(from.path, to.path, { destinationBucket: to.bucket });
+      if (retry.error) throw new Error(`storage copy failed: ${retry.error.message}`);
     },
     async upload(bucket, path, data, contentType) {
       const { error } = await admin.storage
         .from(bucket)
         .upload(path, data, { upsert: true, ...(contentType ? { contentType } : {}) });
-      if (error) throw new Error(`storage upload failed (${bucket}/${path}): ${error.message}`);
+      if (error) throw new Error(`storage upload failed (${bucket}): ${error.message}`);
+    },
+    async remove(bucket, paths) {
+      if (!paths.length) return;
+      const { error } = await admin.storage.from(bucket).remove(paths);
+      if (error) throw new Error(`storage remove failed (${bucket}): ${error.message}`);
     },
     publicUrl(bucket, path) {
       return admin.storage.from(bucket).getPublicUrl(path).data.publicUrl;
@@ -236,8 +375,7 @@ function createStudioStorage(): StudioStorage {
 }
 
 // ---------------------------------------------------------------------------
-// Dependency reader (compact server-side equivalent of the CLI reader; the
-// CLI ingest-client stays owner-tooling-only and is not imported here)
+// Dependency reader
 // ---------------------------------------------------------------------------
 
 function createStudioDependencyReader(): DependencyReader {
@@ -271,7 +409,7 @@ function createStudioDependencyReader(): DependencyReader {
 }
 
 // ---------------------------------------------------------------------------
-// SIP price-list PDF extraction (best effort; failure = warning + retention)
+// SIP price-list PDF extraction — subprocess-gated (unavailable on the Worker)
 // ---------------------------------------------------------------------------
 
 async function extractPriceListPdf(input: {
@@ -291,32 +429,34 @@ async function extractPriceListPdf(input: {
     return { priceList: null, warnings };
   };
 
-  const { preflightPdftotext } = await import("@/intake/sip/pdf-tool");
-  const preflight = preflightPdftotext();
-  if (!preflight.found) {
-    return retained(
-      "price_list_extraction_unavailable",
-      `${input.fileName} was retained: no local pdftotext tool is available on this server. Extract it later with the SIP tooling or upload a reviewed price-list JSON.`,
-    );
-  }
-
-  const workRoot = mkdtempSync(join(tmpdir(), "forever-studio-sip-"));
+  let workRoot: string | undefined;
+  let rm: ((p: string, o: { recursive: boolean; force: boolean }) => void) | undefined;
   try {
-    // Disjoint source / output / workspace directories per intake path rules.
-    const sourceDir = join(workRoot, "src");
-    mkdirSync(sourceDir, { recursive: true });
-    const pdfPath = join(sourceDir, "price-list.pdf");
-    writeFileSync(pdfPath, input.buffer);
+    const { preflightPdftotext } = await import("@/intake/sip/pdf-tool");
+    const preflight = preflightPdftotext();
+    if (!preflight.found) {
+      return retained(
+        "price_list_extraction_unavailable",
+        `${input.fileName} was retained privately: automatic price-list extraction is not available on this server. Upload a reviewed price-list JSON, or it can be extracted later with the SIP tooling.`,
+      );
+    }
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    rm = fs.rmSync;
+    workRoot = fs.mkdtempSync(path.join(os.tmpdir(), "forever-studio-sip-"));
+    const sourceDir = path.join(workRoot, "src");
+    fs.mkdirSync(sourceDir, { recursive: true });
+    const pdfPath = path.join(sourceDir, "price-list.pdf");
+    fs.writeFileSync(pdfPath, input.buffer);
     const { runSipPriceListExtraction } = await import("@/intake/sip/run");
     const result = runSipPriceListExtraction({
       projectSlug: input.projectSlug,
       pdfPath,
-      outRoot: join(workRoot, "out"),
-      workspaceRoot: join(workRoot, "ws"),
+      outRoot: path.join(workRoot, "out"),
+      workspaceRoot: path.join(workRoot, "ws"),
     });
-    if (result.reviewedPriceList) {
-      return { priceList: result.reviewedPriceList, warnings };
-    }
+    if (result.reviewedPriceList) return { priceList: result.reviewedPriceList, warnings };
     const sanitized = sanitizePriceList(result.candidatePriceList);
     warnings.push(...sanitized.warnings);
     if (sanitized.priceList) {
@@ -333,13 +473,19 @@ async function extractPriceListPdf(input: {
       "price_list_extraction_empty",
       `${input.fileName} produced no safely usable price rows; the source file was retained.`,
     );
-  } catch (error) {
+  } catch {
     return retained(
-      "price_list_extraction_failed",
-      `${input.fileName} could not be extracted (${error instanceof Error ? error.message : String(error)}); the source file was retained.`,
+      "price_list_extraction_unavailable",
+      `${input.fileName} was retained privately for later extraction.`,
     );
   } finally {
-    rmSync(workRoot, { recursive: true, force: true });
+    if (workRoot && rm) {
+      try {
+        rm(workRoot, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
+    }
   }
 }
 
@@ -370,12 +516,12 @@ async function extractArchive(input: { fileName: string; buffer: Buffer }): Prom
       entries.push({ name: entry.name, data: readZipEntryData(input.buffer, entry) });
     }
     return { entries, warnings };
-  } catch (error) {
+  } catch {
     warnings.push({
       entity: "document",
       code: "archive_unreadable",
       severity: "warning",
-      message: `${input.fileName} could not be expanded (${error instanceof Error ? error.message : String(error)}); the archive was retained.`,
+      message: `${input.fileName} could not be expanded safely; the archive was retained.`,
       payload: { file: input.fileName },
     });
     return { entries: [], warnings };
@@ -406,16 +552,16 @@ export function createStudioDeps(): StudioDeps {
           password,
           email_confirm: true,
         });
-        if (error || !created?.user) {
+        if (error || !created?.user)
           throw new Error(`auth user creation failed: ${error?.message}`);
-        }
         return { id: created.user.id };
       },
       async findUserIdByEmail(email) {
-        // Membership rows carry the invited email; auth-side lookup only
-        // needs to cover re-invites of already-known members.
-        const existing = await data.listMembers();
-        return existing.find((row) => row.email?.toLowerCase() === email)?.user_id ?? null;
+        const { data: found, error } = await admin.rpc("studio_lookup_auth_user_id", {
+          p_email: email,
+        });
+        if (error) throw new Error(`auth lookup failed: ${error.message}`);
+        return (found as string | null) ?? null;
       },
     },
     reader: createStudioDependencyReader(),
@@ -423,7 +569,9 @@ export function createStudioDeps(): StudioDeps {
     extractPriceListPdf,
     extractArchive,
     now: () => new Date().toISOString(),
+    newToken: () => crypto.randomUUID(),
     partnerDemoActive: () => process.env.VITE_PARTNER_DEMO === "true",
     ownerBootstrapEmail: () => process.env.STUDIO_OWNER_EMAIL ?? null,
+    ownerBootstrapUserId: () => process.env.STUDIO_OWNER_USER_ID ?? null,
   };
 }

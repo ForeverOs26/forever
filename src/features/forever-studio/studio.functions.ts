@@ -89,6 +89,42 @@ export const studioProcessJob = createServerFn({ method: "POST" })
     return processUploadJob(context.deps, context.actor, data.jobId);
   });
 
+/**
+ * Automatic durable resume. Safe to call on every dashboard poll and from a
+ * scheduled worker/cron: it claims and completes received, retryable-failed,
+ * and stale-processing jobs without a second publication decision.
+ */
+export const studioResumePending = createServerFn({ method: "POST" })
+  .middleware([requireStudioMember])
+  .handler(async ({ context }) => {
+    const { resumeDueJobs } = await import("./server/service");
+    return resumeDueJobs(context.deps, context.actor);
+  });
+
+export const studioGetProjectDetail = createServerFn({ method: "GET" })
+  .middleware([requireStudioMember])
+  .validator(z.object({ slug: z.string() }))
+  .handler(async ({ data, context }) => {
+    const { getProjectDetail } = await import("./server/service");
+    return getProjectDetail(context.deps, context.actor, data.slug);
+  });
+
+export const studioGetListingDetail = createServerFn({ method: "GET" })
+  .middleware([requireStudioMember])
+  .validator(z.object({ listingId: z.string().uuid() }))
+  .handler(async ({ data, context }) => {
+    const { getListingDetail } = await import("./server/service");
+    return getListingDetail(context.deps, context.actor, data.listingId);
+  });
+
+export const studioSetHeroImage = createServerFn({ method: "POST" })
+  .middleware([requireStudioMember])
+  .validator(z.object({ slug: z.string(), url: z.string() }))
+  .handler(async ({ data, context }) => {
+    const { setProjectHeroImage } = await import("./server/service");
+    return setProjectHeroImage(context.deps, context.actor, data);
+  });
+
 export const studioSetProjectPublication = createServerFn({ method: "POST" })
   .middleware([requireStudioMember])
   .validator(z.object({ slug: z.string(), publish: z.boolean() }))
@@ -126,7 +162,9 @@ export const studioInviteMember = createServerFn({ method: "POST" })
   .validator(
     z.object({
       email: z.string(),
-      password: z.string(),
+      // Optional: only needed to create a NEW account. Never displayed,
+      // logged, or persisted, and unused when inviting an existing account.
+      password: z.string().optional(),
       displayName: z.string().optional(),
     }),
   )

@@ -67,6 +67,7 @@ describe("Studio bundle boundary", () => {
       "src/features/forever-studio/server/service.ts",
       "src/features/forever-studio/server/extraction.ts",
       "src/features/forever-studio/server/membership.ts",
+      "src/features/forever-studio/server/errors.ts",
     ];
     for (const path of studioFiles) {
       expect(read(path), path).not.toContain("client.server");
@@ -77,6 +78,15 @@ describe("Studio bundle boundary", () => {
     // The credential itself is read only by the shared server client module,
     // never by Studio code.
     expect(deps).not.toContain("process.env.SUPABASE_SERVICE_ROLE_KEY");
+  });
+
+  it("no client-reachable module references private contact columns (item 1)", () => {
+    for (const path of CLIENT_REACHABLE) {
+      const source = read(path);
+      expect(source, path).not.toContain("contact_name");
+      expect(source, path).not.toContain("contact_phone");
+      expect(source, path).not.toContain("contact_email");
+    }
   });
 
   it("Studio stays out of the public surface: nav, sitemap, and demo mode", () => {

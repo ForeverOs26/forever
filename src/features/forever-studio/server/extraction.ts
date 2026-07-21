@@ -1,15 +1,19 @@
 /**
- * Forever Studio — deterministic material gathering.
+ * Forever Studio — private staging, byte verification, and media selection
+ * (items 4 & 5).
  *
- * Turns one upload job's stored files into the inputs the progressive
- * builder understands: an optional sanitized price list, optional structured
- * project facts, public media items, and warnings. Every failure of a single
- * file is a warning plus retention, never a job failure — incomplete or
- * partially readable materials still publish whatever is safely usable.
+ * EVERY incoming file lands in the private `studio-uploads` bucket. During
+ * processing Studio verifies the ACTUAL stored bytes (size, SHA-256 where
+ * practical, magic-byte media class, declared-vs-observed mismatch), parses
+ * only bounded business files, and copies ONLY the selected final media to
+ * public buckets on deterministic immutable paths. Raw PDFs, ZIPs, price
+ * lists, legal files, and unselected media never leave the private bucket.
  *
- * Reuses the existing Fast Intake primitives (classifyPath, sanitizePriceList,
- * usableIntakeFact) rather than inventing a second interpretation layer.
- * No OCR, no AI document interpretation: exactly the existing capabilities.
+ * Large photos and videos are never downloaded into a Buffer — their size is
+ * read from storage metadata and they are published by a server-side copy.
+ * A failure of any single file is a warning plus private retention, never a
+ * job failure: incomplete or partially readable materials still publish
+ * whatever is safely usable.
  */
 
 import type {
@@ -27,12 +31,21 @@ import type { StudioJobFile } from "../studio-types";
 import type { StudioDeps, StudioJobRow } from "./contracts";
 
 // ---------------------------------------------------------------------------
-// Routing
+// Buckets and limits
 // ---------------------------------------------------------------------------
 
 export const PUBLIC_IMAGE_BUCKET = "project-images";
 export const PUBLIC_DOCUMENT_BUCKET = "project-documents";
 export const PRIVATE_SOURCE_BUCKET = "studio-uploads";
+
+/** Hard upload ceiling (declared + observed). */
+export const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024; // 1 GiB
+/** Max bytes we will pull into memory to parse a JSON/PDF business file. */
+export const MAX_PARSE_BYTES = 20 * 1024 * 1024; // 20 MiB
+/** Max archive we will download and expand in memory. */
+export const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024; // 100 MiB
+/** Max media we will read to hash + sniff magic bytes; larger is copy-only. */
+export const MAX_HASH_BYTES = 25 * 1024 * 1024; // 25 MiB
 
 const DOCUMENT_MEDIA_CATEGORIES: Partial<Record<IntakeCategory, string>> = {
   brochure: "brochure",
@@ -44,11 +57,10 @@ const DOCUMENT_MEDIA_CATEGORIES: Partial<Record<IntakeCategory, string>> = {
   "furniture-package": "document",
 };
 
-/** Bucket routing per classifier category. Private by default. */
-export function bucketForCategory(category: IntakeCategory): string {
+/** Public bucket a selected media category is copied into. */
+export function publicBucketForCategory(category: IntakeCategory): string {
   if (category === "photo" || category === "video") return PUBLIC_IMAGE_BUCKET;
-  if (DOCUMENT_MEDIA_CATEGORIES[category]) return PUBLIC_DOCUMENT_BUCKET;
-  return PRIVATE_SOURCE_BUCKET;
+  return PUBLIC_DOCUMENT_BUCKET;
 }
 
 /** project_media.media_type for a public file; null keeps a file private. */
@@ -83,26 +95,89 @@ export function prettyTitleFromFileName(name: string): string {
   return spaced || name;
 }
 
-export function storagePathForJobFile(jobId: string, index: number, name: string): string {
-  return `jobs/${jobId}/${String(index).padStart(2, "0")}-${sanitizeFileName(name)}`;
+export function stagingPathForJobFile(jobId: string, index: number, name: string): string {
+  return `jobs/${jobId}/staging/${String(index).padStart(2, "0")}-${sanitizeFileName(name)}`;
 }
 
+function publicPathForMedia(jobId: string, index: number, name: string): string {
+  return `studio/${jobId}/${String(index).padStart(2, "0")}-${sanitizeFileName(name)}`;
+}
+
+/** Declare every file into the PRIVATE staging bucket. */
 export function declareJobFiles(
   jobId: string,
   files: Array<{ name: string; size?: number; contentType?: string }>,
 ): StudioJobFile[] {
-  return files.map((file, index) => {
-    const category = classifyFileName(file.name);
-    return {
-      name: file.name,
-      bucket: bucketForCategory(category),
-      path: storagePathForJobFile(jobId, index, file.name),
-      content_type: file.contentType ?? null,
-      size: file.size ?? null,
-      category,
-      status: "declared" as const,
-    };
-  });
+  return files.map((file, index) => ({
+    name: file.name,
+    stagingBucket: PRIVATE_SOURCE_BUCKET,
+    stagingPath: stagingPathForJobFile(jobId, index, file.name),
+    declaredSize: file.size ?? null,
+    declaredType: file.contentType ?? null,
+    category: classifyFileName(file.name),
+    status: "declared" as const,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Byte-level media class detection (magic bytes)
+// ---------------------------------------------------------------------------
+
+export type MediaClass = "image" | "video" | "pdf" | "zip" | "json" | "other";
+
+export function detectMediaClass(head: Buffer): MediaClass {
+  if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return "image";
+  if (
+    head.length >= 8 &&
+    head.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  )
+    return "image";
+  if (
+    head.length >= 6 &&
+    (head.subarray(0, 6).toString("ascii") === "GIF87a" ||
+      head.subarray(0, 6).toString("ascii") === "GIF89a")
+  )
+    return "image";
+  if (
+    head.length >= 12 &&
+    head.subarray(0, 4).toString("ascii") === "RIFF" &&
+    head.subarray(8, 12).toString("ascii") === "WEBP"
+  )
+    return "image";
+  if (head.length >= 5 && head.subarray(0, 5).toString("ascii") === "%PDF-") return "pdf";
+  if (
+    head.length >= 4 &&
+    head[0] === 0x50 &&
+    head[1] === 0x4b &&
+    (head[2] === 0x03 || head[2] === 0x05 || head[2] === 0x07)
+  )
+    return "zip";
+  if (head.length >= 12 && head.subarray(4, 8).toString("ascii") === "ftyp") return "video";
+  if (head.length >= 4 && head.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])))
+    return "video";
+  const text = head
+    .subarray(0, Math.min(head.length, 64))
+    .toString("utf8")
+    .replace(/^\uFEFF/, "")
+    .trimStart();
+  if (text.startsWith("{") || text.startsWith("[")) return "json";
+  return "other";
+}
+
+function classFromExtension(name: string): MediaClass {
+  const ext = (name.split(".").pop() ?? "").toLowerCase();
+  if (["jpg", "jpeg", "png", "gif", "webp", "heic", "bmp", "tif", "tiff"].includes(ext))
+    return "image";
+  if (["mp4", "mov", "webm", "mkv", "avi", "m4v"].includes(ext)) return "video";
+  if (ext === "pdf") return "pdf";
+  if (ext === "zip") return "zip";
+  if (ext === "json") return "json";
+  return "other";
+}
+
+async function sha256Of(buffer: Buffer): Promise<string> {
+  const { createHash } = await import("node:crypto");
+  return createHash("sha256").update(buffer).digest("hex");
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +221,6 @@ export function looksLikeProjectFacts(value: unknown): value is IntakeProjectFac
 }
 
 export interface ExtractedFactFields {
-  /** Progressive project payload columns derived from source-backed facts. */
   fields: Record<string, string>;
   provenance: FieldProvenanceMap;
   countryEvidence?: CurrencyEvidence;
@@ -206,12 +280,15 @@ export interface GatheredMaterials {
   priceListSource: string | null;
   factFields: ExtractedFactFields | null;
   media: ProgressiveMediaItem[];
-  /** First uploaded photo / brochure public URLs, for blank-filling. */
   firstPhotoUrl: string | null;
   firstBrochureUrl: string | null;
   photoUrls: string[];
   warnings: ProgressiveWarning[];
   files: StudioJobFile[];
+  /** Public objects copied for this job — cleaned up if finalization fails. */
+  publicObjects: Array<{ bucket: string; path: string }>;
+  /** True when a title/name could be derived from an uploaded business file. */
+  derivedName: string | null;
 }
 
 function fileWarning(code: string, name: string, message: string): ProgressiveWarning {
@@ -221,14 +298,15 @@ function fileWarning(code: string, name: string, message: string): ProgressiveWa
 interface MediaCandidate {
   category: IntakeCategory;
   name: string;
-  bucket: string;
-  path: string;
+  /** Source (staging) location to copy from. */
+  from: { bucket: string; path: string };
 }
 
 /**
- * Downloads and interprets one job's uploaded files. Missing files (declared
- * but never uploaded — e.g. the phone lost connectivity mid-upload) become
- * warnings; everything usable continues.
+ * Verify, interpret, and select one job's staged files. Missing files
+ * (declared but never uploaded) and oversized/unreadable files become
+ * warnings and stay privately retained; selected media are copied to public
+ * immutable paths and recorded only here.
  */
 export async function gatherMaterials(
   deps: StudioDeps,
@@ -237,15 +315,11 @@ export async function gatherMaterials(
   const warnings: ProgressiveWarning[] = [];
   const files: StudioJobFile[] = job.files.map((file) => ({ ...file }));
   const mediaCandidates: MediaCandidate[] = [];
+  const seenHashes = new Map<string, string>();
   let priceList: ExtractedPriceList | null = null;
   let priceListSource: string | null = null;
   let factFields: ExtractedFactFields | null = null;
-
-  // One storage listing per (bucket, job folder) decides upload presence.
-  const uploadedByBucket = new Map<string, Set<string>>();
-  for (const bucket of new Set(files.map((file) => file.bucket))) {
-    uploadedByBucket.set(bucket, await deps.storage.listNames(bucket, `jobs/${job.id}`));
-  }
+  let derivedName: string | null = null;
 
   const adoptPriceList = (candidate: ExtractedPriceList, sourceName: string) => {
     if (priceList) {
@@ -266,10 +340,15 @@ export async function gatherMaterials(
     }
   };
 
+  const adoptFacts = (parsed: IntakeProjectFacts, sourceName: string) => {
+    if (!factFields) factFields = projectFieldsFromFacts(parsed, sourceName);
+    if (!derivedName && typeof factFields.fields.name === "string")
+      derivedName = factFields.fields.name;
+  };
+
   for (const file of files) {
-    const objectName = file.path.split("/").pop() ?? file.path;
-    const uploaded = uploadedByBucket.get(file.bucket)?.has(objectName) ?? false;
-    if (!uploaded) {
+    const stat = await deps.storage.statObject(file.stagingBucket, file.stagingPath);
+    if (!stat) {
       file.status = "missing";
       warnings.push(
         fileWarning(
@@ -280,14 +359,52 @@ export async function gatherMaterials(
       );
       continue;
     }
+    file.observedSize = stat.size;
     file.status = "uploaded";
+    file.mediaClass = classFromExtension(file.name);
+    if (file.declaredSize != null && file.declaredSize !== stat.size) {
+      file.declaredMismatch = true;
+    }
+    if (stat.size > MAX_UPLOAD_BYTES) {
+      file.status = "oversized";
+      warnings.push(
+        fileWarning(
+          "file_oversized",
+          file.name,
+          `${file.name} exceeds the ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB limit; it was retained privately and skipped.`,
+        ),
+      );
+      continue;
+    }
 
-    const isJson = file.name.toLowerCase().endsWith(".json");
-    const isPdf = file.name.toLowerCase().endsWith(".pdf");
+    const lower = file.name.toLowerCase();
+    const isJson = lower.endsWith(".json");
+    const isPdf = lower.endsWith(".pdf");
+    const isArchive = file.category === "archive";
+    const isMedia = mediaTypeForCategory(file.category as IntakeCategory) !== null;
 
+    // --- Structured JSON (bounded parse) -----------------------------------
     if (isJson) {
-      const buffer = await deps.storage.download(file.bucket, file.path);
+      if (stat.size > MAX_PARSE_BYTES) {
+        warnings.push(
+          fileWarning(
+            "file_too_large_to_parse",
+            file.name,
+            `${file.name} is too large to parse safely; it was retained privately.`,
+          ),
+        );
+        continue;
+      }
+      const buffer = await deps.storage.downloadWithin(
+        file.stagingBucket,
+        file.stagingPath,
+        MAX_PARSE_BYTES,
+      );
       const parsed = buffer ? parseJsonBuffer(buffer) : null;
+      if (buffer) {
+        file.sha256 = await sha256Of(buffer);
+        file.mediaClass = detectMediaClass(buffer);
+      }
       if (!parsed) {
         file.status = "unreadable";
         warnings.push(
@@ -304,7 +421,7 @@ export async function gatherMaterials(
         continue;
       }
       if (looksLikeProjectFacts(parsed)) {
-        factFields = projectFieldsFromFacts(parsed, file.name);
+        adoptFacts(parsed, file.name);
         continue;
       }
       warnings.push(
@@ -317,8 +434,23 @@ export async function gatherMaterials(
       continue;
     }
 
+    // --- Price-list PDF (bounded parse; SIP best-effort) -------------------
     if (file.category === "price-list" && isPdf) {
-      const buffer = await deps.storage.download(file.bucket, file.path);
+      if (stat.size > MAX_PARSE_BYTES) {
+        warnings.push(
+          fileWarning(
+            "file_too_large_to_parse",
+            file.name,
+            `${file.name} is too large to parse on the server; it was retained privately for later extraction.`,
+          ),
+        );
+        continue;
+      }
+      const buffer = await deps.storage.downloadWithin(
+        file.stagingBucket,
+        file.stagingPath,
+        MAX_PARSE_BYTES,
+      );
       if (!buffer) {
         file.status = "unreadable";
         warnings.push(
@@ -326,6 +458,8 @@ export async function gatherMaterials(
         );
         continue;
       }
+      file.sha256 = await sha256Of(buffer);
+      file.mediaClass = detectMediaClass(buffer);
       const extraction = await deps.extractPriceListPdf({
         projectSlug: job.project_slug ?? job.id,
         fileName: file.name,
@@ -336,8 +470,23 @@ export async function gatherMaterials(
       continue;
     }
 
-    if (file.category === "archive") {
-      const buffer = await deps.storage.download(file.bucket, file.path);
+    // --- Archive (bounded download + expansion) ---------------------------
+    if (isArchive) {
+      if (stat.size > MAX_ARCHIVE_BYTES) {
+        warnings.push(
+          fileWarning(
+            "archive_too_large",
+            file.name,
+            `${file.name} is too large to expand on the server; it was retained privately.`,
+          ),
+        );
+        continue;
+      }
+      const buffer = await deps.storage.downloadWithin(
+        file.stagingBucket,
+        file.stagingPath,
+        MAX_ARCHIVE_BYTES,
+      );
       if (!buffer) {
         file.status = "unreadable";
         warnings.push(
@@ -345,14 +494,13 @@ export async function gatherMaterials(
         );
         continue;
       }
+      file.sha256 = await sha256Of(buffer);
+      file.mediaClass = detectMediaClass(buffer);
       const archive = await deps.extractArchive({ fileName: file.name, buffer });
       warnings.push(...archive.warnings);
       let entryIndex = 0;
       for (const entry of archive.entries) {
         const category = classifyFileName(entry.name);
-        const bucket = bucketForCategory(category);
-        const path = `jobs/${job.id}/zip/${String(entryIndex).padStart(2, "0")}-${sanitizeFileName(entry.name)}`;
-        entryIndex += 1;
         if (entry.name.toLowerCase().endsWith(".json")) {
           const parsed = parseJsonBuffer(entry.data);
           if (parsed && looksLikePriceList(parsed)) {
@@ -360,13 +508,9 @@ export async function gatherMaterials(
             continue;
           }
           if (parsed && looksLikeProjectFacts(parsed)) {
-            factFields = factFields ?? projectFieldsFromFacts(parsed, entry.name);
+            adoptFacts(parsed, entry.name);
             continue;
           }
-        }
-        await deps.storage.upload(bucket, path, entry.data);
-        if (mediaTypeForCategory(category)) {
-          mediaCandidates.push({ category, name: entry.name, bucket, path });
         }
         if (category === "price-list" && entry.name.toLowerCase().endsWith(".pdf")) {
           const extraction = await deps.extractPriceListPdf({
@@ -376,36 +520,133 @@ export async function gatherMaterials(
           });
           warnings.push(...extraction.warnings);
           if (extraction.priceList) adoptPriceList(extraction.priceList, entry.name);
+          continue;
+        }
+        if (mediaTypeForCategory(category)) {
+          const mediaClass = detectMediaClass(entry.data.subarray(0, 64));
+          if (!isPublishableMediaClass(category, mediaClass)) {
+            warnings.push(
+              fileWarning(
+                "media_class_mismatch",
+                entry.name,
+                `${entry.name} inside ${file.name} is not a valid ${category}; retained privately.`,
+              ),
+            );
+            continue;
+          }
+          // Re-stage the entry privately, then treat it as a media candidate.
+          const stagedPath = `jobs/${job.id}/zip/${String(entryIndex).padStart(2, "0")}-${sanitizeFileName(entry.name)}`;
+          entryIndex += 1;
+          await deps.storage.upload(PRIVATE_SOURCE_BUCKET, stagedPath, entry.data);
+          mediaCandidates.push({
+            category,
+            name: entry.name,
+            from: { bucket: PRIVATE_SOURCE_BUCKET, path: stagedPath },
+          });
         }
       }
       continue;
     }
 
-    if (mediaTypeForCategory(file.category as IntakeCategory)) {
+    // --- Media (small: verify magic bytes; large: copy-only) --------------
+    if (isMedia) {
+      if (stat.size <= MAX_HASH_BYTES) {
+        const buffer = await deps.storage.downloadWithin(
+          file.stagingBucket,
+          file.stagingPath,
+          MAX_HASH_BYTES,
+        );
+        if (buffer) {
+          const hash = await sha256Of(buffer);
+          file.sha256 = hash;
+          const mediaClass = detectMediaClass(buffer);
+          file.mediaClass = mediaClass;
+          if (!isPublishableMediaClass(file.category as IntakeCategory, mediaClass)) {
+            warnings.push(
+              fileWarning(
+                "media_class_mismatch",
+                file.name,
+                `${file.name} does not look like a valid ${file.category} (${mediaClass}); it was retained privately and not published.`,
+              ),
+            );
+            continue;
+          }
+          const dup = seenHashes.get(hash);
+          if (dup) {
+            warnings.push(
+              fileWarning(
+                "duplicate_media_ignored",
+                file.name,
+                `${file.name} is byte-identical to ${dup}; the duplicate was skipped.`,
+              ),
+            );
+            continue;
+          }
+          seenHashes.set(hash, file.name);
+        }
+      } else {
+        // Large media: never buffered; classify by extension, publish by copy.
+        file.mediaClass = classFromExtension(file.name);
+      }
       mediaCandidates.push({
         category: file.category as IntakeCategory,
         name: file.name,
-        bucket: file.bucket,
-        path: file.path,
+        from: { bucket: file.stagingBucket, path: file.stagingPath },
       });
+      continue;
     }
-    // Everything else stays retained in its (private) bucket: preserved, never lost.
+
+    // --- Everything else stays retained in private staging ----------------
+    if (stat.size <= MAX_HASH_BYTES) {
+      const buffer = await deps.storage.downloadWithin(
+        file.stagingBucket,
+        file.stagingPath,
+        MAX_HASH_BYTES,
+      );
+      if (buffer) {
+        file.sha256 = await sha256Of(buffer);
+        file.mediaClass = detectMediaClass(buffer);
+      }
+    }
   }
 
-  // Deterministic ordering: photos first (gallery), then plans and documents.
+  // --- Publish selected media to public immutable paths (server-side copy)
   const media: ProgressiveMediaItem[] = [];
   const photoUrls: string[] = [];
+  const publicObjects: Array<{ bucket: string; path: string }> = [];
   let firstPhotoUrl: string | null = null;
   let firstBrochureUrl: string | null = null;
   const constructionUpdate = job.workflow === "construction_media_update";
-  // Derived from the job's creation time so a retry replays byte-identical
-  // batches (the RPC's fingerprint idempotency depends on it).
   const dateLabel = job.created_at.slice(0, 10);
   let sortOrder = 0;
+  let mediaIndex = 0;
+
   for (const candidate of mediaCandidates) {
     const mediaType = mediaTypeForCategory(candidate.category);
     if (!mediaType) continue;
-    const url = deps.storage.publicUrl(candidate.bucket, candidate.path);
+    const toBucket = publicBucketForCategory(candidate.category);
+    const toPath = publicPathForMedia(job.id, mediaIndex, candidate.name);
+    mediaIndex += 1;
+    try {
+      await deps.storage.copyObject(candidate.from, { bucket: toBucket, path: toPath });
+    } catch {
+      warnings.push(
+        fileWarning(
+          "media_publish_deferred",
+          candidate.name,
+          `${candidate.name} could not be published to the public gallery just now; it was retained privately.`,
+        ),
+      );
+      continue;
+    }
+    publicObjects.push({ bucket: toBucket, path: toPath });
+    const record = files.find((f) => f.name === candidate.name);
+    if (record) {
+      record.publicBucket = toBucket;
+      record.publicPath = toPath;
+      record.status = "published_public";
+    }
+    const url = deps.storage.publicUrl(toBucket, toPath);
     if (candidate.category === "photo") {
       photoUrls.push(url);
       if (!firstPhotoUrl) firstPhotoUrl = url;
@@ -421,11 +662,7 @@ export async function gatherMaterials(
       title,
       sort_order: sortOrder,
       metadata: {
-        studio: {
-          job_id: job.id,
-          original_name: candidate.name,
-          category: candidate.category,
-        },
+        studio: { job_id: job.id, original_name: candidate.name, category: candidate.category },
       },
     });
     sortOrder += 1;
@@ -441,5 +678,16 @@ export async function gatherMaterials(
     photoUrls,
     warnings,
     files,
+    publicObjects,
+    derivedName,
   };
+}
+
+/** A file may be published as public media only when its bytes match its role. */
+function isPublishableMediaClass(category: IntakeCategory, observed: MediaClass): boolean {
+  if (category === "photo") return observed === "image";
+  if (category === "video") return observed === "video";
+  // Documents/plans are typically PDFs but may legitimately be images.
+  if (DOCUMENT_MEDIA_CATEGORIES[category]) return observed === "pdf" || observed === "image";
+  return false;
 }

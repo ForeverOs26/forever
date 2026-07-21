@@ -28,9 +28,15 @@ export function StudioMembers() {
   const [message, setMessage] = useState<string | null>(null);
 
   const invite = useMutation({
-    mutationFn: () => studioInviteMember({ data: { email, password, displayName } }),
-    onSuccess: () => {
-      setMessage(`Invited ${email}. Share the password with them directly.`);
+    mutationFn: () =>
+      studioInviteMember({ data: { email, password: password || undefined, displayName } }),
+    onSuccess: (result) => {
+      // Never echo the password back. Confirm the outcome only.
+      setMessage(
+        result.created
+          ? `Invited ${email}. Give them the temporary password you chose (via a private channel) — it is not shown here again.`
+          : `Added ${email} as a Trusted Publisher (existing account).`,
+      );
       setEmail("");
       setPassword("");
       setDisplayName("");
@@ -121,12 +127,13 @@ export function StudioMembers() {
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="invite-password">Temporary password (10+ characters)</Label>
+            <Label htmlFor="invite-password">Temporary password — only for a new account</Label>
             <Input
               id="invite-password"
-              type="text"
-              required
+              type="password"
+              autoComplete="new-password"
               minLength={10}
+              placeholder="Leave blank if they already have an account"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
@@ -138,7 +145,8 @@ export function StudioMembers() {
         </form>
         <p className="text-xs text-muted-foreground">
           Publishers can add and update projects, prices, media, and resale listings, and publish
-          immediately. There is no public self-registration.
+          immediately. If the email already has an account, no password is needed. There is no
+          public self-registration, and passwords are never shown or stored in plain text.
         </p>
       </section>
     </div>

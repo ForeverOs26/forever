@@ -1,10 +1,10 @@
 /**
  * FOREVER-STUDIO-001 — static security contract of the Studio migration.
  *
- * Mirrors the progressive-ingestion migration-contract approach: the SQL
- * text itself is the artifact under test. The migration is a committed
- * DRAFT — it has NOT been applied to any linked or production database —
- * and these assertions pin its security posture verbatim.
+ * The SQL text itself is the artifact under test. This is the only PENDING
+ * Studio migration; it is additive over the already-applied progressive
+ * migration and has NOT been applied by this task. These assertions pin its
+ * security posture verbatim; behavior is exercised by studio.postgres.sql.
  */
 
 import { readFileSync } from "node:fs";
@@ -16,52 +16,81 @@ import { STUDIO_WORKFLOWS } from "../studio-types";
 
 const MIGRATION_PATH = "supabase/migrations/20260721120000_forever_studio_v1.sql";
 const sql = readFileSync(resolve(process.cwd(), MIGRATION_PATH), "utf8");
-// Executable statements only — the explanatory header/comments may mention
-// objects (policies, the RPC) precisely to state that they are NOT touched.
 const ddl = sql
   .split("\n")
   .filter((line) => !line.trim().startsWith("--"))
   .join("\n");
 
 describe("Forever Studio migration contract", () => {
-  it("is explicitly marked as an unapplied draft", () => {
-    expect(sql).toContain("FINAL MIGRATION DRAFT (not applied)");
-    expect(sql).toContain("has NOT been applied");
+  it("is marked as the pending additive Studio migration (progressive already applied)", () => {
+    expect(sql).toContain("ADDITIVE MIGRATION DRAFT");
+    expect(sql).toContain("already-applied progressive");
+    expect(sql).toContain("has NOT been applied by this task");
+    // It must NOT re-run or schedule the progressive migration.
+    expect(ddl).not.toContain("20260718113000");
   });
 
-  it("creates the membership table with RLS on and zero policies", () => {
-    expect(sql).toContain("CREATE TABLE IF NOT EXISTS public.studio_members");
-    expect(sql).toContain("ALTER TABLE public.studio_members ENABLE ROW LEVEL SECURITY");
-    expect(sql).toContain("GRANT ALL ON public.studio_members TO service_role");
-    // Internal-only pattern: no policy may exist anywhere in this migration,
-    // so neither anon nor authenticated can ever read or write these tables.
-    expect(sql).not.toContain("CREATE POLICY");
-  });
-
-  it("creates the job table with RLS on, service-role-only, and a retry-friendly shape", () => {
-    expect(sql).toContain("CREATE TABLE IF NOT EXISTS public.studio_upload_jobs");
-    expect(sql).toContain("ALTER TABLE public.studio_upload_jobs ENABLE ROW LEVEL SECURITY");
-    expect(sql).toContain("GRANT ALL ON public.studio_upload_jobs TO service_role");
-    expect(sql).toContain("attempt_count INTEGER NOT NULL DEFAULT 0");
-    for (const status of ["received", "processing", "published", "failed"]) {
-      expect(sql).toContain(`'${status}'`);
+  it("creates membership + job + private-contact tables, RLS on, no policies", () => {
+    for (const table of ["studio_members", "studio_upload_jobs", "studio_listing_contacts"]) {
+      expect(ddl).toContain(`CREATE TABLE IF NOT EXISTS public.${table}`);
+      expect(ddl).toContain(`ALTER TABLE public.${table} ENABLE ROW LEVEL SECURITY`);
+      expect(ddl).toContain(`GRANT ALL ON public.${table} TO service_role`);
     }
+    // Internal-only: no RLS policy is created anywhere in this migration.
+    expect(ddl).not.toContain("CREATE POLICY");
   });
 
-  it("pins the two-role model with no default role and no self-registration path", () => {
-    expect(sql).toContain("role TEXT NOT NULL CHECK (role IN ('owner', 'trusted_publisher'))");
-    expect(sql).not.toMatch(/role TEXT[^,]*DEFAULT/);
-    expect(sql).not.toContain("GRANT INSERT");
-    expect(sql).not.toMatch(/GRANT .* TO (anon|authenticated)/);
+  it("relocates listing contact data into the private table and drops the public columns", () => {
+    expect(ddl).toContain("INSERT INTO public.studio_listing_contacts");
+    expect(ddl).toMatch(/ALTER TABLE public\.listings\s+DROP COLUMN IF EXISTS contact_name/);
+    expect(ddl).toContain("DROP COLUMN IF EXISTS contact_phone");
+    expect(ddl).toContain("DROP COLUMN IF EXISTS contact_email");
   });
 
-  it("keeps the workflow vocabulary in lockstep with the TypeScript contract", () => {
-    for (const workflow of STUDIO_WORKFLOWS) {
-      expect(sql).toContain(`'${workflow}'`);
+  it("preserves upload/audit history: created_by SET NULL, no cascade", () => {
+    expect(ddl).toContain("created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL");
+    expect(ddl).not.toContain(
+      "created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE",
+    );
+    expect(ddl).toContain("creator_email TEXT");
+    expect(ddl).toContain("creator_role TEXT NOT NULL");
+  });
+
+  it("enforces a single-winner Owner bootstrap in the database", () => {
+    expect(ddl).toContain("studio_members_single_bootstrap_owner");
+    expect(ddl).toContain("pg_advisory_xact_lock");
+    expect(ddl).toContain("CREATE OR REPLACE FUNCTION public.studio_bootstrap_owner");
+  });
+
+  it("provides the atomic and concurrency-safe transaction functions", () => {
+    for (const fn of [
+      "public.studio_claim_job",
+      "public.studio_fail_job",
+      "public.studio_publish_project",
+      "public.studio_publish_resale",
+    ]) {
+      expect(ddl).toContain(`CREATE OR REPLACE FUNCTION ${fn}`);
     }
+    // The atomic publish composes the unchanged progressive function.
+    expect(ddl).toContain("public.forever_progressive_ingest(p_batch)");
+    // Claim is a compare-and-set with stale recovery.
+    expect(ddl).toContain("processing_token");
+    expect(ddl).toContain("processing_started_at");
   });
 
-  it("adds a PRIVATE studio-uploads bucket and no new storage read policies", () => {
+  it("every Studio function is service_role only, with search_path pinned", () => {
+    expect(ddl).toContain("GRANT EXECUTE ON FUNCTION %s TO service_role");
+    expect(ddl).toContain("REVOKE ALL ON FUNCTION %s FROM anon");
+    expect(ddl).toContain("REVOKE ALL ON FUNCTION %s FROM authenticated");
+    const setSearchPath = (ddl.match(/SET search_path = ''/g) ?? []).length;
+    expect(setSearchPath).toBeGreaterThanOrEqual(6);
+  });
+
+  it("keeps the workflow vocabulary in lockstep with TypeScript", () => {
+    for (const workflow of STUDIO_WORKFLOWS) expect(ddl).toContain(`'${workflow}'`);
+  });
+
+  it("adds a PRIVATE studio-uploads bucket and no storage.objects policy", () => {
     expect(ddl).toMatch(/\('studio-uploads', 'studio-uploads', false\)/);
     expect(ddl).toContain("ON CONFLICT (id) DO NOTHING");
     expect(ddl).not.toContain("storage.objects");
@@ -74,11 +103,10 @@ describe("Forever Studio migration contract", () => {
     }
   });
 
-  it("leaves the progressive RPC and the strict lane untouched", () => {
-    expect(ddl).not.toContain("forever_progressive_ingest");
+  it("leaves the strict lane untouched and re-runs no prior migration", () => {
     expect(ddl).not.toContain("forever_import");
     expect(ddl).not.toContain("forever_execution");
-    expect(ddl).not.toMatch(/DROP\s+(TABLE|POLICY|FUNCTION)/i);
+    expect(ddl).not.toMatch(/DROP\s+(POLICY|FUNCTION IF EXISTS public\.forever_progressive)/i);
   });
 
   it("contains no credential material", () => {

@@ -34,7 +34,7 @@ This stage must:
 5. provide a usable phone, tablet, and desktop interface;
 6. target 2–5 minutes of publisher interaction and a usable public result within 15 minutes.
 
-The FOREVER-STUDIO-001 implementation now exists in an open, unmerged draft PR on branch `claude/forever-studio-upload-dfev75` (report: `docs/FOREVER_STUDIO_001_IMPLEMENTATION_REPORT.md`; runbook: `docs/FOREVER_STUDIO_OWNER_RUNBOOK.md`). It remains pending independent review and Owner approval; its two migrations are prepared but NOT applied, and no production connection, publication, or data change has occurred.
+The FOREVER-STUDIO-001 implementation now exists, hardened, in an open, unmerged draft PR on branch `claude/forever-studio-upload-dfev75` (report: `docs/FOREVER_STUDIO_001_IMPLEMENTATION_REPORT.md`; runbook: `docs/FOREVER_STUDIO_OWNER_RUNBOOK.md`). It remains pending independent review and Owner approval. Its single additive Studio migration (`20260721120000_forever_studio_v1.sql`) is prepared but NOT applied; the progressive ingestion migration it builds on is already applied (Coralina is imported as an unpublished draft). No production connection, publication, or data change has occurred.
 
 ## Canonical foundations retained
 

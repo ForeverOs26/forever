@@ -38,20 +38,47 @@ export const STUDIO_WORKFLOW_LABELS: Record<StudioWorkflow, string> = {
 
 export type StudioJobStatus = "received" | "processing" | "published" | "failed";
 
-/** One declared upload target; the browser uploads directly to storage. */
+export type StudioJobFileStatus =
+  | "declared"
+  | "uploaded"
+  | "missing"
+  | "unreadable"
+  | "oversized"
+  | "published_public";
+
+/**
+ * One upload record. EVERY file is uploaded to the private staging bucket
+ * first; only selected, byte-verified final media are copied to a public
+ * bucket during finalization. Observed values come from the actual stored
+ * bytes, never from the browser's declaration.
+ */
 export interface StudioJobFile {
   name: string;
-  bucket: string;
-  path: string;
-  content_type: string | null;
-  size: number | null;
+  /** Always the private staging bucket. */
+  stagingBucket: string;
+  stagingPath: string;
+  /** Browser-declared size/type — recorded but never trusted. */
+  declaredSize: number | null;
+  declaredType: string | null;
   /** Deterministic routing category (Fast Intake classifier vocabulary). */
   category: string;
-  status: "declared" | "uploaded" | "missing" | "unreadable";
+  status: StudioJobFileStatus;
+  /** Actual stored byte size (from storage metadata). */
+  observedSize?: number | null;
+  /** SHA-256 of the actual bytes, when the file was small enough to read. */
+  sha256?: string | null;
+  /** Detected media class from magic bytes / extension: image|video|pdf|zip|json|other. */
+  mediaClass?: string | null;
+  /** True when the declared size/type disagrees with the observed bytes. */
+  declaredMismatch?: boolean;
+  /** Set only for a selected final media file copied to a public bucket. */
+  publicBucket?: string | null;
+  publicPath?: string | null;
 }
 
 export interface StudioUploadTarget {
   name: string;
+  /** Always the private staging bucket. */
   bucket: string;
   path: string;
   /** Signed upload token for supabase.storage.uploadToSignedUrl. */
@@ -127,7 +154,12 @@ export interface StudioJobResult {
     warnings: number;
   } | null;
   warnings: StudioWarningSummary[];
+  /** Stable safe error code (never a raw database/path/SQL message). */
+  errorCode: string | null;
+  /** Concise, user-facing explanation. Safe to display. */
   error: string | null;
+  /** Whether an automatic or manual retry can still succeed. */
+  retryable: boolean;
 }
 
 export interface StudioSessionInfo {
@@ -166,7 +198,9 @@ export interface StudioJobListItem {
   listingId: string | null;
   creatorEmail: string | null;
   createdAt: string;
+  errorCode: string | null;
   error: string | null;
+  retryable: boolean;
 }
 
 export interface StudioMemberListItem {
@@ -184,6 +218,54 @@ export interface StudioOverview {
   jobs: StudioJobListItem[];
   /** Owner only; empty for trusted publishers. */
   members: StudioMemberListItem[];
+  /** Count of jobs the dashboard is auto-resuming this session. */
+  activeJobs: number;
+}
+
+/** One editable media candidate for hero selection. */
+export interface StudioMediaItem {
+  url: string;
+  mediaType: string;
+  title: string | null;
+  sortOrder: number;
+  /** True when this image is the current public hero (main_image_url). */
+  isHero: boolean;
+}
+
+/** Project detail for the edit form: current values + which are public. */
+export interface StudioProjectDetail {
+  slug: string;
+  name: string;
+  publicStatus: string;
+  isActive: boolean;
+  isPublic: boolean;
+  facts: StudioProjectFacts;
+  mainImageUrl: string | null;
+  media: StudioMediaItem[];
+  updatedAt: string | null;
+  lastSourceDate: string | null;
+}
+
+/** Resale detail for the edit form. Includes private contact (Studio may view). */
+export interface StudioListingDetail {
+  id: string;
+  slug: string | null;
+  publicationStatus: string;
+  isPublic: boolean;
+  facts: StudioResaleFacts;
+  photos: string[];
+  updatedAt: string | null;
+}
+
+export interface StudioInviteResult {
+  userId: string;
+  /** True when a new auth account was created for this invitation. */
+  created: boolean;
+}
+
+export interface StudioResumeResult {
+  resumed: number;
+  results: StudioJobResult[];
 }
 
 /** Public page path helpers shared by UI and server result summaries. */

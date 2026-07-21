@@ -5,6 +5,13 @@
  * only `publication_status = 'published'` rows are ever served. Fail-closed
  * like every public surface — a missing listing is a 404, a missing field
  * stays absent ("Price on request", omitted sections), nothing is invented.
+ *
+ * PRIVACY (FOREVER-STUDIO-001 item 1): seller/partner contact details are NOT
+ * part of the public listing. They live only in the private
+ * studio_listing_contacts table (service-role only). This reader selects an
+ * explicit column list with no contact fields, and the underlying columns no
+ * longer exist on the public row, so no contact data can reach the anonymous
+ * surface. Public enquiries are routed through Forever /contact.
  */
 
 import { queryOptions } from "@tanstack/react-query";
@@ -27,14 +34,11 @@ export interface PublicListing {
   photos: string[];
   location_name_raw: string | null;
   project_name_raw: string | null;
-  contact_name: string | null;
-  contact_phone: string | null;
-  contact_email: string | null;
   created_at: string;
 }
 
 const LISTING_SELECT =
-  "id,slug,title,property_type,bedrooms,bathrooms,area_sqm,price,currency,availability_status,description,photos,location_name_raw,project_name_raw,contact_name,contact_phone,contact_email,created_at";
+  "id,slug,title,property_type,bedrooms,bathrooms,area_sqm,price,currency,availability_status,description,photos,location_name_raw,project_name_raw,created_at";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

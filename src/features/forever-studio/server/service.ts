@@ -1,21 +1,20 @@
 /**
- * Forever Studio — server orchestration (FOREVER-STUDIO-001).
+ * Forever Studio — server orchestration (FOREVER-STUDIO-001, hardened).
  *
  * One narrow layer between the authenticated publisher and the existing
  * progressive ingestion lane. It reuses — never reimplements — the batch
- * builder, provenance precedence, dependency resolution, listing draft
- * builder, and the atomic `forever_progressive_ingest` RPC.
+ * builder, provenance precedence, dependency resolution, and the atomic
+ * studio_publish_project / studio_publish_resale transaction functions that
+ * compose the unchanged forever_progressive_ingest.
  *
  * Durable product rule enforced here:
  *   An upload by an authenticated Owner or Trusted Publisher IS direct
  *   publication authorization. Incomplete business data never creates a
  *   follow-on approval or publication gate. Missing facts become warnings
- *   and absent fields; unreadable files are retained; failures leave a
- *   retryable job. The only hard requirements are technical (a project
- *   needs an addressable identity; files must land in storage).
+ *   and absent fields; unreadable files are retained privately; failures
+ *   leave a retryable job that resumes automatically. Every write is
+ *   project-isolated, transactional, and idempotent under retry.
  */
-
-import { randomUUID } from "node:crypto";
 
 import type {
   ProgressiveBatch,
@@ -33,10 +32,14 @@ import {
   STUDIO_WORKFLOWS,
   type StartJobInput,
   type StartJobResult,
+  type StudioInviteResult,
   type StudioJobResult,
+  type StudioListingDetail,
   type StudioOverview,
+  type StudioProjectDetail,
   type StudioProjectFacts,
   type StudioResaleFacts,
+  type StudioResumeResult,
   type StudioUploadTarget,
   type StudioWarningSummary,
 } from "../studio-types";
@@ -45,12 +48,24 @@ import {
   type StudioActor,
   type StudioDeps,
   type StudioJobRow,
+  type StudioListingPublishRow,
+  type StudioPrivateContact,
 } from "./contracts";
-import { declareJobFiles, gatherMaterials, type GatheredMaterials } from "./extraction";
+import { StudioError, toSafeError } from "./errors";
+import {
+  declareJobFiles,
+  gatherMaterials,
+  MAX_UPLOAD_BYTES,
+  type GatheredMaterials,
+} from "./extraction";
 import { assertNotPartnerDemo, assertOwner } from "./membership";
 
 export const MAX_JOB_FILES = 60;
-export const MAX_FILE_BYTES = 1024 * 1024 * 1024; // 1 GiB per file
+export { MAX_UPLOAD_BYTES };
+/** A processing claim older than this is considered abandoned and resumable. */
+export const STALE_PROCESSING_SECONDS = 900; // 15 minutes
+/** Jobs auto-resumed per dashboard poll / cron tick. */
+export const RESUME_BATCH = 5;
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,79}$/;
 const TEXT_LIMIT = 4000;
 
@@ -59,7 +74,9 @@ const TEXT_LIMIT = 4000;
 // ---------------------------------------------------------------------------
 
 function actorProvenanceStatus(actor: StudioActor): ProvenanceStatus {
-  return actor.role === "owner" ? "owner_verified" : "partner_provided";
+  // Direct publication authorization is NOT verification: an ordinary Studio
+  // entry is *_provided, never owner_verified.
+  return actor.role === "owner" ? "owner_provided" : "trusted_publisher_provided";
 }
 
 function cleanText(value: unknown): string | undefined {
@@ -85,7 +102,6 @@ function warningSummaries(warnings: ProgressiveWarning[]): StudioWarningSummary[
   return warnings.map((warning) => ({ code: warning.code, message: warning.message }));
 }
 
-/** A deterministic, self-fingerprinting batch (used for tiny publish patches). */
 function sealedBatch(body: Omit<ProgressiveBatch, "batch_fingerprint">): ProgressiveBatch {
   return { ...body, batch_fingerprint: fingerprintBatch(body) };
 }
@@ -93,6 +109,7 @@ function sealedBatch(body: Omit<ProgressiveBatch, "batch_fingerprint">): Progres
 function publicationPatchBatch(
   slug: string,
   publish: boolean,
+  actor: StudioActor,
   suppliedAt: string,
 ): ProgressiveBatch {
   return sealedBatch({
@@ -102,7 +119,7 @@ function publicationPatchBatch(
       slug,
       publish,
       field_provenance: {
-        public_status: { status: "owner_verified", supplied_at: suppliedAt },
+        public_status: { status: actorProvenanceStatus(actor), supplied_at: suppliedAt },
       },
     },
   });
@@ -147,7 +164,7 @@ function manualProjectFields(
 }
 
 // ---------------------------------------------------------------------------
-// Job creation: declare files, hand out signed upload targets
+// Job creation: declare private staging, hand out signed upload targets
 // ---------------------------------------------------------------------------
 
 export async function startUploadJob(
@@ -165,7 +182,7 @@ export async function startUploadJob(
   }
   for (const file of files) {
     if (!cleanText(file.name)) throw new StudioAccessError("file_name_required");
-    if (typeof file.size === "number" && file.size > MAX_FILE_BYTES) {
+    if (typeof file.size === "number" && file.size > MAX_UPLOAD_BYTES) {
       throw new StudioAccessError("file_too_large", `${file.name} exceeds the 1 GB limit.`);
     }
   }
@@ -174,8 +191,15 @@ export async function startUploadJob(
     throw new StudioAccessError("project_slug_invalid");
   }
 
-  const jobId = randomUUID();
-  const declared = declareJobFiles(jobId, files);
+  // The job id is server-generated by the database default; create then read
+  // its id back so every staging path is job-scoped.
+  const declaredFilesInput = files.map((file) => ({
+    name: file.name,
+    size: file.size,
+    contentType: file.contentType,
+  }));
+  const jobId = crypto.randomUUID();
+  const declared = declareJobFiles(jobId, declaredFilesInput);
   const job: StudioJobRow = {
     id: jobId,
     created_by: actor.userId,
@@ -185,13 +209,17 @@ export async function startUploadJob(
     project_slug: projectSlug ?? null,
     listing_id: null,
     status: "received",
+    processing_token: null,
+    content_fingerprint: null,
     facts: {
       ...(input.projectFacts ? { projectFacts: input.projectFacts } : {}),
       ...(input.resaleFacts ? { resaleFacts: input.resaleFacts } : {}),
     },
     files: declared,
     result_summary: null,
+    error_code: null,
     error: null,
+    retryable: true,
     attempt_count: 0,
     created_at: deps.now(),
   };
@@ -199,8 +227,8 @@ export async function startUploadJob(
 
   const uploads: StudioUploadTarget[] = [];
   for (const file of declared) {
-    const { token } = await deps.storage.createSignedUpload(file.bucket, file.path);
-    uploads.push({ name: file.name, bucket: file.bucket, path: file.path, token });
+    const { token } = await deps.storage.createSignedUpload(file.stagingBucket, file.stagingPath);
+    uploads.push({ name: file.name, bucket: file.stagingBucket, path: file.stagingPath, token });
   }
   await deps.data.recordAudit({
     actor_id: actor.userId,
@@ -218,10 +246,10 @@ export async function startUploadJob(
 }
 
 // ---------------------------------------------------------------------------
-// Job processing: extract → build → ingest → publish (no follow-on gate)
+// Job processing: claim → gather → atomic publish → finalize
 // ---------------------------------------------------------------------------
 
-function jobResultFromSummary(job: StudioJobRow): StudioJobResult {
+function jobResultFromRow(job: StudioJobRow): StudioJobResult {
   const stored = (job.result_summary ?? {}) as Partial<StudioJobResult>;
   return {
     jobId: job.id,
@@ -233,7 +261,9 @@ function jobResultFromSummary(job: StudioJobRow): StudioJobResult {
     publicStatus: stored.publicStatus ?? null,
     counts: stored.counts ?? null,
     warnings: stored.warnings ?? [],
+    errorCode: job.error_code,
     error: job.error,
+    retryable: job.retryable,
   };
 }
 
@@ -248,55 +278,124 @@ export async function processUploadJob(
   if (job.created_by !== actor.userId && actor.role !== "owner") {
     throw new StudioAccessError("job_forbidden");
   }
-  // Re-entry after success is a read, not a second publication.
-  if (job.status === "published" && job.result_summary) {
-    return jobResultFromSummary(job);
-  }
-  await deps.data.updateJob(jobId, {
-    status: "processing",
-    attempt_count: job.attempt_count + 1,
-    error: null,
-  });
+  return claimAndProcess(deps, actor, job);
+}
 
+/**
+ * Automatic durable resume. Called on every dashboard poll (and safe for a
+ * scheduled worker/cron to call) to pick up received, retryable-failed, or
+ * stale-processing jobs and drive them to completion — no second publication
+ * decision, no lost work when the phone browser closes.
+ */
+export async function resumeDueJobs(
+  deps: StudioDeps,
+  actor: StudioActor,
+): Promise<StudioResumeResult> {
+  if (deps.partnerDemoActive()) return { resumed: 0, results: [] };
+  const due = await deps.data.listDueJobs(STALE_PROCESSING_SECONDS, RESUME_BATCH);
+  const mine = due.filter((job) => actor.role === "owner" || job.created_by === actor.userId);
+  const results: StudioJobResult[] = [];
+  for (const job of mine) {
+    results.push(await claimAndProcess(deps, actor, job));
+  }
+  return { resumed: results.filter((r) => r.status === "published").length, results };
+}
+
+async function claimAndProcess(
+  deps: StudioDeps,
+  actor: StudioActor,
+  jobRow: StudioJobRow,
+): Promise<StudioJobResult> {
+  // Re-entry after success is a read, not a re-publication.
+  if (jobRow.status === "published" && jobRow.result_summary) {
+    return jobResultFromRow(jobRow);
+  }
+
+  const token = deps.newToken();
+  const claimed = await deps.data.claimJob(jobRow.id, token, STALE_PROCESSING_SECONDS);
+  if (!claimed) {
+    // Already published, or freshly held by another worker.
+    const current = await deps.data.getJob(jobRow.id);
+    if (!current) throw new StudioAccessError("job_not_found");
+    return jobResultFromRow(current);
+  }
+
+  let materials: GatheredMaterials | undefined;
   try {
-    const materials = await gatherMaterials(deps, job);
+    materials = await gatherMaterials(deps, claimed);
+    // Persist the observed file records (size, sha256, media class, status);
+    // this is diagnostic metadata, not part of the publication transaction.
+    await deps.data.updateJob(claimed.id, { files: materials.files });
     const result =
-      job.workflow === "resale_listing"
-        ? await processResaleJob(deps, actor, job, materials)
-        : await processProjectJob(deps, actor, job, materials);
-    await deps.data.updateJob(jobId, {
-      status: "published",
-      files: materials.files,
-      project_slug: result.projectSlug,
-      listing_id: result.listingId,
-      result_summary: result as unknown as Record<string, unknown>,
-      error: null,
-    });
+      claimed.workflow === "resale_listing"
+        ? await finalizeResale(deps, actor, claimed, materials, token)
+        : await finalizeProject(deps, actor, claimed, materials, token);
     return result;
   } catch (error) {
-    // The job stays retryable; batch fingerprints make the retry idempotent.
-    const message = error instanceof Error ? error.message : String(error);
-    await deps.data.updateJob(jobId, { status: "failed", error: message });
+    const safe = toSafeError(error, mapFailureCode(error));
+    // Item 4: a failed job exposes no public object — remove anything copied
+    // this attempt. Retry re-copies deterministically.
+    if (materials?.publicObjects.length) {
+      await deps.storage
+        .remove(
+          materials.publicObjects[0].bucket,
+          materials.publicObjects.map((o) => o.path),
+        )
+        .catch(() => undefined);
+    }
+    await deps.data
+      .failJob({
+        jobId: claimed.id,
+        token,
+        errorCode: safe.code,
+        message: safe.message,
+        retryable: safe.retryable,
+      })
+      .catch(() => undefined);
     return {
-      jobId,
+      jobId: claimed.id,
       status: "failed",
-      workflow: job.workflow,
+      workflow: claimed.workflow,
       pagePath: null,
-      projectSlug: job.project_slug,
-      listingId: job.listing_id,
+      projectSlug: claimed.project_slug,
+      listingId: claimed.listing_id,
       publicStatus: null,
       counts: null,
-      warnings: [],
-      error: message,
+      warnings: materials ? warningSummaries(materials.warnings) : [],
+      errorCode: safe.code,
+      error: safe.message,
+      retryable: safe.retryable,
     };
   }
 }
 
-async function processProjectJob(
+function mapFailureCode(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error);
+  if (text.includes("forever_progressive_ingest") || text.includes("studio_publish"))
+    return "ingest_failed";
+  if (text.toLowerCase().includes("storage")) return "storage_unavailable";
+  return "processing_failed";
+}
+
+/** Stable identity for a project upload — never blocks on missing business data. */
+function deriveProjectSlug(
+  job: StudioJobRow,
+  manualName: string | undefined,
+  derivedName: string | null,
+): string {
+  if (job.project_slug) return job.project_slug;
+  const fromName = manualName ? slugify(manualName) : derivedName ? slugify(derivedName) : "";
+  if (fromName) return fromName;
+  // Deterministic fallback so a retry converges on the same page.
+  return `new-project-${job.created_at.slice(0, 10)}-${job.id.slice(0, 8)}`;
+}
+
+async function finalizeProject(
   deps: StudioDeps,
   actor: StudioActor,
   job: StudioJobRow,
   materials: GatheredMaterials,
+  token: string,
 ): Promise<StudioJobResult> {
   const suppliedAt = job.created_at;
   const manual = manualProjectFields(
@@ -306,24 +405,15 @@ async function processProjectJob(
   );
   const extracted = materials.factFields;
 
-  // Extracted facts first, manual entry on top (and ranked higher anyway).
   const fields: Record<string, unknown> = { ...(extracted?.fields ?? {}), ...manual.fields };
-  const provenance: FieldProvenanceMap = {
-    ...(extracted?.provenance ?? {}),
-    ...manual.provenance,
-  };
+  const provenance: FieldProvenanceMap = { ...(extracted?.provenance ?? {}), ...manual.provenance };
 
-  const slug = job.project_slug ?? (typeof fields.name === "string" ? slugify(fields.name) : null);
-  if (!slug) {
-    throw new StudioAccessError(
-      "project_identity_required",
-      "Enter a project name or choose an existing project so the upload has an address.",
-    );
-  }
-
+  const manualName = typeof manual.fields.name === "string" ? manual.fields.name : undefined;
+  const slug = deriveProjectSlug(job, manualName, materials.derivedName);
   const existing = await deps.data.findProjectBySlug(slug);
   const mode: "create" | "enrich" = existing ? "enrich" : "create";
   const extraWarnings: ProgressiveWarning[] = [...materials.warnings];
+
   if (mode === "enrich" && job.workflow === "new_development") {
     extraWarnings.push({
       entity: "project",
@@ -343,22 +433,23 @@ async function processProjectJob(
 
   // A create needs a display name (technical envelope, not a business gate).
   if (mode === "create" && typeof fields.name !== "string") {
-    fields.name = titleFromSlug(slug);
-    provenance.name = { status: "inferred", note: "derived_from_slug", supplied_at: suppliedAt };
+    const display = materials.derivedName ?? titleFromSlug(slug);
+    fields.name = display;
+    provenance.name = { status: "inferred", note: "derived_identity", supplied_at: suppliedAt };
     extraWarnings.push({
       entity: "project",
       field: "name",
       code: "project_name_derived",
-      severity: "warning",
-      message: `No project name was provided; "${fields.name}" was derived from the slug for display.`,
+      severity: "info",
+      message: `No project name was provided; "${display}" was used for now — rename it any time.`,
     });
   }
 
   const existingState = mode === "enrich" ? await deps.fetchExisting(slug) : undefined;
-
-  // Blank-filling only: an uploaded photo/brochure never replaces an
-  // existing cover image or brochure link.
   const existingValues = existingState?.project?.values ?? {};
+
+  // Blank-filling only: an uploaded photo/brochure never replaces an existing
+  // cover image or brochure link.
   if (materials.firstPhotoUrl && fields.main_image_url === undefined) {
     if (mode === "create" || existingValues.main_image_url == null) {
       fields.main_image_url = materials.firstPhotoUrl;
@@ -374,18 +465,8 @@ async function processProjectJob(
 
   const project: ProgressiveProjectPayload =
     mode === "create"
-      ? ({
-          slug,
-          ...fields,
-          field_provenance: provenance,
-        } as ProgressiveProjectPayload)
-      : {
-          slug,
-          set: fields,
-          field_provenance: provenance,
-          // Direct publication: the authorized upload IS the publish decision.
-          publish: true,
-        };
+      ? ({ slug, ...fields, field_provenance: provenance } as ProgressiveProjectPayload)
+      : { slug, set: fields, field_provenance: provenance };
 
   const batch = await buildProgressiveBatch(deps.reader, {
     mode,
@@ -396,15 +477,22 @@ async function processProjectJob(
     existing: existingState,
     extraWarnings,
   });
-  const summary = await deps.ingest.ingest(batch);
 
-  let publicStatus = summary.public_status;
-  if (mode === "create") {
-    // The RPC deliberately never auto-publishes a create; Studio's second,
-    // deterministic patch applies the publisher's direct authorization.
-    const published = await deps.ingest.ingest(publicationPatchBatch(slug, true, suppliedAt));
-    publicStatus = published.public_status;
-  }
+  const resultPayload = {
+    pagePath: projectPagePath(slug),
+    projectSlug: slug,
+    warnings: warningSummaries(batch.warnings ?? []),
+    workflow: job.workflow,
+  };
+
+  // ONE atomic transaction: ingest graph + publish + finalize job.
+  const summary = await deps.data.publishProject({
+    jobId: job.id,
+    token,
+    batch,
+    publish: true,
+    result: resultPayload,
+  });
 
   await deps.data.recordAudit({
     actor_id: actor.userId,
@@ -419,18 +507,20 @@ async function processProjectJob(
     jobId: job.id,
     status: "published",
     workflow: job.workflow,
-    pagePath: projectPagePath(slug),
+    pagePath: resultPayload.pagePath,
     projectSlug: slug,
     listingId: null,
-    publicStatus,
+    publicStatus: summary.public_status,
     counts: summary.counts,
-    warnings: warningSummaries(batch.warnings ?? []),
+    warnings: resultPayload.warnings,
+    errorCode: null,
     error: null,
+    retryable: true,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Resale listings: publish without requiring a complete project record
+// Resale listings: publish without a complete project record; private contact
 // ---------------------------------------------------------------------------
 
 function manualListingProvenance(
@@ -441,17 +531,19 @@ function manualListingProvenance(
   const status = actorProvenanceStatus(actor);
   const provenance: FieldProvenanceMap = {};
   for (const [key, value] of Object.entries(facts)) {
+    if (key === "contactName" || key === "contactPhone" || key === "contactEmail") continue;
     if (value === undefined || value === null || value === "") continue;
     provenance[key] = { status, supplied_at: suppliedAt, note: "studio_manual_entry" };
   }
   return provenance;
 }
 
-async function processResaleJob(
+async function finalizeResale(
   deps: StudioDeps,
   actor: StudioActor,
   job: StudioJobRow,
   materials: GatheredMaterials,
+  token: string,
 ): Promise<StudioJobResult> {
   const suppliedAt = job.created_at;
   const facts = (job.facts.resaleFacts ?? {}) as StudioResaleFacts;
@@ -470,8 +562,8 @@ async function processResaleJob(
       entity: "listing",
       field: "title",
       code: "listing_title_derived",
-      severity: "warning",
-      message: `No title was provided; "${title}" was derived for display.`,
+      severity: "info",
+      message: `No title was provided; "${title}" was used — rename it any time.`,
     });
   }
 
@@ -487,6 +579,7 @@ async function processResaleJob(
     currency = undefined;
   }
 
+  // buildListingDraft resolves the project/location without any contact input.
   const draft = await buildListingDraft(
     {
       reader: deps.reader,
@@ -509,39 +602,58 @@ async function processResaleJob(
       currency,
       description: cleanText(facts.description),
       photos: materials.photoUrls,
-      contactName: cleanText(facts.contactName),
-      contactPhone: cleanText(facts.contactPhone),
-      contactEmail: cleanText(facts.contactEmail),
       fieldProvenance: manualListingProvenance(facts, actor, suppliedAt),
     },
   );
   warnings.push(...draft.warnings);
 
-  // Deterministic per-job slug: retries land on the same listing.
   const slug = `${slugify(title).slice(0, 60) || "resale"}-${job.id.slice(0, 8)}`;
-  let listingId = job.listing_id;
-  if (!listingId) {
-    const orphan = await deps.data.findListingBySlug(slug);
-    if (orphan) listingId = orphan.id;
-  }
+  const listingRow: StudioListingPublishRow = {
+    title: draft.row.title,
+    slug,
+    project_id: draft.row.project_id,
+    project_name_raw: draft.row.project_name_raw,
+    location_id: draft.row.location_id,
+    location_name_raw: draft.row.location_name_raw,
+    property_type: draft.row.property_type,
+    bedrooms: draft.row.bedrooms,
+    bathrooms: draft.row.bathrooms,
+    area_sqm: draft.row.area_sqm,
+    price: draft.row.price,
+    currency: draft.row.currency,
+    availability_status: draft.row.availability_status,
+    description: draft.row.description,
+    photos: draft.row.photos,
+    field_provenance: draft.row.field_provenance,
+  };
+  const contact: StudioPrivateContact = {
+    contact_name: cleanText(facts.contactName) ?? null,
+    contact_phone: cleanText(facts.contactPhone) ?? null,
+    contact_email: cleanText(facts.contactEmail) ?? null,
+  };
 
-  const row = { ...draft.row, slug, publication_status: "published" };
-  if (listingId) {
-    await deps.data.updateListing(listingId, row as unknown as Record<string, unknown>);
-  } else {
-    const inserted = await deps.data.insertListing(row);
-    listingId = inserted.id;
-  }
-  if (warnings.length) {
-    await deps.data.insertListingWarnings(listingId, warnings);
-  }
+  const resultPayload = {
+    pagePath: resalePagePath(slug),
+    warnings: warningSummaries(warnings),
+    workflow: job.workflow,
+  };
+
+  // ONE atomic transaction: listing upsert + private contact + warnings + job.
+  const published = await deps.data.publishResale({
+    jobId: job.id,
+    token,
+    listing: listingRow,
+    contact,
+    warnings,
+    result: resultPayload,
+  });
 
   await deps.data.recordAudit({
     actor_id: actor.userId,
     actor_email: actor.email,
     action: "studio_resale_published",
     table_name: "listings",
-    record_id: listingId,
+    record_id: published.listingId,
     metadata: { job_id: job.id, photos: materials.photoUrls.length },
   });
 
@@ -549,9 +661,9 @@ async function processResaleJob(
     jobId: job.id,
     status: "published",
     workflow: job.workflow,
-    pagePath: resalePagePath(slug),
+    pagePath: resalePagePath(published.slug),
     projectSlug: null,
-    listingId,
+    listingId: published.listingId,
     publicStatus: "published",
     counts: {
       buildings: 0,
@@ -560,13 +672,15 @@ async function processResaleJob(
       media: materials.photoUrls.length,
       warnings: warnings.length,
     },
-    warnings: warningSummaries(warnings),
+    warnings: resultPayload.warnings,
+    errorCode: null,
     error: null,
+    retryable: true,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Direct actions: publish / unpublish / edit
+// Direct actions: publish / unpublish / edit / hero
 // ---------------------------------------------------------------------------
 
 export async function setProjectPublication(
@@ -578,7 +692,7 @@ export async function setProjectPublication(
   const project = await deps.data.findProjectBySlug(input.slug);
   if (!project) throw new StudioAccessError("project_not_found");
   const summary = await deps.ingest.ingest(
-    publicationPatchBatch(input.slug, input.publish, deps.now()),
+    publicationPatchBatch(input.slug, input.publish, actor, deps.now()),
   );
   await deps.data.recordAudit({
     actor_id: actor.userId,
@@ -606,11 +720,7 @@ export async function saveProjectFacts(
   const existingState = await deps.fetchExisting(input.slug);
   const batch = await buildProgressiveBatch(deps.reader, {
     mode: "enrich",
-    project: {
-      slug: input.slug,
-      set: manual.fields,
-      field_provenance: manual.provenance,
-    },
+    project: { slug: input.slug, set: manual.fields, field_provenance: manual.provenance },
     existing: existingState,
   });
   await deps.ingest.ingest(batch);
@@ -623,6 +733,44 @@ export async function saveProjectFacts(
     metadata: { slug: input.slug, fields: Object.keys(manual.fields) },
   });
   return { slug: input.slug, warnings: warningSummaries(batch.warnings ?? []) };
+}
+
+export async function setProjectHeroImage(
+  deps: StudioDeps,
+  actor: StudioActor,
+  input: { slug: string; url: string },
+): Promise<{ slug: string }> {
+  assertNotPartnerDemo(deps);
+  const detail = await deps.data.getProjectDetail(input.slug);
+  if (!detail) throw new StudioAccessError("project_not_found");
+  // The chosen hero must be an existing media URL of THIS project — never an
+  // arbitrary caller-supplied URL.
+  const known = detail.media.some((item) => item.url === input.url) || input.url === "";
+  if (!known)
+    throw new StudioAccessError("hero_image_unknown", "Choose one of this project's images.");
+  const suppliedAt = deps.now();
+  const batch = await buildProgressiveBatch(deps.reader, {
+    mode: "enrich",
+    project: {
+      slug: input.slug,
+      set: { main_image_url: input.url || null },
+      // Owner-provided: a deliberate hero choice outranks the auto-picked one.
+      field_provenance: {
+        main_image_url: { status: actorProvenanceStatus(actor), supplied_at: suppliedAt },
+      },
+    },
+    existing: await deps.fetchExisting(input.slug),
+  });
+  await deps.ingest.ingest(batch);
+  await deps.data.recordAudit({
+    actor_id: actor.userId,
+    actor_email: actor.email,
+    action: "studio_project_hero_set",
+    table_name: "projects",
+    record_id: detail.project.id,
+    metadata: { slug: input.slug },
+  });
+  return { slug: input.slug };
 }
 
 export async function setListingPublication(
@@ -652,7 +800,7 @@ export async function updateResaleListing(
   input: { listingId: string; facts: StudioResaleFacts },
 ): Promise<{ listingId: string }> {
   assertNotPartnerDemo(deps);
-  const listing = await deps.data.getListing(input.listingId);
+  const listing = await deps.data.getListingDetail(input.listingId);
   if (!listing) throw new StudioAccessError("listing_not_found");
   const patch: Record<string, unknown> = {};
   const put = (column: string, value: unknown) => {
@@ -667,31 +815,124 @@ export async function updateResaleListing(
   put("area_sqm", cleanNumber(input.facts.areaSqm));
   put("price", cleanNumber(input.facts.price));
   put("description", cleanText(input.facts.description));
-  put("contact_name", cleanText(input.facts.contactName));
-  put("contact_phone", cleanText(input.facts.contactPhone));
-  put("contact_email", cleanText(input.facts.contactEmail));
   const currency = cleanText(input.facts.currency)?.toUpperCase();
   if (currency && /^[A-Z]{3}$/.test(currency)) patch.currency = currency;
-  if (Object.keys(patch).length === 0) return { listingId: input.listingId };
-  patch.field_provenance = {
-    ...((listing as unknown as { field_provenance?: FieldProvenanceMap }).field_provenance ?? {}),
-    ...manualListingProvenance(input.facts, actor, deps.now()),
-  };
-  await deps.data.updateListing(input.listingId, patch);
+
+  // Private contact — routed to the private table, never to the public row.
+  const contactTouched =
+    input.facts.contactName !== undefined ||
+    input.facts.contactPhone !== undefined ||
+    input.facts.contactEmail !== undefined;
+  if (contactTouched) {
+    await deps.data.setListingContact(input.listingId, {
+      contact_name: cleanText(input.facts.contactName) ?? listing.contact.contact_name,
+      contact_phone: cleanText(input.facts.contactPhone) ?? listing.contact.contact_phone,
+      contact_email: cleanText(input.facts.contactEmail) ?? listing.contact.contact_email,
+    });
+  }
+
+  if (Object.keys(patch).length > 0) {
+    patch.field_provenance = {
+      ...((listing as unknown as { field_provenance?: FieldProvenanceMap }).field_provenance ?? {}),
+      ...manualListingProvenance(input.facts, actor, deps.now()),
+    };
+    await deps.data.updateListing(input.listingId, patch);
+  }
   await deps.data.recordAudit({
     actor_id: actor.userId,
     actor_email: actor.email,
     action: "studio_listing_updated",
     table_name: "listings",
     record_id: input.listingId,
-    metadata: { fields: Object.keys(patch) },
+    metadata: { fields: Object.keys(patch), contact: contactTouched },
   });
   return { listingId: input.listingId };
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard + membership management
+// Dashboard + detail (prefill) + membership
 // ---------------------------------------------------------------------------
+
+export async function getProjectDetail(
+  deps: StudioDeps,
+  _actor: StudioActor,
+  slug: string,
+): Promise<StudioProjectDetail | null> {
+  const detail = await deps.data.getProjectDetail(slug);
+  if (!detail) return null;
+  const row = detail.project;
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v : undefined);
+  const num = (v: unknown) => (typeof v === "number" ? v : undefined);
+  const provenance =
+    (row.field_provenance as Record<string, { source_date?: string }> | undefined) ?? {};
+  const sourceDates = Object.values(provenance)
+    .map((p) => p?.source_date)
+    .filter((d): d is string => typeof d === "string")
+    .sort();
+  return {
+    slug: row.slug,
+    name: row.name,
+    publicStatus: row.public_status,
+    isActive: row.is_active,
+    isPublic: row.is_active && row.public_status === "published",
+    facts: {
+      name: str(row.name),
+      developerName: str(row.developer_name_raw),
+      locationText: str(row.location_name_raw) ?? str(row.location_area),
+      projectType: str(row.project_type),
+      shortDescription: str(row.short_description),
+      fullDescription: str(row.full_description),
+      constructionStatus: str(row.construction_status),
+      ownershipType: str(row.ownership_type),
+      completionDate: str(row.completion_date),
+      startingPriceThb: num(row.starting_price_thb),
+      priceRange: str(row.price_range),
+      address: str(row.address),
+    },
+    mainImageUrl: row.main_image_url,
+    media: detail.media.map((m) => ({
+      url: m.url,
+      mediaType: m.media_type,
+      title: m.title,
+      sortOrder: m.sort_order,
+      isHero: m.url === row.main_image_url,
+    })),
+    updatedAt: row.updated_at,
+    lastSourceDate: sourceDates.length ? sourceDates[sourceDates.length - 1] : null,
+  };
+}
+
+export async function getListingDetail(
+  deps: StudioDeps,
+  _actor: StudioActor,
+  listingId: string,
+): Promise<StudioListingDetail | null> {
+  const row = await deps.data.getListingDetail(listingId);
+  if (!row) return null;
+  return {
+    id: row.id,
+    slug: row.slug,
+    publicationStatus: row.publication_status,
+    isPublic: row.publication_status === "published",
+    facts: {
+      title: row.title,
+      projectName: (row.project_name_raw as string | null) ?? undefined,
+      locationText: (row.location_name_raw as string | null) ?? undefined,
+      propertyType: (row.property_type as string | null) ?? undefined,
+      bedrooms: (row.bedrooms as number | null) ?? undefined,
+      bathrooms: (row.bathrooms as number | null) ?? undefined,
+      areaSqm: (row.area_sqm as number | null) ?? undefined,
+      price: row.price ?? undefined,
+      currency: row.currency ?? undefined,
+      description: (row.description as string | null) ?? undefined,
+      contactName: row.contact.contact_name ?? undefined,
+      contactPhone: row.contact.contact_phone ?? undefined,
+      contactEmail: row.contact.contact_email ?? undefined,
+    },
+    photos: row.photos,
+    updatedAt: row.updated_at,
+  };
+}
 
 export async function getOverview(deps: StudioDeps, actor: StudioActor): Promise<StudioOverview> {
   const [projects, listings, jobs] = await Promise.all([
@@ -700,6 +941,13 @@ export async function getOverview(deps: StudioDeps, actor: StudioActor): Promise
     deps.data.listJobs(25),
   ]);
   const members = actor.role === "owner" ? await deps.data.listMembers() : [];
+  const activeJobs = jobs.filter(
+    (job) =>
+      (actor.role === "owner" || job.created_by === actor.userId) &&
+      (job.status === "received" ||
+        job.status === "processing" ||
+        (job.status === "failed" && job.retryable)),
+  ).length;
   return {
     session: {
       userId: actor.userId,
@@ -734,7 +982,9 @@ export async function getOverview(deps: StudioDeps, actor: StudioActor): Promise
       listingId: job.listing_id,
       creatorEmail: job.creator_email,
       createdAt: job.created_at,
+      errorCode: job.error_code,
       error: job.error,
+      retryable: job.retryable,
     })),
     members: members.map((member) => ({
       userId: member.user_id,
@@ -743,28 +993,35 @@ export async function getOverview(deps: StudioDeps, actor: StudioActor): Promise
       displayName: member.display_name,
       isActive: member.is_active,
     })),
+    activeJobs,
   };
 }
 
 export async function inviteMember(
   deps: StudioDeps,
   actor: StudioActor,
-  input: { email: string; password: string; displayName?: string },
-): Promise<{ userId: string }> {
+  input: { email: string; password?: string; displayName?: string },
+): Promise<StudioInviteResult> {
   assertNotPartnerDemo(deps);
   assertOwner(actor);
   const email = cleanText(input.email)?.toLowerCase();
   if (!email || !email.includes("@")) throw new StudioAccessError("invite_email_invalid");
-  const password = input.password ?? "";
-  if (password.length < 10) {
-    throw new StudioAccessError(
-      "invite_password_too_short",
-      "Choose a password of at least 10 characters.",
-    );
-  }
+
+  // Invite an existing Supabase Auth account that is not yet a member, or
+  // create a new confirmed account. A password is only needed for a NEW
+  // account; it is never displayed, logged, or persisted.
   let userId = await deps.authAdmin.findUserIdByEmail(email);
+  let created = false;
   if (!userId) {
+    const password = input.password ?? "";
+    if (password.length < 10) {
+      throw new StudioAccessError(
+        "invite_password_required",
+        "This email has no account yet — set a temporary password of at least 10 characters. It is never shown again.",
+      );
+    }
     userId = (await deps.authAdmin.createUser(email, password)).id;
+    created = true;
   }
   await deps.data.upsertMembership({
     user_id: userId,
@@ -780,9 +1037,10 @@ export async function inviteMember(
     action: "studio_member_invited",
     table_name: "studio_members",
     record_id: userId,
-    metadata: { email, role: "trusted_publisher" },
+    // No password material ever recorded.
+    metadata: { email, role: "trusted_publisher", created },
   });
-  return { userId };
+  return { userId, created };
 }
 
 export async function setMemberActive(
@@ -812,3 +1070,6 @@ export async function setMemberActive(
     metadata: {},
   });
 }
+
+// StudioError is re-exported so callers can throw safe processing failures.
+export { StudioError };

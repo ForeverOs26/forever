@@ -5,7 +5,7 @@
  * browser. A valid Supabase session is necessary but not sufficient: the
  * caller must also hold an active studio_members row. There is no public
  * self-registration path — membership is created only by an Owner invite or
- * by the one-time Owner bootstrap below.
+ * by the one-time, database-enforced single-winner Owner bootstrap below.
  */
 
 import { StudioAccessError, type StudioActor, type StudioDeps } from "./contracts";
@@ -16,46 +16,61 @@ function normalizeEmail(value: string | null | undefined): string | null {
 }
 
 /**
- * One-time Owner bootstrap: when the authenticated caller has no membership,
- * the roster is empty, and the caller's verified email equals
- * STUDIO_OWNER_EMAIL, an owner membership is created. This lets the Owner
- * start using Studio without SQL while keeping every other account locked
- * out (they fail the roster-empty check, the email check, or both).
+ * One-time Owner bootstrap. The caller qualifies only when it matches the
+ * configured Owner identity — preferably a stable user id
+ * (STUDIO_OWNER_USER_ID) or, failing that, an exact confirmed email
+ * (STUDIO_OWNER_EMAIL). The actual insert is single-winner in the database
+ * (advisory lock + partial unique index), so a race cannot mint two owners
+ * and a non-empty roster never bootstraps.
  */
 async function maybeBootstrapOwner(
   deps: StudioDeps,
-  userId: string,
-  email: string | null,
+  session: { userId: string; email: string | null; emailVerified: boolean },
 ): Promise<boolean> {
-  const configured = normalizeEmail(deps.ownerBootstrapEmail());
-  if (!configured || !email || normalizeEmail(email) !== configured) return false;
-  if ((await deps.data.countMembers()) > 0) return false;
-  await deps.data.upsertMembership({
-    user_id: userId,
-    role: "owner",
-    display_name: null,
-    email,
-    invited_by: null,
-    is_active: true,
-  });
+  const configuredUserId = deps.ownerBootstrapUserId();
+  const configuredEmail = normalizeEmail(deps.ownerBootstrapEmail());
+
+  const matchesUserId = configuredUserId != null && configuredUserId === session.userId;
+  const matchesEmail =
+    configuredEmail != null &&
+    session.email != null &&
+    normalizeEmail(session.email) === configuredEmail &&
+    // An email match must be a confirmed identity; a user id match is already
+    // a strong identity and does not depend on the email claim.
+    session.emailVerified;
+
+  if (!matchesUserId && !matchesEmail) return false;
+
+  const created = await deps.data.bootstrapOwner(
+    session.userId,
+    session.email ?? configuredEmail ?? "",
+  );
+  if (!created) return false;
+
   await deps.data.recordAudit({
-    actor_id: userId,
-    actor_email: email,
+    actor_id: session.userId,
+    actor_email: session.email,
     action: "studio_owner_bootstrap",
     table_name: "studio_members",
-    record_id: userId,
-    metadata: { via: "STUDIO_OWNER_EMAIL" },
+    record_id: session.userId,
+    metadata: { via: matchesUserId ? "STUDIO_OWNER_USER_ID" : "STUDIO_OWNER_EMAIL" },
   });
   return true;
 }
 
 export async function resolveStudioActor(
   deps: StudioDeps,
-  session: { userId: string; email: string | null },
+  session: { userId: string; email: string | null; emailVerified?: boolean },
 ): Promise<StudioActor> {
   let membership = await deps.data.getMembership(session.userId);
   if (!membership) {
-    const bootstrapped = await maybeBootstrapOwner(deps, session.userId, session.email);
+    const bootstrapped = await maybeBootstrapOwner(deps, {
+      userId: session.userId,
+      email: session.email,
+      // Default to trusting the token's identity; callers pass the claim when
+      // available. Bootstrap-by-email additionally requires this to be true.
+      emailVerified: session.emailVerified ?? true,
+    });
     if (bootstrapped) membership = await deps.data.getMembership(session.userId);
   }
   if (!membership) {

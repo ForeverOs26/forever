@@ -86,11 +86,8 @@ function ResaleListingPage() {
         <div className="mt-10 rounded-2xl border border-border/60 bg-card p-6">
           <h2 className="font-medium">Interested in this property?</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {listing.contact_phone || listing.contact_email
-              ? [listing.contact_name, listing.contact_phone, listing.contact_email]
-                  .filter(Boolean)
-                  .join(" · ")
-              : "Ask a Forever advisor for details and a viewing."}
+            Every enquiry goes through a Forever advisor, who arranges details and a viewing. Seller
+            contact details are never published.
           </p>
           <a
             href="/contact"

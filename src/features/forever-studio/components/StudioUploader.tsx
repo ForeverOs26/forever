@@ -122,7 +122,7 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
     return (
       <StatusPanel
         title={`Uploading ${phase.done}/${phase.total}…`}
-        body="Keep this page open until the upload finishes."
+        body="You can safely close this page — publishing continues on the server and resumes automatically if anything is interrupted."
       />
     );
   }
@@ -201,7 +201,7 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
       ) : null}
 
       {!isResale && !isUpdate ? (
-        <ProjectFactsFields facts={projectFacts} onChange={setProjectFacts} nameRequired />
+        <ProjectFactsFields facts={projectFacts} onChange={setProjectFacts} />
       ) : null}
       {isResale ? <ResaleFactsFields facts={resaleFacts} onChange={setResaleFacts} /> : null}
 
@@ -390,15 +390,13 @@ function TextField(props: {
 function ProjectFactsFields(props: {
   facts: StudioProjectFacts;
   onChange: (facts: StudioProjectFacts) => void;
-  nameRequired?: boolean;
 }) {
   const set = (patch: Partial<StudioProjectFacts>) => props.onChange({ ...props.facts, ...patch });
   return (
     <div className="space-y-4">
       <TextField
         id="pf-name"
-        label="Project name"
-        required={props.nameRequired}
+        label="Project name (optional)"
         value={props.facts.name}
         onChange={(name) => set({ name })}
       />
