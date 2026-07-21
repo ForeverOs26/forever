@@ -3,16 +3,18 @@ import { useState } from "react";
 import { Menu, X } from "lucide-react";
 import { Container } from "./Container";
 import { Button } from "@/components/ui/button";
-import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";
 
+/**
+ * FOREVER-TRUTH-001A: `/offers`, `/reviews`, `/areas`, and `/advisory` left
+ * the primary navigation — they carry no published, evidence-bound content
+ * yet and must not be promoted. The routes still exist as honest, noindex
+ * empty states for anyone holding an old link. The Advisor Workspace returns
+ * in a later phase behind a real evidence contract.
+ */
 const publicNav = [
   { to: "/", label: "Home" },
   { to: "/discovery", label: "Discovery" },
-  { to: "/advisory", label: "Advisory" },
   { to: "/projects", label: "Projects" },
-  { to: "/offers", label: "Verified Offers" },
-  { to: "/reviews", label: "Reviews" },
-  { to: "/areas", label: "Areas" },
   { to: "/about", label: "About" },
 ] as const;
 
@@ -25,7 +27,7 @@ const partnerDemoNav = [
 
 export function Header() {
   const [open, setOpen] = useState(false);
-  const partnerDemo = import.meta.env.DEV && isPartnerDemoModeEnabled();
+  const partnerDemo = import.meta.env.DEV && import.meta.env.VITE_PARTNER_DEMO === "true";
   const nav = partnerDemo ? partnerDemoNav : publicNav;
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/85 backdrop-blur">

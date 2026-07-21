@@ -1,9 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Mail, MapPin, Phone } from "lucide-react";
 import { SiteShell } from "@/components/SiteShell";
 import { Section } from "@/components/layout/Section";
 import { ContactForm } from "@/components/ContactForm";
-import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";
 
 export const Route = createFileRoute("/contact")({
   head: () => ({
@@ -11,18 +9,17 @@ export const Route = createFileRoute("/contact")({
       { title: "Contact — Forever" },
       {
         name: "description",
-        content:
-          "Speak with a Forever private client advisor about current and upcoming residences.",
+        content: "Contact Forever about Phuket project records and private advisory.",
       },
       { property: "og:title", content: "Contact — Forever" },
-      { property: "og:description", content: "Speak with a Forever advisor." },
+      { property: "og:description", content: "Contact Forever about Phuket project records." },
     ],
   }),
   component: ContactPage,
 });
 
 function ContactPage() {
-  const isPartnerDemo = isPartnerDemoModeEnabled();
+  const isPartnerDemo = import.meta.env.DEV && import.meta.env.VITE_PARTNER_DEMO === "true";
 
   return (
     <SiteShell>
@@ -32,37 +29,16 @@ function ContactPage() {
         description={
           isPartnerDemo
             ? "Use this form to demonstrate the advisory handoff. Requests are validated locally and are not saved."
-            : "Tell us what you're looking for. We'll respond within one business day."
+            : "Tell us what you're looking for. We'll come back to you personally, as quickly as we can."
         }
       >
+        {/* FOREVER-TRUTH-001A: no office address, email, phone, or opening
+            hours are shown until the Owner confirms the exact details — the
+            contact form is the supported channel. */}
         <div className="grid gap-10 lg:grid-cols-5">
           <div className="lg:col-span-3">
             <ContactForm source="contact_page" />
           </div>
-          {!isPartnerDemo && (
-            <aside className="lg:col-span-2">
-              <div className="rounded-2xl border border-border/60 bg-card p-6">
-                <h3 className="font-serif text-2xl text-foreground">Forever Private Office</h3>
-                <ul className="mt-6 space-y-4 text-sm">
-                  <li className="flex items-start gap-3">
-                    <MapPin className="mt-0.5 h-4 w-4 text-accent" />
-                    <span>Forever Advisory, Phuket, Thailand</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <Phone className="mt-0.5 h-4 w-4 text-accent" />
-                    <span>WhatsApp available on request</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <Mail className="mt-0.5 h-4 w-4 text-accent" />
-                    <span>advisors@forever.property</span>
-                  </li>
-                </ul>
-                <div className="mt-6 border-t border-border/60 pt-6 text-xs text-muted-foreground">
-                  By appointment only, Monday through Saturday.
-                </div>
-              </div>
-            </aside>
-          )}
         </div>
       </Section>
     </SiteShell>

@@ -1,7 +1,7 @@
 # Forever Decisions
 
 Status: Canonical decision log
-Last updated: 2026-07-20
+Last updated: 2026-07-21
 
 ## Purpose
 
@@ -18,6 +18,13 @@ Each decision should include:
 - Review trigger, if any
 
 ## Approved decisions
+
+### 2026-07-21 — Canonicalize FOREVER-TRUTH-001A and advance to FOREVER-STUDIO-001
+
+- **Decision:** FOREVER-TRUTH-001A repository implementation is completed and canonical after PR #94. Fabricated public claims and optimistic evidence defaults are removed or fail closed. The prepared production cleanup plan remains unexecuted and Owner-gated; PR #94 performed no production inventory or cleanup. FOREVER-STUDIO-001 — Authenticated Mobile Owner and Trusted Publisher Direct Upload — is the next active product checkpoint.
+- **Context:** The controlled CDP browser matrix did not complete because its temporary runner exceeded the shell execution ceiling. No reproducible PR-owned browser defect was identified, no code was changed during that attempt, and all task-owned listeners were removed. The Owner and Architect accepted this as a tooling limitation, not a product blocker; any later visual issue may be corrected through an ordinary follow-up PR.
+- **Consequence:** An upload by Owner or Trusted Publisher is direct publication authorization; no separate readiness, verification, review, or publication approval follows. Incomplete business data never blocks publication. Forever must show useful available information, keep missing fields absent or neutral for later enrichment, support new developments, project updates, price updates, construction media, and resale, work on phone, tablet, and desktop, avoid manual JSON/SQL/terminal use by the publisher, and target 2–5 minutes of publisher interaction with a usable public result within 15 minutes. This decision records direction only and does not authorize Studio implementation in this task. Coralina remains unpublished; Rainpalm remains unimported and unpublished; Partner Demo remains canonical; Factory remains A0.
+- **Review trigger:** Before any production inventory, cleanup, import, publication, Studio implementation, or change to the direct-publication rule.
 
 ### 2026-07-20 — Ratify Forever Strategic North Star and advance to FOREVER-TRUTH-001A
 

@@ -1,13 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { Home, TrendingUp, Palmtree, KeyRound, ArrowRight, X } from "lucide-react";
+import { ArrowRight, X } from "lucide-react";
 import { SiteShell } from "@/components/SiteShell";
 import { Container } from "@/components/layout/Container";
 import { Section } from "@/components/layout/Section";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import { DiscoveryCard } from "@/components/DiscoveryCard";
 import {
   discoveryAreaOptions,
@@ -23,7 +22,6 @@ import {
   type DiscoveryTypeFilter,
 } from "@/features/discovery/discovery-filters";
 import { projectListQuery } from "@/lib/project-service";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/discovery")({
   head: () => ({
@@ -32,13 +30,12 @@ export const Route = createFileRoute("/discovery")({
       {
         name: "description",
         content:
-          "A guided advisory experience to help you find the right Phuket property with Forever Verified, Forever Intelligence and Forever Verdict.",
+          "Filter Forever's Phuket project records by area, budget, type, and completion. Missing facts stay visibly missing.",
       },
       { property: "og:title", content: "Forever Discovery — Guided Property Advisory" },
       {
         property: "og:description",
-        content:
-          "Explore independently reviewed Phuket properties. Forever Verified, Forever Intelligence, Forever Score.",
+        content: "Filter Forever's Phuket project records. Missing facts stay visibly missing.",
       },
     ],
   }),
@@ -46,53 +43,8 @@ export const Route = createFileRoute("/discovery")({
   component: DiscoveryPage,
 });
 
-const intents = [
-  {
-    id: "family",
-    icon: Home,
-    title: "Family Living",
-    description: "Long-term residences near international schools and calm neighborhoods.",
-  },
-  {
-    id: "investment",
-    icon: TrendingUp,
-    title: "Investment",
-    description: "Yield-focused projects with independent rental and capital analysis.",
-  },
-  {
-    id: "holiday",
-    icon: Palmtree,
-    title: "Holiday Home",
-    description: "Coastal residences designed for seasonal use with managed rentals.",
-  },
-  {
-    id: "residence",
-    icon: KeyRound,
-    title: "Permanent Residence",
-    description: "Freehold-friendly homes suited to full-time living in Phuket.",
-  },
-] as const;
-
-function getIntentReason(intent: IntentId | null): string {
-  switch (intent) {
-    case "family":
-      return "Selected for calm neighborhoods, international schools, and long-term family living.";
-    case "investment":
-      return "Selected for rental yield, capital appreciation, and independent financial analysis.";
-    case "holiday":
-      return "Selected for coastal access, managed rental programs, and seasonal lifestyle use.";
-    case "residence":
-      return "Selected for freehold eligibility, full-time comfort, and permanent living suitability.";
-    default:
-      return "Independently reviewed and selected based on verified inspection, pricing, and construction progress.";
-  }
-}
-
-type IntentId = (typeof intents)[number]["id"];
-
 function DiscoveryPage() {
   const { data: projects } = useSuspenseQuery(projectListQuery());
-  const [intent, setIntent] = useState<IntentId | null>(null);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<DiscoverySortOption>(discoverySortOptions[0]);
   const [budget, setBudget] = useState("");
@@ -102,7 +54,6 @@ function DiscoveryPage() {
     discoveryCompletionOptions[0],
   );
   const [beach, setBeach] = useState<DiscoveryBeachFilter>(discoveryBeachOptions[0]);
-  const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [compare, setCompare] = useState<string[]>([]);
   const [shortlist, setShortlist] = useState<string[]>([]);
 
@@ -128,9 +79,8 @@ function DiscoveryPage() {
       propertyType: type,
       completionStatus: completion,
       beachDistance: beach,
-      verifiedOnly,
     });
-  }, [area, beach, budget, completion, projects, search, sortBy, type, verifiedOnly]);
+  }, [area, beach, budget, completion, projects, search, sortBy, type]);
 
   return (
     <SiteShell>
@@ -145,12 +95,12 @@ function DiscoveryPage() {
               Find the right property, not just another listing.
             </h1>
             <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-              Explore independently reviewed Phuket properties with Forever Verified,
-              Forever Intelligence and Forever Score.
+              Explore Forever&apos;s Phuket project records. Missing facts stay visibly missing
+              rather than assumed.
             </p>
             <div className="mt-8">
               <Button asChild size="lg">
-                <a href="#intent">
+                <a href="#refine">
                   Start Discovery <ArrowRight className="h-4 w-4" />
                 </a>
               </Button>
@@ -159,56 +109,8 @@ function DiscoveryPage() {
         </Container>
       </section>
 
-      {/* 2. Buyer Intent */}
-      <Section
-        id="intent"
-        eyebrow="Discovery"
-        title="What are you looking for?"
-        description="Tell us how you plan to use the property. We will tune the discovery accordingly."
-      >
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {intents.map((it) => {
-            const Icon = it.icon;
-            const active = intent === it.id;
-            return (
-              <button
-                key={it.id}
-                type="button"
-                onClick={() => setIntent(it.id)}
-                className={cn(
-                  "group flex h-full flex-col items-start gap-4 rounded-lg border p-5 text-left transition-all",
-                  active
-                    ? "border-primary/40 bg-primary/5 shadow-sm"
-                    : "border-border bg-background hover:-translate-y-0.5 hover:border-primary/30",
-                )}
-                aria-pressed={active}
-              >
-                <div
-                  className={cn(
-                    "flex h-10 w-10 items-center justify-center rounded-lg border transition-colors",
-                    active
-                      ? "border-primary/30 bg-primary/10 text-primary"
-                      : "border-border bg-muted/30 text-foreground/70 group-hover:text-primary",
-                  )}
-                >
-                  <Icon className="h-5 w-5" strokeWidth={1.6} />
-                </div>
-                <div>
-                  <div className="font-serif text-xl tracking-tight text-foreground">
-                    {it.title}
-                  </div>
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    {it.description}
-                  </p>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </Section>
-
-      {/* 3. Smart Filters */}
-      <Section eyebrow="Refine" title="Refine your discovery" className="pt-0">
+      {/* 2. Smart Filters */}
+      <Section id="refine" eyebrow="Refine" title="Refine your discovery">
         <div className="rounded-lg border border-border bg-background p-5 shadow-sm sm:p-6">
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             <Field label="Search">
@@ -244,23 +146,15 @@ function DiscoveryPage() {
             <Field label="Beach Distance">
               <Select value={beach} onChange={setBeach} options={discoveryBeachOptions} />
             </Field>
-            <label className="flex cursor-pointer items-center gap-3 self-end rounded-md border border-border/60 bg-secondary/40 px-4 py-2.5">
-              <Checkbox
-                checked={verifiedOnly}
-                onCheckedChange={(v) => setVerifiedOnly(v === true)}
-                id="verified-only"
-              />
-              <span className="text-sm text-foreground">Forever Verified only</span>
-            </label>
           </div>
         </div>
       </Section>
 
-      {/* 4. Property Cards */}
+      {/* 3. Property Cards */}
       <Section
-        eyebrow="Selected projects"
-        title="Projects Selected For Your Goals"
-        description={getIntentReason(intent)}
+        eyebrow="Available projects"
+        title="Current project records"
+        description="Every published project record that matches your filters. Missing facts stay visibly missing rather than assumed."
         className="pt-0"
       >
         {filtered.length === 0 ? (
@@ -271,13 +165,12 @@ function DiscoveryPage() {
               Showing {filtered.length} projects
             </div>
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {filtered.map((p, i) => (
+              {filtered.map((p) => (
                 <DiscoveryCard
                   key={p.slug}
                   project={p}
                   inCompare={compare.includes(p.slug)}
                   inShortlist={shortlist.includes(p.slug)}
-                  recommended={i < 3}
                   onToggleCompare={toggleCompare}
                   onToggleShortlist={toggleShortlist}
                 />
@@ -347,8 +240,7 @@ function DiscoveryPage() {
               Still not sure which project fits you?
             </h2>
             <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-              Forever can prepare a private shortlist based on your goals, budget and risk
-              profile.
+              Forever can prepare a private shortlist based on your goals, budget and risk profile.
             </p>
             <div className="mt-8">
               <Button asChild size="lg">

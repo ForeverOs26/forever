@@ -1,172 +1,52 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useCallback } from "react";
-
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { SiteShell } from "@/components/SiteShell";
-import {
-  AdvisoryWorkspace,
-  deriveClientStrategy,
-  deriveForeverPassport,
-  deriveInvestmentIntelligence,
-  deriveLocationIntelligence,
-  deriveProjectComparison,
-  deriveProjectRecommendations,
-  deriveProjectSummary,
-  deriveRentalIntelligence,
-  mapProjectToAdvisorySession,
-  type AdvisoryActionId,
-} from "@/features/advisory";
-import { projectDetailQuery } from "@/features/project-detail/project-detail-query";
-import { ProjectDetailService } from "@/features/project-detail/project-detail-service";
-import type { ProjectDetail } from "@/features/project-detail/project-detail-types";
-import { ProjectService } from "@/lib/project-service";
-
-/** Active Forever project identity; import-package identity remains `modeva`. */
-const ADVISORY_PROJECT_SLUG = "the-modeva-bang-tao";
-
-/**
- * Resolve a second, distinct active project to compare against the primary one.
- * Returns `null` when no second project exists (or the lookup fails), so the
- * Project Comparison section is optional and never breaks the existing page.
- */
-async function loadComparisonProject(primarySlug: string): Promise<ProjectDetail | null> {
-  try {
-    const slugs = await ProjectService.listActiveSlugs();
-    const otherSlug = slugs.find((slug) => slug !== primarySlug);
-    if (!otherSlug) return null;
-    return await ProjectDetailService.getBySlug(otherSlug);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Resolve every active project's detail record so the Project Recommendations
- * section can rank the full candidate set. Failures degrade gracefully to an
- * empty list, so the section never breaks the existing page.
- */
-async function loadRecommendationProjects(): Promise<ProjectDetail[]> {
-  try {
-    const slugs = await ProjectService.listActiveSlugs();
-    const details = await Promise.all(
-      slugs.map((slug) => ProjectDetailService.getBySlug(slug).catch(() => null)),
-    );
-    return details.filter((detail): detail is ProjectDetail => detail !== null);
-  } catch {
-    return [];
-  }
-}
+import { Section } from "@/components/layout/Section";
+import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/advisory")({
-  loader: async ({ context }) => {
-    const project = await context.queryClient.ensureQueryData(
-      projectDetailQuery(ADVISORY_PROJECT_SLUG),
-    );
-    const [comparisonProject, recommendationProjects] = await Promise.all([
-      loadComparisonProject(ADVISORY_PROJECT_SLUG),
-      loadRecommendationProjects(),
-    ]);
-    return {
-      project,
-      comparisonProject,
-      recommendationProjects,
-    };
-  },
   head: () => ({
     meta: [
-      { title: "Forever Advisory Workspace" },
+      { title: "Advisory — Forever" },
       {
         name: "description",
-        content: "Advisory workspace using Forever's verified project data.",
+        content: "The Forever Advisor Workspace is being prepared for a later phase.",
       },
-    ],
-    links: [
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "" },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,300;6..72,400&display=swap",
-      },
+      { name: "robots", content: "noindex, nofollow" },
     ],
   }),
-  component: AdvisoryRoute,
+  component: AdvisoryPlaceholderPage,
 });
 
-function AdvisoryRoute() {
-  const { project, comparisonProject, recommendationProjects } = Route.useLoaderData();
-  const handleAction = useCallback((actionId: AdvisoryActionId) => {
-    console.info("[advisory] action emitted", { actionId });
-  }, []);
-
-  if (!project) {
-    return (
-      <SiteShell>
-        <div className="bg-[#F3EFE7] px-4 py-12 text-center text-[#17150F]">
-          Advisory project data is unavailable.
-        </div>
-      </SiteShell>
-    );
-  }
-
-  const session = mapProjectToAdvisorySession(project);
-  const investmentIntelligence = deriveInvestmentIntelligence(project);
-  const rentalIntelligence = deriveRentalIntelligence(project);
-  const locationIntelligence = deriveLocationIntelligence(project);
-  const passport = deriveForeverPassport(project);
-  const projectSummary = deriveProjectSummary({
-    project,
-    passport,
-    investment: investmentIntelligence,
-    rental: rentalIntelligence,
-    location: locationIntelligence,
-  });
-
-  // Optional: only build the comparison when a second, distinct project exists.
-  const projectComparison = comparisonProject
-    ? deriveProjectComparison({
-        a: { project, passport, summary: projectSummary },
-        b: { project: comparisonProject },
-      })
-    : undefined;
-
-  // Rank every available project on already-verified evidence coverage only,
-  // reusing the primary project's derived Passport / Summary. Falls back to the
-  // primary project alone when the candidate lookup yields nothing.
-  const candidates = recommendationProjects.length > 0 ? recommendationProjects : [project];
-  const projectRecommendations = deriveProjectRecommendations({
-    candidates: candidates.map((candidate) =>
-      candidate.core.slug === project.core.slug
-        ? { project: candidate, passport, summary: projectSummary }
-        : { project: candidate },
-    ),
-  });
-
-  // Compose the Client Strategy from the already-derived Advisory outputs only.
-  const clientStrategy = deriveClientStrategy({
-    passport,
-    summary: projectSummary,
-    investment: investmentIntelligence,
-    rental: rentalIntelligence,
-    location: locationIntelligence,
-    comparison: projectComparison,
-    recommendations: projectRecommendations,
-  });
-
+/**
+ * FOREVER-TRUTH-001A: the earlier public Advisory Workspace hardcoded a
+ * legacy project slug and presented project orderings and evidence-signal
+ * claims that no evidence contract supports. The Strategic North Star places
+ * the Advisor Workflow in a later phase, so this route is a neutral, noindex
+ * placeholder: it queries no project data and makes no claim about any
+ * project. The canonical Advisory modules under `src/features/advisory/` are
+ * retained unchanged for that later, evidence-bound phase.
+ */
+function AdvisoryPlaceholderPage() {
   return (
     <SiteShell>
-      <div className="bg-[#F3EFE7] py-6 sm:py-8">
-        <AdvisoryWorkspace
-          session={session}
-          passport={passport}
-          projectSummary={projectSummary}
-          projectComparison={projectComparison}
-          projectRecommendations={projectRecommendations}
-          clientStrategy={clientStrategy}
-          investmentIntelligence={investmentIntelligence}
-          rentalIntelligence={rentalIntelligence}
-          locationIntelligence={locationIntelligence}
-          onAction={handleAction}
-        />
-      </div>
+      <Section
+        eyebrow="Advisory"
+        title="The Advisor Workspace is being prepared"
+        description="Forever's advisor tooling returns in a later phase, presenting only evidence-bound project information. Until then, advisory happens in person."
+      >
+        <div className="max-w-xl rounded-2xl border border-border/60 bg-card p-8">
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            A Forever advisor can walk you through the current project records, compare the options
+            that fit your goals, and be honest about what is not yet known. Send a request and we
+            will take it from there.
+          </p>
+          <div className="mt-6">
+            <Button asChild>
+              <Link to="/contact">Request Private Advisory</Link>
+            </Button>
+          </div>
+        </div>
+      </Section>
     </SiteShell>
   );
 }

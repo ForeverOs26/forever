@@ -1,8 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
-import { isDemoLeadModeEnabled } from "@/lib/partner-demo-mode";
-
-export { isDemoLeadModeEnabled } from "@/lib/partner-demo-mode";
 
 type LeadInsert = Database["public"]["Tables"]["leads"]["Insert"];
 
@@ -83,7 +80,10 @@ export async function submitLead(values: LeadFormValues): Promise<void> {
     source: clean(values.source) || "contact_form",
   };
 
-  if (import.meta.env.DEV && isDemoLeadModeEnabled()) {
+  if (
+    import.meta.env.DEV &&
+    (import.meta.env.VITE_PARTNER_DEMO === "true" || import.meta.env.VITE_DEMO_LEAD_MODE === "true")
+  ) {
     // No guest or contact fields are logged. The flow completes after the
     // normal validation and payload build, before any client/network access.
     return;

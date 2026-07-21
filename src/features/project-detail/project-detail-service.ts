@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { isKnownFictitiousProjectSlug } from "@/lib/public-truth";
 import { mapProjectDetail } from "./project-detail-mappers";
 import type { ProjectDetail, ProjectDetailRecord } from "./project-detail-types";
 
@@ -34,6 +35,9 @@ async function loadPartnerDemoProjectDetail(
 
 export const ProjectDetailService = {
   async getBySlug(slug: string): Promise<ProjectDetail | null> {
+    // Quarantined fictitious seed rows must not be reachable by direct URL.
+    if (isKnownFictitiousProjectSlug(slug)) return null;
+
     const partnerDemo = await loadPartnerDemoProjectDetail(slug);
     if (partnerDemo.active) return partnerDemo.project;
 

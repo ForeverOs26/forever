@@ -1,9 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { Container } from "./Container";
-import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";
 
 export function Footer() {
-  const partnerDemo = import.meta.env.DEV && isPartnerDemoModeEnabled();
+  const partnerDemo = import.meta.env.DEV && import.meta.env.VITE_PARTNER_DEMO === "true";
   return (
     <footer className="mt-24 border-t border-border/60 bg-primary text-primary-foreground">
       <Container className="grid gap-10 py-16 md:grid-cols-4">
@@ -12,7 +11,7 @@ export function Footer() {
           <p className="mt-3 max-w-sm text-sm text-primary-foreground/70">
             {partnerDemo
               ? "A guided property decision experience using the project evidence currently available."
-              : "An independent property advisory for Phuket. We help buyers reduce uncertainty with verified project data, structured analysis, and private advisory support."}
+              : "An independent property advisory for Phuket. We help buyers reduce uncertainty with structured project records, honest missing-data handling, and private advisory support."}
           </p>
         </div>
         <div>
@@ -32,23 +31,11 @@ export function Footer() {
                 </Link>
               </li>
             ) : (
-              <>
-                <li>
-                  <Link to="/offers" className="hover:text-accent">
-                    Verified Offers
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/areas" className="hover:text-accent">
-                    Areas
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/reviews" className="hover:text-accent">
-                    Reviews
-                  </Link>
-                </li>
-              </>
+              <li>
+                <Link to="/discovery" className="hover:text-accent">
+                  Discovery
+                </Link>
+              </li>
             )}
           </ul>
         </div>
@@ -74,7 +61,7 @@ export function Footer() {
       </Container>
       <div className="border-t border-primary-foreground/10">
         <Container className="flex flex-col justify-between gap-2 py-6 text-xs text-primary-foreground/60 sm:flex-row">
-          <div>© {new Date().getFullYear()} Forever. Forever Advisory, Phuket, Thailand.</div>
+          <div>© {new Date().getFullYear()} Forever.</div>
           <div>Independent. Buyer-side. Phuket.</div>
         </Container>
       </div>

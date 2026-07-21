@@ -8,9 +8,13 @@ The strategic direction is governed by `docs/FOREVER_STRATEGIC_NORTH_STAR.md`.
 
 ## Current phase
 
-**Strategic Product Proof and Public Truth**
+**Forever Studio — Publisher Direct Upload**
 
-The active product checkpoint is **FOREVER-TRUTH-001A — Public Truth Audit and Fail-Closed Cleanup**.
+FOREVER-TRUTH-001A repository implementation is completed and canonical after PR #94. Fabricated public claims and optimistic evidence defaults are removed or fail closed. The prepared production cleanup plan remains unexecuted and Owner-gated; PR #94 performed no production inventory or cleanup.
+
+The active product checkpoint is **FOREVER-STUDIO-001 — Authenticated Mobile Owner and Trusted Publisher Direct Upload**.
+
+At a high level, an Owner or Trusted Publisher upload is direct publication authorization: no separate readiness, verification, review, or publication approval follows. Incomplete business data never blocks publication; Forever displays useful available information and leaves missing fields absent or neutral for later enrichment. The intended surface supports new developments, project updates, price updates, construction media, and resale on phone, tablet, and desktop. Targets are 2–5 minutes of publisher interaction and a usable public result within 15 minutes. No Studio design or implementation is included in this merge task.
 
 TG-WATCH-001A is canonical as a bounded manual offline capability. Live Telegram transport and broad channel scaling are deferred until catalogue freshness becomes a measured operating bottleneck.
 
@@ -42,11 +46,11 @@ more foundations
 → market contact later
 ```
 
-## Phase 0 — Truth and external contact
+## Completed repository checkpoint — FOREVER-TRUTH-001A
 
 ### Objective
 
-Make Forever safe to show and obtain the first structured external signals.
+The repository implementation now provides a source-honest, fail-closed public boundary. Its prepared production cleanup is still unexecuted and Owner-gated.
 
 ### Product and commercial outcomes
 

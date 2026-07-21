@@ -1,11 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  isDemoLeadModeEnabled,
-  submitLead,
-  validateLead,
-  type LeadFormValues,
-} from "@/lib/lead-service";
+import { submitLead, validateLead, type LeadFormValues } from "@/lib/lead-service";
+import { isDemoLeadModeEnabled } from "@/lib/partner-demo-mode";
 
 const insertMock = vi.fn(async () => ({ error: null }));
 const fromMock = vi.fn(() => ({ insert: insertMock }));

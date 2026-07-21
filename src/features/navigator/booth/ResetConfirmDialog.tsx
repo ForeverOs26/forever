@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { isDemoLeadModeEnabled } from "@/lib/partner-demo-mode";
 
 /**
  * Guarded "Start new guest" confirmation. role="dialog" aria-modal with a focus
@@ -12,7 +11,10 @@ export function ResetConfirmDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const isDemoMode = import.meta.env.DEV && isDemoLeadModeEnabled();
+  const isDemoMode =
+    import.meta.env.DEV &&
+    (import.meta.env.VITE_PARTNER_DEMO === "true" ||
+      import.meta.env.VITE_DEMO_LEAD_MODE === "true");
   const confirmRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 

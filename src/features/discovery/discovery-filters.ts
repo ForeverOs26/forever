@@ -35,11 +35,20 @@ export const discoveryBeachOptions = [
   "Under 2 km",
 ] as const;
 
+/**
+ * FOREVER-TRUTH-001A: sorting is neutral. The earlier "Forever Recommended"
+ * default and "Forever Score high to low" ranked projects by the legacy
+ * `foreverVerified` / `trustScore` / `investmentValue` scalars, which carry
+ * no evidence contract — a ranking presented as a recommendation must not be
+ * derived from unproven values. Catalogue order (the service's stable
+ * featured-first, oldest-first order), name, and recorded price are the only
+ * public sort keys; missing prices always sort last.
+ */
 export const discoverySortOptions = [
-  "Forever Recommended",
+  "Catalogue order",
+  "Name A to Z",
   "Price low to high",
   "Price high to low",
-  "Forever Score high to low",
 ] as const;
 
 export type DiscoveryAreaFilter = (typeof discoveryAreaOptions)[number];
@@ -56,7 +65,6 @@ export type DiscoveryFilterState = {
   propertyType: DiscoveryTypeFilter;
   completionStatus: DiscoveryCompletionFilter;
   beachDistance: DiscoveryBeachFilter;
-  verifiedOnly: boolean;
 };
 
 function parseMoneyToTHB(value: string): number | null {
@@ -147,10 +155,6 @@ function matchesBeachDistance(project: Property, beachDistance: DiscoveryBeachFi
   }
 }
 
-function matchesVerified(project: Property, verifiedOnly: boolean): boolean {
-  return !verifiedOnly || project.foreverVerified === true;
-}
-
 function normalizeSearchValue(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -176,40 +180,27 @@ function compareNullableNumbers(
   return direction === "asc" ? a - b : b - a;
 }
 
-function compareForeverRecommended(a: Property, b: Property): number {
-  if (a.foreverVerified !== b.foreverVerified) return a.foreverVerified ? -1 : 1;
-  if (a.trustScore !== b.trustScore) return b.trustScore - a.trustScore;
-  if (a.investmentValue !== b.investmentValue) return b.investmentValue - a.investmentValue;
-
-  return compareNullableNumbers(
-    getProjectStartingPriceTHB(a),
-    getProjectStartingPriceTHB(b),
-    "asc",
-  );
-}
-
 function sortDiscoveryProjects(projects: Property[], sortBy: DiscoverySortOption): Property[] {
-  return [...projects].sort((a, b) => {
-    switch (sortBy) {
-      case "Price low to high":
-        return compareNullableNumbers(
-          getProjectStartingPriceTHB(a),
-          getProjectStartingPriceTHB(b),
-          "asc",
-        );
-      case "Price high to low":
-        return compareNullableNumbers(
+  switch (sortBy) {
+    case "Name A to Z":
+      return [...projects].sort((a, b) => a.name.localeCompare(b.name));
+    case "Price low to high":
+      return [...projects].sort((a, b) =>
+        compareNullableNumbers(getProjectStartingPriceTHB(a), getProjectStartingPriceTHB(b), "asc"),
+      );
+    case "Price high to low":
+      return [...projects].sort((a, b) =>
+        compareNullableNumbers(
           getProjectStartingPriceTHB(a),
           getProjectStartingPriceTHB(b),
           "desc",
-        );
-      case "Forever Score high to low":
-        return b.trustScore - a.trustScore;
-      case "Forever Recommended":
-      default:
-        return compareForeverRecommended(a, b);
-    }
-  });
+        ),
+      );
+    case "Catalogue order":
+    default:
+      // The catalogue's own stable order, exactly as the service returned it.
+      return [...projects];
+  }
 }
 
 export function filterDiscoveryProjects(
@@ -223,8 +214,7 @@ export function filterDiscoveryProjects(
       matchesArea(project, filters.area) &&
       matchesPropertyType(project, filters.propertyType) &&
       matchesCompletionStatus(project, filters.completionStatus) &&
-      matchesBeachDistance(project, filters.beachDistance) &&
-      matchesVerified(project, filters.verifiedOnly),
+      matchesBeachDistance(project, filters.beachDistance),
   );
 
   return sortDiscoveryProjects(filtered, filters.sortBy);

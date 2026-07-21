@@ -5,7 +5,6 @@ import {
   validateLead,
   type LeadValidationErrors,
 } from "@/lib/lead-service";
-import { isDemoLeadModeEnabled } from "@/lib/partner-demo-mode";
 import type { BoothContactDetails, LeadStatus } from "../core";
 
 interface FieldProps {
@@ -99,7 +98,10 @@ export function BoothLeadForm({
   const [errors, setErrors] = useState<LeadValidationErrors>({});
 
   const submitting = status === "submitting";
-  const isDemoMode = import.meta.env.DEV && isDemoLeadModeEnabled();
+  const isDemoMode =
+    import.meta.env.DEV &&
+    (import.meta.env.VITE_PARTNER_DEMO === "true" ||
+      import.meta.env.VITE_DEMO_LEAD_MODE === "true");
 
   function update<K extends keyof BoothContactDetails>(key: K, value: string) {
     setContact((current) => ({ ...current, [key]: value }));

@@ -1,11 +1,11 @@
 # Forever Current Stage
 
 Status: Canonical active-stage document
-Last updated: 2026-07-20
+Last updated: 2026-07-21
 
 ## Stage name
 
-**Strategic Product Proof and Public Truth**
+**Forever Studio — Publisher Direct Upload**
 
 Forever has completed the core product, data, import, intake, PDF-extraction, Navigator, Booth, Partner Demo, and bounded offline source-watcher foundations needed for the next phase.
 
@@ -13,7 +13,9 @@ The project now moves from infrastructure-first development to market-facing pro
 
 The active product checkpoint is:
 
-**FOREVER-TRUTH-001A — Public Truth Audit and Fail-Closed Cleanup**
+**FOREVER-STUDIO-001 — Authenticated Mobile Owner and Trusted Publisher Direct Upload**
+
+FOREVER-TRUTH-001A repository implementation is completed and canonical after PR #94. Fabricated public claims and optimistic evidence defaults are removed or fail closed. The prepared production cleanup plan remains unexecuted and Owner-gated; PR #94 performed no production inventory or cleanup.
 
 TG-WATCH-001A is completed and canonical as a bounded offline internal tool. Live Telegram authentication, recurring monitoring, and multi-channel expansion are deferred until project freshness is a measured operating bottleneck.
 
@@ -21,16 +23,18 @@ The strategic direction is defined in `docs/FOREVER_STRATEGIC_NORTH_STAR.md` and
 
 ## Stage objective
 
-Make Forever safe to show to real guests, partners, and developers, then obtain external product and commercial evidence.
+Enable an authenticated Owner or Trusted Publisher to publish a useful project update directly from phone, tablet, or desktop, without manual JSON, SQL, or terminal work.
 
 This stage must:
 
-1. remove unsupported public claims and optimistic missing-data defaults;
-2. establish the actual public and production-facing inventory read-only;
-3. preserve only source-backed or clearly qualified project statements;
-4. present Partner Demo v1 when scheduling permits;
-5. obtain structured feedback from real people;
-6. define and begin measuring lead-response and conversion baselines.
+1. treat an Owner or Trusted Publisher upload as direct publication authorization;
+2. never add a separate readiness, verification, review, or publication-approval step;
+3. allow incomplete business data without blocking publication, while displaying all useful available information and leaving missing fields absent or neutral;
+4. support new developments, project updates, price updates, construction media, and resale;
+5. provide a usable phone, tablet, and desktop interface;
+6. target 2–5 minutes of publisher interaction and a usable public result within 15 minutes.
+
+This checkpoint is recorded only. No Studio design or implementation is authorized by this merge task.
 
 ## Canonical foundations retained
 
@@ -56,7 +60,7 @@ Forever has a strong technical foundation but insufficient external validation.
 
 The current constraints are:
 
-- the public surface contains static or seeded claims that require a source-backed audit;
+- the repository public-truth boundary is canonical, but no production inventory or cleanup was performed by PR #94; the prepared cleanup plan remains separately Owner-gated;
 - the published real catalogue is too small to prove the full Navigator and Passport value proposition;
 - Partner Demo is ready but has not yet produced structured partner feedback;
 - guest funnel, response time, viewing, reservation, and transaction metrics are not yet established;
@@ -64,16 +68,17 @@ The current constraints are:
 
 ## Active tasks
 
-| Task                                                          | Owner                  | Status                                                               |
-| ------------------------------------------------------------- | ---------------------- | -------------------------------------------------------------------- |
-| TG-WATCH-001A offline watcher core and real Coralina pilot    | Codex / Owner          | Completed and canonical offline tooling; no live transport expansion |
-| FOREVER-TRUTH-001A public truth audit and fail-closed cleanup | Claude / Codex / Owner | Active product checkpoint                                            |
-| Present Partner Demo v1 and collect structured feedback       | Owner                  | Parallel pending business checkpoint                                 |
-| Establish lead-response and guest-feedback baseline           | Owner / Architect      | Starts during this stage                                             |
-| Coralina publication readiness                                | Owner / Architect      | Next separate checkpoint; publication not authorized here            |
-| Any imported-draft publication                                | Owner                  | Separate consequential action                                        |
+| Task                                                          | Owner                  | Status                                                                                    |
+| ------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------- |
+| TG-WATCH-001A offline watcher core and real Coralina pilot    | Codex / Owner          | Completed and canonical offline tooling; no live transport expansion                      |
+| FOREVER-TRUTH-001A public truth audit and fail-closed cleanup | Claude / Codex / Owner | Repository implementation completed and canonical; production cleanup remains Owner-gated |
+| FOREVER-STUDIO-001 direct publisher upload                    | Owner / Architect      | Active product checkpoint; recorded only, not implemented here                            |
+| Present Partner Demo v1 and collect structured feedback       | Owner                  | Parallel pending business checkpoint                                                      |
+| Establish lead-response and guest-feedback baseline           | Owner / Architect      | Starts during this stage                                                                  |
+| Coralina publication readiness                                | Owner / Architect      | Next separate checkpoint; publication not authorized here                                 |
+| Any imported-draft publication                                | Owner                  | Separate consequential action                                                             |
 
-## FOREVER-TRUTH-001A scope
+## Completed FOREVER-TRUTH-001A repository scope
 
 ### Read-only inventory
 

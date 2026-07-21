@@ -5,12 +5,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   hasLeadValidationErrors,
-  isDemoLeadModeEnabled,
   submitLead,
   validateLead,
   type LeadValidationErrors,
 } from "@/lib/lead-service";
-import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";
 
 type ContactFormProps = {
   defaultInterest?: string;
@@ -23,7 +21,11 @@ export function ContactForm({
   projectSlug,
   source = "contact_form",
 }: ContactFormProps) {
-  const isPartnerDemo = isPartnerDemoModeEnabled();
+  const isPartnerDemo = import.meta.env.DEV && import.meta.env.VITE_PARTNER_DEMO === "true";
+  const isDemoLeadMode =
+    import.meta.env.DEV &&
+    (import.meta.env.VITE_PARTNER_DEMO === "true" ||
+      import.meta.env.VITE_DEMO_LEAD_MODE === "true");
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<LeadValidationErrors>({});
@@ -76,9 +78,9 @@ export function ContactForm({
         <p className="mt-2 text-sm text-muted-foreground">
           {isPartnerDemo
             ? "The advisory request passed local validation. No contact details were saved or sent."
-            : "A member of our private client team will be in touch within one business day."}
+            : "Your request was received. A Forever advisor will come back to you personally."}
         </p>
-        {import.meta.env.DEV && isDemoLeadModeEnabled() && (
+        {isDemoLeadMode && (
           <p className="mt-4 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
             Presentation mode — this request was validated but not saved.
           </p>
@@ -181,7 +183,7 @@ export function ContactForm({
           {formError}
         </p>
       )}
-      {import.meta.env.DEV && isDemoLeadModeEnabled() && (
+      {isDemoLeadMode && (
         <p className="rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           Presentation mode — submissions are validated but not saved.
         </p>

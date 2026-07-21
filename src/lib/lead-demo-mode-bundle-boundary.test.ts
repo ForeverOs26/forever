@@ -16,7 +16,8 @@ const read = (relativePath: string) => readFileSync(join(process.cwd(), relative
 describe("lead demo mode stays out of production behavior", () => {
   it("submitLead skips the write only behind a literal DEV guard", () => {
     const source = read("src/lib/lead-service.ts");
-    expect(source).toMatch(/if \(import\.meta\.env\.DEV && isDemoLeadModeEnabled\(\)\)/);
+    expect(source).toMatch(/import\.meta\.env\.DEV/);
+    expect(source).toContain('import.meta.env.VITE_DEMO_LEAD_MODE === "true"');
     // The production write path is still present and unconditional otherwise.
     expect(source).toContain('await supabase.from("leads").insert(payload)');
   });
@@ -28,10 +29,23 @@ describe("lead demo mode stays out of production behavior", () => {
     "src/features/navigator/booth/ResetConfirmDialog.tsx",
   ])("%s renders demo-mode notes only behind a literal DEV guard", (relativePath) => {
     const source = read(relativePath);
-    const uses = source.match(/isDemoLeadModeEnabled\(\)/g) ?? [];
-    const guardedUses = source.match(/import\.meta\.env\.DEV && isDemoLeadModeEnabled\(\)/g) ?? [];
-    expect(uses.length).toBeGreaterThan(0);
-    expect(guardedUses.length).toBe(uses.length);
+    expect(source).toMatch(/import\.meta\.env\.DEV/);
+    expect(source).toContain('import.meta.env.VITE_DEMO_LEAD_MODE === "true"');
+    expect(source).not.toContain("partner-demo-mode");
+  });
+
+  it("public shells do not statically import the Partner Demo helper", () => {
+    for (const relativePath of [
+      "src/components/ContactForm.tsx",
+      "src/components/layout/Header.tsx",
+      "src/components/layout/Footer.tsx",
+      "src/routes/contact.tsx",
+      "src/routes/index.tsx",
+      "src/routes/projects.index.tsx",
+      "src/lib/lead-service.ts",
+    ]) {
+      expect(read(relativePath)).not.toContain("partner-demo-mode");
+    }
   });
 
   it("no second lead flow exists: demo mode lives inside the one submitLead path", () => {

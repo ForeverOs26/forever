@@ -7,7 +7,7 @@
  * are preserved for backward compatibility with existing components.
  */
 
-export type PropertyType = "Villa" | "Residence" | "Condominium";
+export type PropertyType = "Villa" | "Residence" | "Condominium" | "Not available";
 
 export type ConstructionStatus =
   | "Planning"
@@ -20,7 +20,11 @@ export type ConstructionStatus =
 
 export type SalesStatus = "Available" | "Selling" | "Sold Out" | "Not available";
 
-export type MarketPosition = "Below market" | "In line with market" | "Slight premium" | "Not available";
+export type MarketPosition =
+  | "Below market"
+  | "In line with market"
+  | "Slight premium"
+  | "Not available";
 
 export type RentalDemand = "Low" | "Moderate" | "High" | "Very High" | "Not available";
 
@@ -100,162 +104,14 @@ export type Project = Property;
 
 /**
  * Project data is loaded from Supabase via `ProjectService`
- * (see `@/lib/project-service`). This file now only holds:
- *   • the shared `Property` / `Project` types
- *   • the static content sections that are not yet in the CMS
- *     (offers, reviews, areas)
+ * (see `@/lib/project-service`). This file now only holds the shared
+ * `Property` / `Project` types.
+ *
+ * FOREVER-TRUTH-001A removed the earlier static `offers`, `reviews`, and
+ * `areas` content: the offers and reviews were fabricated (invented
+ * promotions and testimonials with invented inventory counts), and the area
+ * descriptions carried unverifiable factual and qualitative claims (travel
+ * times, schools, resorts, residence patterns) with no source model behind
+ * them. Evidence-dependent content must come from real, source-backed
+ * records or not appear at all.
  */
-
-export type Offer = {
-  id: string;
-  title: string;
-  project: string;
-  detail: string;
-  expires: string;
-  savings: string;
-};
-
-export const offers: Offer[] = [
-  {
-    id: "surin-furniture",
-    title: "Furniture Package Included",
-    project: "Surin Ridge Villas",
-    detail: "Verified Offer: reserve any villa this quarter and the full designer furniture package is included at handover.",
-    expires: "September 30",
-    savings: "Value ฿3.2M",
-  },
-  {
-    id: "kamala-transfer",
-    title: "Transfer Fee Waived",
-    project: "Kamala Beach Residences",
-    detail: "Verified Offer: developer covers the 2% transfer fee on any 2-bedroom unit reserved before end of quarter.",
-    expires: "August 15",
-    savings: "Save up to ฿760,000",
-  },
-  {
-    id: "layan-prelaunch",
-    title: "Pre-Launch 5% Discount",
-    project: "Layan Forest Villas",
-    detail: "Verified Offer: pre-launch discount held for the first twelve buyers in this ridge release.",
-    expires: "July 20",
-    savings: "Save ฿3.1M",
-  },
-  {
-    id: "bangtao-rental",
-    title: "1-Year Rental Management",
-    project: "Bang Tao Garden Villas",
-    detail: "Verified Offer: complimentary first-year rental management with owner-friendly terms.",
-    expires: "October 1",
-    savings: "Value ฿240,000",
-  },
-];
-
-export type Review = {
-  id: string;
-  name: string;
-  role: string;
-  project: string;
-  rating: number;
-  quote: string;
-};
-
-export const reviews: Review[] = [
-  {
-    id: "r1",
-    name: "Priya & Marcus Chen",
-    role: "Homeowners",
-    project: "Surin Ridge Villas",
-    rating: 5,
-    quote:
-      "Forever inspected the site with us, flagged two structural concerns the developer fixed before signing, and stayed with us through handover.",
-  },
-  {
-    id: "r2",
-    name: "Alina Fischer",
-    role: "Homeowner",
-    project: "Kamala Beach Residences",
-    rating: 5,
-    quote:
-      "An advisor who told us which units to skip and why. We paid the verified price, not the brochure price.",
-  },
-  {
-    id: "r3",
-    name: "The Okafor Family",
-    role: "Homeowners",
-    project: "Layan Forest Villas",
-    rating: 5,
-    quote:
-      "They visit the site every month. When our villa's ceiling detail drifted from the drawings, Forever caught it — not us.",
-  },
-  {
-    id: "r4",
-    name: "Julien Marceau",
-    role: "Investor",
-    project: "Bang Tao Garden Villas",
-    rating: 4,
-    quote:
-      "Independent yield analysis, no upselling. They talked me out of a shinier project and into a better return.",
-  },
-  {
-    id: "r5",
-    name: "Sofia Delacroix",
-    role: "Homeowner",
-    project: "Kata Cliff Residences",
-    rating: 5,
-    quote:
-      "Legal, tax, handover, rental setup — one advisor, from first viewing to the first tenant.",
-  },
-];
-
-export type Area = {
-  slug: string;
-  name: string;
-  region: string;
-  listings: number;
-  description: string;
-};
-
-export const areas: Area[] = [
-  {
-    slug: "surin",
-    name: "Surin",
-    region: "West Coast",
-    listings: 14,
-    description: "Quiet luxury above one of Phuket's most sheltered beaches. Sunset-facing villas and boutique residences.",
-  },
-  {
-    slug: "kamala",
-    name: "Kamala",
-    region: "West Coast",
-    listings: 11,
-    description: "Beachfront condominiums and hillside villas, ten minutes from Patong but a world away in tempo.",
-  },
-  {
-    slug: "layan-bangtao",
-    name: "Layan & Bang Tao",
-    region: "Laguna Corridor",
-    listings: 18,
-    description: "Phuket's most established luxury enclave — 8 km of beach, international schools, and branded resorts.",
-  },
-  {
-    slug: "kata-karon",
-    name: "Kata & Karon",
-    region: "South West",
-    listings: 9,
-    description: "Family-friendly bays with strong short-term rental yields and cliffside residences overhead.",
-  },
-  {
-    slug: "rawai-nai-harn",
-    name: "Rawai & Nai Harn",
-    region: "South Cape",
-    listings: 7,
-    description: "The southern cape — quieter, more local, favored by long-stay owners and yachting families.",
-  },
-  {
-    slug: "cape-yamu",
-    name: "Cape Yamu",
-    region: "East Coast",
-    listings: 5,
-    description: "Sunrise-facing estates on Phuket's calm east coast, with deep-water access and Phang Nga Bay views.",
-  },
-];
