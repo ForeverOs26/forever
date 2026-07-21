@@ -1,6 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Outlet, createFileRoute } from "@tanstack/react-router";
 
-import { StudioDashboard } from "@/features/forever-studio/components/StudioDashboard";
 import { StudioLogin } from "@/features/forever-studio/components/StudioLogin";
 import { StudioShell } from "@/features/forever-studio/components/StudioShell";
 import { useStudioSession } from "@/features/forever-studio/components/useStudioSession";
@@ -26,7 +25,7 @@ function StudioRoute() {
   if (session.status === "signed_out") return <StudioLogin />;
   return (
     <StudioShell email={session.email}>
-      <StudioDashboard />
+      <Outlet />
     </StudioShell>
   );
 }

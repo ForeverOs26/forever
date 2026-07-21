@@ -21,6 +21,7 @@ import { Route as AreasRouteImport } from './routes/areas'
 import { Route as AdvisoryRouteImport } from './routes/advisory'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as StudioIndexRouteImport } from './routes/studio.index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
 import { Route as StudioUploadRouteImport } from './routes/studio.upload'
 import { Route as StudioMembersRouteImport } from './routes/studio.members'
@@ -91,6 +92,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const StudioIndexRoute = StudioIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => StudioRoute,
 } as any)
 const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
   id: '/projects/',
@@ -163,6 +169,7 @@ export interface FileRoutesByFullPath {
   '/studio/members': typeof StudioMembersRoute
   '/studio/upload': typeof StudioUploadRoute
   '/projects/': typeof ProjectsIndexRoute
+  '/studio/': typeof StudioIndexRoute
   '/internal/projects/$slug': typeof InternalProjectsSlugRoute
   '/studio/project/$slug': typeof StudioProjectSlugRoute
   '/studio/resale/$id': typeof StudioResaleIdRoute
@@ -179,7 +186,6 @@ export interface FileRoutesByTo {
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/studio': typeof StudioRouteWithChildren
   '/advisory/report': typeof AdvisoryReportRoute
   '/internal/coralina': typeof InternalCoralinaRoute
   '/projects/$slug': typeof ProjectsSlugRoute
@@ -187,6 +193,7 @@ export interface FileRoutesByTo {
   '/studio/members': typeof StudioMembersRoute
   '/studio/upload': typeof StudioUploadRoute
   '/projects': typeof ProjectsIndexRoute
+  '/studio': typeof StudioIndexRoute
   '/internal/projects/$slug': typeof InternalProjectsSlugRoute
   '/studio/project/$slug': typeof StudioProjectSlugRoute
   '/studio/resale/$id': typeof StudioResaleIdRoute
@@ -212,6 +219,7 @@ export interface FileRoutesById {
   '/studio/members': typeof StudioMembersRoute
   '/studio/upload': typeof StudioUploadRoute
   '/projects/': typeof ProjectsIndexRoute
+  '/studio/': typeof StudioIndexRoute
   '/internal/projects/$slug': typeof InternalProjectsSlugRoute
   '/studio/project/$slug': typeof StudioProjectSlugRoute
   '/studio/resale/$id': typeof StudioResaleIdRoute
@@ -238,6 +246,7 @@ export interface FileRouteTypes {
     | '/studio/members'
     | '/studio/upload'
     | '/projects/'
+    | '/studio/'
     | '/internal/projects/$slug'
     | '/studio/project/$slug'
     | '/studio/resale/$id'
@@ -254,7 +263,6 @@ export interface FileRouteTypes {
     | '/offers'
     | '/reviews'
     | '/sitemap.xml'
-    | '/studio'
     | '/advisory/report'
     | '/internal/coralina'
     | '/projects/$slug'
@@ -262,6 +270,7 @@ export interface FileRouteTypes {
     | '/studio/members'
     | '/studio/upload'
     | '/projects'
+    | '/studio'
     | '/internal/projects/$slug'
     | '/studio/project/$slug'
     | '/studio/resale/$id'
@@ -286,6 +295,7 @@ export interface FileRouteTypes {
     | '/studio/members'
     | '/studio/upload'
     | '/projects/'
+    | '/studio/'
     | '/internal/projects/$slug'
     | '/studio/project/$slug'
     | '/studio/resale/$id'
@@ -398,6 +408,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/studio/': {
+      id: '/studio/'
+      path: '/'
+      fullPath: '/studio/'
+      preLoaderRoute: typeof StudioIndexRouteImport
+      parentRoute: typeof StudioRoute
+    }
     '/projects/': {
       id: '/projects/'
       path: '/projects'
@@ -474,6 +491,7 @@ declare module '@tanstack/react-router' {
 interface StudioRouteChildren {
   StudioMembersRoute: typeof StudioMembersRoute
   StudioUploadRoute: typeof StudioUploadRoute
+  StudioIndexRoute: typeof StudioIndexRoute
   StudioProjectSlugRoute: typeof StudioProjectSlugRoute
   StudioResaleIdRoute: typeof StudioResaleIdRoute
 }
@@ -481,6 +499,7 @@ interface StudioRouteChildren {
 const StudioRouteChildren: StudioRouteChildren = {
   StudioMembersRoute: StudioMembersRoute,
   StudioUploadRoute: StudioUploadRoute,
+  StudioIndexRoute: StudioIndexRoute,
   StudioProjectSlugRoute: StudioProjectSlugRoute,
   StudioResaleIdRoute: StudioResaleIdRoute,
 }
