@@ -4,7 +4,7 @@ Status: Repository implementation complete, pending independent review and
 merge. This document does not mark the checkpoint canonical or closed.
 
 Base: authoritative main `35541a2e9bcc3b8ca737f0ff129b76487e57de90`
-Last updated: 2026-07-20
+Last updated: 2026-07-21
 
 ## Governing rule
 
@@ -26,17 +26,17 @@ missing evidence → verified badge / positive score / Strong Buy /
 The card/list mapper — feeding home, catalogue, Discovery, Navigator, Booth —
 fabricated claims for every missing field:
 
-| Missing field       | Fabricated as                    |
-| ------------------- | -------------------------------- |
-| `forever_verified`  | `true` → "Forever Verified" badge + inspection claims |
-| `verdict`           | `"Strong Buy"`                   |
-| `market_position`   | `"In line with market"`          |
-| `rental_demand`     | `"Moderate"`                     |
-| `sales_status`      | `"Available"`                    |
-| `construction_status` | `"Planning"`                   |
-| `project_type`      | `"Villa"`                        |
-| `verified_price`    | fell back to the unverified `price_range` behind a "Forever Verified Price" badge (also in `project-detail-mappers.ts`) |
-| project photo       | bundled stock villa photos via `image_key`, final fallback another project's photo (`villa-surin.jpg`) |
+| Missing field         | Fabricated as                                                                                                           |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `forever_verified`    | `true` → "Forever Verified" badge + inspection claims                                                                   |
+| `verdict`             | `"Strong Buy"`                                                                                                          |
+| `market_position`     | `"In line with market"`                                                                                                 |
+| `rental_demand`       | `"Moderate"`                                                                                                            |
+| `sales_status`        | `"Available"`                                                                                                           |
+| `construction_status` | `"Planning"`                                                                                                            |
+| `project_type`        | `"Villa"`                                                                                                               |
+| `verified_price`      | fell back to the unverified `price_range` behind a "Forever Verified Price" badge (also in `project-detail-mappers.ts`) |
+| project photo         | bundled stock villa photos via `image_key`, final fallback another project's photo (`villa-surin.jpg`)                  |
 
 ### 2. Fabricated static content (`src/lib/data.ts`)
 
@@ -125,6 +125,23 @@ catalogue is publicly served unless production was manually cleaned.
   aborts (not merely notices) if any unrelated row changed, compared
   value-by-value.
 
+### Defects corrected in the independent Windows audit
+
+- `/offers`, `/reviews`, and `/areas` were correctly absent from navigation
+  and the sitemap, but their reachable evidence-dependent empty states had no
+  `robots: noindex, nofollow` metadata. They now use the same truth-first
+  indexing boundary as the Advisory placeholders.
+- The prepared deactivation transaction took its untargeted snapshot before
+  locking the table and locked only the six targets after their identity
+  check. Under PostgreSQL `READ COMMITTED`, an untargeted row could therefore
+  be inserted, updated, or deleted after final verification and before
+  `COMMIT`; a target could also change between the first identity check and
+  its row lock. Both write templates now take `LOCK TABLE public.projects IN
+SHARE ROW EXCLUSIVE MODE` immediately after `BEGIN`, before snapshots and
+  identity checks. That lock conflicts with concurrent project inserts,
+  updates, and deletes through commit or rollback. The rollback uses the same
+  boundary, so its snapshot identity is checked while protected.
+
 ### Already fail-closed (verified, unchanged)
 
 Passport and Intelligence internal scoring thresholds, Navigator matching
@@ -146,8 +163,9 @@ codebase already uses (`"Not available"` sentinels, empty string / 0 / null):
    `verdict`, `market_position`, `rental_demand`, `rental_yield`,
    `capital_growth_estimate`, `last_inspection`, `promotion`, `trust_note`)
    are suppressed in BOTH public mappers even when the row carries values:
-   the canonical Modeva seed proves they are placeholders (`forever_verified
-   = true` stored next to "Awaiting full Forever inspection data."), and no
+   the canonical Modeva seed proves they are placeholders: it stores
+   `forever_verified = true` next to "Awaiting full Forever inspection data.",
+   and no
    code binds them to a source, inspection record, or Owner-recorded
    verification action. Raw values stay in the database; the public claim is
    withheld until a real evidence contract exists. Passport/Intelligence
@@ -203,7 +221,8 @@ codebase already uses (`"Not available"` sentinels, empty string / 0 / null):
   photos are gone; path comparison is Windows-safe (backslash-normalized,
   with its own regression test).
 - `src/lib/sitemap.test.ts` — sitemap advertises only real surfaces and the
-  provided project slugs; `/offers`, `/reviews`, `/areas` are absent.
+  provided project slugs; `/offers`, `/reviews`, `/areas` are absent and their
+  route metadata is `noindex, nofollow`.
 - `src/features/discovery/discovery-filters.test.ts` — no recommendation,
   score, or verification sort/filter exists; catalogue order ignores
   verification/score signals; price sorts put missing prices last.
@@ -243,8 +262,9 @@ These require the separately authorized read-only inventory in
 
 The exact production inventory (dynamic foreign-key discovery via
 `pg_constraint`, per-relation counts, pre-change snapshot), the
-single-transaction fail-closed deactivation (identity checks and a
-value-by-value untargeted-row invariant that abort via RAISE), and a
+single-transaction fail-closed deactivation (a `SHARE ROW EXCLUSIVE`
+projects-table mutation boundary before snapshot/identity checks, then a
+value-by-value untargeted-row invariant that aborts via RAISE), and a
 snapshot-bound rollback (inert placeholder template, database-enforced
 identity and restored-value verification before COMMIT) are prepared in
 `docs/FOREVER_TRUTH_001A_PRODUCTION_CLEANUP_PLAN.md`. No production

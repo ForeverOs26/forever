@@ -17,6 +17,7 @@ export const Route = createFileRoute("/offers")({
         property: "og:description",
         content: "Developer offers are published only when confirmed and source-backed.",
       },
+      { name: "robots", content: "noindex, nofollow" },
     ],
   }),
   component: OffersPage,

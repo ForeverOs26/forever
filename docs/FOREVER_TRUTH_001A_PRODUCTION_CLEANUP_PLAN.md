@@ -4,7 +4,7 @@ Status: PREPARED ONLY — NOT EXECUTED. Every statement below requires a separat
 explicit Owner approval before any production connection or write. Nothing in
 this document authorizes a connection, a read, or a write by itself.
 
-Last updated: 2026-07-20
+Last updated: 2026-07-21
 
 ## Why this plan exists
 
@@ -46,6 +46,13 @@ Both write transactions in this plan follow the same safety pattern:
    (`00000000-…`), and production row UUIDs cannot be known from the
    repository — so the template is structurally inert until the Owner pastes
    the real Step 1b snapshot; otherwise the identity check aborts.
+
+6. Each write transaction takes `SHARE ROW EXCLUSIVE` on `public.projects`
+   immediately after `BEGIN`, before taking a snapshot or checking an identity.
+   This conflicts with concurrent `INSERT`, `UPDATE`, and `DELETE` on the
+   table until commit or rollback. It therefore protects the target identities
+   and makes the untargeted-row invariant meaningful through `COMMIT`; this is
+   a database boundary, not a timing assumption.
 
 ## Entities in scope
 
@@ -203,6 +210,11 @@ transaction aborts, and the trailing `COMMIT` rolls back automatically.
 ```sql
 BEGIN;
 
+-- Protect the full projects relation before the snapshot or any identity
+-- check. SHARE ROW EXCLUSIVE conflicts with concurrent INSERT, UPDATE, and
+-- DELETE, so no target or untargeted project can drift until COMMIT/ROLLBACK.
+LOCK TABLE public.projects IN SHARE ROW EXCLUSIVE MODE;
+
 -- Transaction-local snapshot of every row NOT targeted, taken before any
 -- change, so unrelated-row preservation is verified value-by-value.
 CREATE TEMPORARY TABLE truth001a_untargeted_before ON COMMIT DROP AS
@@ -248,7 +260,7 @@ BEGIN
   END IF;
 END $$;
 
--- Lock exactly the targeted rows for this transaction.
+-- Retain row locks on the six targets as a narrow, explicit identity lock.
 SELECT id FROM public.projects
 WHERE slug IN ('surin-ridge-villas','kamala-beach-residences','layan-forest-villas',
                'bangtao-garden-pool-villas','kata-cliff-residences','rawai-courtyard-villas')
@@ -345,6 +357,11 @@ paste the snapshot cannot silently restore wrong values.
 
 ```sql
 BEGIN;
+
+-- Establish the same full-table mutation boundary before materializing or
+-- checking the rollback snapshot. Target identities remain protected from
+-- concurrent mutation through the exact-value verification and COMMIT.
+LOCK TABLE public.projects IN SHARE ROW EXCLUSIVE MODE;
 
 CREATE TEMPORARY TABLE truth001a_rollback_snapshot (
   id uuid PRIMARY KEY,

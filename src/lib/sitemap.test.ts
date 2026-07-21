@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { SITEMAP_STATIC_ENTRIES, buildSitemapXml } from "./sitemap";
@@ -13,6 +15,13 @@ describe("sitemap composition", () => {
     expect(paths).not.toContain("/offers");
     expect(paths).not.toContain("/reviews");
     expect(paths).not.toContain("/areas");
+  });
+
+  it("marks every evidence-dependent empty placeholder noindex, nofollow", () => {
+    for (const route of ["offers.tsx", "reviews.tsx", "areas.tsx"]) {
+      const source = readFileSync(join(process.cwd(), "src", "routes", route), "utf-8");
+      expect(source).toContain('name: "robots", content: "noindex, nofollow"');
+    }
   });
 
   it("keeps the core public surfaces", () => {

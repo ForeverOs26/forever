@@ -16,7 +16,9 @@ import { KNOWN_FICTITIOUS_PROJECT_SLUGS } from "./public-truth";
  * - the rollback restores only values bound from the reviewed Step 1b
  *   snapshot, shipped as an inert template (placeholder ids that can never
  *   match production);
- * - unrelated projects are compared value-by-value, not merely counted.
+ * - unrelated projects are compared value-by-value, not merely counted; and
+ * - a table-level mutation boundary protects snapshots and identities through
+ *   COMMIT, rather than relying on the timing of row locks or verification.
  */
 
 const PLAN_PATH = join(process.cwd(), "docs", "FOREVER_TRUTH_001A_PRODUCTION_CLEANUP_PLAN.md");
@@ -70,10 +72,18 @@ describe("production cleanup plan invariants", () => {
     }
   });
 
-  it("deactivation runs in one transaction with locks and database-enforced aborts", () => {
+  it("deactivation locks the projects table before its snapshot and identity check", () => {
     expect(step3Sql).toContain("BEGIN;");
     expect(step3Sql).toContain("COMMIT;");
+    expect(step3Sql).toContain("LOCK TABLE public.projects IN SHARE ROW EXCLUSIVE MODE;");
     expect(step3Sql).toContain("FOR UPDATE");
+    const tableLock = step3Sql.indexOf("LOCK TABLE public.projects IN SHARE ROW EXCLUSIVE MODE;");
+    expect(tableLock).toBeGreaterThan(step3Sql.indexOf("BEGIN;"));
+    expect(tableLock).toBeLessThan(step3Sql.indexOf("truth001a_untargeted_before"));
+    expect(tableLock).toBeLessThan(step3Sql.indexOf("SELECT count(*) INTO matched"));
+  });
+
+  it("deactivation runs in one transaction with database-enforced aborts", () => {
     expect((step3Sql.match(/RAISE EXCEPTION/g) ?? []).length).toBeGreaterThanOrEqual(2);
     // Identity verification happens before the UPDATE, final verification
     // before COMMIT.
@@ -112,6 +122,10 @@ describe("production cleanup plan invariants", () => {
   });
 
   it("rollback verifies identities before modifying and exact values before COMMIT", () => {
+    const tableLock = step5Sql.indexOf("LOCK TABLE public.projects IN SHARE ROW EXCLUSIVE MODE;");
+    expect(tableLock).toBeGreaterThan(step5Sql.indexOf("BEGIN;"));
+    expect(tableLock).toBeLessThan(step5Sql.indexOf("CREATE TEMPORARY TABLE"));
+    expect(tableLock).toBeLessThan(step5Sql.indexOf("SELECT count(*) INTO snapshot_rows"));
     expect((step5Sql.match(/RAISE EXCEPTION/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect(step5Sql.indexOf("RAISE EXCEPTION")).toBeLessThan(
       step5Sql.indexOf("UPDATE public.projects"),

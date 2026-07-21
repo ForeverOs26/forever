@@ -17,6 +17,7 @@ export const Route = createFileRoute("/reviews")({
         property: "og:description",
         content: "Client reviews are published only with consent after real advisory work.",
       },
+      { name: "robots", content: "noindex, nofollow" },
     ],
   }),
   component: ReviewsPage,

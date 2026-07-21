@@ -16,6 +16,7 @@ export const Route = createFileRoute("/areas")({
         property: "og:description",
         content: "Area guides are published only once their facts are source-backed.",
       },
+      { name: "robots", content: "noindex, nofollow" },
     ],
   }),
   component: AreasPage,
