@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as StudioRouteImport } from './routes/studio'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as ReviewsRouteImport } from './routes/reviews'
 import { Route as OffersRouteImport } from './routes/offers'
@@ -21,11 +22,21 @@ import { Route as AdvisoryRouteImport } from './routes/advisory'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
+import { Route as StudioUploadRouteImport } from './routes/studio.upload'
+import { Route as StudioMembersRouteImport } from './routes/studio.members'
+import { Route as ResaleSlugRouteImport } from './routes/resale.$slug'
 import { Route as ProjectsSlugRouteImport } from './routes/projects.$slug'
 import { Route as InternalCoralinaRouteImport } from './routes/internal.coralina'
 import { Route as AdvisoryReportRouteImport } from './routes/advisory_.report'
+import { Route as StudioResaleIdRouteImport } from './routes/studio.resale.$id'
+import { Route as StudioProjectSlugRouteImport } from './routes/studio.project.$slug'
 import { Route as InternalProjectsSlugRouteImport } from './routes/internal.projects.$slug'
 
+const StudioRoute = StudioRouteImport.update({
+  id: '/studio',
+  path: '/studio',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
   path: '/sitemap.xml',
@@ -86,6 +97,21 @@ const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
   path: '/projects/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StudioUploadRoute = StudioUploadRouteImport.update({
+  id: '/upload',
+  path: '/upload',
+  getParentRoute: () => StudioRoute,
+} as any)
+const StudioMembersRoute = StudioMembersRouteImport.update({
+  id: '/members',
+  path: '/members',
+  getParentRoute: () => StudioRoute,
+} as any)
+const ResaleSlugRoute = ResaleSlugRouteImport.update({
+  id: '/resale/$slug',
+  path: '/resale/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjectsSlugRoute = ProjectsSlugRouteImport.update({
   id: '/projects/$slug',
   path: '/projects/$slug',
@@ -100,6 +126,16 @@ const AdvisoryReportRoute = AdvisoryReportRouteImport.update({
   id: '/advisory_/report',
   path: '/advisory/report',
   getParentRoute: () => rootRouteImport,
+} as any)
+const StudioResaleIdRoute = StudioResaleIdRouteImport.update({
+  id: '/resale/$id',
+  path: '/resale/$id',
+  getParentRoute: () => StudioRoute,
+} as any)
+const StudioProjectSlugRoute = StudioProjectSlugRouteImport.update({
+  id: '/project/$slug',
+  path: '/project/$slug',
+  getParentRoute: () => StudioRoute,
 } as any)
 const InternalProjectsSlugRoute = InternalProjectsSlugRouteImport.update({
   id: '/internal/projects/$slug',
@@ -119,11 +155,17 @@ export interface FileRoutesByFullPath {
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/studio': typeof StudioRouteWithChildren
   '/advisory/report': typeof AdvisoryReportRoute
   '/internal/coralina': typeof InternalCoralinaRoute
   '/projects/$slug': typeof ProjectsSlugRoute
+  '/resale/$slug': typeof ResaleSlugRoute
+  '/studio/members': typeof StudioMembersRoute
+  '/studio/upload': typeof StudioUploadRoute
   '/projects/': typeof ProjectsIndexRoute
   '/internal/projects/$slug': typeof InternalProjectsSlugRoute
+  '/studio/project/$slug': typeof StudioProjectSlugRoute
+  '/studio/resale/$id': typeof StudioResaleIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -137,11 +179,17 @@ export interface FileRoutesByTo {
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/studio': typeof StudioRouteWithChildren
   '/advisory/report': typeof AdvisoryReportRoute
   '/internal/coralina': typeof InternalCoralinaRoute
   '/projects/$slug': typeof ProjectsSlugRoute
+  '/resale/$slug': typeof ResaleSlugRoute
+  '/studio/members': typeof StudioMembersRoute
+  '/studio/upload': typeof StudioUploadRoute
   '/projects': typeof ProjectsIndexRoute
   '/internal/projects/$slug': typeof InternalProjectsSlugRoute
+  '/studio/project/$slug': typeof StudioProjectSlugRoute
+  '/studio/resale/$id': typeof StudioResaleIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -156,11 +204,17 @@ export interface FileRoutesById {
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/studio': typeof StudioRouteWithChildren
   '/advisory_/report': typeof AdvisoryReportRoute
   '/internal/coralina': typeof InternalCoralinaRoute
   '/projects/$slug': typeof ProjectsSlugRoute
+  '/resale/$slug': typeof ResaleSlugRoute
+  '/studio/members': typeof StudioMembersRoute
+  '/studio/upload': typeof StudioUploadRoute
   '/projects/': typeof ProjectsIndexRoute
   '/internal/projects/$slug': typeof InternalProjectsSlugRoute
+  '/studio/project/$slug': typeof StudioProjectSlugRoute
+  '/studio/resale/$id': typeof StudioResaleIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -176,11 +230,17 @@ export interface FileRouteTypes {
     | '/offers'
     | '/reviews'
     | '/sitemap.xml'
+    | '/studio'
     | '/advisory/report'
     | '/internal/coralina'
     | '/projects/$slug'
+    | '/resale/$slug'
+    | '/studio/members'
+    | '/studio/upload'
     | '/projects/'
     | '/internal/projects/$slug'
+    | '/studio/project/$slug'
+    | '/studio/resale/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -194,11 +254,17 @@ export interface FileRouteTypes {
     | '/offers'
     | '/reviews'
     | '/sitemap.xml'
+    | '/studio'
     | '/advisory/report'
     | '/internal/coralina'
     | '/projects/$slug'
+    | '/resale/$slug'
+    | '/studio/members'
+    | '/studio/upload'
     | '/projects'
     | '/internal/projects/$slug'
+    | '/studio/project/$slug'
+    | '/studio/resale/$id'
   id:
     | '__root__'
     | '/'
@@ -212,11 +278,17 @@ export interface FileRouteTypes {
     | '/offers'
     | '/reviews'
     | '/sitemap.xml'
+    | '/studio'
     | '/advisory_/report'
     | '/internal/coralina'
     | '/projects/$slug'
+    | '/resale/$slug'
+    | '/studio/members'
+    | '/studio/upload'
     | '/projects/'
     | '/internal/projects/$slug'
+    | '/studio/project/$slug'
+    | '/studio/resale/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -231,15 +303,24 @@ export interface RootRouteChildren {
   OffersRoute: typeof OffersRoute
   ReviewsRoute: typeof ReviewsRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  StudioRoute: typeof StudioRouteWithChildren
   AdvisoryReportRoute: typeof AdvisoryReportRoute
   InternalCoralinaRoute: typeof InternalCoralinaRoute
   ProjectsSlugRoute: typeof ProjectsSlugRoute
+  ResaleSlugRoute: typeof ResaleSlugRoute
   ProjectsIndexRoute: typeof ProjectsIndexRoute
   InternalProjectsSlugRoute: typeof InternalProjectsSlugRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/studio': {
+      id: '/studio'
+      path: '/studio'
+      fullPath: '/studio'
+      preLoaderRoute: typeof StudioRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sitemap.xml': {
       id: '/sitemap.xml'
       path: '/sitemap.xml'
@@ -324,6 +405,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/studio/upload': {
+      id: '/studio/upload'
+      path: '/upload'
+      fullPath: '/studio/upload'
+      preLoaderRoute: typeof StudioUploadRouteImport
+      parentRoute: typeof StudioRoute
+    }
+    '/studio/members': {
+      id: '/studio/members'
+      path: '/members'
+      fullPath: '/studio/members'
+      preLoaderRoute: typeof StudioMembersRouteImport
+      parentRoute: typeof StudioRoute
+    }
+    '/resale/$slug': {
+      id: '/resale/$slug'
+      path: '/resale/$slug'
+      fullPath: '/resale/$slug'
+      preLoaderRoute: typeof ResaleSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/projects/$slug': {
       id: '/projects/$slug'
       path: '/projects/$slug'
@@ -345,6 +447,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdvisoryReportRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/studio/resale/$id': {
+      id: '/studio/resale/$id'
+      path: '/resale/$id'
+      fullPath: '/studio/resale/$id'
+      preLoaderRoute: typeof StudioResaleIdRouteImport
+      parentRoute: typeof StudioRoute
+    }
+    '/studio/project/$slug': {
+      id: '/studio/project/$slug'
+      path: '/project/$slug'
+      fullPath: '/studio/project/$slug'
+      preLoaderRoute: typeof StudioProjectSlugRouteImport
+      parentRoute: typeof StudioRoute
+    }
     '/internal/projects/$slug': {
       id: '/internal/projects/$slug'
       path: '/internal/projects/$slug'
@@ -354,6 +470,23 @@ declare module '@tanstack/react-router' {
     }
   }
 }
+
+interface StudioRouteChildren {
+  StudioMembersRoute: typeof StudioMembersRoute
+  StudioUploadRoute: typeof StudioUploadRoute
+  StudioProjectSlugRoute: typeof StudioProjectSlugRoute
+  StudioResaleIdRoute: typeof StudioResaleIdRoute
+}
+
+const StudioRouteChildren: StudioRouteChildren = {
+  StudioMembersRoute: StudioMembersRoute,
+  StudioUploadRoute: StudioUploadRoute,
+  StudioProjectSlugRoute: StudioProjectSlugRoute,
+  StudioResaleIdRoute: StudioResaleIdRoute,
+}
+
+const StudioRouteWithChildren =
+  StudioRoute._addFileChildren(StudioRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -367,9 +500,11 @@ const rootRouteChildren: RootRouteChildren = {
   OffersRoute: OffersRoute,
   ReviewsRoute: ReviewsRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  StudioRoute: StudioRouteWithChildren,
   AdvisoryReportRoute: AdvisoryReportRoute,
   InternalCoralinaRoute: InternalCoralinaRoute,
   ProjectsSlugRoute: ProjectsSlugRoute,
+  ResaleSlugRoute: ResaleSlugRoute,
   ProjectsIndexRoute: ProjectsIndexRoute,
   InternalProjectsSlugRoute: InternalProjectsSlugRoute,
 }

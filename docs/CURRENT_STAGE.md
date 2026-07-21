@@ -34,7 +34,7 @@ This stage must:
 5. provide a usable phone, tablet, and desktop interface;
 6. target 2–5 minutes of publisher interaction and a usable public result within 15 minutes.
 
-This checkpoint is recorded only. No Studio design or implementation is authorized by this merge task.
+The FOREVER-STUDIO-001 implementation now exists in an open, unmerged draft PR on branch `claude/forever-studio-upload-dfev75` (report: `docs/FOREVER_STUDIO_001_IMPLEMENTATION_REPORT.md`; runbook: `docs/FOREVER_STUDIO_OWNER_RUNBOOK.md`). It remains pending independent review and Owner approval; its two migrations are prepared but NOT applied, and no production connection, publication, or data change has occurred.
 
 ## Canonical foundations retained
 
@@ -72,7 +72,7 @@ The current constraints are:
 | ------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------- |
 | TG-WATCH-001A offline watcher core and real Coralina pilot    | Codex / Owner          | Completed and canonical offline tooling; no live transport expansion                      |
 | FOREVER-TRUTH-001A public truth audit and fail-closed cleanup | Claude / Codex / Owner | Repository implementation completed and canonical; production cleanup remains Owner-gated |
-| FOREVER-STUDIO-001 direct publisher upload                    | Owner / Architect      | Active product checkpoint; recorded only, not implemented here                            |
+| FOREVER-STUDIO-001 direct publisher upload                    | Owner / Architect      | Implemented in an open, unmerged draft PR; pending independent review and Owner approval  |
 | Present Partner Demo v1 and collect structured feedback       | Owner                  | Parallel pending business checkpoint                                                      |
 | Establish lead-response and guest-feedback baseline           | Owner / Architect      | Starts during this stage                                                                  |
 | Coralina publication readiness                                | Owner / Architect      | Next separate checkpoint; publication not authorized here                                 |

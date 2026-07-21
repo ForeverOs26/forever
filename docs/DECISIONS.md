@@ -19,6 +19,13 @@ Each decision should include:
 
 ## Approved decisions
 
+### 2026-07-21 — FOREVER-STUDIO-001 implemented in an open draft PR; direct-publication rule recorded as durable
+
+- **Decision:** The FOREVER-STUDIO-001 implementation exists on branch `claude/forever-studio-upload-dfev75` as an open, unmerged draft PR and remains pending independent review and Owner approval. The durable product rule is recorded: **"An upload by Owner or Trusted Publisher is direct publication authorization. Incomplete business data never creates a follow-on approval or publication gate."**
+- **Context:** Studio was built as a narrow server boundary (TanStack Start server functions + Supabase Auth + a server-managed `studio_members` role table) over the existing progressive ingestion lane; see `docs/FOREVER_STUDIO_001_IMPLEMENTATION_REPORT.md` for architecture, validation, and remaining work, and `docs/FOREVER_STUDIO_OWNER_RUNBOOK.md` for operation.
+- **Consequence:** The rule removes business-completeness blockers only. It does not permit insecure authentication, cross-project corruption, credential exposure, or silent loss of uploaded files — those remain hard boundaries enforced and tested at the server/data boundary. The two Studio-related migrations (progressive ingestion v1, Forever Studio v1) are prepared but unapplied; applying them, configuring the environment, and any publication of Coralina or Rainpalm remain separate Owner-gated actions. Factory remains A0.
+- **Review trigger:** Independent review of the draft PR; before migration application or any change to the direct-publication rule.
+
 ### 2026-07-21 — Canonicalize FOREVER-TRUTH-001A and advance to FOREVER-STUDIO-001
 
 - **Decision:** FOREVER-TRUTH-001A repository implementation is completed and canonical after PR #94. Fabricated public claims and optimistic evidence defaults are removed or fail closed. The prepared production cleanup plan remains unexecuted and Owner-gated; PR #94 performed no production inventory or cleanup. FOREVER-STUDIO-001 — Authenticated Mobile Owner and Trusted Publisher Direct Upload — is the next active product checkpoint.
