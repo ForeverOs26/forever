@@ -21,7 +21,9 @@ The project now prioritizes:
 5. fast advisor response and measurable conversion;
 6. controlled scale only after proof.
 
-The active product checkpoint is **FOREVER-TRUTH-001A — Public Truth Audit and Fail-Closed Cleanup**.
+FOREVER-TRUTH-001A repository implementation is completed and canonical after PR #94. Fabricated public claims and optimistic evidence defaults are removed or fail closed. Its prepared production cleanup plan remains unexecuted and Owner-gated; no production inventory or cleanup was performed by PR #94.
+
+The active product checkpoint is **FOREVER-STUDIO-001 — Authenticated Mobile Owner and Trusted Publisher Direct Upload**. An Owner or Trusted Publisher upload is direct publication authorization: no separate readiness, verification, review, or publication approval follows. Incomplete business data never blocks publication; useful available information is displayed and missing fields remain absent or neutral for later enrichment. The intended scope covers new developments, project updates, price updates, construction media, and resale across phone, tablet, and desktop, with a 2–5 minute publisher interaction target and a usable public result within 15 minutes. This checkpoint is recorded only; it is not implemented here.
 
 This strategic documentation ratification does not itself change product behavior or authorize a production cleanup, publication, import, lead mutation, or production write.
 
@@ -64,9 +66,9 @@ Booth remains intentionally unlinked from normal public navigation.
 
 ### Product-readiness gap
 
-The public surface requires a complete source-backed truth audit before broad external use.
+The public truth boundary is implemented and canonical. Its prepared production cleanup remains a separate Owner-gated action.
 
-Known review areas include:
+Corrected or fail-closed review areas include:
 
 - static offers;
 - static reviews;
@@ -78,7 +80,7 @@ Known review areas include:
 - optimistic defaults when project data is missing;
 - fallback project media.
 
-Repository presence does not by itself prove current production-database state. FOREVER-TRUTH-001A begins with read-only inventory.
+Repository presence does not by itself prove current production-database state. PR #94 did not perform production inventory or cleanup.
 
 ## Project-data status
 
@@ -206,15 +208,10 @@ Current boundaries remain:
 
 ## Immediate next work
 
-See `docs/CURRENT_STAGE.md` for the active FOREVER-TRUTH-001A checkpoint.
+See `docs/CURRENT_STAGE.md` for the active FOREVER-STUDIO-001 checkpoint.
 
-The expected following sequence is:
-
-1. Coralina Publication Readiness;
-2. a focused 5–8 project real-catalogue pilot;
-3. Advisor conversion and lead-response workflow;
-4. controlled catalogue and partnership expansion based on evidence.
+The approved next direction is FOREVER-STUDIO-001. Coralina remains unpublished; Rainpalm remains unimported and unpublished; Partner Demo remains canonical; Factory remains A0.
 
 ## Last updated
 
-2026-07-20
+2026-07-21

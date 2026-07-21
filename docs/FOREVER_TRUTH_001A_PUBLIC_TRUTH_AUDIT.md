@@ -1,7 +1,7 @@
 # FOREVER-TRUTH-001A — Public Truth Audit and Fail-Closed Cleanup
 
-Status: Repository implementation complete, pending independent review and
-merge. This document does not mark the checkpoint canonical or closed.
+Status: Repository implementation completed and canonical after PR #94 merge.
+The prepared production cleanup plan remains unexecuted and Owner-gated.
 
 Base: authoritative main `35541a2e9bcc3b8ca737f0ff129b76487e57de90`
 Last updated: 2026-07-21
@@ -263,6 +263,15 @@ codebase already uses (`"Not available"` sentinels, empty string / 0 / null):
 
 These require the separately authorized read-only inventory in
 `docs/FOREVER_TRUTH_001A_PRODUCTION_CLEANUP_PLAN.md` (Step 1).
+
+## Browser-tooling limitation
+
+The controlled CDP browser matrix did not complete because its temporary runner
+exceeded the shell execution ceiling. No reproducible PR-owned browser defect
+was identified, no code was changed during that attempt, and all task-owned
+listeners were removed. The Owner and Architect accepted this tooling
+limitation; it is not a product blocker. Any later visual issue may be
+corrected through an ordinary follow-up PR.
 
 ## Prepared but not executed
 
