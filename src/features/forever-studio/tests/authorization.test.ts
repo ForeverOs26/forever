@@ -286,5 +286,11 @@ describe("Studio authorization boundary", () => {
       // Success message must not echo the password variable.
       expect(members).not.toMatch(/Share the password/);
     });
+
+    it("scopes the overview cache to the authenticated Studio user", () => {
+      const dashboard = read("src/features/forever-studio/components/StudioDashboard.tsx");
+      expect(dashboard).toContain("session.userId");
+      expect(dashboard).toContain('enabled: session.status === "signed_in"');
+    });
   });
 });

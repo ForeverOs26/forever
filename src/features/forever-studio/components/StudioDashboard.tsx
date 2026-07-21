@@ -23,6 +23,7 @@ import {
   STUDIO_WORKFLOWS,
   type StudioWorkflow,
 } from "../studio-types";
+import { useStudioSession } from "./useStudioSession";
 
 export const STUDIO_OVERVIEW_KEY = ["studio", "overview"] as const;
 
@@ -45,10 +46,18 @@ function statusBadge(status: string) {
 
 export function StudioDashboard() {
   const queryClient = useQueryClient();
+  const session = useStudioSession();
+  // The overview includes member-only jobs and must never reuse a prior
+  // publisher's query result while an authentication transition completes.
+  const overviewKey = [
+    ...STUDIO_OVERVIEW_KEY,
+    session.status === "signed_in" ? session.userId : "signed_out",
+  ] as const;
   const overview = useQuery({
-    queryKey: STUDIO_OVERVIEW_KEY,
+    queryKey: overviewKey,
     queryFn: () => studioGetOverview(),
     retry: false,
+    enabled: session.status === "signed_in",
     // Poll while any job is still working so status stays live and durable
     // resume is visible without a manual refresh.
     refetchInterval: (query) =>
@@ -83,7 +92,7 @@ export function StudioDashboard() {
     onSettled: () => queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY }),
   });
 
-  if (overview.isPending) {
+  if (session.status !== "signed_in" || overview.isPending) {
     return <p className="py-16 text-center text-sm text-muted-foreground">Loading Studio…</p>;
   }
   if (overview.isError) {

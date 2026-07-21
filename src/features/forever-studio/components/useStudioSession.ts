@@ -13,7 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 export type StudioSessionState =
   | { status: "loading" }
   | { status: "signed_out" }
-  | { status: "signed_in"; email: string | null };
+  | { status: "signed_in"; userId: string; email: string | null };
 
 export function useStudioSession(): StudioSessionState {
   const [state, setState] = useState<StudioSessionState>({ status: "loading" });
@@ -24,14 +24,22 @@ export function useStudioSession(): StudioSessionState {
       if (!mounted) return;
       setState(
         data.session
-          ? { status: "signed_in", email: data.session.user.email ?? null }
+          ? {
+              status: "signed_in",
+              userId: data.session.user.id,
+              email: data.session.user.email ?? null,
+            }
           : { status: "signed_out" },
       );
     });
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
       setState(
         session
-          ? { status: "signed_in", email: session.user.email ?? null }
+          ? {
+              status: "signed_in",
+              userId: session.user.id,
+              email: session.user.email ?? null,
+            }
           : { status: "signed_out" },
       );
     });
