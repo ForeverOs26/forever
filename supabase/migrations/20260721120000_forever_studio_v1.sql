@@ -1,16 +1,49 @@
 -- ============================================================================
--- FOREVER STUDIO — ADDITIVE MIGRATION DRAFT (pending; not applied here)
+-- FOREVER STUDIO — MIGRATION DRAFT (pending; not applied here)
 --
 -- FOREVER-STUDIO-001: Authenticated Mobile Owner and Trusted Publisher
--- Direct Upload. This migration is the ONLY pending Studio migration. It is
--- additive and layers on top of the ALREADY-APPLIED progressive ingestion
--- migration 20260718113000_progressive_ingestion_v1.sql (canonical evidence:
--- Coralina is imported as an unpublished progressive draft — 1 project,
--- 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch). This
--- file has NOT been applied by this task; before applying it, Codex performs
--- a read-only live-schema and migration-history check. It touches nothing
--- under forever_import / forever_execution and does not re-run or alter the
+-- Direct Upload. This migration is the ONLY pending Studio migration. It
+-- layers on top of the ALREADY-APPLIED progressive ingestion migration
+-- 20260718113000_progressive_ingestion_v1.sql (canonical evidence: Coralina
+-- is imported as an unpublished progressive draft — 1 project, 8 buildings,
+-- 198 units, 198 prices, 6 warnings, 1 ingestion batch). This file
+-- has NOT been applied by this task; before applying it, Codex performs a
+-- read-only live-schema and migration-history check. It touches nothing under
+-- forever_import / forever_execution and does not re-run or alter the
 -- already-applied progressive migration.
+--
+-- WHAT THIS MIGRATION DOES — exact, in order:
+--   PURELY ADDITIVE: the studio_members, studio_upload_jobs, and
+--   studio_listing_contacts tables; their indexes, triggers, and grants; the
+--   private 'studio-uploads' bucket row; and the studio_* functions. None of
+--   these touch existing rows.
+--   DATA RELOCATION + COLUMN DROP (the one non-additive step): existing
+--   listings.contact_name / contact_phone / contact_email values are first
+--   COPIED into the private studio_listing_contacts table, and the three
+--   contact columns are then DROPPED from public.listings, all inside this
+--   migration's single transaction. Existing contact data is preserved in
+--   the private table; the public anonymous surface loses those columns
+--   structurally. (At the time of writing, no production writer has ever
+--   populated these columns — Studio, their only intended writer, is
+--   unshipped — so the expected relocated row count is zero; the copy still
+--   runs first so the sequence is safe even if that expectation is wrong.)
+--
+-- ROLLBACK TRUTH: the DOWN section at the end of this file is a REFERENCE,
+-- not a complete automatic rollback. Dropping studio_listing_contacts after
+-- the columns were dropped would DESTROY relocated contact data. A real
+-- rollback must first re-add the three columns to public.listings, copy the
+-- rows back out of studio_listing_contacts, and only then drop the Studio
+-- objects — see the DOWN section for the exact order.
+--
+-- CODEX PRE-APPLY CHECK (read-only): confirm on the live schema that
+--   (1) supabase_migrations history contains 20260718113000 and does NOT
+--       contain 20260721120000;
+--   (2) public.forever_progressive_ingest exists;
+--   (3) the studio_* tables/functions do not yet exist;
+--   (4) public.listings exists, and record whether its contact_* columns
+--       hold any non-NULL data (expected: none).
+-- Apply order: this file alone, after that check. Never re-apply
+-- 20260718113000 — it is already applied.
 --
 -- The static suite src/features/forever-studio/tests/migration-contract.test.ts
 -- pins this file's security contract, and the real-database suite
@@ -241,10 +274,12 @@ $$;
 -- ----------------------------------------------------------------------------
 -- 6. studio_claim_job: single-winner processing claim with stale recovery
 --
--- Compare-and-set: exactly one caller transitions a received/failed/stale job
--- to 'processing' and stamps its processing_token. A fresh in-flight claim by
--- another worker is left untouched (0 rows returned). A published job is never
--- reclaimed.
+-- Compare-and-set: exactly one caller transitions a received / retryable-
+-- failed / stale-processing job to 'processing' and stamps its
+-- processing_token. A fresh in-flight claim by another worker is left
+-- untouched (0 rows returned). A published job is never reclaimed, and a job
+-- that failed with retryable = false is TERMINAL — the claim predicate
+-- agrees with the automatic-resume query and never reclaims it.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.studio_claim_job(
   p_job_id UUID,
@@ -267,12 +302,42 @@ BEGIN
     WHERE id = p_job_id
       AND status <> 'published'
       AND (
-        status IN ('received', 'failed')
+        status = 'received'
+        OR (status = 'failed' AND retryable IS TRUE)
         OR (status = 'processing'
             AND (processing_started_at IS NULL
                  OR processing_started_at < now() - make_interval(secs => p_stale_seconds)))
       )
     RETURNING *;
+END;
+$$;
+
+-- ----------------------------------------------------------------------------
+-- 6b. studio_heartbeat_job: lease heartbeat for legitimately long processing
+--
+-- A live worker refreshes processing_started_at between files/entries, so a
+-- long-running job is never mistaken for dead while a genuinely dead worker
+-- still goes stale within the stale interval. Token-guarded: a worker that
+-- lost its claim gets false and must stop — it can no longer finalize.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.studio_heartbeat_job(
+  p_job_id UUID,
+  p_token UUID
+) RETURNS BOOLEAN
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+DECLARE
+  v_updated INTEGER;
+BEGIN
+  UPDATE public.studio_upload_jobs
+  SET processing_started_at = now(),
+      updated_at = now()
+  WHERE id = p_job_id
+    AND status = 'processing'
+    AND processing_token = p_token;
+  GET DIAGNOSTICS v_updated = ROW_COUNT;
+  RETURN v_updated = 1;
 END;
 $$;
 
@@ -554,6 +619,7 @@ BEGIN
   FOREACH fn IN ARRAY ARRAY[
     'public.studio_bootstrap_owner(uuid, text)',
     'public.studio_claim_job(uuid, uuid, integer)',
+    'public.studio_heartbeat_job(uuid, uuid)',
     'public.studio_fail_job(uuid, uuid, text, text, boolean)',
     'public.studio_publish_project(uuid, uuid, jsonb, boolean, jsonb)',
     'public.studio_publish_resale(uuid, uuid, jsonb, jsonb, jsonb, jsonb)',
@@ -571,17 +637,42 @@ $$;
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- DOWN (reversal reference only — never bundle with the UP migration)
--- ----------------------------------------------------------------------------
+-- DOWN (reversal REFERENCE only — NOT a complete automatic rollback; never
+-- bundle with the UP migration)
+--
+-- LIMITATIONS, stated plainly:
+--   * The contact-column drop is the destructive-shape step of this
+--     migration. A naive DROP of studio_listing_contacts would destroy the
+--     relocated contact data. If rollback is ever required, the private
+--     contacts MUST be restored FIRST, in this exact order:
+--       1. ALTER TABLE public.listings
+--            ADD COLUMN IF NOT EXISTS contact_name TEXT,
+--            ADD COLUMN IF NOT EXISTS contact_phone TEXT,
+--            ADD COLUMN IF NOT EXISTS contact_email TEXT;
+--       2. UPDATE public.listings l SET
+--            contact_name = c.contact_name,
+--            contact_phone = c.contact_phone,
+--            contact_email = c.contact_email
+--          FROM public.studio_listing_contacts c WHERE c.listing_id = l.id;
+--       3. Only then drop the Studio objects below.
+--     Note that step 2 re-exposes private contact data on the public row —
+--     rollback is a privacy regression by definition and needs an explicit
+--     Owner decision.
+--   * Dropping studio_members / studio_upload_jobs destroys Studio
+--     authorization and job history irreversibly (there is no relocation for
+--     them; they did not exist before this migration).
+--   * Storage OBJECTS uploaded into 'studio-uploads' are not removed by
+--     dropping the bucket row; they must be deleted through the storage API
+--     first or the DELETE below will fail its FK.
+--
 -- DROP FUNCTION IF EXISTS public.studio_lookup_auth_user_id(text);
 -- DROP FUNCTION IF EXISTS public.studio_publish_resale(uuid, uuid, jsonb, jsonb, jsonb, jsonb);
 -- DROP FUNCTION IF EXISTS public.studio_publish_project(uuid, uuid, jsonb, boolean, jsonb);
 -- DROP FUNCTION IF EXISTS public.studio_fail_job(uuid, uuid, text, text, boolean);
+-- DROP FUNCTION IF EXISTS public.studio_heartbeat_job(uuid, uuid);
 -- DROP FUNCTION IF EXISTS public.studio_claim_job(uuid, uuid, integer);
 -- DROP FUNCTION IF EXISTS public.studio_bootstrap_owner(uuid, text);
--- DROP TABLE IF EXISTS public.studio_listing_contacts;
---   -- listings.contact_* columns were relocated, not preserved separately;
---   -- restoring them would require re-adding the columns and copying back.
+-- DROP TABLE IF EXISTS public.studio_listing_contacts;  -- ONLY after steps 1-2 above
 -- DROP TABLE IF EXISTS public.studio_upload_jobs;
 -- DROP TABLE IF EXISTS public.studio_members;
 -- DELETE FROM storage.buckets WHERE id = 'studio-uploads';

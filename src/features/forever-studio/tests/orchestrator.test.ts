@@ -447,6 +447,26 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     expect(world.executor.store.media.map((m) => m.media_type)).toContain("gallery");
   });
 
+  it("retains a dangerous/unsupported archive privately WITHOUT blocking the rest", async () => {
+    const world = makeWorld();
+    world.archiveRejects.add("bomb.zip");
+    const { result } = await runJob(
+      world,
+      OWNER,
+      {
+        workflow: "new_development",
+        projectFacts: { name: "Bomb Survivor" },
+        files: [{ name: "bomb.zip" }, { name: "hero.jpg" }],
+      },
+      { "bomb.zip": Buffer.from("PK\x03\x04 pretend bomb") },
+    );
+    expect(result.status).toBe("published");
+    expect(result.warnings.some((w) => w.code === "archive_rejected_unsafe")).toBe(true);
+    // The photo published; nothing from the rejected archive did.
+    expect(world.executor.store.media).toHaveLength(1);
+    expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(1);
+  });
+
   it("routes uploads through server-generated staging paths only", async () => {
     const world = makeWorld();
     const started = await startUploadJob(world.deps, OWNER, {

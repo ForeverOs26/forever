@@ -32,13 +32,8 @@ import type {
 import { fetchExistingProjectState } from "@/features/forever-ingestion/existing-state";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { sanitizePriceList } from "@/intake/sanitize";
-import {
-  assertSafeEntryName,
-  DEFAULT_ZIP_LIMITS,
-  readZipEntries,
-  readZipEntryData,
-} from "@/intake/zip";
 
+import { extractStudioArchive } from "./archive";
 import type {
   PriceListPdfExtraction,
   StudioAuditEntry,
@@ -49,6 +44,7 @@ import type {
   StudioListingPublishRow,
   StudioListingRow,
   StudioMembershipRow,
+  StudioObjectDigest,
   StudioObjectStat,
   StudioPrivateContact,
   StudioProjectDetailRow,
@@ -223,9 +219,18 @@ function createStudioData(): StudioData {
       const result = await admin.from("studio_upload_jobs").select("*").eq("id", id).maybeSingle();
       return must(result, "studio_upload_jobs read failed") as StudioJobRow | null;
     },
-    async updateJob(id, patch) {
-      const result = await admin.from("studio_upload_jobs").update(patch).eq("id", id);
-      must(result, "studio_upload_jobs update failed");
+    async updateJobIfClaimed(id, token, patch) {
+      // Compare-and-set on the processing claim: a stale worker's update
+      // matches zero rows and can never overwrite a newer claim's records.
+      const result = await admin
+        .from("studio_upload_jobs")
+        .update(patch)
+        .eq("id", id)
+        .eq("status", "processing")
+        .eq("processing_token", token)
+        .select("id");
+      const rows = must(result, "studio_upload_jobs update failed") as Array<{ id: string }> | null;
+      return (rows ?? []).length > 0;
     },
     async listJobs(limit) {
       const result = await admin
@@ -258,6 +263,14 @@ function createStudioData(): StudioData {
       if (error) throw new Error(`studio_claim_job failed: ${error.message}`);
       const rows = (data ?? []) as StudioJobRow[];
       return rows.length ? rows[0] : null;
+    },
+    async heartbeatJob(jobId, token) {
+      const { data, error } = await admin.rpc("studio_heartbeat_job", {
+        p_job_id: jobId,
+        p_token: token,
+      });
+      if (error) throw new Error(`studio_heartbeat_job failed: ${error.message}`);
+      return Boolean(data);
     },
     async failJob(input) {
       const { error } = await admin.rpc("studio_fail_job", {
@@ -294,6 +307,21 @@ function createStudioData(): StudioData {
       return { listingId: row.listing_id, slug: row.slug, replayed: Boolean(row.replayed) };
     },
 
+    async addListingWarnings(listingId, warnings) {
+      if (!warnings.length) return;
+      const rows = warnings.map((warning) => ({
+        listing_id: listingId,
+        entity: warning.entity,
+        field: warning.field ?? null,
+        code: warning.code,
+        severity: warning.severity ?? "warning",
+        message: warning.message,
+        payload: warning.payload ?? {},
+      }));
+      const result = await admin.from("ingestion_warnings").insert(rows);
+      must(result, "listing warnings insert failed");
+    },
+
     async recordAudit(entry: StudioAuditEntry) {
       const result = await admin.from("audit_log").insert(entry);
       must(result, "audit_log insert failed");
@@ -319,6 +347,55 @@ async function statObjectImpl(bucket: string, path: string): Promise<StudioObjec
   return { size };
 }
 
+/**
+ * Stream one stored object through SHA-256: exact byte count, full digest,
+ * and the leading `headBytes` for magic sniffing — memory stays bounded by
+ * the chunk size no matter how large the object is. Falls back to a bounded
+ * whole-read only when the runtime's Blob lacks stream() AND the object is
+ * small; otherwise resolves null (the caller retains the file privately).
+ */
+const HASH_FALLBACK_MAX_BYTES = 32 * 1024 * 1024;
+
+async function hashObjectImpl(
+  bucket: string,
+  path: string,
+  headBytes: number,
+): Promise<StudioObjectDigest | null> {
+  const { data, error } = await admin.storage.from(bucket).download(path);
+  if (error || !data) return null;
+  const { createHash } = await import("node:crypto");
+  const hash = createHash("sha256");
+  const headChunks: Buffer[] = [];
+  let headLength = 0;
+  let size = 0;
+  const consume = (chunk: Buffer) => {
+    hash.update(chunk);
+    size += chunk.length;
+    if (headLength < headBytes) {
+      const take = chunk.subarray(0, Math.min(chunk.length, headBytes - headLength));
+      headChunks.push(Buffer.from(take));
+      headLength += take.length;
+    }
+  };
+  try {
+    if (typeof data.stream === "function") {
+      const reader = data.stream().getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) consume(Buffer.from(value));
+      }
+    } else if (data.size <= HASH_FALLBACK_MAX_BYTES) {
+      consume(Buffer.from(await data.arrayBuffer()));
+    } else {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return { sha256: hash.digest("hex"), size, head: Buffer.concat(headChunks) };
+}
+
 function createStudioStorage(): StudioStorage {
   return {
     async createSignedUpload(bucket, path) {
@@ -334,6 +411,7 @@ function createStudioStorage(): StudioStorage {
       return new Set((data ?? []).map((item) => item.name));
     },
     statObject: statObjectImpl,
+    hashObject: hashObjectImpl,
     async downloadWithin(bucket, path, maxBytes) {
       const stat = await statObjectImpl(bucket, path);
       if (!stat) return null;
@@ -490,45 +568,6 @@ async function extractPriceListPdf(input: {
 }
 
 // ---------------------------------------------------------------------------
-// In-memory bounded archive expansion (path-safe, limit-guarded)
-// ---------------------------------------------------------------------------
-
-async function extractArchive(input: { fileName: string; buffer: Buffer }): Promise<{
-  entries: Array<{ name: string; data: Buffer }>;
-  warnings: ProgressiveWarning[];
-}> {
-  const warnings: ProgressiveWarning[] = [];
-  if (!input.fileName.toLowerCase().endsWith(".zip")) {
-    warnings.push({
-      entity: "document",
-      code: "archive_format_unsupported",
-      severity: "warning",
-      message: `${input.fileName} is not a ZIP archive; the file was retained unexpanded.`,
-      payload: { file: input.fileName },
-    });
-    return { entries: [], warnings };
-  }
-  try {
-    const entries: Array<{ name: string; data: Buffer }> = [];
-    for (const entry of readZipEntries(input.buffer)) {
-      if (entry.isDirectory) continue;
-      assertSafeEntryName(entry.name, DEFAULT_ZIP_LIMITS.maxPathLength);
-      entries.push({ name: entry.name, data: readZipEntryData(input.buffer, entry) });
-    }
-    return { entries, warnings };
-  } catch {
-    warnings.push({
-      entity: "document",
-      code: "archive_unreadable",
-      severity: "warning",
-      message: `${input.fileName} could not be expanded safely; the archive was retained.`,
-      payload: { file: input.fileName },
-    });
-    return { entries: [], warnings };
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Assembly
 // ---------------------------------------------------------------------------
 
@@ -567,7 +606,8 @@ export function createStudioDeps(): StudioDeps {
     reader: createStudioDependencyReader(),
     fetchExisting: (slug) => fetchExistingProjectState(admin, slug),
     extractPriceListPdf,
-    extractArchive,
+    // Full ZIP safety contract + one-entry-at-a-time expansion (archive.ts).
+    extractArchive: (input, onEntry) => extractStudioArchive(input, onEntry),
     now: () => new Date().toISOString(),
     newToken: () => crypto.randomUUID(),
     partnerDemoActive: () => process.env.VITE_PARTNER_DEMO === "true",

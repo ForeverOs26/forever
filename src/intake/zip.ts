@@ -138,7 +138,7 @@ function findEndOfCentralDirectory(buffer: Buffer): number {
   throw new ZipIntegrityError("zip_end_of_central_directory_not_found");
 }
 
-function rejectZip64(buffer: Buffer): void {
+export function rejectZip64(buffer: Buffer): void {
   // A ZIP64 end-of-central-directory locator anywhere in the archive means the
   // archive relies on ZIP64 structures this reader intentionally does not read.
   for (let offset = 0; offset + 4 <= buffer.length; offset += 1) {
@@ -302,7 +302,7 @@ function isSymlink(entry: ZipEntry): boolean {
   return (unixMode & 0o170000) === 0o120000;
 }
 
-function validateEntries(
+export function validateZipEntries(
   buffer: Buffer,
   entries: ZipEntry[],
   limits: ZipLimits,
@@ -468,7 +468,7 @@ export function extractZip(
   }
   rejectZip64(buffer);
   const entries = readZipEntries(buffer);
-  validateEntries(buffer, entries, limits, destDir);
+  validateZipEntries(buffer, entries, limits, destDir);
 
   const written: ExtractedZipFile[] = [];
   try {

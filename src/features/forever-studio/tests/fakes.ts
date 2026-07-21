@@ -45,6 +45,10 @@ export class FakeStorage implements StudioStorage {
   signedUploads: string[] = [];
   /** Force copyObject to throw once (models a transient storage failure). */
   failCopyOnce = false;
+  /** Force remove to throw once (models a crash before cleanup could run). */
+  failRemoveOnce = false;
+  /** Every hashObject call, for streaming-verification assertions. */
+  hashedPaths: string[] = [];
 
   private key(bucket: string, path: string): string {
     return `${bucket}/${path}`;
@@ -61,12 +65,14 @@ export class FakeStorage implements StudioStorage {
   }
 
   async listNames(bucket: string, prefix: string): Promise<Set<string>> {
+    // Mirrors Supabase list(): direct child FILES by name, and direct child
+    // FOLDERS as their first path segment.
     const names = new Set<string>();
     const fullPrefix = `${bucket}/${prefix}/`;
     for (const key of this.objects.keys()) {
       if (!key.startsWith(fullPrefix)) continue;
       const rest = key.slice(fullPrefix.length);
-      if (!rest.includes("/")) names.add(rest);
+      names.add(rest.includes("/") ? rest.slice(0, rest.indexOf("/")) : rest);
     }
     return names;
   }
@@ -74,6 +80,22 @@ export class FakeStorage implements StudioStorage {
   async statObject(bucket: string, path: string): Promise<StudioObjectStat | null> {
     const buf = this.objects.get(this.key(bucket, path));
     return buf ? { size: buf.length } : null;
+  }
+
+  async hashObject(
+    bucket: string,
+    path: string,
+    headBytes: number,
+  ): Promise<{ sha256: string; size: number; head: Buffer } | null> {
+    const buf = this.objects.get(this.key(bucket, path));
+    if (!buf) return null;
+    this.hashedPaths.push(this.key(bucket, path));
+    const { createHash } = await import("node:crypto");
+    return {
+      sha256: createHash("sha256").update(buf).digest("hex"),
+      size: buf.length,
+      head: Buffer.from(buf.subarray(0, headBytes)),
+    };
   }
 
   async downloadWithin(bucket: string, path: string, maxBytes: number): Promise<Buffer | null> {
@@ -101,6 +123,10 @@ export class FakeStorage implements StudioStorage {
   }
 
   async remove(bucket: string, paths: string[]): Promise<void> {
+    if (this.failRemoveOnce) {
+      this.failRemoveOnce = false;
+      throw new Error("storage remove failed (injected)");
+    }
     for (const path of paths) this.objects.delete(this.key(bucket, path));
   }
 
@@ -237,10 +263,12 @@ export class FakeData implements StudioData {
     const job = this.jobs.get(id);
     return job ? structuredClone(job) : null;
   }
-  async updateJob(id: string, patch: Partial<StudioJobRow>) {
+  async updateJobIfClaimed(id: string, token: string, patch: Partial<StudioJobRow>) {
     const job = this.jobs.get(id);
-    if (!job) throw new Error(`job not found: ${id}`);
+    if (!job) return false;
+    if (job.status !== "processing" || job.processing_token !== token) return false;
     this.jobs.set(id, { ...job, ...structuredClone(patch) });
+    return true;
   }
   async listJobs(limit: number) {
     return [...this.jobs.values()]
@@ -266,10 +294,13 @@ export class FakeData implements StudioData {
     const job = this.jobs.get(jobId);
     if (!job) return null;
     const staleBefore = this.clock() - staleSeconds * 1000;
+    // Mirrors studio_claim_job: received | retryable-failed | stale-processing.
+    // A published job and a terminal (retryable=false) failure are NEVER
+    // reclaimed.
     const claimable =
       job.status !== "published" &&
       (job.status === "received" ||
-        job.status === "failed" ||
+        (job.status === "failed" && job.retryable) ||
         (job.status === "processing" &&
           (job.processing_started_at == null || job.processing_started_at < staleBefore)));
     if (!claimable) return null;
@@ -280,6 +311,14 @@ export class FakeData implements StudioData {
     job.error = null;
     job.error_code = null;
     return structuredClone(job);
+  }
+
+  async heartbeatJob(jobId: string, token: string): Promise<boolean> {
+    const job = this.jobs.get(jobId);
+    if (!job) return false;
+    if (job.status !== "processing" || job.processing_token !== token) return false;
+    job.processing_started_at = this.clock();
+    return true;
   }
 
   async failJob(input: {
@@ -437,7 +476,19 @@ export class FakeData implements StudioData {
     } as FakeListingStored;
   }
 
+  async addListingWarnings(listingId: string, warnings: ProgressiveWarning[]) {
+    for (const warning of warnings) this.listingWarnings.push({ listingId, warning });
+  }
+
+  /** Set to make recordAudit throw (audit-failure regression). */
+  failAudit = false;
+
   async recordAudit(entry: StudioAuditEntry) {
+    if (this.failAudit) {
+      throw new Error(
+        "audit_log insert failed: injected outage at /var/db postgres://user:pw@db:5432/app",
+      );
+    }
     this.audits.push(entry);
   }
 
@@ -527,6 +578,8 @@ export interface FakeWorld {
   advanceMinutes(mins: number): void;
   pdfExtractions: Map<string, PriceListPdfExtraction>;
   archives: Map<string, Array<{ name: string; data: Buffer }>>;
+  /** Archive names the fake ZIP validator rejects (full-contract failure). */
+  archiveRejects: Set<string>;
   developers: DependencyCandidate[];
   locations: DependencyCandidate[];
 }
@@ -546,6 +599,7 @@ export function makeWorld(): FakeWorld {
   const data = new FakeData(executor, clock);
   const pdfExtractions = new Map<string, PriceListPdfExtraction>();
   const archives = new Map<string, Array<{ name: string; data: Buffer }>>();
+  const archiveRejects = new Set<string>();
   const developers: DependencyCandidate[] = [];
   const locations: DependencyCandidate[] = [];
 
@@ -589,10 +643,24 @@ export function makeWorld(): FakeWorld {
           },
         ],
       },
-    extractArchive: async ({ fileName }) => ({
-      entries: archives.get(fileName) ?? [],
-      warnings: [],
-    }),
+    extractArchive: async ({ fileName }, onEntry) => {
+      if (archiveRejects.has(fileName)) {
+        return {
+          expanded: false,
+          warnings: [
+            {
+              entity: "document",
+              code: "archive_rejected_unsafe",
+              severity: "warning",
+              message: `${fileName} was rejected by archive safety checks (injected); retained privately.`,
+              payload: { file: fileName },
+            },
+          ],
+        };
+      }
+      for (const entry of archives.get(fileName) ?? []) await onEntry(entry);
+      return { expanded: true, warnings: [] };
+    },
     now: () => flags.nowValue,
     newToken: () => {
       flags.tokenSeq += 1;
@@ -615,6 +683,7 @@ export function makeWorld(): FakeWorld {
     },
     pdfExtractions,
     archives,
+    archiveRejects,
     developers,
     locations,
   };
@@ -664,6 +733,13 @@ export function tinyMp4(): Buffer {
   return Buffer.from([
     0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32, 0x00, 0x00, 0x00, 0x00,
   ]);
+}
+
+/** ISO BMFF ftyp with a given 4-char brand (e.g. HEIC "heic", MOV "qt  "). */
+export function tinyFtyp(brand: string): Buffer {
+  const head = Buffer.from([0x00, 0x00, 0x00, 0x14, 0x66, 0x74, 0x79, 0x70]);
+  const brandBytes = Buffer.from(brand.padEnd(4).slice(0, 4), "latin1");
+  return Buffer.concat([head, brandBytes, Buffer.from([0x00, 0x00, 0x00, 0x00]), brandBytes]);
 }
 
 /**

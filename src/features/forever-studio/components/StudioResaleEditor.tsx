@@ -44,8 +44,13 @@ export function StudioResaleEditor(props: { listingId: string }) {
   const save = useMutation({
     mutationFn: () =>
       studioUpdateResale({ data: { listingId: props.listingId, facts: facts ?? {} } }),
-    onSuccess: () => {
-      setMessage("Saved.");
+    onSuccess: (result) => {
+      // Precedence conflicts are truthful, visible, and never a gate: the
+      // stronger existing value was kept and the attempt was recorded.
+      const conflicts = result?.warnings ?? [];
+      setMessage(
+        conflicts.length ? conflicts.map((warning) => warning.message).join(" ") : "Saved.",
+      );
       invalidate();
     },
     onError: (error) => setMessage(error instanceof Error ? error.message : "Save failed."),

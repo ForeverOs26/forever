@@ -23,7 +23,12 @@ import type {
 } from "@/features/forever-ingestion/batch-types";
 import { fingerprintBatch, buildProgressiveBatch } from "@/features/forever-ingestion/build-batch";
 import { buildListingDraft } from "@/features/forever-ingestion/listings";
-import type { FieldProvenanceMap, ProvenanceStatus } from "@/features/forever-ingestion/provenance";
+import {
+  canReplaceField,
+  type FieldProvenance,
+  type FieldProvenanceMap,
+  type ProvenanceStatus,
+} from "@/features/forever-ingestion/provenance";
 import { slugify } from "@/import/persistence-projection";
 
 import {
@@ -46,16 +51,21 @@ import {
 import {
   StudioAccessError,
   type StudioActor,
+  type StudioAuditEntry,
   type StudioDeps,
   type StudioJobRow,
   type StudioListingPublishRow,
   type StudioPrivateContact,
 } from "./contracts";
-import { StudioError, toSafeError } from "./errors";
+import { logStudioFailure, safeMessageFor, StudioError, toSafeError } from "./errors";
 import {
+  attemptPrefixFromToken,
   declareJobFiles,
   gatherMaterials,
   MAX_UPLOAD_BYTES,
+  PUBLIC_DOCUMENT_BUCKET,
+  PUBLIC_IMAGE_BUCKET,
+  publicJobPrefix,
   type GatheredMaterials,
 } from "./extraction";
 import { assertNotPartnerDemo, assertOwner } from "./membership";
@@ -64,8 +74,16 @@ export const MAX_JOB_FILES = 60;
 export { MAX_UPLOAD_BYTES };
 /** A processing claim older than this is considered abandoned and resumable. */
 export const STALE_PROCESSING_SECONDS = 900; // 15 minutes
+/**
+ * A live worker refreshes its lease at most this often (between files and
+ * archive entries), so legitimate long processing never looks abandoned while
+ * a genuinely dead worker still goes stale within STALE_PROCESSING_SECONDS.
+ */
+export const HEARTBEAT_SECONDS = 60;
 /** Jobs auto-resumed per dashboard poll / cron tick. */
 export const RESUME_BATCH = 5;
+/** Public buckets Studio media can be copied into (cleanup sweeps both). */
+const PUBLIC_MEDIA_BUCKETS = [PUBLIC_IMAGE_BUCKET, PUBLIC_DOCUMENT_BUCKET];
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,79}$/;
 const TEXT_LIMIT = 4000;
 
@@ -230,7 +248,7 @@ export async function startUploadJob(
     const { token } = await deps.storage.createSignedUpload(file.stagingBucket, file.stagingPath);
     uploads.push({ name: file.name, bucket: file.stagingBucket, path: file.stagingPath, token });
   }
-  await deps.data.recordAudit({
+  await recordAuditSafely(deps, {
     actor_id: actor.userId,
     actor_email: actor.email,
     action: "studio_job_created",
@@ -314,35 +332,173 @@ async function claimAndProcess(
   const token = deps.newToken();
   const claimed = await deps.data.claimJob(jobRow.id, token, STALE_PROCESSING_SECONDS);
   if (!claimed) {
-    // Already published, or freshly held by another worker.
+    // Already published, terminally failed, or freshly held by another worker.
     const current = await deps.data.getJob(jobRow.id);
     if (!current) throw new StudioAccessError("job_not_found");
     return jobResultFromRow(current);
   }
+  return processClaimedJob(deps, actor, claimed, token);
+}
 
-  let materials: GatheredMaterials | undefined;
+/** Non-fatal post-commit audit: never invalidates a committed write. */
+async function recordAuditSafely(deps: StudioDeps, entry: StudioAuditEntry): Promise<void> {
   try {
-    materials = await gatherMaterials(deps, claimed);
-    // Persist the observed file records (size, sha256, media class, status);
-    // this is diagnostic metadata, not part of the publication transaction.
-    await deps.data.updateJob(claimed.id, { files: materials.files });
+    await deps.data.recordAudit(entry);
+  } catch (error) {
+    logStudioFailure(`audit_write_failed:${entry.action}`, error);
+  }
+}
+
+/** Remove objects grouped by their OWN bucket (never one bucket for all). */
+async function removeGroupedByBucket(
+  deps: StudioDeps,
+  objects: Array<{ bucket: string; path: string }>,
+): Promise<void> {
+  const byBucket = new Map<string, string[]>();
+  for (const object of objects) {
+    const paths = byBucket.get(object.bucket) ?? [];
+    paths.push(object.path);
+    byBucket.set(object.bucket, paths);
+  }
+  for (const [bucket, paths] of byBucket) {
+    await deps.storage.remove(bucket, paths).catch(() => undefined);
+  }
+}
+
+/**
+ * Post-commit hygiene by the winning attempt: remove every other attempt's
+ * token-scoped public objects for this job (orphans of stale, failed, or
+ * crashed attempts). The winner's own prefix is never touched; failures here
+ * are logged and never affect the committed publication.
+ */
+async function cleanupForeignAttemptObjects(
+  deps: StudioDeps,
+  jobId: string,
+  token: string,
+): Promise<void> {
+  const mine = attemptPrefixFromToken(token);
+  const prefix = publicJobPrefix(jobId);
+  for (const bucket of PUBLIC_MEDIA_BUCKETS) {
+    try {
+      const children = await deps.storage.listNames(bucket, prefix);
+      for (const child of children) {
+        if (child === mine) continue;
+        const inner = await deps.storage.listNames(bucket, `${prefix}/${child}`);
+        const paths = inner.size
+          ? [...inner].map((name) => `${prefix}/${child}/${name}`)
+          : [`${prefix}/${child}`];
+        await deps.storage.remove(bucket, paths);
+      }
+    } catch (error) {
+      logStudioFailure("orphan_cleanup_deferred", error);
+    }
+  }
+}
+
+/**
+ * Throttled lease heartbeat. A worker that lost its claim must stop
+ * immediately: it can no longer finalize, and its token-scoped side effects
+ * are cleaned up by its own failure path or by the winner.
+ */
+function makeHeartbeat(deps: StudioDeps, jobId: string, token: string): () => Promise<void> {
+  let last = Date.parse(deps.now());
+  return async () => {
+    const now = Date.parse(deps.now());
+    if (now - last < HEARTBEAT_SECONDS * 1000) return;
+    last = now;
+    const alive = await deps.data.heartbeatJob(jobId, token);
+    if (!alive) {
+      throw new StudioError(
+        "studio_job_not_claimed",
+        safeMessageFor("studio_job_not_claimed"),
+        true,
+      );
+    }
+  };
+}
+
+/**
+ * Drive one CLAIMED processing attempt to completion. Exported for the
+ * concurrency regression tests, which use it to model a stale worker
+ * continuing after a newer claim has taken over.
+ */
+export async function processClaimedJob(
+  deps: StudioDeps,
+  actor: StudioActor,
+  claimed: StudioJobRow,
+  token: string,
+): Promise<StudioJobResult> {
+  let materials: GatheredMaterials | undefined;
+  // Set the moment the atomic publication transaction commits. From then on
+  // this attempt's public objects belong to the published page and must
+  // never be removed, and the job must never be reported as failed.
+  const commitState = { committed: false };
+  try {
+    materials = await gatherMaterials(deps, claimed, {
+      token,
+      heartbeat: makeHeartbeat(deps, claimed.id, token),
+    });
+    // Persist the observed file records (size, sha256, media class, status).
+    // Claim-checked: a stale worker must not overwrite a newer claim's data.
+    const stillClaimed = await deps.data.updateJobIfClaimed(claimed.id, token, {
+      files: materials.files,
+    });
+    if (!stillClaimed) {
+      throw new StudioError(
+        "studio_job_not_claimed",
+        safeMessageFor("studio_job_not_claimed"),
+        true,
+      );
+    }
     const result =
       claimed.workflow === "resale_listing"
-        ? await finalizeResale(deps, actor, claimed, materials, token)
-        : await finalizeProject(deps, actor, claimed, materials, token);
+        ? await finalizeResale(deps, actor, claimed, materials, token, commitState)
+        : await finalizeProject(deps, actor, claimed, materials, token, commitState);
     return result;
   } catch (error) {
     const safe = toSafeError(error, mapFailureCode(error));
-    // Item 4: a failed job exposes no public object — remove anything copied
-    // this attempt. Retry re-copies deterministically.
-    if (materials?.publicObjects.length) {
-      await deps.storage
-        .remove(
-          materials.publicObjects[0].bucket,
-          materials.publicObjects.map((o) => o.path),
-        )
-        .catch(() => undefined);
+
+    if (commitState.committed) {
+      // The publication committed; a later error (audit, hygiene) must never
+      // fail the result or remove the published page's media.
+      logStudioFailure("post_commit_error_ignored", error);
+      try {
+        const current = await deps.data.getJob(claimed.id);
+        if (current) return jobResultFromRow(current);
+      } catch (readError) {
+        logStudioFailure("post_commit_read_failed", readError);
+      }
+      return {
+        ...jobResultFromRow(claimed),
+        status: "published",
+        warnings: materials ? warningSummaries(materials.warnings) : [],
+      };
     }
+
+    // Not committed by us (as far as we observed). Re-read the job before
+    // touching storage: if it is published, only delete our copies when the
+    // recorded winning attempt is provably a DIFFERENT attempt — if our own
+    // publish committed but its response was lost, our objects ARE the page's
+    // media and must be kept. If the job state cannot be read, retain our
+    // objects (deterministic retention: the winner's post-commit sweep
+    // removes foreign prefixes) rather than risk deleting committed media.
+    let currentState: StudioJobRow | null | undefined;
+    try {
+      currentState = await deps.data.getJob(claimed.id);
+    } catch {
+      currentState = undefined;
+    }
+    if (currentState?.status === "published") {
+      const winner = (currentState.result_summary as { attempt?: string } | null)?.attempt;
+      if (winner && winner !== attemptPrefixFromToken(token) && materials?.publicObjects.length) {
+        await removeGroupedByBucket(deps, materials.publicObjects);
+      }
+      return jobResultFromRow(currentState);
+    }
+    if (currentState !== undefined && materials?.publicObjects.length) {
+      await removeGroupedByBucket(deps, materials.publicObjects);
+    }
+
     await deps.data
       .failJob({
         jobId: claimed.id,
@@ -396,6 +552,7 @@ async function finalizeProject(
   job: StudioJobRow,
   materials: GatheredMaterials,
   token: string,
+  commitState: { committed: boolean },
 ): Promise<StudioJobResult> {
   const suppliedAt = job.created_at;
   const manual = manualProjectFields(
@@ -483,6 +640,9 @@ async function finalizeProject(
     projectSlug: slug,
     warnings: warningSummaries(batch.warnings ?? []),
     workflow: job.workflow,
+    // Which attempt's token-scoped storage objects the publication uses —
+    // lets every cleanup path tell the winner's objects from orphans.
+    attempt: attemptPrefixFromToken(token),
   };
 
   // ONE atomic transaction: ingest graph + publish + finalize job.
@@ -493,15 +653,26 @@ async function finalizeProject(
     publish: true,
     result: resultPayload,
   });
+  commitState.committed = true;
 
-  await deps.data.recordAudit({
-    actor_id: actor.userId,
-    actor_email: actor.email,
-    action: mode === "create" ? "studio_project_created_published" : "studio_project_updated",
-    table_name: "projects",
-    record_id: summary.project_id,
-    metadata: { job_id: job.id, workflow: job.workflow, mode, counts: summary.counts },
-  });
+  if (summary.replayed) {
+    // Another attempt already published this job; our token-scoped copies
+    // are orphans (the page references the winner's paths). Remove only ours.
+    await removeGroupedByBucket(deps, materials.publicObjects);
+  } else {
+    // We won: sweep other attempts' orphaned public objects, then audit.
+    // Both are post-commit hygiene — non-destructive to the publication and
+    // non-fatal on failure.
+    await cleanupForeignAttemptObjects(deps, job.id, token);
+    await recordAuditSafely(deps, {
+      actor_id: actor.userId,
+      actor_email: actor.email,
+      action: mode === "create" ? "studio_project_created_published" : "studio_project_updated",
+      table_name: "projects",
+      record_id: summary.project_id,
+      metadata: { job_id: job.id, workflow: job.workflow, mode, counts: summary.counts },
+    });
+  }
 
   return {
     jobId: job.id,
@@ -544,6 +715,7 @@ async function finalizeResale(
   job: StudioJobRow,
   materials: GatheredMaterials,
   token: string,
+  commitState: { committed: boolean },
 ): Promise<StudioJobResult> {
   const suppliedAt = job.created_at;
   const facts = (job.facts.resaleFacts ?? {}) as StudioResaleFacts;
@@ -636,6 +808,7 @@ async function finalizeResale(
     pagePath: resalePagePath(slug),
     warnings: warningSummaries(warnings),
     workflow: job.workflow,
+    attempt: attemptPrefixFromToken(token),
   };
 
   // ONE atomic transaction: listing upsert + private contact + warnings + job.
@@ -647,15 +820,21 @@ async function finalizeResale(
     warnings,
     result: resultPayload,
   });
+  commitState.committed = true;
 
-  await deps.data.recordAudit({
-    actor_id: actor.userId,
-    actor_email: actor.email,
-    action: "studio_resale_published",
-    table_name: "listings",
-    record_id: published.listingId,
-    metadata: { job_id: job.id, photos: materials.photoUrls.length },
-  });
+  if (published.replayed) {
+    await removeGroupedByBucket(deps, materials.publicObjects);
+  } else {
+    await cleanupForeignAttemptObjects(deps, job.id, token);
+    await recordAuditSafely(deps, {
+      actor_id: actor.userId,
+      actor_email: actor.email,
+      action: "studio_resale_published",
+      table_name: "listings",
+      record_id: published.listingId,
+      metadata: { job_id: job.id, photos: materials.photoUrls.length },
+    });
+  }
 
   return {
     jobId: job.id,
@@ -694,7 +873,7 @@ export async function setProjectPublication(
   const summary = await deps.ingest.ingest(
     publicationPatchBatch(input.slug, input.publish, actor, deps.now()),
   );
-  await deps.data.recordAudit({
+  await recordAuditSafely(deps, {
     actor_id: actor.userId,
     actor_email: actor.email,
     action: input.publish ? "studio_project_published" : "studio_project_unpublished",
@@ -724,7 +903,7 @@ export async function saveProjectFacts(
     existing: existingState,
   });
   await deps.ingest.ingest(batch);
-  await deps.data.recordAudit({
+  await recordAuditSafely(deps, {
     actor_id: actor.userId,
     actor_email: actor.email,
     action: "studio_project_facts_saved",
@@ -762,7 +941,7 @@ export async function setProjectHeroImage(
     existing: await deps.fetchExisting(input.slug),
   });
   await deps.ingest.ingest(batch);
-  await deps.data.recordAudit({
+  await recordAuditSafely(deps, {
     actor_id: actor.userId,
     actor_email: actor.email,
     action: "studio_project_hero_set",
@@ -783,7 +962,7 @@ export async function setListingPublication(
   if (!listing) throw new StudioAccessError("listing_not_found");
   const publicationStatus = input.publish ? "published" : "draft";
   await deps.data.updateListing(input.listingId, { publication_status: publicationStatus });
-  await deps.data.recordAudit({
+  await recordAuditSafely(deps, {
     actor_id: actor.userId,
     actor_email: actor.email,
     action: input.publish ? "studio_listing_published" : "studio_listing_unpublished",
@@ -794,31 +973,82 @@ export async function setListingPublication(
   return { listingId: input.listingId, publicationStatus };
 }
 
+/** Resale fact key → public listing column (provenance keys use fact keys). */
+const RESALE_FIELD_COLUMNS: ReadonlyArray<{
+  factKey: keyof StudioResaleFacts;
+  column: string;
+  kind: "text" | "number";
+}> = [
+  { factKey: "title", column: "title", kind: "text" },
+  { factKey: "projectName", column: "project_name_raw", kind: "text" },
+  { factKey: "locationText", column: "location_name_raw", kind: "text" },
+  { factKey: "propertyType", column: "property_type", kind: "text" },
+  { factKey: "bedrooms", column: "bedrooms", kind: "number" },
+  { factKey: "bathrooms", column: "bathrooms", kind: "number" },
+  { factKey: "areaSqm", column: "area_sqm", kind: "number" },
+  { factKey: "price", column: "price", kind: "number" },
+  { factKey: "currency", column: "currency", kind: "text" },
+  { factKey: "description", column: "description", kind: "text" },
+];
+
+/**
+ * Edit a resale listing under the SAME provenance precedence as project
+ * enrichment: a Trusted Publisher fills blanks and may update an equal-or-
+ * weaker-ranked value, but never silently replaces an Owner-provided (or
+ * stronger) value — the stronger value is preserved and a truthful conflict
+ * record is persisted for later Owner editing. No approval gate is created.
+ */
 export async function updateResaleListing(
   deps: StudioDeps,
   actor: StudioActor,
   input: { listingId: string; facts: StudioResaleFacts },
-): Promise<{ listingId: string }> {
+): Promise<{ listingId: string; warnings: StudioWarningSummary[] }> {
   assertNotPartnerDemo(deps);
   const listing = await deps.data.getListingDetail(input.listingId);
   if (!listing) throw new StudioAccessError("listing_not_found");
+  const suppliedAt = deps.now();
+  const existingProvenance =
+    (listing as unknown as { field_provenance?: FieldProvenanceMap }).field_provenance ?? {};
+  const incomingStatus = actorProvenanceStatus(actor);
   const patch: Record<string, unknown> = {};
-  const put = (column: string, value: unknown) => {
-    if (value !== undefined) patch[column] = value;
-  };
-  put("title", cleanText(input.facts.title));
-  put("project_name_raw", cleanText(input.facts.projectName));
-  put("location_name_raw", cleanText(input.facts.locationText));
-  put("property_type", cleanText(input.facts.propertyType));
-  put("bedrooms", cleanNumber(input.facts.bedrooms));
-  put("bathrooms", cleanNumber(input.facts.bathrooms));
-  put("area_sqm", cleanNumber(input.facts.areaSqm));
-  put("price", cleanNumber(input.facts.price));
-  put("description", cleanText(input.facts.description));
-  const currency = cleanText(input.facts.currency)?.toUpperCase();
-  if (currency && /^[A-Z]{3}$/.test(currency)) patch.currency = currency;
+  const appliedProvenance: FieldProvenanceMap = {};
+  const conflicts: ProgressiveWarning[] = [];
+
+  for (const { factKey, column, kind } of RESALE_FIELD_COLUMNS) {
+    const raw = input.facts[factKey];
+    let value: unknown = kind === "number" ? cleanNumber(raw) : cleanText(raw);
+    if (factKey === "currency" && typeof value === "string") {
+      const upper = value.toUpperCase();
+      if (!/^[A-Z]{3}$/.test(upper)) continue;
+      value = upper;
+    }
+    if (value === undefined) continue;
+
+    const currentValue = (listing as Record<string, unknown>)[column];
+    const currentIsNull = currentValue == null || currentValue === "";
+    const incoming: FieldProvenance = {
+      status: incomingStatus,
+      supplied_at: suppliedAt,
+      note: "studio_manual_entry",
+    };
+    const verdict = canReplaceField(existingProvenance[factKey], incoming, currentIsNull);
+    if (verdict === "apply") {
+      patch[column] = value;
+      appliedProvenance[factKey] = incoming;
+    } else {
+      conflicts.push({
+        entity: "listing",
+        field: column,
+        code: "listing_field_conflict_preserved",
+        severity: "warning",
+        message: `${column}: the current value was set by a stronger source (${existingProvenance[factKey]?.status ?? "unknown"}) and was preserved; the attempted change by ${actor.role} was recorded, not applied.`,
+        payload: { attempted_by: actor.role, attempted_status: incomingStatus },
+      });
+    }
+  }
 
   // Private contact — routed to the private table, never to the public row.
+  // Contact data is operational, not provenance-ranked: always editable.
   const contactTouched =
     input.facts.contactName !== undefined ||
     input.facts.contactPhone !== undefined ||
@@ -832,21 +1062,26 @@ export async function updateResaleListing(
   }
 
   if (Object.keys(patch).length > 0) {
-    patch.field_provenance = {
-      ...((listing as unknown as { field_provenance?: FieldProvenanceMap }).field_provenance ?? {}),
-      ...manualListingProvenance(input.facts, actor, deps.now()),
-    };
+    patch.field_provenance = { ...existingProvenance, ...appliedProvenance };
     await deps.data.updateListing(input.listingId, patch);
   }
-  await deps.data.recordAudit({
+  if (conflicts.length > 0) {
+    // Truthful, persistent conflict records — visible in Studio, never a gate.
+    await deps.data.addListingWarnings(input.listingId, conflicts);
+  }
+  await recordAuditSafely(deps, {
     actor_id: actor.userId,
     actor_email: actor.email,
     action: "studio_listing_updated",
     table_name: "listings",
     record_id: input.listingId,
-    metadata: { fields: Object.keys(patch), contact: contactTouched },
+    metadata: {
+      fields: Object.keys(patch),
+      contact: contactTouched,
+      conflicts: conflicts.map((warning) => warning.field),
+    },
   });
-  return { listingId: input.listingId };
+  return { listingId: input.listingId, warnings: warningSummaries(conflicts) };
 }
 
 // ---------------------------------------------------------------------------
@@ -935,18 +1170,22 @@ export async function getListingDetail(
 }
 
 export async function getOverview(deps: StudioDeps, actor: StudioActor): Promise<StudioOverview> {
-  const [projects, listings, jobs] = await Promise.all([
+  const [projects, listings, allJobs] = await Promise.all([
     deps.data.listProjects(),
     deps.data.listListings(),
     deps.data.listJobs(25),
   ]);
   const members = actor.role === "owner" ? await deps.data.listMembers() : [];
+  // Operational-history isolation: the Owner sees every job; a Trusted
+  // Publisher receives ONLY their own jobs (and therefore only their own
+  // errors, creator email, and staging metadata). Enforced here at the data
+  // response boundary — the UI never sees what it must not show.
+  const jobs = allJobs.filter((job) => actor.role === "owner" || job.created_by === actor.userId);
   const activeJobs = jobs.filter(
     (job) =>
-      (actor.role === "owner" || job.created_by === actor.userId) &&
-      (job.status === "received" ||
-        job.status === "processing" ||
-        (job.status === "failed" && job.retryable)),
+      job.status === "received" ||
+      job.status === "processing" ||
+      (job.status === "failed" && job.retryable),
   ).length;
   return {
     session: {
@@ -1031,7 +1270,7 @@ export async function inviteMember(
     invited_by: actor.userId,
     is_active: true,
   });
-  await deps.data.recordAudit({
+  await recordAuditSafely(deps, {
     actor_id: actor.userId,
     actor_email: actor.email,
     action: "studio_member_invited",
@@ -1061,7 +1300,7 @@ export async function setMemberActive(
     }
   }
   await deps.data.upsertMembership({ ...member, is_active: input.isActive });
-  await deps.data.recordAudit({
+  await recordAuditSafely(deps, {
     actor_id: actor.userId,
     actor_email: actor.email,
     action: input.isActive ? "studio_member_enabled" : "studio_member_disabled",

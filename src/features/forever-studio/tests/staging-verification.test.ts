@@ -17,7 +17,12 @@ import {
   detectMediaClass,
 } from "../server/extraction";
 import { processUploadJob, startUploadJob } from "../server/service";
-import { makeWorld, tinyJpeg, tinyPdf, uploadAll, OWNER } from "./fakes";
+import { makeWorld, tinyFtyp, tinyJpeg, tinyPdf, uploadAll, OWNER } from "./fakes";
+
+/** A media file well past the former in-memory hashing threshold (25 MiB). */
+function largeMedia(head: Buffer, totalBytes = 26 * 1024 * 1024): Buffer {
+  return Buffer.concat([head, Buffer.alloc(totalBytes - head.length, 0x33)]);
+}
 
 describe("private staging and byte verification", () => {
   it("records observed size, sha256, and media class from actual bytes", async () => {
@@ -132,5 +137,134 @@ describe("private staging and byte verification", () => {
     expect(detectMediaClass(Buffer.from('{"a":1}'))).toBe("json");
     expect(detectMediaClass(Buffer.from([0x50, 0x4b, 0x03, 0x04]))).toBe("zip");
     expect(detectMediaClass(Buffer.from("random text"))).toBe("other");
+  });
+
+  it("classifies ftyp containers by brand: HEIC/HEIF are images, not video", () => {
+    expect(detectMediaClass(tinyFtyp("heic"))).toBe("image");
+    expect(detectMediaClass(tinyFtyp("heix"))).toBe("image");
+    expect(detectMediaClass(tinyFtyp("mif1"))).toBe("image"); // HEIF
+    expect(detectMediaClass(tinyFtyp("avif"))).toBe("image");
+    expect(detectMediaClass(tinyFtyp("mp42"))).toBe("video");
+    expect(detectMediaClass(tinyFtyp("isom"))).toBe("video");
+    expect(detectMediaClass(tinyFtyp("qt  "))).toBe("video"); // MOV
+    // A generic/unknown ftyp container is NOT assumed to be video.
+    expect(detectMediaClass(tinyFtyp("abcd"))).toBe("other");
+  });
+
+  it("streams a FULL SHA-256 for large media and publishes byte-verified", async () => {
+    const world = makeWorld();
+    const big = largeMedia(tinyJpeg());
+    const started = await startUploadJob(world.deps, OWNER, {
+      workflow: "new_development",
+      projectFacts: { name: "Large Photo Project" },
+      files: [{ name: "hero.jpg", size: big.length }],
+    });
+    uploadAll(world, started.uploads, { "hero.jpg": big });
+    const result = await processUploadJob(world.deps, OWNER, started.jobId);
+
+    expect(result.status).toBe("published");
+    const job = await world.data.getJob(started.jobId);
+    const file = job!.files[0];
+    // Full digest + exact size from the actual stored bytes, streamed.
+    expect(file.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(file.observedSize).toBe(big.length);
+    expect(file.mediaClass).toBe("image");
+    expect(world.storage.hashedPaths).toContain(`${file.stagingBucket}/${file.stagingPath}`);
+    expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(1);
+  });
+
+  it("refuses a LARGE disguised media file — bytes decide, not the extension", async () => {
+    const world = makeWorld();
+    // Named .jpg / .mp4 but the bytes are not that media type.
+    const fakeJpg = largeMedia(Buffer.from("MZ not an image at all"));
+    const fakeMp4 = largeMedia(Buffer.from("RIFFxxxxWAVE not video"));
+    const started = await startUploadJob(world.deps, OWNER, {
+      workflow: "new_development",
+      projectFacts: { name: "Disguise Project" },
+      files: [{ name: "big-fake.jpg" }, { name: "big-fake.mp4" }],
+    });
+    uploadAll(world, started.uploads, { "big-fake.jpg": fakeJpg, "big-fake.mp4": fakeMp4 });
+    const result = await processUploadJob(world.deps, OWNER, started.jobId);
+
+    expect(result.status).toBe("published"); // never blocks
+    expect(
+      result.warnings.filter((w) => w.code === "media_class_mismatch").length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(0);
+    expect(world.executor.store.media).toHaveLength(0);
+  });
+
+  it("records a forged declared size as a mismatch with a warning", async () => {
+    const world = makeWorld();
+    const started = await startUploadJob(world.deps, OWNER, {
+      workflow: "new_development",
+      projectFacts: { name: "Forged Size Project" },
+      files: [{ name: "photo.jpg", size: 123_456_789 }],
+    });
+    uploadAll(world, started.uploads); // actual bytes are tiny
+    const result = await processUploadJob(world.deps, OWNER, started.jobId);
+
+    expect(result.status).toBe("published");
+    const file = (await world.data.getJob(started.jobId))!.files[0];
+    expect(file.declaredMismatch).toBe(true);
+    expect(file.observedSize).not.toBe(123_456_789);
+    expect(result.warnings.some((w) => w.code === "file_declared_size_mismatch")).toBe(true);
+  });
+
+  it("publishes phone HEIC/HEIF photos and MOV video via brand detection", async () => {
+    const world = makeWorld();
+    const started = await startUploadJob(world.deps, OWNER, {
+      workflow: "new_development",
+      projectFacts: { name: "Phone Formats Project" },
+      files: [{ name: "IMG_1.heic" }, { name: "IMG_2.heif" }, { name: "clip.mov" }],
+    });
+    uploadAll(world, started.uploads, {
+      "IMG_1.heic": Buffer.concat([tinyFtyp("heic"), Buffer.from("::1")]),
+      "IMG_2.heif": Buffer.concat([tinyFtyp("mif1"), Buffer.from("::2")]),
+      "clip.mov": Buffer.concat([tinyFtyp("qt  "), Buffer.from("::3")]),
+    });
+    const result = await processUploadJob(world.deps, OWNER, started.jobId);
+
+    expect(result.status).toBe("published");
+    expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(3);
+    const types = world.executor.store.media.map((m) => m.media_type).sort();
+    expect(types).toEqual(["gallery", "gallery", "video"]);
+  });
+
+  it("keeps an unrecognized LARGE ftyp container private without blocking", async () => {
+    const world = makeWorld();
+    const unknown = largeMedia(tinyFtyp("abcd"));
+    const started = await startUploadJob(world.deps, OWNER, {
+      workflow: "new_development",
+      projectFacts: { name: "Unknown Container Project" },
+      files: [{ name: "mystery.mp4" }, { name: "real.jpg" }],
+    });
+    uploadAll(world, started.uploads, { "mystery.mp4": unknown });
+    const result = await processUploadJob(world.deps, OWNER, started.jobId);
+
+    expect(result.status).toBe("published");
+    expect(result.warnings.some((w) => w.code === "media_class_mismatch")).toBe(true);
+    // Only the real photo was published; the unknown container stays private.
+    expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(1);
+    const job = await world.data.getJob(started.jobId);
+    const mystery = job!.files.find((f) => f.name === "mystery.mp4");
+    expect(mystery?.status).toBe("uploaded");
+    expect(mystery?.publicPath ?? null).toBeNull();
+    expect(mystery?.sha256).toMatch(/^[0-9a-f]{64}$/); // still fully verified
+  });
+
+  it("skips a byte-identical LARGE duplicate (hash covers every size)", async () => {
+    const world = makeWorld();
+    const big = largeMedia(tinyJpeg());
+    const started = await startUploadJob(world.deps, OWNER, {
+      workflow: "new_development",
+      projectFacts: { name: "Large Dup Project" },
+      files: [{ name: "a.jpg" }, { name: "b.jpg" }],
+    });
+    uploadAll(world, started.uploads, { "a.jpg": big, "b.jpg": Buffer.from(big) });
+    const result = await processUploadJob(world.deps, OWNER, started.jobId);
+
+    expect(result.warnings.some((w) => w.code === "duplicate_media_ignored")).toBe(true);
+    expect(world.executor.store.media).toHaveLength(1);
   });
 });

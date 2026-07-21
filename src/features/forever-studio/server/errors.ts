@@ -35,6 +35,8 @@ const SAFE_MESSAGES: Record<string, string> = {
   studio_job_not_claimed: "This job is being processed by another request.",
   studio_job_not_found: "This upload job no longer exists.",
   publication_failed: "The page could not be published just now. It will be retried.",
+  studio_request_failed:
+    "Forever Studio hit a temporary problem completing this request. Please try again.",
 };
 
 /**
@@ -83,4 +85,25 @@ export function toSafeError(error: unknown, fallbackCode = "processing_failed"):
 
 export function safeMessageFor(code: string): string {
   return SAFE_MESSAGES[code] ?? SAFE_MESSAGES.processing_failed;
+}
+
+/**
+ * Safe error envelope for EVERY Studio server-function endpoint (and the
+ * membership middleware). Access/validation and Studio errors already carry a
+ * safe code + message and pass through unchanged; anything else — raw
+ * Supabase/PostgREST/SQL/storage/filesystem/connection text — is logged
+ * redacted server-side and replaced by a stable safe code and concise
+ * message before it can reach the browser. `name` carries the stable code
+ * across serialization.
+ */
+export async function runStudioEndpoint<T>(context: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (error instanceof StudioAccessError || error instanceof StudioError) throw error;
+    logStudioFailure(`endpoint:${context}`, error);
+    const safe = new Error(SAFE_MESSAGES.studio_request_failed);
+    safe.name = "studio_request_failed";
+    throw safe;
+  }
 }

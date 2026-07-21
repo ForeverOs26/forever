@@ -210,6 +210,47 @@ describe("Studio authorization boundary", () => {
       expect(ownerView.members.length).toBe(2);
       expect(publisherView.members).toHaveLength(0);
     });
+
+    it("isolates operational history: a publisher receives ONLY their own jobs", async () => {
+      const world = makeWorld();
+      enroll(world, OWNER);
+      enroll(world, PUBLISHER);
+      const ownerJob = await startUploadJob(world.deps, OWNER, {
+        workflow: "new_development",
+        projectFacts: { name: "Owner Only Project" },
+        files: [],
+      });
+      const publisherJob = await startUploadJob(world.deps, PUBLISHER, {
+        workflow: "resale_listing",
+        resaleFacts: { title: "Publisher Listing" },
+        files: [],
+      });
+      // Give the owner's job an error so leak checks cover error details too.
+      await world.data.claimJob(ownerJob.jobId, "t-owner", 900);
+      await world.data.failJob({
+        jobId: ownerJob.jobId,
+        token: "t-owner",
+        errorCode: "processing_failed",
+        message: "owner job failed",
+        retryable: true,
+      });
+
+      const publisherView = await getOverview(world.deps, PUBLISHER);
+      // The response contains only the publisher's own job…
+      expect(publisherView.jobs.map((job) => job.id)).toEqual([publisherJob.jobId]);
+      // …and NOTHING about the owner's job: id, email, or error details.
+      const serialized = JSON.stringify(publisherView.jobs);
+      expect(serialized).not.toContain(ownerJob.jobId);
+      expect(serialized).not.toContain(OWNER.email as string);
+      expect(serialized).not.toContain("owner job failed");
+      expect(publisherView.activeJobs).toBe(1);
+
+      // The owner still sees every job (both of them).
+      const ownerView = await getOverview(world.deps, OWNER);
+      expect(ownerView.jobs.map((job) => job.id).sort()).toEqual(
+        [ownerJob.jobId, publisherJob.jobId].sort(),
+      );
+    });
   });
 
   describe("no self-registration surface", () => {

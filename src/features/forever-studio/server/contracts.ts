@@ -174,13 +174,27 @@ export interface StudioData {
 
   createJob(row: StudioJobRow): Promise<void>;
   getJob(id: string): Promise<StudioJobRow | null>;
-  updateJob(id: string, patch: Partial<StudioJobRow>): Promise<void>;
+  /**
+   * Claim-checked job metadata update: applies only while the caller still
+   * holds the processing claim, so a stale worker can never overwrite a newer
+   * claim's records. Returns false when the claim was lost.
+   */
+  updateJobIfClaimed(id: string, token: string, patch: Partial<StudioJobRow>): Promise<boolean>;
   listJobs(limit: number): Promise<StudioJobRow[]>;
   /** Received, retryable-failed, or stale-processing jobs due for resumption. */
   listDueJobs(staleSeconds: number, limit: number): Promise<StudioJobRow[]>;
 
-  /** Single-winner claim; null if already published or freshly held elsewhere. */
+  /**
+   * Single-winner claim; null if already published, freshly held elsewhere,
+   * or failed with retryable=false (a terminal failure is never reclaimed).
+   */
   claimJob(jobId: string, token: string, staleSeconds: number): Promise<StudioJobRow | null>;
+  /**
+   * Lease heartbeat: extends the live claim's processing_started_at so a
+   * long-running worker is not mistaken for dead. Returns false when the
+   * claim was lost (the worker must stop; it can no longer finalize).
+   */
+  heartbeatJob(jobId: string, token: string): Promise<boolean>;
   failJob(input: {
     jobId: string;
     token: string;
@@ -206,11 +220,24 @@ export interface StudioData {
     result: Record<string, unknown>;
   }): Promise<{ listingId: string; slug: string; replayed: boolean }>;
 
+  /** Append listing conflict/enrichment warnings (never replaces history). */
+  addListingWarnings(listingId: string, warnings: ProgressiveWarning[]): Promise<void>;
+
   recordAudit(entry: StudioAuditEntry): Promise<void>;
 }
 
 export interface StudioObjectStat {
   size: number;
+}
+
+/** Full digest of the actual stored bytes, streamed — never fully buffered. */
+export interface StudioObjectDigest {
+  /** Full SHA-256 of every stored byte. */
+  sha256: string;
+  /** Exact server-observed byte count (authoritative over any declaration). */
+  size: number;
+  /** The leading bytes, for magic-byte media-class detection. */
+  head: Buffer;
 }
 
 export interface StudioStorage {
@@ -219,6 +246,12 @@ export interface StudioStorage {
   listNames(bucket: string, prefix: string): Promise<Set<string>>;
   /** Actual stored byte size and metadata, or null when the object is absent. */
   statObject(bucket: string, path: string): Promise<StudioObjectStat | null>;
+  /**
+   * Stream the object once to produce its full SHA-256, exact byte count, and
+   * leading bytes — bounded memory regardless of object size. Null when the
+   * object is absent or cannot be read.
+   */
+  hashObject(bucket: string, path: string, headBytes: number): Promise<StudioObjectDigest | null>;
   /** Download only when within `maxBytes`; null when absent or over the cap. */
   downloadWithin(bucket: string, path: string, maxBytes: number): Promise<Buffer | null>;
   /** Server-side copy (no bytes through the app server); publishes final media. */
@@ -263,11 +296,16 @@ export interface StudioDeps {
     fileName: string;
     buffer: Buffer;
   }): Promise<PriceListPdfExtraction>;
-  /** Bounded ZIP expansion; resolves entries or warnings, never throws. */
-  extractArchive(input: {
-    fileName: string;
-    buffer: Buffer;
-  }): Promise<{ entries: Array<{ name: string; data: Buffer }>; warnings: ProgressiveWarning[] }>;
+  /**
+   * Full-contract ZIP expansion (see server/archive.ts): the complete entry
+   * set is validated before any expansion, then entries are streamed ONE AT A
+   * TIME through `onEntry`. Resolves with warnings, never throws; a rejected
+   * archive expands nothing and never blocks the rest of the upload.
+   */
+  extractArchive(
+    input: { fileName: string; buffer: Buffer },
+    onEntry: (entry: { name: string; data: Buffer }) => Promise<void>,
+  ): Promise<{ expanded: boolean; warnings: ProgressiveWarning[] }>;
   now(): string;
   /** Fresh opaque processing-claim token. */
   newToken(): string;

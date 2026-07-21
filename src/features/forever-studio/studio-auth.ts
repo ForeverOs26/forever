@@ -20,17 +20,27 @@ export const requireStudioMember = createMiddleware({ type: "function" })
   .server(async ({ next, context }) => {
     const { createStudioDeps } = await import("./server/deps.server");
     const { resolveStudioActor } = await import("./server/membership");
-    const deps = createStudioDeps();
-    const claims = context.claims as Record<string, unknown>;
-    const email = typeof claims.email === "string" ? claims.email : null;
-    // Supabase stamps email_verified/email_confirmed into the access token;
-    // bootstrap-by-email requires a confirmed identity.
-    const emailVerified =
-      claims.email_verified === true ||
-      claims.email_confirmed_at != null ||
-      (typeof claims.user_metadata === "object" &&
-        claims.user_metadata != null &&
-        (claims.user_metadata as Record<string, unknown>).email_verified === true);
-    const actor = await resolveStudioActor(deps, { userId: context.userId, email, emailVerified });
+    const { runStudioEndpoint } = await import("./server/errors");
+    // The safe error envelope covers membership resolution too: a raw
+    // database/PostgREST failure here must never reach the browser.
+    const { deps, actor } = await runStudioEndpoint("membership", async () => {
+      const deps = createStudioDeps();
+      const claims = context.claims as Record<string, unknown>;
+      const email = typeof claims.email === "string" ? claims.email : null;
+      // Supabase stamps email_verified/email_confirmed into the access token;
+      // bootstrap-by-email requires a confirmed identity.
+      const emailVerified =
+        claims.email_verified === true ||
+        claims.email_confirmed_at != null ||
+        (typeof claims.user_metadata === "object" &&
+          claims.user_metadata != null &&
+          (claims.user_metadata as Record<string, unknown>).email_verified === true);
+      const actor = await resolveStudioActor(deps, {
+        userId: context.userId,
+        email,
+        emailVerified,
+      });
+      return { deps, actor };
+    });
     return next({ context: { deps, actor } });
   });

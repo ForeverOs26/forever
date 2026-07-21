@@ -57,11 +57,19 @@ Things worth knowing:
 
 - Uploading to a project that already exists **updates** it — it never
   creates a duplicate.
+- Phone photos and videos work as they are: iPhone HEIC/HEIF photos and
+  MP4/MOV videos are recognized by their actual content. A file whose bytes
+  do not match its name (or an unrecognized format) is kept safely private
+  and never published — the rest of the upload still goes through.
 - A price-list PDF that cannot be read automatically is kept safely and the
   page still publishes; you can add a reviewed price list later.
+- A ZIP that fails the safety checks (damaged, suspicious, or too large) is
+  kept unopened and privately; the rest of the upload still publishes.
 - If the connection drops, nothing is lost: the upload is saved as a job
-  with a **Retry** button.
-- Every change records who made it.
+  with a **Retry** button. Long uploads keep themselves alive; a genuinely
+  interrupted one is picked up automatically.
+- Every change records who made it. If the audit log itself ever hiccups,
+  your publication still completes — the page is never lost to bookkeeping.
 
 ## Fixing and completing information later
 
@@ -80,6 +88,11 @@ On `/studio` → **Manage publishers** (only you see this):
   immediately — but they cannot manage publishers.
 - **Disable** cuts a publisher's access instantly (their history remains).
   **Enable** restores it. You cannot disable yourself or the last owner.
+- Each publisher sees only **their own** uploads and errors. Only you see
+  everyone's activity and the publisher list.
+- A publisher can fill in missing information and improve their own entries,
+  but nothing a publisher enters can silently replace a value you set — your
+  value stays, and the attempted change is recorded for you to review.
 
 There is no public registration. An account that is not on the member list
 is rejected by the server even if someone creates a login elsewhere.

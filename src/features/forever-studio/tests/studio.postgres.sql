@@ -127,6 +127,71 @@ SELECT pg_temp.assert_true(
   'a stale claim is recoverable');
 
 -- ---------------------------------------------------------------------------
+-- 4b. Lease heartbeat: a live long-running worker is not considered dead
+-- ---------------------------------------------------------------------------
+-- Simulate 10 minutes of processing, then a heartbeat by the claim holder.
+UPDATE public.studio_upload_jobs
+  SET processing_started_at = now() - interval '10 minutes'
+  WHERE id='10000000-0000-0000-0000-000000000001';
+SELECT pg_temp.assert_true(
+  public.studio_heartbeat_job(
+    '10000000-0000-0000-0000-000000000001','bbbbbbbb-0000-0000-0000-00000000000b'),
+  'the claim holder heartbeat succeeds');
+SELECT pg_temp.assert_true(
+  NOT public.studio_heartbeat_job(
+    '10000000-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-00000000000a'),
+  'a worker without the claim cannot heartbeat');
+SELECT pg_temp.assert_true(
+  (SELECT processing_started_at > now() - interval '1 minute'
+   FROM public.studio_upload_jobs WHERE id='10000000-0000-0000-0000-000000000001'),
+  'the heartbeat refreshed the lease');
+-- The refreshed lease is FRESH: it cannot be stolen.
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_claim_job(
+     '10000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-0000000000cc',900))=0,
+  'a heartbeaten lease cannot be stolen');
+-- A stale worker (the OLD token) can no longer finalize the job.
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.studio_publish_project(
+      '10000000-0000-0000-0000-000000000001',
+      'aaaaaaaa-0000-0000-0000-00000000000a',
+      jsonb_build_object('schema_version','1','mode','create','batch_fingerprint',repeat('f',64),
+        'project',jsonb_build_object('slug','stale-finalize','name','Stale Finalize')),
+      true, '{}'::jsonb);
+    RAISE EXCEPTION 'expected_stale_finalize_refusal_absent';
+  EXCEPTION
+    WHEN OTHERS THEN
+      IF SQLERRM <> 'studio_job_not_claimed' THEN RAISE; END IF;
+  END;
+END;
+$$;
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.projects WHERE slug='stale-finalize')=0,
+  'a stale worker cannot finalize after losing its lease');
+
+-- ---------------------------------------------------------------------------
+-- 4c. Terminal failures: retryable=false is NEVER reclaimed
+-- ---------------------------------------------------------------------------
+SELECT pg_temp.assert_true(
+  public.studio_fail_job(
+    '10000000-0000-0000-0000-000000000001','bbbbbbbb-0000-0000-0000-00000000000b',
+    'processing_failed','safe terminal message', false),
+  'the claim holder can fail its job terminally');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_claim_job(
+     '10000000-0000-0000-0000-000000000001','dddddddd-0000-0000-0000-0000000000dd',900))=0,
+  'a retryable=false job is never reclaimed');
+-- Flipping it back to retryable makes it claimable again (manual recovery).
+UPDATE public.studio_upload_jobs SET retryable = true
+  WHERE id='10000000-0000-0000-0000-000000000001';
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_claim_job(
+     '10000000-0000-0000-0000-000000000001','dddddddd-0000-0000-0000-0000000000dd',900))=1,
+  'a retryable failure stays recoverable');
+
+-- ---------------------------------------------------------------------------
 -- 5. Atomic publish rollback: a failure leaves no project, child, or batch
 -- ---------------------------------------------------------------------------
 INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status)

@@ -63,11 +63,11 @@ export interface StudioJobFile {
   /** Deterministic routing category (Fast Intake classifier vocabulary). */
   category: string;
   status: StudioJobFileStatus;
-  /** Actual stored byte size (from storage metadata). */
+  /** Actual server-observed byte size (streamed count, not the declaration). */
   observedSize?: number | null;
-  /** SHA-256 of the actual bytes, when the file was small enough to read. */
+  /** Full SHA-256 of the actual stored bytes (streamed; any size within the cap). */
   sha256?: string | null;
-  /** Detected media class from magic bytes / extension: image|video|pdf|zip|json|other. */
+  /** Media class detected from the actual bytes: image|video|pdf|zip|json|other. */
   mediaClass?: string | null;
   /** True when the declared size/type disagrees with the observed bytes. */
   declaredMismatch?: boolean;

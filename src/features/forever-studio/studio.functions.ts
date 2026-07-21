@@ -2,9 +2,12 @@
  * Forever Studio — server function endpoints.
  *
  * Every endpoint runs behind requireStudioMember (JWT + active membership,
- * enforced server-side). Handlers dynamically import the server modules so
- * no service-role code can reach the client bundle; this file itself carries
- * only wiring and zod validation.
+ * enforced server-side) AND inside runStudioEndpoint, the safe error
+ * envelope: raw Supabase/PostgREST/SQL/storage/filesystem/connection text is
+ * logged redacted server-side and only a stable safe code + concise message
+ * ever reaches the browser. Handlers dynamically import the server modules
+ * so no service-role code can reach the client bundle; this file itself
+ * carries only wiring and zod validation.
  */
 
 import { createServerFn } from "@tanstack/react-start";
@@ -70,7 +73,8 @@ export const studioGetOverview = createServerFn({ method: "GET" })
   .middleware([requireStudioMember])
   .handler(async ({ context }) => {
     const { getOverview } = await import("./server/service");
-    return getOverview(context.deps, context.actor);
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("overview", () => getOverview(context.deps, context.actor));
   });
 
 export const studioStartJob = createServerFn({ method: "POST" })
@@ -78,7 +82,10 @@ export const studioStartJob = createServerFn({ method: "POST" })
   .validator(startJobSchema)
   .handler(async ({ data, context }) => {
     const { startUploadJob } = await import("./server/service");
-    return startUploadJob(context.deps, context.actor, data);
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("upload_start", () =>
+      startUploadJob(context.deps, context.actor, data),
+    );
   });
 
 export const studioProcessJob = createServerFn({ method: "POST" })
@@ -86,7 +93,10 @@ export const studioProcessJob = createServerFn({ method: "POST" })
   .validator(z.object({ jobId: z.string().uuid() }))
   .handler(async ({ data, context }) => {
     const { processUploadJob } = await import("./server/service");
-    return processUploadJob(context.deps, context.actor, data.jobId);
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("processing", () =>
+      processUploadJob(context.deps, context.actor, data.jobId),
+    );
   });
 
 /**
@@ -98,7 +108,8 @@ export const studioResumePending = createServerFn({ method: "POST" })
   .middleware([requireStudioMember])
   .handler(async ({ context }) => {
     const { resumeDueJobs } = await import("./server/service");
-    return resumeDueJobs(context.deps, context.actor);
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("automatic_resume", () => resumeDueJobs(context.deps, context.actor));
   });
 
 export const studioGetProjectDetail = createServerFn({ method: "GET" })
@@ -106,7 +117,10 @@ export const studioGetProjectDetail = createServerFn({ method: "GET" })
   .validator(z.object({ slug: z.string() }))
   .handler(async ({ data, context }) => {
     const { getProjectDetail } = await import("./server/service");
-    return getProjectDetail(context.deps, context.actor, data.slug);
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("project_detail", () =>
+      getProjectDetail(context.deps, context.actor, data.slug),
+    );
   });
 
 export const studioGetListingDetail = createServerFn({ method: "GET" })
@@ -114,7 +128,10 @@ export const studioGetListingDetail = createServerFn({ method: "GET" })
   .validator(z.object({ listingId: z.string().uuid() }))
   .handler(async ({ data, context }) => {
     const { getListingDetail } = await import("./server/service");
-    return getListingDetail(context.deps, context.actor, data.listingId);
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("resale_detail", () =>
+      getListingDetail(context.deps, context.actor, data.listingId),
+    );
   });
 
 export const studioSetHeroImage = createServerFn({ method: "POST" })
@@ -122,7 +139,10 @@ export const studioSetHeroImage = createServerFn({ method: "POST" })
   .validator(z.object({ slug: z.string(), url: z.string() }))
   .handler(async ({ data, context }) => {
     const { setProjectHeroImage } = await import("./server/service");
-    return setProjectHeroImage(context.deps, context.actor, data);
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("hero_image", () =>
+      setProjectHeroImage(context.deps, context.actor, data),
+    );
   });
 
 export const studioSetProjectPublication = createServerFn({ method: "POST" })
@@ -130,7 +150,10 @@ export const studioSetProjectPublication = createServerFn({ method: "POST" })
   .validator(z.object({ slug: z.string(), publish: z.boolean() }))
   .handler(async ({ data, context }) => {
     const { setProjectPublication } = await import("./server/service");
-    return setProjectPublication(context.deps, context.actor, data);
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("project_publication", () =>
+      setProjectPublication(context.deps, context.actor, data),
+    );
   });
 
 export const studioSaveProjectFacts = createServerFn({ method: "POST" })
@@ -138,7 +161,10 @@ export const studioSaveProjectFacts = createServerFn({ method: "POST" })
   .validator(z.object({ slug: z.string(), facts: projectFactsSchema }))
   .handler(async ({ data, context }) => {
     const { saveProjectFacts } = await import("./server/service");
-    return saveProjectFacts(context.deps, context.actor, data);
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("project_edit", () =>
+      saveProjectFacts(context.deps, context.actor, data),
+    );
   });
 
 export const studioSetListingPublication = createServerFn({ method: "POST" })
@@ -146,7 +172,10 @@ export const studioSetListingPublication = createServerFn({ method: "POST" })
   .validator(z.object({ listingId: z.string().uuid(), publish: z.boolean() }))
   .handler(async ({ data, context }) => {
     const { setListingPublication } = await import("./server/service");
-    return setListingPublication(context.deps, context.actor, data);
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("listing_publication", () =>
+      setListingPublication(context.deps, context.actor, data),
+    );
   });
 
 export const studioUpdateResale = createServerFn({ method: "POST" })
@@ -154,7 +183,10 @@ export const studioUpdateResale = createServerFn({ method: "POST" })
   .validator(z.object({ listingId: z.string().uuid(), facts: resaleFactsSchema }))
   .handler(async ({ data, context }) => {
     const { updateResaleListing } = await import("./server/service");
-    return updateResaleListing(context.deps, context.actor, data);
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("resale_edit", () =>
+      updateResaleListing(context.deps, context.actor, data),
+    );
   });
 
 export const studioInviteMember = createServerFn({ method: "POST" })
@@ -170,7 +202,8 @@ export const studioInviteMember = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { inviteMember } = await import("./server/service");
-    return inviteMember(context.deps, context.actor, data);
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("invitation", () => inviteMember(context.deps, context.actor, data));
   });
 
 export const studioSetMemberActive = createServerFn({ method: "POST" })
@@ -178,5 +211,8 @@ export const studioSetMemberActive = createServerFn({ method: "POST" })
   .validator(z.object({ userId: z.string().uuid(), isActive: z.boolean() }))
   .handler(async ({ data, context }) => {
     const { setMemberActive } = await import("./server/service");
-    return setMemberActive(context.deps, context.actor, data);
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("membership_toggle", () =>
+      setMemberActive(context.deps, context.actor, data),
+    );
   });

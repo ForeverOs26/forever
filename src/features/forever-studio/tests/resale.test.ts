@@ -174,4 +174,89 @@ describe("Studio resale listings", () => {
     await processUploadJob(world.deps, OWNER, started.jobId);
     expect(world.data.listings).toHaveLength(1);
   });
+
+  describe("provenance precedence on resale editing", () => {
+    it("a publisher can NEVER silently replace an Owner-provided value", async () => {
+      const world = makeWorld();
+      const { result } = await runResale(world, OWNER, {
+        workflow: "resale_listing",
+        resaleFacts: { title: "Owner Villa", price: 9_000_000, currency: "THB" },
+        files: [],
+      });
+      const listingId = result.listingId!;
+
+      const update = await updateResaleListing(world.deps, PUBLISHER, {
+        listingId,
+        facts: { title: "Publisher Rename", price: 1 },
+      });
+
+      // The stronger Owner values are preserved…
+      const listing = world.data.listings[0];
+      expect(listing.title).toBe("Owner Villa");
+      expect(listing.price).toBe(9_000_000);
+      const provenance = listing.field_provenance as Record<string, { status: string }>;
+      expect(provenance.title.status).toBe("owner_provided");
+      expect(provenance.price.status).toBe("owner_provided");
+      // …a truthful conflict record is returned AND persisted (no gate)…
+      expect(update.warnings.length).toBeGreaterThanOrEqual(2);
+      expect(update.warnings.every((w) => w.code === "listing_field_conflict_preserved")).toBe(
+        true,
+      );
+      const persisted = world.data.listingWarnings.filter(
+        (row) =>
+          row.listingId === listingId && row.warning.code === "listing_field_conflict_preserved",
+      );
+      expect(persisted.length).toBeGreaterThanOrEqual(2);
+      // …and the listing stays published — a conflict is never an approval gate.
+      expect(world.data.publicListings()).toHaveLength(1);
+    });
+
+    it("a publisher fills missing fields and updates publisher-ranked values", async () => {
+      const world = makeWorld();
+      const { result } = await runResale(world, PUBLISHER, {
+        workflow: "resale_listing",
+        resaleFacts: { title: "Publisher Condo", price: 4_000_000 },
+        files: [],
+      });
+      const listingId = result.listingId!;
+
+      // Blank fill (description was never set) + own-rank update (price).
+      const update = await updateResaleListing(world.deps, PUBLISHER, {
+        listingId,
+        facts: { description: "Renovated corner unit.", price: 3_900_000 },
+      });
+      expect(update.warnings).toHaveLength(0);
+      expect(world.data.listings[0].description).toBe("Renovated corner unit.");
+      expect(world.data.listings[0].price).toBe(3_900_000);
+    });
+
+    it("the Owner outranks a publisher value, and contact stays editable by both", async () => {
+      const world = makeWorld();
+      const { result } = await runResale(world, PUBLISHER, {
+        workflow: "resale_listing",
+        resaleFacts: { title: "Publisher Priced", price: 5_000_000, contactPhone: "+66 1" },
+        files: [],
+      });
+      const listingId = result.listingId!;
+
+      const ownerUpdate = await updateResaleListing(world.deps, OWNER, {
+        listingId,
+        facts: { price: 5_500_000 },
+      });
+      expect(ownerUpdate.warnings).toHaveLength(0);
+      expect(world.data.listings[0].price).toBe(5_500_000);
+      expect(
+        (world.data.listings[0].field_provenance as Record<string, { status: string }>).price
+          .status,
+      ).toBe("owner_provided");
+
+      // Private contact is operational data: the publisher can still fix it.
+      const contactUpdate = await updateResaleListing(world.deps, PUBLISHER, {
+        listingId,
+        facts: { contactPhone: "+66 2" },
+      });
+      expect(contactUpdate.warnings).toHaveLength(0);
+      expect(world.data.contacts.get(listingId)?.contact_phone).toBe("+66 2");
+    });
+  });
 });

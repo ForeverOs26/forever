@@ -3,14 +3,16 @@
  * (items 4 & 5).
  *
  * EVERY incoming file lands in the private `studio-uploads` bucket. During
- * processing Studio verifies the ACTUAL stored bytes (size, SHA-256 where
- * practical, magic-byte media class, declared-vs-observed mismatch), parses
- * only bounded business files, and copies ONLY the selected final media to
- * public buckets on deterministic immutable paths. Raw PDFs, ZIPs, price
- * lists, legal files, and unselected media never leave the private bucket.
+ * processing Studio verifies the ACTUAL stored bytes of every uploaded file —
+ * exact streamed byte count, full SHA-256, magic-byte media class, and
+ * declared-vs-observed mismatches — regardless of size: large photos and
+ * videos are streamed through the hash, never buffered whole. Only media
+ * whose observed bytes match their role are copied to public buckets, on
+ * processing-token-scoped immutable paths, so a stale worker can never
+ * overwrite or delete a newer claim's public objects. Raw PDFs, ZIPs, price
+ * lists, legal files, and unselected or unrecognized media never leave the
+ * private bucket.
  *
- * Large photos and videos are never downloaded into a Buffer — their size is
- * read from storage metadata and they are published by a server-side copy.
  * A failure of any single file is a warning plus private retention, never a
  * job failure: incomplete or partially readable materials still publish
  * whatever is safely usable.
@@ -42,10 +44,10 @@ export const PRIVATE_SOURCE_BUCKET = "studio-uploads";
 export const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024; // 1 GiB
 /** Max bytes we will pull into memory to parse a JSON/PDF business file. */
 export const MAX_PARSE_BYTES = 20 * 1024 * 1024; // 20 MiB
-/** Max archive we will download and expand in memory. */
+/** Max archive we will download and expand (entry-by-entry) on the server. */
 export const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024; // 100 MiB
-/** Max media we will read to hash + sniff magic bytes; larger is copy-only. */
-export const MAX_HASH_BYTES = 25 * 1024 * 1024; // 25 MiB
+/** Leading bytes captured while streaming, for magic-byte class detection. */
+export const HEAD_SNIFF_BYTES = 4096;
 
 const DOCUMENT_MEDIA_CATEGORIES: Partial<Record<IntakeCategory, string>> = {
   brochure: "brochure",
@@ -99,8 +101,23 @@ export function stagingPathForJobFile(jobId: string, index: number, name: string
   return `jobs/${jobId}/staging/${String(index).padStart(2, "0")}-${sanitizeFileName(name)}`;
 }
 
-function publicPathForMedia(jobId: string, index: number, name: string): string {
-  return `studio/${jobId}/${String(index).padStart(2, "0")}-${sanitizeFileName(name)}`;
+/**
+ * Attempt discriminator derived from the processing-claim token. Public and
+ * re-staged paths embed it so concurrent attempts never share object paths:
+ * a stale worker writes/deletes only under its OWN prefix.
+ */
+export function attemptPrefixFromToken(token: string): string {
+  const clean = token.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12);
+  return clean || "attempt";
+}
+
+/** Job-scoped public prefix (all attempts of one job live under it). */
+export function publicJobPrefix(jobId: string): string {
+  return `studio/${jobId}`;
+}
+
+function publicPathForMedia(jobId: string, token: string, index: number, name: string): string {
+  return `${publicJobPrefix(jobId)}/${attemptPrefixFromToken(token)}/${String(index).padStart(2, "0")}-${sanitizeFileName(name)}`;
 }
 
 /** Declare every file into the PRIVATE staging bucket. */
@@ -124,6 +141,72 @@ export function declareJobFiles(
 // ---------------------------------------------------------------------------
 
 export type MediaClass = "image" | "video" | "pdf" | "zip" | "json" | "other";
+
+/**
+ * ISO BMFF (`ftyp`) brands that are deterministically an IMAGE container:
+ * HEIC/HEIF (phone photos) and AVIF.
+ */
+const FTYP_IMAGE_BRANDS = new Set([
+  "heic",
+  "heix",
+  "heim",
+  "heis",
+  "hevc",
+  "hevx",
+  "hevm",
+  "hevs",
+  "mif1",
+  "msf1",
+  "avif",
+  "avis",
+]);
+
+/**
+ * ISO BMFF brands that are deterministically a VIDEO container: MP4 family,
+ * QuickTime MOV, M4V, 3GPP. A generic/unknown `ftyp` brand is NOT assumed to
+ * be video — it stays `other` and is retained privately.
+ */
+const FTYP_VIDEO_BRANDS = new Set([
+  "isom",
+  "iso2",
+  "iso4",
+  "iso5",
+  "iso6",
+  "mp41",
+  "mp42",
+  "mp4v",
+  "avc1",
+  "dash",
+  "M4V ",
+  "M4VP",
+  "qt  ",
+  "3gp4",
+  "3gp5",
+  "3gp6",
+  "3gg6",
+]);
+
+/** Classify an `ftyp` box by its major brand, then its compatible brands. */
+function classifyFtyp(head: Buffer): MediaClass {
+  const boxSize = head.readUInt32BE(0);
+  const brandOf = (offset: number): string | null =>
+    offset + 4 <= head.length ? head.subarray(offset, offset + 4).toString("latin1") : null;
+  const major = brandOf(8);
+  if (major && FTYP_IMAGE_BRANDS.has(major)) return "image";
+  if (major && FTYP_VIDEO_BRANDS.has(major)) return "video";
+  // Compatible brands start at offset 16 and run to the end of the ftyp box.
+  const end = Math.min(head.length, boxSize >= 16 ? boxSize : 16);
+  for (let offset = 16; offset + 4 <= end; offset += 4) {
+    const brand = brandOf(offset);
+    if (brand && FTYP_IMAGE_BRANDS.has(brand)) return "image";
+  }
+  for (let offset = 16; offset + 4 <= end; offset += 4) {
+    const brand = brandOf(offset);
+    if (brand && FTYP_VIDEO_BRANDS.has(brand)) return "video";
+  }
+  // An unrecognized ftyp container is NOT publishable media.
+  return "other";
+}
 
 export function detectMediaClass(head: Buffer): MediaClass {
   if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return "image";
@@ -152,7 +235,9 @@ export function detectMediaClass(head: Buffer): MediaClass {
     (head[2] === 0x03 || head[2] === 0x05 || head[2] === 0x07)
   )
     return "zip";
-  if (head.length >= 12 && head.subarray(4, 8).toString("ascii") === "ftyp") return "video";
+  if (head.length >= 12 && head.subarray(4, 8).toString("ascii") === "ftyp") {
+    return classifyFtyp(head);
+  }
   if (head.length >= 4 && head.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])))
     return "video";
   const text = head
@@ -164,9 +249,10 @@ export function detectMediaClass(head: Buffer): MediaClass {
   return "other";
 }
 
-function classFromExtension(name: string): MediaClass {
+/** The media class the file NAME claims — recorded, never trusted. */
+export function classFromExtension(name: string): MediaClass {
   const ext = (name.split(".").pop() ?? "").toLowerCase();
-  if (["jpg", "jpeg", "png", "gif", "webp", "heic", "bmp", "tif", "tiff"].includes(ext))
+  if (["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "tif", "tiff"].includes(ext))
     return "image";
   if (["mp4", "mov", "webm", "mkv", "avi", "m4v"].includes(ext)) return "video";
   if (ext === "pdf") return "pdf";
@@ -285,10 +371,21 @@ export interface GatheredMaterials {
   photoUrls: string[];
   warnings: ProgressiveWarning[];
   files: StudioJobFile[];
-  /** Public objects copied for this job — cleaned up if finalization fails. */
+  /**
+   * Public objects copied by THIS attempt (token-scoped paths, possibly in
+   * different buckets) — removed, grouped by bucket, if this attempt loses.
+   */
   publicObjects: Array<{ bucket: string; path: string }>;
   /** True when a title/name could be derived from an uploaded business file. */
   derivedName: string | null;
+}
+
+/** Options for one processing attempt. */
+export interface GatherOptions {
+  /** The processing-claim token; scopes every side-effect path. */
+  token: string;
+  /** Lease heartbeat, awaited between files/entries; throws to abort. */
+  heartbeat?: () => Promise<void>;
 }
 
 function fileWarning(code: string, name: string, message: string): ProgressiveWarning {
@@ -306,11 +403,12 @@ interface MediaCandidate {
  * Verify, interpret, and select one job's staged files. Missing files
  * (declared but never uploaded) and oversized/unreadable files become
  * warnings and stay privately retained; selected media are copied to public
- * immutable paths and recorded only here.
+ * token-scoped immutable paths and recorded only here.
  */
 export async function gatherMaterials(
   deps: StudioDeps,
   job: StudioJobRow,
+  options: GatherOptions,
 ): Promise<GatheredMaterials> {
   const warnings: ProgressiveWarning[] = [];
   const files: StudioJobFile[] = job.files.map((file) => ({ ...file }));
@@ -320,6 +418,8 @@ export async function gatherMaterials(
   let priceListSource: string | null = null;
   let factFields: ExtractedFactFields | null = null;
   let derivedName: string | null = null;
+  let zipStageIndex = 0;
+  const attempt = attemptPrefixFromToken(options.token);
 
   const adoptPriceList = (candidate: ExtractedPriceList, sourceName: string) => {
     if (priceList) {
@@ -346,7 +446,73 @@ export async function gatherMaterials(
       derivedName = factFields.fields.name;
   };
 
+  /** Shared per-entry routing for expanded archive entries. */
+  const handleArchiveEntry = async (
+    containerName: string,
+    entry: { name: string; data: Buffer },
+  ): Promise<void> => {
+    await options.heartbeat?.();
+    const category = classifyFileName(entry.name);
+    if (entry.name.toLowerCase().endsWith(".json")) {
+      const parsed = parseJsonBuffer(entry.data);
+      if (parsed && looksLikePriceList(parsed)) {
+        adoptPriceList(parsed, entry.name);
+        return;
+      }
+      if (parsed && looksLikeProjectFacts(parsed)) {
+        adoptFacts(parsed, entry.name);
+        return;
+      }
+    }
+    if (category === "price-list" && entry.name.toLowerCase().endsWith(".pdf")) {
+      const extraction = await deps.extractPriceListPdf({
+        projectSlug: job.project_slug ?? job.id,
+        fileName: entry.name,
+        buffer: entry.data,
+      });
+      warnings.push(...extraction.warnings);
+      if (extraction.priceList) adoptPriceList(extraction.priceList, entry.name);
+      return;
+    }
+    if (mediaTypeForCategory(category)) {
+      const mediaClass = detectMediaClass(entry.data.subarray(0, HEAD_SNIFF_BYTES));
+      if (!isPublishableMediaClass(category, mediaClass)) {
+        warnings.push(
+          fileWarning(
+            "media_class_mismatch",
+            entry.name,
+            `${entry.name} inside ${containerName} is not a valid ${category}; retained privately.`,
+          ),
+        );
+        return;
+      }
+      const hash = await sha256Of(entry.data);
+      const dup = seenHashes.get(hash);
+      if (dup) {
+        warnings.push(
+          fileWarning(
+            "duplicate_media_ignored",
+            entry.name,
+            `${entry.name} is byte-identical to ${dup}; the duplicate was skipped.`,
+          ),
+        );
+        return;
+      }
+      seenHashes.set(hash, entry.name);
+      // Re-stage the entry privately (attempt-scoped), then treat it as media.
+      const stagedPath = `jobs/${job.id}/zip/${attempt}/${String(zipStageIndex).padStart(2, "0")}-${sanitizeFileName(entry.name)}`;
+      zipStageIndex += 1;
+      await deps.storage.upload(PRIVATE_SOURCE_BUCKET, stagedPath, entry.data);
+      mediaCandidates.push({
+        category,
+        name: entry.name,
+        from: { bucket: PRIVATE_SOURCE_BUCKET, path: stagedPath },
+      });
+    }
+  };
+
   for (const file of files) {
+    await options.heartbeat?.();
     const stat = await deps.storage.statObject(file.stagingBucket, file.stagingPath);
     if (!stat) {
       file.status = "missing";
@@ -359,13 +525,11 @@ export async function gatherMaterials(
       );
       continue;
     }
-    file.observedSize = stat.size;
     file.status = "uploaded";
-    file.mediaClass = classFromExtension(file.name);
-    if (file.declaredSize != null && file.declaredSize !== stat.size) {
-      file.declaredMismatch = true;
-    }
     if (stat.size > MAX_UPLOAD_BYTES) {
+      // Never streamed, never published; the byte cap is a hard ceiling.
+      file.observedSize = stat.size;
+      file.mediaClass = null;
       file.status = "oversized";
       warnings.push(
         fileWarning(
@@ -377,6 +541,39 @@ export async function gatherMaterials(
       continue;
     }
 
+    // EVERY stored object is streamed once: full SHA-256, exact byte count,
+    // and magic-byte class from the ACTUAL bytes — for large media too.
+    const digest = await deps.storage.hashObject(
+      file.stagingBucket,
+      file.stagingPath,
+      HEAD_SNIFF_BYTES,
+    );
+    if (!digest) {
+      file.status = "unreadable";
+      warnings.push(
+        fileWarning("file_unreadable", file.name, `${file.name} could not be read back.`),
+      );
+      continue;
+    }
+    file.observedSize = digest.size;
+    file.sha256 = digest.sha256;
+    const observedClass = detectMediaClass(digest.head);
+    file.mediaClass = observedClass;
+    const declaredClass = classFromExtension(file.name);
+    if (file.declaredSize != null && file.declaredSize !== digest.size) {
+      file.declaredMismatch = true;
+      warnings.push(
+        fileWarning(
+          "file_declared_size_mismatch",
+          file.name,
+          `${file.name} declared ${file.declaredSize} bytes but ${digest.size} bytes were stored; the stored bytes are authoritative.`,
+        ),
+      );
+    }
+    if (declaredClass !== "other" && declaredClass !== observedClass) {
+      file.declaredMismatch = true;
+    }
+
     const lower = file.name.toLowerCase();
     const isJson = lower.endsWith(".json");
     const isPdf = lower.endsWith(".pdf");
@@ -385,7 +582,7 @@ export async function gatherMaterials(
 
     // --- Structured JSON (bounded parse) -----------------------------------
     if (isJson) {
-      if (stat.size > MAX_PARSE_BYTES) {
+      if (digest.size > MAX_PARSE_BYTES) {
         warnings.push(
           fileWarning(
             "file_too_large_to_parse",
@@ -401,10 +598,6 @@ export async function gatherMaterials(
         MAX_PARSE_BYTES,
       );
       const parsed = buffer ? parseJsonBuffer(buffer) : null;
-      if (buffer) {
-        file.sha256 = await sha256Of(buffer);
-        file.mediaClass = detectMediaClass(buffer);
-      }
       if (!parsed) {
         file.status = "unreadable";
         warnings.push(
@@ -436,7 +629,7 @@ export async function gatherMaterials(
 
     // --- Price-list PDF (bounded parse; SIP best-effort) -------------------
     if (file.category === "price-list" && isPdf) {
-      if (stat.size > MAX_PARSE_BYTES) {
+      if (digest.size > MAX_PARSE_BYTES) {
         warnings.push(
           fileWarning(
             "file_too_large_to_parse",
@@ -458,8 +651,6 @@ export async function gatherMaterials(
         );
         continue;
       }
-      file.sha256 = await sha256Of(buffer);
-      file.mediaClass = detectMediaClass(buffer);
       const extraction = await deps.extractPriceListPdf({
         projectSlug: job.project_slug ?? job.id,
         fileName: file.name,
@@ -470,9 +661,9 @@ export async function gatherMaterials(
       continue;
     }
 
-    // --- Archive (bounded download + expansion) ---------------------------
+    // --- Archive (bounded download + full-contract per-entry expansion) ----
     if (isArchive) {
-      if (stat.size > MAX_ARCHIVE_BYTES) {
+      if (digest.size > MAX_ARCHIVE_BYTES) {
         warnings.push(
           fileWarning(
             "archive_too_large",
@@ -494,100 +685,37 @@ export async function gatherMaterials(
         );
         continue;
       }
-      file.sha256 = await sha256Of(buffer);
-      file.mediaClass = detectMediaClass(buffer);
-      const archive = await deps.extractArchive({ fileName: file.name, buffer });
+      const archive = await deps.extractArchive({ fileName: file.name, buffer }, (entry) =>
+        handleArchiveEntry(file.name, entry),
+      );
       warnings.push(...archive.warnings);
-      let entryIndex = 0;
-      for (const entry of archive.entries) {
-        const category = classifyFileName(entry.name);
-        if (entry.name.toLowerCase().endsWith(".json")) {
-          const parsed = parseJsonBuffer(entry.data);
-          if (parsed && looksLikePriceList(parsed)) {
-            adoptPriceList(parsed, entry.name);
-            continue;
-          }
-          if (parsed && looksLikeProjectFacts(parsed)) {
-            adoptFacts(parsed, entry.name);
-            continue;
-          }
-        }
-        if (category === "price-list" && entry.name.toLowerCase().endsWith(".pdf")) {
-          const extraction = await deps.extractPriceListPdf({
-            projectSlug: job.project_slug ?? job.id,
-            fileName: entry.name,
-            buffer: entry.data,
-          });
-          warnings.push(...extraction.warnings);
-          if (extraction.priceList) adoptPriceList(extraction.priceList, entry.name);
-          continue;
-        }
-        if (mediaTypeForCategory(category)) {
-          const mediaClass = detectMediaClass(entry.data.subarray(0, 64));
-          if (!isPublishableMediaClass(category, mediaClass)) {
-            warnings.push(
-              fileWarning(
-                "media_class_mismatch",
-                entry.name,
-                `${entry.name} inside ${file.name} is not a valid ${category}; retained privately.`,
-              ),
-            );
-            continue;
-          }
-          // Re-stage the entry privately, then treat it as a media candidate.
-          const stagedPath = `jobs/${job.id}/zip/${String(entryIndex).padStart(2, "0")}-${sanitizeFileName(entry.name)}`;
-          entryIndex += 1;
-          await deps.storage.upload(PRIVATE_SOURCE_BUCKET, stagedPath, entry.data);
-          mediaCandidates.push({
-            category,
-            name: entry.name,
-            from: { bucket: PRIVATE_SOURCE_BUCKET, path: stagedPath },
-          });
-        }
-      }
       continue;
     }
 
-    // --- Media (small: verify magic bytes; large: copy-only) --------------
+    // --- Media: publishable ONLY when the observed bytes match the role ----
     if (isMedia) {
-      if (stat.size <= MAX_HASH_BYTES) {
-        const buffer = await deps.storage.downloadWithin(
-          file.stagingBucket,
-          file.stagingPath,
-          MAX_HASH_BYTES,
+      if (!isPublishableMediaClass(file.category as IntakeCategory, observedClass)) {
+        warnings.push(
+          fileWarning(
+            "media_class_mismatch",
+            file.name,
+            `${file.name} does not look like a valid ${file.category} (${observedClass}); it was retained privately and not published.`,
+          ),
         );
-        if (buffer) {
-          const hash = await sha256Of(buffer);
-          file.sha256 = hash;
-          const mediaClass = detectMediaClass(buffer);
-          file.mediaClass = mediaClass;
-          if (!isPublishableMediaClass(file.category as IntakeCategory, mediaClass)) {
-            warnings.push(
-              fileWarning(
-                "media_class_mismatch",
-                file.name,
-                `${file.name} does not look like a valid ${file.category} (${mediaClass}); it was retained privately and not published.`,
-              ),
-            );
-            continue;
-          }
-          const dup = seenHashes.get(hash);
-          if (dup) {
-            warnings.push(
-              fileWarning(
-                "duplicate_media_ignored",
-                file.name,
-                `${file.name} is byte-identical to ${dup}; the duplicate was skipped.`,
-              ),
-            );
-            continue;
-          }
-          seenHashes.set(hash, file.name);
-        }
-      } else {
-        // Large media: never buffered; classify by extension, publish by copy.
-        file.mediaClass = classFromExtension(file.name);
+        continue;
       }
+      const dup = seenHashes.get(digest.sha256);
+      if (dup) {
+        warnings.push(
+          fileWarning(
+            "duplicate_media_ignored",
+            file.name,
+            `${file.name} is byte-identical to ${dup}; the duplicate was skipped.`,
+          ),
+        );
+        continue;
+      }
+      seenHashes.set(digest.sha256, file.name);
       mediaCandidates.push({
         category: file.category as IntakeCategory,
         name: file.name,
@@ -596,21 +724,10 @@ export async function gatherMaterials(
       continue;
     }
 
-    // --- Everything else stays retained in private staging ----------------
-    if (stat.size <= MAX_HASH_BYTES) {
-      const buffer = await deps.storage.downloadWithin(
-        file.stagingBucket,
-        file.stagingPath,
-        MAX_HASH_BYTES,
-      );
-      if (buffer) {
-        file.sha256 = await sha256Of(buffer);
-        file.mediaClass = detectMediaClass(buffer);
-      }
-    }
+    // --- Everything else stays retained in private staging (verified above).
   }
 
-  // --- Publish selected media to public immutable paths (server-side copy)
+  // --- Publish selected media to public token-scoped paths (server-side copy)
   const media: ProgressiveMediaItem[] = [];
   const photoUrls: string[] = [];
   const publicObjects: Array<{ bucket: string; path: string }> = [];
@@ -622,10 +739,11 @@ export async function gatherMaterials(
   let mediaIndex = 0;
 
   for (const candidate of mediaCandidates) {
+    await options.heartbeat?.();
     const mediaType = mediaTypeForCategory(candidate.category);
     if (!mediaType) continue;
     const toBucket = publicBucketForCategory(candidate.category);
-    const toPath = publicPathForMedia(job.id, mediaIndex, candidate.name);
+    const toPath = publicPathForMedia(job.id, options.token, mediaIndex, candidate.name);
     mediaIndex += 1;
     try {
       await deps.storage.copyObject(candidate.from, { bucket: toBucket, path: toPath });
@@ -684,7 +802,7 @@ export async function gatherMaterials(
 }
 
 /** A file may be published as public media only when its bytes match its role. */
-function isPublishableMediaClass(category: IntakeCategory, observed: MediaClass): boolean {
+export function isPublishableMediaClass(category: IntakeCategory, observed: MediaClass): boolean {
   if (category === "photo") return observed === "image";
   if (category === "video") return observed === "video";
   // Documents/plans are typically PDFs but may legitimately be images.

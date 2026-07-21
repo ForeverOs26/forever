@@ -22,12 +22,31 @@ const ddl = sql
   .join("\n");
 
 describe("Forever Studio migration contract", () => {
-  it("is marked as the pending additive Studio migration (progressive already applied)", () => {
-    expect(sql).toContain("ADDITIVE MIGRATION DRAFT");
+  it("is marked as the pending Studio migration (progressive already applied)", () => {
+    expect(sql).toContain("MIGRATION DRAFT (pending; not applied here)");
     expect(sql).toContain("already-applied progressive");
     expect(sql).toContain("has NOT been applied by this task");
     // It must NOT re-run or schedule the progressive migration.
     expect(ddl).not.toContain("20260718113000");
+  });
+
+  it("states the migration truth exactly: additive parts vs the relocation+drop", () => {
+    // The header must distinguish the purely additive objects from the one
+    // non-additive step, and must NOT claim the whole migration is additive.
+    expect(sql).toContain("PURELY ADDITIVE");
+    expect(sql).toContain("DATA RELOCATION + COLUMN DROP");
+    expect(sql).not.toContain("ADDITIVE MIGRATION");
+    // Codex read-only pre-apply check and exact ordering are documented.
+    expect(sql).toContain("CODEX PRE-APPLY CHECK (read-only)");
+    expect(sql).toContain("Never re-apply");
+  });
+
+  it("does not pretend the DOWN comments are a complete automatic rollback", () => {
+    expect(sql).toContain("NOT a complete automatic rollback");
+    // Contact restoration order is spelled out before any destructive drop.
+    expect(sql).toContain("MUST be restored FIRST");
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS contact_name/);
+    expect(sql).toContain("ONLY after steps 1-2 above");
   });
 
   it("creates membership + job + private-contact tables, RLS on, no policies", () => {
@@ -65,6 +84,7 @@ describe("Forever Studio migration contract", () => {
   it("provides the atomic and concurrency-safe transaction functions", () => {
     for (const fn of [
       "public.studio_claim_job",
+      "public.studio_heartbeat_job",
       "public.studio_fail_job",
       "public.studio_publish_project",
       "public.studio_publish_resale",
@@ -76,6 +96,18 @@ describe("Forever Studio migration contract", () => {
     // Claim is a compare-and-set with stale recovery.
     expect(ddl).toContain("processing_token");
     expect(ddl).toContain("processing_started_at");
+  });
+
+  it("never reclaims a terminal (retryable=false) failure", () => {
+    // The claim predicate must gate the failed branch on retryable IS TRUE,
+    // in agreement with the automatic-resume query.
+    expect(ddl).toMatch(/status = 'failed' AND retryable IS TRUE/);
+  });
+
+  it("guards the lease heartbeat by the processing token", () => {
+    const heartbeat = ddl.slice(ddl.indexOf("studio_heartbeat_job"));
+    expect(heartbeat).toContain("processing_token = p_token");
+    expect(heartbeat).toContain("status = 'processing'");
   });
 
   it("every Studio function is service_role only, with search_path pinned", () => {
