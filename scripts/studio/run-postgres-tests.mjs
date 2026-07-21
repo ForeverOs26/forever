@@ -87,6 +87,23 @@ function psql(file) {
   ]);
 }
 
+function psqlSql(sql) {
+  return run(bin("psql"), [
+    "-h",
+    HOST,
+    ...(WINDOWS ? ["-p", PORT] : []),
+    "-U",
+    "postgres",
+    "-d",
+    "postgres",
+    "-v",
+    "ON_ERROR_STOP=1",
+    "-q",
+    "-c",
+    sql,
+  ]);
+}
+
 try {
   run(bin("initdb"), ["-D", data, "-U", "postgres", "--auth=trust", "-E", "UTF8"]);
   run(bin("pg_ctl"), [
@@ -110,6 +127,13 @@ try {
     .filter((f) => f.endsWith(".sql"))
     .sort();
   for (const file of migrations) {
+    // Supabase projects can have platform-level public-schema defaults that
+    // grant browser roles table access. Reproduce that state immediately
+    // before Studio creates its server-only tables; the corrective migration
+    // must explicitly revoke it.
+    if (file === "20260721120000_forever_studio_v1.sql") {
+      psqlSql("GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated");
+    }
     console.log(`[studio-pg] applying ${file}`);
     psql(join(MIGRATIONS_DIR, file));
   }
