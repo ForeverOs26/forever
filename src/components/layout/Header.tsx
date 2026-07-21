@@ -3,7 +3,6 @@ import { useState } from "react";
 import { Menu, X } from "lucide-react";
 import { Container } from "./Container";
 import { Button } from "@/components/ui/button";
-import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";
 
 /**
  * FOREVER-TRUTH-001A: `/offers`, `/reviews`, `/areas`, and `/advisory` left
@@ -28,7 +27,7 @@ const partnerDemoNav = [
 
 export function Header() {
   const [open, setOpen] = useState(false);
-  const partnerDemo = import.meta.env.DEV && isPartnerDemoModeEnabled();
+  const partnerDemo = import.meta.env.DEV && import.meta.env.VITE_PARTNER_DEMO === "true";
   const nav = partnerDemo ? partnerDemoNav : publicNav;
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/85 backdrop-blur">

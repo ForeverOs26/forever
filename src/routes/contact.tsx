@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SiteShell } from "@/components/SiteShell";
 import { Section } from "@/components/layout/Section";
 import { ContactForm } from "@/components/ContactForm";
-import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";
 
 export const Route = createFileRoute("/contact")({
   head: () => ({
@@ -20,7 +19,7 @@ export const Route = createFileRoute("/contact")({
 });
 
 function ContactPage() {
-  const isPartnerDemo = isPartnerDemoModeEnabled();
+  const isPartnerDemo = import.meta.env.DEV && import.meta.env.VITE_PARTNER_DEMO === "true";
 
   return (
     <SiteShell>

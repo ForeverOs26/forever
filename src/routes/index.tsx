@@ -8,7 +8,6 @@ import { PremiumProjectCard } from "@/components/PremiumProjectCard";
 import { ContactForm } from "@/components/ContactForm";
 import { Button } from "@/components/ui/button";
 import { projectListQuery } from "@/lib/project-service";
-import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";
 import heroImage from "@/assets/phuket-hero.jpg";
 
 export const Route = createFileRoute("/")({
@@ -19,7 +18,7 @@ export const Route = createFileRoute("/")({
 
 function HomePage() {
   const { data: featured } = useSuspenseQuery(projectListQuery({ featuredOnly: true, limit: 3 }));
-  const partnerDemo = import.meta.env.DEV && isPartnerDemoModeEnabled();
+  const partnerDemo = import.meta.env.DEV && import.meta.env.VITE_PARTNER_DEMO === "true";
   const whyForeverItems = partnerDemo
     ? [
         {

@@ -141,6 +141,12 @@ SHARE ROW EXCLUSIVE MODE` immediately after `BEGIN`, before snapshots and
   identity checks. That lock conflicts with concurrent project inserts,
   updates, and deletes through commit or rollback. The rollback uses the same
   boundary, so its snapshot identity is checked while protected.
+- Production-reachable shells statically imported the Partner Demo mode helper.
+  Although every call was DEV-gated, that import still emitted a named helper
+  chunk in the production client. Public modules now use Vite-foldable literal
+  DEV checks; the helper remains only behind the existing DEV-gated dynamic
+  data adapter. A production build confirms no Partner Demo helper, data, or
+  demo-preview chunk and no demo environment marker in client assets.
 
 ### Already fail-closed (verified, unchanged)
 

@@ -1,9 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { Container } from "./Container";
-import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";
 
 export function Footer() {
-  const partnerDemo = import.meta.env.DEV && isPartnerDemoModeEnabled();
+  const partnerDemo = import.meta.env.DEV && import.meta.env.VITE_PARTNER_DEMO === "true";
   return (
     <footer className="mt-24 border-t border-border/60 bg-primary text-primary-foreground">
       <Container className="grid gap-10 py-16 md:grid-cols-4">

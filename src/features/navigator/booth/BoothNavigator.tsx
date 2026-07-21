@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import type { Property } from "@/lib/data";
 import { projectListQuery } from "@/lib/project-service";
-import { isDemoLeadModeEnabled, submitLead } from "@/lib/lead-service";
+import { submitLead } from "@/lib/lead-service";
 import ChoiceGroup from "../components/ChoiceGroup";
 import NoteField from "../components/NoteField";
 import PrimaryActionBar from "../components/PrimaryActionBar";
@@ -826,11 +826,13 @@ function ContactView({
       <SectionHeading eyebrow="Contact details" title="Guest contact details" />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.2fr_1fr]">
         <Panel>
-          {import.meta.env.DEV && isDemoLeadModeEnabled() && (
-            <p className="mb-4 rounded-[10px] border border-dashed border-[#EAE6DE] bg-[#FBFAF7] px-3 py-2 text-[12px] text-[#8A857A]">
-              Presentation mode — contact details are validated but not saved.
-            </p>
-          )}
+          {import.meta.env.DEV &&
+            (import.meta.env.VITE_PARTNER_DEMO === "true" ||
+              import.meta.env.VITE_DEMO_LEAD_MODE === "true") && (
+              <p className="mb-4 rounded-[10px] border border-dashed border-[#EAE6DE] bg-[#FBFAF7] px-3 py-2 text-[12px] text-[#8A857A]">
+                Presentation mode — contact details are validated but not saved.
+              </p>
+            )}
           <BoothLeadForm status={leadStatus} failedBanner={failedBanner} onSubmit={onSubmit} />
         </Panel>
         <div>
@@ -872,7 +874,10 @@ function CompleteView({
   onOpen: () => void;
   onStartNewGuest: () => void;
 }) {
-  const isDemoMode = import.meta.env.DEV && isDemoLeadModeEnabled();
+  const isDemoMode =
+    import.meta.env.DEV &&
+    (import.meta.env.VITE_PARTNER_DEMO === "true" ||
+      import.meta.env.VITE_DEMO_LEAD_MODE === "true");
 
   return (
     <div className="mx-auto max-w-[680px] pt-6">
@@ -909,11 +914,13 @@ function CompleteView({
             {projectName} selected for discussion
           </li>
         </ul>
-        {import.meta.env.DEV && isDemoLeadModeEnabled() && (
-          <p className="mt-5 rounded-[10px] border border-dashed border-[#EAE6DE] bg-[#FBFAF7] px-3 py-2 text-[12px] text-[#8A857A]">
-            Presentation mode — no lead was saved.
-          </p>
-        )}
+        {import.meta.env.DEV &&
+          (import.meta.env.VITE_PARTNER_DEMO === "true" ||
+            import.meta.env.VITE_DEMO_LEAD_MODE === "true") && (
+            <p className="mt-5 rounded-[10px] border border-dashed border-[#EAE6DE] bg-[#FBFAF7] px-3 py-2 text-[12px] text-[#8A857A]">
+              Presentation mode — no lead was saved.
+            </p>
+          )}
         <div className="mt-7 flex flex-col gap-3 sm:flex-row">
           <button
             type="button"

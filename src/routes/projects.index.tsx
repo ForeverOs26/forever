@@ -4,7 +4,6 @@ import { SiteShell } from "@/components/SiteShell";
 import { Section } from "@/components/layout/Section";
 import { PremiumProjectCard } from "@/components/PremiumProjectCard";
 import { projectListQuery } from "@/lib/project-service";
-import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";
 
 export const Route = createFileRoute("/projects/")({
   head: () => ({
@@ -24,7 +23,7 @@ export const Route = createFileRoute("/projects/")({
 
 function ProjectsPage() {
   const { data: projects } = useSuspenseQuery(projectListQuery());
-  const partnerDemo = import.meta.env.DEV && isPartnerDemoModeEnabled();
+  const partnerDemo = import.meta.env.DEV && import.meta.env.VITE_PARTNER_DEMO === "true";
   return (
     <SiteShell>
       <Section
