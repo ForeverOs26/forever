@@ -35,6 +35,14 @@ function findBinDir() {
 
 const BIN = findBinDir();
 const bin = (name) => (BIN ? join(BIN, name) : name);
+const WINDOWS = process.platform === "win32";
+// PostgreSQL on Windows does not support the Unix-domain socket setup used by
+// the POSIX runner. Keep the disposable cluster loopback-only instead.
+const HOST = WINDOWS ? "127.0.0.1" : work;
+const PORT = WINDOWS ? (process.env.STUDIO_PG_PORT || "55432") : "";
+// Detached Windows postgres children inherit pg_ctl's output handles. Avoid
+// pipe handles there so execFileSync can return once pg_ctl reports ready.
+const PG_CTL_OPTIONS = WINDOWS ? { stdio: "ignore" } : {};
 
 // PostgreSQL refuses to run as root. When invoked as root (CI/containers),
 // run the cluster commands as an unprivileged user (default: postgres).
@@ -65,7 +73,8 @@ function run(cmd, args, opts = {}) {
 function psql(file) {
   return run(bin("psql"), [
     "-h",
-    work,
+    HOST,
+    ...(WINDOWS ? ["-p", PORT] : []),
     "-U",
     "postgres",
     "-d",
@@ -84,12 +93,14 @@ try {
     "-D",
     data,
     "-o",
-    `-k ${work} -c listen_addresses='' -c fsync=off -c synchronous_commit=off`,
+    WINDOWS
+      ? `-h ${HOST} -p ${PORT} -c fsync=off -c synchronous_commit=off`
+      : `-k ${work} -c listen_addresses='' -c fsync=off -c synchronous_commit=off`,
     "-w",
     "-l",
     join(work, "log"),
     "start",
-  ]);
+  ], PG_CTL_OPTIONS);
   started = true;
 
   console.log("[studio-pg] applying bootstrap prerequisites");
@@ -114,7 +125,7 @@ try {
 } finally {
   if (started) {
     try {
-      run(bin("pg_ctl"), ["-D", data, "-w", "-m", "immediate", "stop"]);
+      run(bin("pg_ctl"), ["-D", data, "-w", "-m", "immediate", "stop"], PG_CTL_OPTIONS);
     } catch {
       /* best effort */
     }
