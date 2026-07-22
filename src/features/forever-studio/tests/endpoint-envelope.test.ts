@@ -45,12 +45,12 @@ describe("Studio endpoint safe error envelope", () => {
       runStudioEndpoint("x", async () => {
         throw new StudioAccessError("studio_owner_required", "Only the Owner may do this.");
       }),
-    ).rejects.toMatchObject({ code: "studio_owner_required" });
+    ).rejects.toMatchObject({ code: "studio_owner_required", name: "studio_owner_required" });
     await expect(
       runStudioEndpoint("x", async () => {
         throw new StudioError("ingest_failed", "The page could not be saved.", true);
       }),
-    ).rejects.toMatchObject({ code: "ingest_failed" });
+    ).rejects.toMatchObject({ code: "ingest_failed", name: "ingest_failed" });
   });
 
   it("sanitizes raw failures from read endpoints (overview) end to end", async () => {

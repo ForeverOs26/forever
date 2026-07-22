@@ -20,6 +20,7 @@ import {
 } from "../studio.functions";
 import { resalePagePath, type StudioResaleFacts } from "../studio-types";
 import { STUDIO_OVERVIEW_KEY } from "./StudioDashboard";
+import { StudioRouteDenied } from "./StudioRouteDenied";
 
 export function StudioResaleEditor(props: { listingId: string }) {
   const queryClient = useQueryClient();
@@ -61,11 +62,17 @@ export function StudioResaleEditor(props: { listingId: string }) {
     onSettled: invalidate,
   });
 
-  if (detailQuery.isPending || facts === null) {
+  if (detailQuery.isError) {
+    return <StudioRouteDenied />;
+  }
+  if (detailQuery.isPending) {
     return <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>;
   }
-  if (detailQuery.isError || !detail) {
-    return <p className="py-16 text-center text-sm text-muted-foreground">Listing not found.</p>;
+  if (!detail) {
+    return <StudioRouteDenied />;
+  }
+  if (facts === null) {
+    return <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>;
   }
 
   const set = (patch: Partial<StudioResaleFacts>) => setFacts({ ...facts, ...patch });

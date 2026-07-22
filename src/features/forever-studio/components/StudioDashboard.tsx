@@ -24,6 +24,7 @@ import {
   type StudioWorkflow,
 } from "../studio-types";
 import { useStudioSession } from "./useStudioSession";
+import { StudioRouteDenied } from "./StudioRouteDenied";
 
 export const STUDIO_OVERVIEW_KEY = ["studio", "overview"] as const;
 
@@ -96,19 +97,7 @@ export function StudioDashboard() {
     return <p className="py-16 text-center text-sm text-muted-foreground">Loading Studio…</p>;
   }
   if (overview.isError) {
-    return (
-      <div className="mx-auto max-w-md py-16 text-center">
-        <h2 className="text-lg font-semibold">Studio access denied</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {overview.error instanceof Error
-            ? overview.error.message
-            : "This account is not an active Forever Studio member."}
-        </p>
-        <p className="mt-4 text-xs text-muted-foreground">
-          Studio membership is granted by the Owner. There is no self-registration.
-        </p>
-      </div>
-    );
+    return <StudioRouteDenied />;
   }
 
   const data = overview.data;

@@ -42,7 +42,11 @@ export class StudioAccessError extends Error {
   readonly retryable = false;
   constructor(code: string, message?: string) {
     super(message ?? code);
-    this.name = "StudioAccessError";
+    // TanStack Start serializes Error.name and Error.message reliably, while
+    // arbitrary custom properties are not guaranteed to survive every
+    // server-function transport. Keep the safe, stable code in name as well
+    // as code so a browser client can settle on the same denial state.
+    this.name = code;
     this.code = code;
   }
 }

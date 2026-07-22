@@ -30,6 +30,7 @@ import {
   type StudioWorkflow,
 } from "../studio-types";
 import { STUDIO_OVERVIEW_KEY } from "./StudioDashboard";
+import { StudioRouteDenied } from "./StudioRouteDenied";
 
 const FILE_ACCEPT = "image/*,video/*,.pdf,.zip,.json,.csv,.xls,.xlsx,.doc,.docx,.txt,.heic,.webp";
 
@@ -62,6 +63,10 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
     workflow === "project_update" ||
     workflow === "price_availability_update" ||
     workflow === "construction_media_update";
+
+  if (overview.isError) {
+    return <StudioRouteDenied />;
+  }
 
   const addFiles = (incoming: FileList | null) => {
     if (!incoming) return;

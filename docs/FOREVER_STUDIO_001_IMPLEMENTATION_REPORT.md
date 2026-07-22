@@ -34,6 +34,50 @@ application, or browser authorization test was performed from this workspace.
 The required post-apply attribution counts and browser results remain pending
 an explicitly identified non-production staging project.
 
+## Negative-authorization route settlement (2026-07-22)
+
+Gate 2 live testing found one PR-owned client-state defect after the server
+authorization boundary had correctly denied the request. Both detail editors
+used `detailQuery.isPending || facts === null` as their loading condition. A
+denied detail query rejected and stopped pending, but the local form facts
+could never initialize without detail data, so `facts` remained `null` and
+masked the query error behind `Loading…` indefinitely.
+
+The shared correction renders a single non-enumerating `StudioRouteDenied`
+state before considering form initialization. Project, resale, dashboard, and
+upload query failures use that state and never render the thrown error text.
+Detail queries retain `retry: false`, so denial performs one request and
+settles without redirects or retry loops. `StudioAccessError` and
+`StudioError` also carry their stable safe code in `Error.name`, the Error
+field preserved by the TanStack Start transport, as well as in `code`.
+
+Behavioral router/component coverage now exercises real TanStack Router,
+React Query, direct deep links, refresh, and browser Back. It proves
+cross-publisher and Owner-legacy project/listing denials settle after pending,
+do not retry, do not render target or infrastructure fields, and leave Owner
+and authorized publisher editor flows unchanged. The focused denial,
+endpoint-envelope, and object-authorization run passed 21/21; the complete
+Studio suite passed 137/137 across 14 files. TypeScript, changed-file ESLint,
+Prettier, `git diff --check`, the Cloudflare production build, and the client
+bundle server-secret/identifier scan all passed.
+
+Controlled non-production staging browser matrix (`forever-staging`, synthetic
+accounts only):
+
+- Publisher A → Publisher B project: initial pending state settled to the
+  generic Studio denial; refresh settled identically; Back returned to the
+  Publisher A dashboard; no project title or raw infrastructure error rendered.
+- Publisher A → Publisher B listing: settled to the same generic denial; no
+  listing title, contact, or raw infrastructure error rendered.
+- Publisher B → Owner-managed legacy project: settled to the same generic
+  denial with no target fields.
+- Publisher B → own project and own listing: both editors settled normally.
+- Owner → Publisher B project and listing: both editors settled normally.
+- Browser console/hydration errors across the matrix: zero.
+- A protected before/after staging inventory comparison across the denied
+  server-function mutation probes was unchanged; no storage write was
+  attempted. No authorized mutation was performed during browser testing.
+
 ## What Forever Studio is
 
 An authenticated, mobile-first web tool through which the Owner and invited

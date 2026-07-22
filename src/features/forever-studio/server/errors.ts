@@ -15,7 +15,9 @@ export class StudioError extends Error {
   readonly retryable: boolean;
   constructor(code: string, message: string, retryable = true) {
     super(message);
-    this.name = "StudioError";
+    // See StudioAccessError: name crosses the server-function boundary even
+    // when a custom code property does not.
+    this.name = code;
     this.code = code;
     this.retryable = retryable;
   }

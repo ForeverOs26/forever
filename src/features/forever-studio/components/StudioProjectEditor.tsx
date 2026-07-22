@@ -23,6 +23,7 @@ import {
 } from "../studio.functions";
 import { projectPagePath, type StudioProjectFacts } from "../studio-types";
 import { STUDIO_OVERVIEW_KEY } from "./StudioDashboard";
+import { StudioRouteDenied } from "./StudioRouteDenied";
 
 export function StudioProjectEditor(props: { slug: string }) {
   const queryClient = useQueryClient();
@@ -66,11 +67,17 @@ export function StudioProjectEditor(props: { slug: string }) {
     onSettled: invalidate,
   });
 
-  if (detailQuery.isPending || facts === null) {
+  if (detailQuery.isError) {
+    return <StudioRouteDenied />;
+  }
+  if (detailQuery.isPending) {
     return <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>;
   }
-  if (detailQuery.isError || !detail) {
-    return <p className="py-16 text-center text-sm text-muted-foreground">Project not found.</p>;
+  if (!detail) {
+    return <StudioRouteDenied />;
+  }
+  if (facts === null) {
+    return <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>;
   }
 
   const set = (patch: Partial<StudioProjectFacts>) => setFacts({ ...facts, ...patch });
