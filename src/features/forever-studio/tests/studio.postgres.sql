@@ -376,4 +376,131 @@ SELECT pg_temp.assert_true(
    FROM public.studio_upload_jobs WHERE id='100000ff-0000-0000-0000-0000000000ff'),
   'created_by is nulled but the creator snapshot is retained');
 
+-- ---------------------------------------------------------------------------
+-- 11. Deterministic ownership backfill for the applied boundary
+-- ---------------------------------------------------------------------------
+INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
+  ('00000000-0000-0000-0000-000000000003','publisher-a@example.com',now()),
+  ('00000000-0000-0000-0000-000000000004','publisher-b@example.com',now());
+INSERT INTO public.studio_members(user_id,role,email,invited_by) VALUES
+  ('00000000-0000-0000-0000-000000000003','trusted_publisher','publisher-a@example.com','00000000-0000-0000-0000-000000000001'),
+  ('00000000-0000-0000-0000-000000000004','trusted_publisher','publisher-b@example.com','00000000-0000-0000-0000-000000000001');
+
+-- These objects simulate data present before the ownership table existed.
+SELECT public.forever_progressive_ingest(jsonb_build_object(
+  'schema_version','1','mode','create','batch_fingerprint',repeat('1',64),
+  'project',jsonb_build_object('slug','backfill-project','name','Backfill Project')));
+INSERT INTO public.listings(title,slug,publication_status)
+VALUES ('Backfill Listing','backfill-listing','published');
+
+-- The earliest successful creation is authoritative. A later update by B is
+-- deliberately irrelevant and must never transfer A's project.
+INSERT INTO public.studio_upload_jobs(
+  id,created_by,creator_role,workflow,status,project_slug,result_summary,created_at
+) VALUES
+  ('20000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000003','trusted_publisher','new_development','published',
+   'backfill-project',jsonb_build_object('projectId',(SELECT id::text FROM public.projects WHERE slug='backfill-project')),
+   now() - interval '2 minutes'),
+  ('20000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000004','trusted_publisher','project_update','published',
+   'backfill-project','{}'::jsonb,now() - interval '1 minute'),
+  ('20000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000004','trusted_publisher','resale_listing','published',
+   NULL,jsonb_build_object('listingId',(SELECT id::text FROM public.listings WHERE slug='backfill-listing'),'slug','backfill-listing'),
+   now());
+UPDATE public.studio_upload_jobs SET listing_id=(SELECT id FROM public.listings WHERE slug='backfill-listing'),
+  content_fingerprint='backfill-listing'
+WHERE id='20000000-0000-0000-0000-000000000003';
+
+-- A matching pre-existing row is preserved, not replaced.
+INSERT INTO public.studio_object_owners(object_type,object_id,created_by)
+SELECT 'project',id,'00000000-0000-0000-0000-000000000001'::uuid
+FROM public.projects WHERE slug='draft-proj';
+
+SELECT public.studio_backfill_existing_object_owners();
+SELECT pg_temp.assert_true(
+  (SELECT created_by='00000000-0000-0000-0000-000000000003'::uuid
+   FROM public.studio_object_owners o JOIN public.projects p ON p.id=o.object_id
+   WHERE o.object_type='project' AND p.slug='backfill-project'),
+  'existing project receives its earliest successful creator ownership');
+SELECT pg_temp.assert_true(
+  (SELECT created_by='00000000-0000-0000-0000-000000000004'::uuid
+   FROM public.studio_object_owners o JOIN public.listings l ON l.id=o.object_id
+   WHERE o.object_type='listing' AND l.slug='backfill-listing'),
+  'existing listing receives its successful creator ownership');
+SELECT pg_temp.assert_true(
+  (SELECT created_by='00000000-0000-0000-0000-000000000003'::uuid
+   FROM public.studio_object_owners o JOIN public.projects p ON p.id=o.object_id
+   WHERE o.object_type='project' AND p.slug='backfill-project'),
+  'later update jobs do not transfer ownership');
+SELECT pg_temp.assert_true(
+  (SELECT created_by='00000000-0000-0000-0000-000000000001'::uuid
+   FROM public.studio_object_owners o JOIN public.projects p ON p.id=o.object_id
+   WHERE o.object_type='project' AND p.slug='draft-proj'),
+  'legacy pre-Studio objects are Owner-managed and matching ownership is preserved');
+
+DO $$
+DECLARE v_before INTEGER; v_after INTEGER;
+BEGIN
+  SELECT count(*) INTO v_before FROM public.studio_object_owners;
+  PERFORM public.studio_backfill_existing_object_owners();
+  SELECT count(*) INTO v_after FROM public.studio_object_owners;
+  IF v_before <> v_after THEN RAISE EXCEPTION 'studio_pg_test_failed: backfill replay duplicated ownership'; END IF;
+END;
+$$;
+
+-- Every rejection runs in a subtransaction, proving that the failed backfill
+-- writes no partial ownership and leaves no unrelated database state changed.
+DO $$
+DECLARE v_project UUID;
+BEGIN
+  BEGIN
+    SELECT (public.forever_progressive_ingest(jsonb_build_object(
+      'schema_version','1','mode','create','batch_fingerprint',repeat('2',64),
+      'project',jsonb_build_object('slug','backfill-conflicting-creators','name','Conflict')))->>'project_id')::uuid INTO v_project;
+    INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status,project_slug,result_summary)
+    VALUES
+      ('20000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-000000000003','trusted_publisher','new_development','published','backfill-conflicting-creators',jsonb_build_object('projectId',v_project::text)),
+      ('20000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-000000000004','trusted_publisher','new_development','published','backfill-conflicting-creators',jsonb_build_object('projectId',v_project::text));
+    PERFORM public.studio_backfill_existing_object_owners();
+    RAISE EXCEPTION 'expected_creator_conflict_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'studio_owner_backfill_creator_conflict' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000005','second-owner@example.com');
+    -- The bootstrap index permits invited owners; the corrective migration
+    -- independently rejects every multi-Owner roster before it writes.
+    INSERT INTO public.studio_members(user_id,role,email,invited_by)
+    VALUES ('00000000-0000-0000-0000-000000000005','owner','second-owner@example.com','00000000-0000-0000-0000-000000000001');
+    PERFORM public.studio_backfill_existing_object_owners();
+    RAISE EXCEPTION 'expected_multiple_owner_failure_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'studio_owner_backfill_multiple_owners' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+DO $$
+DECLARE v_project UUID;
+BEGIN
+  BEGIN
+    SELECT (public.forever_progressive_ingest(jsonb_build_object(
+      'schema_version','1','mode','create','batch_fingerprint',repeat('3',64),
+      'project',jsonb_build_object('slug','backfill-existing-conflict','name','Existing Conflict')))->>'project_id')::uuid INTO v_project;
+    INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status,project_slug,result_summary)
+    VALUES ('20000000-0000-0000-0000-000000000006','00000000-0000-0000-0000-000000000003','trusted_publisher','new_development','published','backfill-existing-conflict',jsonb_build_object('projectId',v_project::text));
+    INSERT INTO public.studio_object_owners(object_type,object_id,created_by)
+    VALUES ('project',v_project,'00000000-0000-0000-0000-000000000004');
+    PERFORM public.studio_backfill_existing_object_owners();
+    RAISE EXCEPTION 'expected_existing_owner_conflict_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'studio_owner_backfill_existing_owner_conflict' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
 SELECT 'ALL STUDIO POSTGRES ASSERTIONS PASSED' AS result;

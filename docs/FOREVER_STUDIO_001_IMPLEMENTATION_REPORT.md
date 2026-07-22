@@ -5,6 +5,35 @@ Base commit: `50a79ad8e3584dc6d5569d3979c162fbd81b537e` (authoritative main)
 Branch: `claude/forever-studio-upload-dfev75`
 Date: 2026-07-21 (final author-side hardening pass applied the same day)
 
+## Ownership corrective pass (2026-07-22)
+
+The first object-authorization migration correctly writes a private ownership
+row atomically for new Studio project and resale publication, but it has no
+backfill for Studio objects published before that table existed. This makes
+those objects Owner-only by omission and can incorrectly deny their original
+Trusted Publisher after the access boundary is enabled.
+
+`20260722110000_studio_object_ownership_backfill.sql` is a new additive,
+single-transaction corrective migration. It locks only the four attribution
+relations, derives target objects from persisted successful creation-job ids
+and slugs, selects the earliest successful creation only after rejecting
+multiple distinct creators, and inserts only missing ownership rows. Later
+update, retry, edit, publication, or media workflows are never ownership
+evidence. Objects with no authoritative Studio creation chain receive the sole
+active Owner's attribution; a zero-Owner fresh installation retains the
+established `NULL` Owner-only interpretation until bootstrap. Multiple Owners,
+unresolvable targets, or conflicting existing ownership abort before any
+partial write. The migration also makes the existing atomic publication RPCs
+reject an ownership conflict rather than silently ignoring it.
+
+Sanitized staging inventory supplied for Gate 2 before this correction: 8
+projects, 1 listing, 6 Studio jobs, and 0 ownership rows; Publisher B owns the
+6 existing jobs. The currently linked Supabase ref is documented throughout
+this repository as production, not staging, so no remote inventory, migration
+application, or browser authorization test was performed from this workspace.
+The required post-apply attribution counts and browser results remain pending
+an explicitly identified non-production staging project.
+
 ## What Forever Studio is
 
 An authenticated, mobile-first web tool through which the Owner and invited

@@ -33,6 +33,9 @@ const PUBLISHER_B: StudioActor = {
   displayName: "Publisher B",
 };
 
+const OWNERSHIP_BACKFILL_MIGRATION =
+  "supabase/migrations/20260722110000_studio_object_ownership_backfill.sql";
+
 async function createProject(
   world: ReturnType<typeof makeWorld>,
   actor: StudioActor,
@@ -88,6 +91,22 @@ describe("Studio object authorization", () => {
       "REVOKE ALL ON TABLE public.studio_object_owners FROM PUBLIC, anon, authenticated",
     );
     expect(sql).not.toContain("ADD COLUMN IF NOT EXISTS studio_created_by");
+  });
+
+  it("uses a separate deterministic corrective migration for existing objects", () => {
+    const sql = readFileSync(resolve(process.cwd(), OWNERSHIP_BACKFILL_MIGRATION), "utf8");
+    expect(sql).toContain(
+      "CREATE OR REPLACE FUNCTION public.studio_backfill_existing_object_owners()",
+    );
+    expect(sql).toContain("status = 'published' AND workflow = 'new_development'");
+    expect(sql).toContain("status = 'published' AND workflow = 'resale_listing'");
+    expect(sql).toContain("studio_owner_backfill_creator_conflict");
+    expect(sql).toContain("studio_owner_backfill_multiple_owners");
+    expect(sql).toContain("studio_owner_backfill_existing_owner_conflict");
+    expect(sql).toContain("ORDER BY object_type, object_id, job_created_at ASC, job_id ASC");
+    expect(sql).toContain("LOCK TABLE public.projects, public.listings, public.studio_upload_jobs");
+    expect(sql).toContain("SELECT public.studio_backfill_existing_object_owners()");
+    expect(sql).not.toMatch(/@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
   });
 
   it("denies guessed project and resale editor reads without leaking private fields", async () => {
