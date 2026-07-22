@@ -211,6 +211,68 @@ SELECT pg_temp.assert_true(
   'a retryable failure stays recoverable');
 
 -- ---------------------------------------------------------------------------
+-- 4d. Disabled/missing source membership cannot mutate readiness or claims
+-- ---------------------------------------------------------------------------
+INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
+  ('00000000-0000-0000-0000-000000000006','disabled-source@example.com',now());
+INSERT INTO public.studio_members(user_id,role,email,invited_by,is_active) VALUES
+  ('00000000-0000-0000-0000-000000000006','trusted_publisher','disabled-source@example.com',
+   '00000000-0000-0000-0000-000000000001',true);
+INSERT INTO public.studio_upload_jobs(
+  id,created_by,creator_role,workflow,status,processing_requested_at
+) VALUES
+  ('10000000-0000-0000-0000-000000000006','00000000-0000-0000-0000-000000000006',
+   'owner','new_development','received',now()),
+  ('10000000-0000-0000-0000-000000000007','00000000-0000-0000-0000-000000000006',
+   'owner','new_development','received',NULL);
+UPDATE public.studio_members SET is_active=false
+WHERE user_id='00000000-0000-0000-0000-000000000006';
+
+DO $$
+DECLARE
+  v_claim_before JSONB;
+  v_request_before JSONB;
+BEGIN
+  SELECT to_jsonb(j) INTO v_claim_before FROM public.studio_upload_jobs j
+  WHERE id='10000000-0000-0000-0000-000000000006';
+  SELECT to_jsonb(j) INTO v_request_before FROM public.studio_upload_jobs j
+  WHERE id='10000000-0000-0000-0000-000000000007';
+
+  BEGIN
+    PERFORM * FROM public.studio_claim_job(
+      '10000000-0000-0000-0000-000000000006',
+      'eeeeeeee-0000-0000-0000-0000000000ee',900);
+    RAISE EXCEPTION 'expected_disabled_claim_refusal_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'studio_membership_required' THEN RAISE; END IF;
+  END;
+
+  BEGIN
+    PERFORM * FROM public.studio_request_job_processing(
+      '10000000-0000-0000-0000-000000000007',
+      'ffffffff-0000-0000-0000-0000000000ff',900);
+    RAISE EXCEPTION 'expected_disabled_request_refusal_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'studio_membership_required' THEN RAISE; END IF;
+  END;
+
+  IF (SELECT to_jsonb(j) FROM public.studio_upload_jobs j
+      WHERE id='10000000-0000-0000-0000-000000000006') IS DISTINCT FROM v_claim_before THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: disabled source mutated claim state';
+  END IF;
+  IF (SELECT to_jsonb(j) FROM public.studio_upload_jobs j
+      WHERE id='10000000-0000-0000-0000-000000000007') IS DISTINCT FROM v_request_before THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: disabled source mutated readiness state';
+  END IF;
+END;
+$$;
+
+DELETE FROM public.studio_upload_jobs
+WHERE id IN ('10000000-0000-0000-0000-000000000006','10000000-0000-0000-0000-000000000007');
+DELETE FROM public.studio_members WHERE user_id='00000000-0000-0000-0000-000000000006';
+DELETE FROM auth.users WHERE id='00000000-0000-0000-0000-000000000006';
+
+-- ---------------------------------------------------------------------------
 -- 5. Atomic publish rollback: a failure leaves no project, child, or batch
 -- ---------------------------------------------------------------------------
 INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status)
@@ -500,22 +562,13 @@ VALUES
    'owner','project_update','received','publisher-owned'),
   ('11000000-0000-0000-0000-000000000009','00000000-0000-0000-0000-000000000007',
    'owner','project_update','received','publisher-owned');
-SELECT public.studio_request_job_processing(
-  '11000000-0000-0000-0000-000000000008','11000000-0000-0000-0000-000000000018',900);
-SELECT public.studio_request_job_processing(
-  '11000000-0000-0000-0000-000000000009','11000000-0000-0000-0000-000000000019',900);
 DO $$ DECLARE v_job uuid; v_token uuid; BEGIN
   FOR v_job,v_token IN VALUES
     ('11000000-0000-0000-0000-000000000008'::uuid,'11000000-0000-0000-0000-000000000018'::uuid),
     ('11000000-0000-0000-0000-000000000009'::uuid,'11000000-0000-0000-0000-000000000019'::uuid)
   LOOP
     BEGIN
-      PERFORM public.studio_publish_project(
-        v_job,v_token,
-        jsonb_build_object('schema_version','1','mode','enrich','batch_fingerprint',repeat('9',64),
-          'project',jsonb_build_object('slug','publisher-owned',
-            'set',jsonb_build_object('short_description','Membership bypass'))),
-        true,'{}'::jsonb);
+      PERFORM * FROM public.studio_request_job_processing(v_job,v_token,900);
       RAISE EXCEPTION 'expected_membership_denial_absent';
     EXCEPTION WHEN OTHERS THEN
       IF SQLERRM <> 'studio_membership_required' THEN RAISE; END IF;
@@ -525,8 +578,13 @@ END $$;
 UPDATE public.studio_members SET is_active=true
 WHERE user_id='00000000-0000-0000-0000-000000000001';
 SELECT pg_temp.assert_true(
-  (SELECT short_description FROM public.projects WHERE slug='publisher-owned')='Owner update',
-  'disabled and non-member publish attempts have zero project effect');
+  (SELECT short_description FROM public.projects WHERE slug='publisher-owned')='Owner update'
+  AND (SELECT bool_and(status='received' AND processing_requested_at IS NULL
+                       AND processing_token IS NULL AND attempt_count=0)
+       FROM public.studio_upload_jobs
+       WHERE id IN ('11000000-0000-0000-0000-000000000008',
+                    '11000000-0000-0000-0000-000000000009')),
+  'disabled and non-member processing attempts have zero job or project effect');
 
 -- ---------------------------------------------------------------------------
 -- 7. Resale: atomic + idempotent + private contact

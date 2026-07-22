@@ -329,6 +329,9 @@ export class FakeData implements StudioData {
   async claimJob(jobId: string, token: string, staleSeconds: number): Promise<StudioJobRow | null> {
     const job = this.jobs.get(jobId);
     if (!job) return null;
+    // Mirrors studio_claim_job: current active membership authorizes the claim;
+    // the immutable job.creator_role snapshot is never consulted here.
+    this.currentRole(job.created_by);
     const staleBefore = this.clock() - staleSeconds * 1000;
     // Mirrors studio_claim_job: received | retryable-failed | stale-processing.
     // A published job and a terminal (retryable=false) failure are NEVER
@@ -357,6 +360,10 @@ export class FakeData implements StudioData {
   ): Promise<StudioJobRow | null> {
     const job = this.jobs.get(jobId);
     if (!job || job.status === "published") return null;
+    // The production RPC performs readiness + claim in one transaction. Check
+    // authorization before changing the in-memory row so a rejected request
+    // mirrors that transaction's complete rollback.
+    this.currentRole(job.created_by);
     job.processing_requested_at ??= new Date(this.clock()).toISOString();
     return this.claimJob(jobId, token, staleSeconds);
   }

@@ -1,9 +1,70 @@
 # FOREVER-STUDIO-001 — Implementation Report
 
-Status: Independent-review corrective code is implemented and locally validated in open, unmerged Draft PR #95. It is **blocked from second Owner review** because the required staging migration-history gate failed; the new correction was not applied and the dependent staging browser matrix was not run. No production connection or change occurred.
+Status: Resume-principal corrective code is implemented and locally validated in open, unmerged Draft PR #95. It is **blocked from second Owner review** because the required staging migration-history equivalence gate failed; no history row or migration was changed and the dependent staging browser matrix was not run. No production connection or change occurred.
 Base commit: `50a79ad8e3584dc6d5569d3979c162fbd81b537e` (authoritative main)
 Branch: `claude/forever-studio-upload-dfev75`
 Date: 2026-07-22 (independent-review corrective pass; staging gate blocked)
+
+## Resume-principal corrective pass (2026-07-22)
+
+The retained PR head used the account that resumed a stale job as the source of
+manual-field provenance. A pre-correction regression reproduced both failures:
+a Trusted Publisher project job and a Trusted Publisher resale job, each
+resumed by an Owner, were incorrectly finalized as `owner_provided`. Their
+audit records named the Owner executor but did not preserve the original
+creator identity.
+
+The correction separates three identities explicitly:
+
+- the immutable job creator and `creator_role` snapshot are the source
+  principal used for historical provenance and ownership attribution;
+- the creator's current active `studio_members` row is the authorization
+  principal used for claim and object access; and
+- the signed-in account that performs this attempt is the execution principal
+  recorded as the audit actor.
+
+Owner resume no longer elevates Publisher facts or transfers ownership. Audit
+metadata records the source creator, current authorization principal, actual
+executor, and whether an Owner resumed another creator's job. A later role
+change affects current authorization but not historical provenance. A disabled
+or missing source membership fails before claim, storage access, readiness
+mutation, publication, warning/contact writes, or ownership mutation.
+
+`20260722130000_studio_resume_principal_authorization.sql` is a later additive
+migration. It replaces only the two claim boundaries and requires the job
+creator's current active membership before any job update. `creator_role` is
+not consulted for authorization. Both functions remain service-role-only. The
+in-memory fake checks the same authorization before mutating claim or readiness
+state.
+
+Regression coverage proves:
+
+- Publisher project and resale jobs resumed by Owner retain
+  `trusted_publisher_provided`, remain Publisher-owned, preserve private resale
+  contact, and remain editable by their Publisher creator;
+- Owner-created facts remain `owner_provided`;
+- post-submission role changes preserve submission-time provenance while using
+  current active membership for authorization; and
+- a disabled Publisher source produces exact zero database, storage, audit,
+  token, readiness, and publication mutation.
+
+Local validation at this corrective head passed:
+
+- focused resume-principal and migration-contract tests: 29/29;
+- the requested resume-principal, resume, object-authorization,
+  upload-readiness, actor-pagination, and resale matrix: 36/36;
+- the complete migration chain through `20260722130000` on clean disposable
+  PostgreSQL 17, followed by all real-PostgreSQL assertions;
+- complete Studio Vitest suite: 163/163 across 17 files;
+- complete repository Vitest suite: 3,226 passed across 338 files, with 5
+  skipped (`--maxWorkers=4 --minWorkers=1` completed with exit 0);
+- TypeScript, changed-file ESLint, changed-file Prettier, `git diff --check`,
+  the Vite/Cloudflare production build, and the concrete client-bundle secret
+  scan.
+
+Repository-wide `eslint .` produced no diagnostic before its 300-second bound
+and is recorded as a timeout, not a pass. Every changed TypeScript file passed
+the scoped ESLint run.
 
 ## Independent-review corrective pass (2026-07-22)
 
@@ -48,29 +109,51 @@ every changed TypeScript/JavaScript file passed.
 
 ### Staging migration-history blocker
 
-The protected runtime identified the intended non-production project as
-`garjibjhlzeljsnpzisu` (`forever-staging`), distinct from the repository-linked
-production project. The required read-only migration-history gate showed the
-remote history ending at `20260721123000`; these repository versions have no
-row in `supabase_migrations.schema_migrations`:
+The Supabase project inventory identified the intended non-production project
+as `garjibjhlzeljsnpzisu` (`forever-staging`, region `ap-southeast-2`, healthy,
+and not the repository-linked project). The forbidden production ref is
+`abtvsrcnfwlbawvrjeed`; it was listed for identity comparison only and was
+never queried or changed. An isolated temporary Supabase workdir was explicitly
+linked to staging so no repository-linked default could be used.
+
+The current transaction-enforced read-only audit does **not** reproduce the
+previously reported mixed state. In the relevant range, staging migration
+history now contains only:
+
+- `20260718113000_progressive_ingestion_v1`
+
+It has no history row for the Studio base/hardening migrations or for:
 
 - `20260722103000`
 - `20260722110000`
 - `20260722120000`
+- `20260722130000`
 
-A separate read-only catalog check found objects introduced by the first two
-versions (including `studio_object_owners` and
-`studio_backfill_existing_object_owners()`), despite their missing history
-rows. The new readiness column from `20260722120000` is absent. This is an
-unsafe mixed state: applying only the new correction would bypass the required
-history prerequisite, while repairing migration history would be an additional
-staging mutation not authorized by this pass.
+The separate catalog inventory contains the ordinary `public.projects` and
+`public.listings` tables, but no `studio_*` relation and no `studio_*`
+function. The exact required objects missing from the current staging catalog
+include:
 
-Accordingly, no staging migration or history repair was performed, the
-correction-dependent browser matrix was not run, and PR #95 remains Draft.
-Production was neither connected nor changed. All earlier Gate 2/Gate 3
-results below are historical evidence from the preceding review round and do
-not constitute staging validation of this corrective head.
+- `public.studio_members`, `public.studio_upload_jobs`, and
+  `public.studio_object_owners`;
+- `public.studio_publish_project(...)` and
+  `public.studio_publish_resale(...)`; and
+- `public.studio_backfill_existing_object_owners()`.
+
+Consequently, the required columns/types, constraints, foreign-key behavior,
+RLS, ACLs, grants, indexes, normalized function definitions, function
+ownership/security/search path, ownership rows, conflicts, and deterministic
+backfill postconditions cannot equal the repository's expected state after
+`20260722110000`: their containing objects are absent. The strict audit failed
+closed on that mismatch before returning any equivalence result.
+
+The authorization for history repair was conditional on exact equivalence, so
+it did not activate. No migration-history row was repaired, no pending
+migration was applied, no database/storage/application data changed, and the
+corrected staging preview or browser acceptance matrix was not started. PR #95
+therefore remains Draft, open, unmerged, with auto-merge disabled. All earlier
+Gate 2/Gate 3 results below are historical evidence from the preceding review
+round and do not constitute staging validation of this corrective head.
 
 ## Ownership corrective pass (2026-07-22)
 

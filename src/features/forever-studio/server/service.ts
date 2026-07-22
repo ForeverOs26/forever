@@ -42,6 +42,7 @@ import {
   type StudioProjectDetail,
   type StudioProjectFacts,
   type StudioResaleFacts,
+  type StudioRole,
   type StudioResumeResult,
   type StudioUploadTarget,
   type StudioWarningSummary,
@@ -89,10 +90,72 @@ const TEXT_LIMIT = 4000;
 // Small helpers
 // ---------------------------------------------------------------------------
 
-function actorProvenanceStatus(actor: StudioActor): ProvenanceStatus {
+function roleProvenanceStatus(role: StudioRole): ProvenanceStatus {
   // Direct publication authorization is NOT verification: an ordinary Studio
   // entry is *_provided, never owner_verified.
-  return actor.role === "owner" ? "owner_provided" : "trusted_publisher_provided";
+  return role === "owner" ? "owner_provided" : "trusted_publisher_provided";
+}
+
+function actorProvenanceStatus(actor: StudioActor): ProvenanceStatus {
+  return roleProvenanceStatus(actor.role);
+}
+
+interface StudioSourcePrincipal {
+  userId: string;
+  email: string | null;
+  /** Immutable submission-time role; provenance and audit only. */
+  role: StudioRole;
+}
+
+interface StudioJobPrincipals {
+  /** Immutable job creator snapshot used only for provenance and attribution. */
+  source: StudioSourcePrincipal;
+  /** Current active source membership used for authorization. */
+  authorization: StudioActor;
+  /** Signed-in account/background context that executes this attempt. */
+  execution: StudioActor;
+}
+
+async function resolveJobPrincipals(
+  deps: StudioDeps,
+  execution: StudioActor,
+  job: StudioJobRow,
+): Promise<StudioJobPrincipals> {
+  if (!job.created_by) throw new StudioAccessError("studio_membership_required");
+  const membership = await deps.data.getMembership(job.created_by);
+  if (!membership?.is_active) throw new StudioAccessError("studio_membership_required");
+
+  return {
+    source: {
+      userId: job.created_by,
+      email: job.creator_email,
+      role: job.creator_role,
+    },
+    authorization: {
+      userId: membership.user_id,
+      email: membership.email,
+      role: membership.role,
+      displayName: membership.display_name,
+    },
+    execution,
+  };
+}
+
+function jobPrincipalAuditMetadata(
+  principals: StudioJobPrincipals,
+): Record<string, string | boolean | null> {
+  return {
+    source_creator_id: principals.source.userId,
+    source_creator_email: principals.source.email,
+    source_creator_role: principals.source.role,
+    authorization_principal_id: principals.authorization.userId,
+    authorization_principal_role: principals.authorization.role,
+    executed_by_id: principals.execution.userId,
+    executed_by_role: principals.execution.role,
+    resumed_by_owner:
+      principals.execution.role === "owner" &&
+      principals.execution.userId !== principals.source.userId,
+  };
 }
 
 function cleanText(value: unknown): string | undefined {
@@ -210,13 +273,13 @@ interface ManualProjectFields {
 
 function manualProjectFields(
   raw: StudioProjectFacts | undefined,
-  actor: StudioActor,
+  sourceRole: StudioRole,
   suppliedAt: string,
 ): ManualProjectFields {
   const fields: Record<string, unknown> = {};
   const provenance: FieldProvenanceMap = {};
   if (!raw) return { fields, provenance };
-  const status = actorProvenanceStatus(actor);
+  const status = roleProvenanceStatus(sourceRole);
   const put = (column: string, value: unknown) => {
     if (value === undefined) return;
     fields[column] = value;
@@ -389,11 +452,15 @@ async function claimAndProcess(
   jobRow: StudioJobRow,
   requestProcessing = false,
 ): Promise<StudioJobResult> {
+  // Resolve the job creator's CURRENT active membership before claiming or
+  // touching storage. The immutable creator_role snapshot is deliberately not
+  // consulted here: it is historical provenance, never authorization.
+  const principals = await resolveJobPrincipals(deps, actor, jobRow);
   // Do this before claiming a job: a denied known target must not change job
   // state, create public media, or otherwise leave a database/storage trace.
   await assertKnownProjectTargetAccess(
     deps,
-    actor,
+    principals.authorization,
     jobRow.project_slug,
     jobRow.facts.projectFacts as StudioProjectFacts | undefined,
   );
@@ -412,7 +479,7 @@ async function claimAndProcess(
     if (!current) throw new StudioAccessError("job_not_found");
     return jobResultFromRow(current);
   }
-  return processClaimedJob(deps, actor, claimed, token);
+  return processClaimedJob(deps, actor, claimed, token, principals);
 }
 
 /** Non-fatal post-commit audit: never invalidates a committed write. */
@@ -502,7 +569,12 @@ export async function processClaimedJob(
   actor: StudioActor,
   claimed: StudioJobRow,
   token: string,
+  resolvedPrincipals?: StudioJobPrincipals,
 ): Promise<StudioJobResult> {
+  // Direct worker callers of this exported boundary receive the same current-
+  // membership authorization as the normal claim path, before storage reads or
+  // copies. Normal callers pass the already-resolved pre-claim principals.
+  const principals = resolvedPrincipals ?? (await resolveJobPrincipals(deps, actor, claimed));
   let materials: GatheredMaterials | undefined;
   // Set the moment the atomic publication transaction commits. From then on
   // this attempt's public objects belong to the published page and must
@@ -527,8 +599,8 @@ export async function processClaimedJob(
     }
     const result =
       claimed.workflow === "resale_listing"
-        ? await finalizeResale(deps, actor, claimed, materials, token, commitState)
-        : await finalizeProject(deps, actor, claimed, materials, token, commitState);
+        ? await finalizeResale(deps, principals, claimed, materials, token, commitState)
+        : await finalizeProject(deps, principals, claimed, materials, token, commitState);
     return result;
   } catch (error) {
     const safe = toSafeError(error, mapFailureCode(error));
@@ -623,7 +695,7 @@ function deriveProjectSlug(
 
 async function finalizeProject(
   deps: StudioDeps,
-  actor: StudioActor,
+  principals: StudioJobPrincipals,
   job: StudioJobRow,
   materials: GatheredMaterials,
   token: string,
@@ -632,7 +704,7 @@ async function finalizeProject(
   const suppliedAt = job.created_at;
   const manual = manualProjectFields(
     job.facts.projectFacts as StudioProjectFacts | undefined,
-    actor,
+    principals.source.role,
     suppliedAt,
   );
   const extracted = materials.factFields;
@@ -644,7 +716,10 @@ async function finalizeProject(
   const slug = deriveProjectSlug(job, manualName, materials.derivedName);
   const existing = await deps.data.findProjectBySlug(slug);
   if (existing)
-    assertObjectAccess(actor, await deps.data.getObjectCreatedBy("project", existing.id));
+    assertObjectAccess(
+      principals.authorization,
+      await deps.data.getObjectCreatedBy("project", existing.id),
+    );
   const mode: "create" | "enrich" = existing ? "enrich" : "create";
   const extraWarnings: ProgressiveWarning[] = [...materials.warnings];
 
@@ -742,12 +817,18 @@ async function finalizeProject(
     // non-fatal on failure.
     await cleanupForeignAttemptObjects(deps, job.id, token);
     await recordAuditSafely(deps, {
-      actor_id: actor.userId,
-      actor_email: actor.email,
+      actor_id: principals.execution.userId,
+      actor_email: principals.execution.email,
       action: mode === "create" ? "studio_project_created_published" : "studio_project_updated",
       table_name: "projects",
       record_id: summary.project_id,
-      metadata: { job_id: job.id, workflow: job.workflow, mode, counts: summary.counts },
+      metadata: {
+        job_id: job.id,
+        workflow: job.workflow,
+        mode,
+        counts: summary.counts,
+        ...jobPrincipalAuditMetadata(principals),
+      },
     });
   }
 
@@ -773,10 +854,10 @@ async function finalizeProject(
 
 function manualListingProvenance(
   facts: StudioResaleFacts,
-  actor: StudioActor,
+  sourceRole: StudioRole,
   suppliedAt: string,
 ): FieldProvenanceMap {
-  const status = actorProvenanceStatus(actor);
+  const status = roleProvenanceStatus(sourceRole);
   const provenance: FieldProvenanceMap = {};
   for (const [key, value] of Object.entries(facts)) {
     if (key === "contactName" || key === "contactPhone" || key === "contactEmail") continue;
@@ -788,7 +869,7 @@ function manualListingProvenance(
 
 async function finalizeResale(
   deps: StudioDeps,
-  actor: StudioActor,
+  principals: StudioJobPrincipals,
   job: StudioJobRow,
   materials: GatheredMaterials,
   token: string,
@@ -851,7 +932,7 @@ async function finalizeResale(
       currency,
       description: cleanText(facts.description),
       photos: materials.photoUrls,
-      fieldProvenance: manualListingProvenance(facts, actor, suppliedAt),
+      fieldProvenance: manualListingProvenance(facts, principals.source.role, suppliedAt),
     },
   );
   warnings.push(...draft.warnings);
@@ -904,12 +985,16 @@ async function finalizeResale(
   } else {
     await cleanupForeignAttemptObjects(deps, job.id, token);
     await recordAuditSafely(deps, {
-      actor_id: actor.userId,
-      actor_email: actor.email,
+      actor_id: principals.execution.userId,
+      actor_email: principals.execution.email,
       action: "studio_resale_published",
       table_name: "listings",
       record_id: published.listingId,
-      metadata: { job_id: job.id, photos: materials.photoUrls.length },
+      metadata: {
+        job_id: job.id,
+        photos: materials.photoUrls.length,
+        ...jobPrincipalAuditMetadata(principals),
+      },
     });
   }
 
@@ -967,7 +1052,7 @@ export async function saveProjectFacts(
 ): Promise<{ slug: string; warnings: StudioWarningSummary[] }> {
   assertNotPartnerDemo(deps);
   const project = await requireProjectAccess(deps, actor, input.slug);
-  const manual = manualProjectFields(input.facts, actor, deps.now());
+  const manual = manualProjectFields(input.facts, actor.role, deps.now());
   if (Object.keys(manual.fields).length === 0) {
     return { slug: input.slug, warnings: [] };
   }

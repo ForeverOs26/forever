@@ -19,6 +19,9 @@ const sql = readFileSync(resolve(process.cwd(), MIGRATION_PATH), "utf8");
 const CORRECTION_PATH =
   "supabase/migrations/20260722120000_studio_independent_review_corrections.sql";
 const correction = readFileSync(resolve(process.cwd(), CORRECTION_PATH), "utf8");
+const RESUME_PRINCIPAL_PATH =
+  "supabase/migrations/20260722130000_studio_resume_principal_authorization.sql";
+const resumePrincipal = readFileSync(resolve(process.cwd(), RESUME_PRINCIPAL_PATH), "utf8");
 const ddl = sql
   .split("\n")
   .filter((line) => !line.trim().startsWith("--"))
@@ -209,5 +212,34 @@ describe("independent-review corrective migration contract", () => {
       expect(correction).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${name}`));
     }
     expect(correction).not.toMatch(/sb_secret_|service_role_key|eyJ[A-Za-z0-9]/);
+  });
+});
+
+describe("resume-principal authorization migration contract", () => {
+  it("is later than the independent-review migration and stays additive", () => {
+    expect(RESUME_PRINCIPAL_PATH.localeCompare(CORRECTION_PATH)).toBeGreaterThan(0);
+    expect(resumePrincipal).not.toMatch(/DROP\s+(TABLE|COLUMN|FUNCTION)/i);
+  });
+
+  it("authorizes claims from current active membership without creator_role", () => {
+    const claim = resumePrincipal.slice(
+      resumePrincipal.indexOf("CREATE OR REPLACE FUNCTION public.studio_claim_job"),
+      resumePrincipal.indexOf("$$;", resumePrincipal.indexOf("public.studio_claim_job")),
+    );
+    expect(claim).toContain("FROM public.studio_members");
+    expect(claim).toContain("user_id = v_created_by AND is_active");
+    expect(claim).toContain("studio_membership_required");
+    expect(claim.indexOf("FROM public.studio_members")).toBeLessThan(
+      claim.indexOf("UPDATE public.studio_upload_jobs"),
+    );
+    expect(claim).not.toContain("creator_role");
+  });
+
+  it("keeps claim functions service-role-only and contains no credentials", () => {
+    for (const name of ["studio_claim_job", "studio_request_job_processing"]) {
+      expect(resumePrincipal).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${name}`));
+      expect(resumePrincipal).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${name}`));
+    }
+    expect(resumePrincipal).not.toMatch(/sb_secret_|service_role_key|eyJ[A-Za-z0-9]/);
   });
 });
