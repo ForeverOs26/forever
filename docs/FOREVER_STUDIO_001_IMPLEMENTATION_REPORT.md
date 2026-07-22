@@ -1,9 +1,45 @@
 # FOREVER-STUDIO-001 — Implementation Report
 
-Status: Resume-principal corrective code is implemented and locally validated in open, unmerged Draft PR #95. It is **blocked from second Owner review** because the required staging migration-history equivalence gate failed; no history row or migration was changed and the dependent staging browser matrix was not run. No production connection or change occurred.
+Status: Resume-principal corrective code is implemented and locally validated in open, unmerged Draft PR #95. It remains **blocked from second Owner review** because the final clean-install preflight found that staging no longer matches the authorized clean pre-Studio premise. No history row, migration, identity, application data, or storage object was changed by this pass, and the dependent staging browser matrix was not run. No production connection or change occurred.
 Base commit: `50a79ad8e3584dc6d5569d3979c162fbd81b537e` (authoritative main)
 Branch: `claude/forever-studio-upload-dfev75`
 Date: 2026-07-22 (independent-review corrective pass; staging gate blocked)
+
+## Final clean-install preflight blocker (2026-07-22)
+
+The Owner authorized a clean forward installation only if an immediate final
+read-only preflight reproduced the previously verified clean pre-Studio state.
+The new preflight used the protected staging credential handoff, the CA URL
+defined by Supabase's official dashboard source (`Supabase Root 2021 CA`), and
+`sslmode=verify-full` against the fixed session-pooler hostname. Client
+connection evidence reported TLS 1.3. The isolated configuration contained
+only `garjibjhlzeljsnpzisu` / `forever-staging` in `ap-southeast-2`; the
+forbidden production ref was absent from the connection and configuration.
+
+The live catalog contradicted the clean-install premise before any mutation:
+
+- migration history contains `20260721120000_forever_studio_v1` and
+  `20260721123000_studio_internal_acl_hardening`, while the four migrations
+  from `20260722103000` through `20260722130000` have no history row;
+- the catalog contains `studio_members`, `studio_upload_jobs`,
+  `studio_listing_contacts`, and `studio_object_owners`, plus eight
+  `studio_*` functions including
+  `studio_backfill_existing_object_owners()`;
+- the membership roster contains one active Owner and two active Trusted
+  Publishers;
+- 13 Studio jobs are already persisted as published across the five workflows,
+  and two private listing-contact rows exist;
+- current public counts are 10 projects and 2 listings, and the three former
+  public `listings.contact_*` columns are absent;
+- sanitized platform inventory contains 4 confirmed auth users and the private
+  `studio-uploads` bucket in addition to the existing public buckets.
+
+This is a mixed partial Studio installation, not the authorized clean
+pre-Studio state. The explicit fail-closed condition therefore stopped the task
+before migration dry run or application. No migration-history repair, manual
+SQL, identity repair, Owner bootstrap, ownership backfill call, preview,
+acceptance mutation, or production connection was attempted. PR #95 remains
+open, Draft, unmerged, with auto-merge disabled.
 
 ## Resume-principal corrective pass (2026-07-22)
 
