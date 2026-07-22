@@ -1,9 +1,9 @@
 # FOREVER-STUDIO-001 — Implementation Report
 
-Status: Implemented and hardened in an open, unmerged draft PR (#95); pending independent Codex audit and Owner approval. Not merged. No migration applied by this task; no production connection.
+Status: Implemented and validated through Gates 2 and 3 in open, unmerged PR #95; ready for Owner review with auto-merge disabled. No production connection or change occurred.
 Base commit: `50a79ad8e3584dc6d5569d3979c162fbd81b537e` (authoritative main)
 Branch: `claude/forever-studio-upload-dfev75`
-Date: 2026-07-21 (final author-side hardening pass applied the same day)
+Date: 2026-07-22 (final controlled-staging Gate 2 and Gate 3 verification)
 
 ## Ownership corrective pass (2026-07-22)
 
@@ -26,13 +26,12 @@ unresolvable targets, or conflicting existing ownership abort before any
 partial write. The migration also makes the existing atomic publication RPCs
 reject an ownership conflict rather than silently ignoring it.
 
-Sanitized staging inventory supplied for Gate 2 before this correction: 8
+The pre-correction sanitized staging inventory supplied for Gate 2 contained 8
 projects, 1 listing, 6 Studio jobs, and 0 ownership rows; Publisher B owns the
-6 existing jobs. The currently linked Supabase ref is documented throughout
-this repository as production, not staging, so no remote inventory, migration
-application, or browser authorization test was performed from this workspace.
-The required post-apply attribution counts and browser results remain pending
-an explicitly identified non-production staging project.
+6 existing jobs. No repository-linked production project was used. The
+corrective migration and all browser verification were instead performed only
+against the explicitly identified, controlled non-production staging project;
+the completed post-apply and browser results are recorded below.
 
 ## Negative-authorization route settlement (2026-07-22)
 
@@ -77,6 +76,55 @@ accounts only):
 - A protected before/after staging inventory comparison across the denied
   server-function mutation probes was unchanged; no storage write was
   attempted. No authorized mutation was performed during browser testing.
+
+## Final Gate 2 and Gate 3 evidence (2026-07-22)
+
+Gate 2 passed on the controlled non-production staging preview with synthetic
+accounts and data. All five Studio workflows passed: direct publication with
+incomplete data, New Development, Project Update without duplicate creation,
+Price / Availability Update, Construction Media Update, and Resale Listing.
+Edit/save/reload, hero selection, upload update, unpublish/republish, automatic
+resume, exact-retry idempotency, resale seller-contact privacy, Owner
+provenance precedence, Partner Demo write isolation, and absence from public
+navigation and the sitemap also passed. Desktop 1440x900, tablet 1024x768, and
+mobile 390x844 had no horizontal overflow, console, hydration, page, or raw
+infrastructure errors. The accepted ownership and denial matrix is recorded in
+the preceding section.
+
+Gate 3 combined genuine physical-phone evidence with the complete synthetic
+media fixture matrix. The single synthetic project `Gate 3 Physical Phone
+Media 2026-07-22` has one successful Owner publication job, is Published, and
+has exactly one project, two unique media rows, one ownership row, and zero
+warnings or duplicate jobs/media/ownership records. Sanitized persisted
+observations:
+
+- Phone photo: JPEG (`image/jpeg`), 3,379,379 server-observed bytes, magic-byte
+  media class `image`; the full-file SHA-256 was recorded. The private original
+  remains private, its selected public copy renders on the project page, and
+  the reloaded Edit page identifies it as the hero.
+- Phone video: MP4 (`video/mp4`), 1,971,995 server-observed bytes, magic-byte
+  media class `video`; the full-file SHA-256 was recorded. The private original
+  remains private and only its selected publication copy exists publicly.
+- Upload start through Published: 9.8 seconds from persisted timestamps.
+- The public project page opens and renders the photo. The Edit page opens and
+  reloads with Published status and the phone photo still selected as hero.
+  Browser console/hydration errors were zero. No private storage location,
+  signed URL, raw infrastructure error, or private target metadata rendered.
+
+The 14-case nonphysical media suite passed in full. It proves server-observed
+byte counts and full-file hashing, HEIC/HEIF image and MOV video brand
+classification, successful large-media streaming publication, byte-identical
+large-file deduplication, refusal of large disguised image/video declarations,
+declared-size mismatch recording, private nonblocking retention of oversized
+or unsupported media, selected-media-only publication, and removal of public
+copies when finalization fails. Rejected originals remain private.
+
+Final proportional validation at the retained corrected head and this evidence
+update: complete Studio suite 137/137 across 14 files; focused Gate 3 media
+suite 14/14; TypeScript passed; Cloudflare production build passed;
+`git diff --check` passed; client-bundle secret/server-identifier scan passed;
+and the final evidence-only changed-file lint/format checks passed. Production
+was never connected, migrated, or changed.
 
 ## What Forever Studio is
 
@@ -383,10 +431,12 @@ archive buffer and an inflated entry fit a practical Worker memory envelope.
 ## Success-target measurement
 
 Manual JSON / SQL / terminal / extra approval for the publisher: zero by
-construction (asserted). The 2–5-minute and 15-minute targets and real phone
-camera/file-picker behavior need a real-device pilot to be measured honestly.
+construction. The physical-phone camera/file-picker pilot completed
+successfully; its persisted upload-to-Published interval was 9.8 seconds for
+the observed JPEG and MP4. Large-media behavior remains covered by full-file
+streaming fixtures rather than a production traffic test.
 
-## Remaining work (Owner / Codex / deployment — not performed here)
+## Post-review deployment work (outside accepted Gates 2 and 3)
 
 1. **Codex live-schema check, then apply the single pending Studio migration**
    `20260721120000_forever_studio_v1.sql`. Do NOT re-apply the progressive
@@ -401,10 +451,10 @@ camera/file-picker behavior need a real-device pilot to be measured honestly.
    call the resume entry point; the claim contract is transport-independent.
 4. **Type regeneration:** regenerate `src/integrations/supabase/types.ts` after
    the migration applies and tighten the deliberately untyped data-access casts.
-5. **Real-device + PostgreSQL 17.6 pilot:** interaction-time targets, camera/
-   file-picker behavior, real PDF price lists through server-side SIP (needs
-   `pdftotext` on a self-hosted host — the Worker retains + warns), large-video
-   upload, and a 17.6 migration rehearsal.
+5. **Operational follow-up:** rehearse the migration on PostgreSQL 17.6; test
+   real PDF price lists through server-side SIP (`pdftotext` requires a
+   self-hosted host, while the Worker safely retains + warns); and measure
+   production-scale large-video performance before setting an operational SLO.
 6. **Coralina / Rainpalm production publication** — explicitly NOT done and not
    authorized by this PR.
 
@@ -434,8 +484,9 @@ camera/file-picker behavior need a real-device pilot to be measured honestly.
 ## Confirmations
 
 - No production connection occurred; no production credentials were used.
-- No migration was applied; no production data was mutated.
-- Coralina and Rainpalm were not published (in production or anywhere).
+- Controlled staging was used only for the synthetic Gate matrix; no production
+  migration or data mutation occurred.
+- Coralina and Rainpalm were not published to production.
 - No real lead was created or changed; no Telegram authentication occurred.
 - Partner Demo and the public truth boundary are preserved (tested).
 - Factory remains A0 — Propose only.
