@@ -1,45 +1,91 @@
 # FOREVER-STUDIO-001 — Implementation Report
 
-Status: Resume-principal corrective code is implemented and locally validated in open, unmerged Draft PR #95. It remains **blocked from second Owner review** because the final clean-install preflight found that staging no longer matches the authorized clean pre-Studio premise. No history row, migration, identity, application data, or storage object was changed by this pass, and the dependent staging browser matrix was not run. No production connection or change occurred.
+Status: **Staging reconciled and corrected acceptance passed. PR #95 is ready for second Owner review, open, unmerged, with auto-merge disabled.** The stable-fingerprint gate, exact equivalence audit, official history repair, ordered migration apply, and fresh-preview acceptance all passed against the permanent non-production project. Production was never connected or changed.
 Base commit: `50a79ad8e3584dc6d5569d3979c162fbd81b537e` (authoritative main)
 Branch: `claude/forever-studio-upload-dfev75`
-Date: 2026-07-22 (independent-review corrective pass; staging gate blocked)
+Accepted code head: `e45c4572aaaa62d287ab64035dd39f4ab02b2da8`
+Date: 2026-07-22 (stable staging reconciliation and corrected acceptance)
 
-## Final clean-install preflight blocker (2026-07-22)
+## Stable staging reconciliation and corrected acceptance (2026-07-22)
 
-The Owner authorized a clean forward installation only if an immediate final
-read-only preflight reproduced the previously verified clean pre-Studio state.
-The new preflight used the protected staging credential handoff, the CA URL
-defined by Supabase's official dashboard source (`Supabase Root 2021 CA`), and
-`sslmode=verify-full` against the fixed session-pooler hostname. Client
-connection evidence reported TLS 1.3. The isolated configuration contained
-only `garjibjhlzeljsnpzisu` / `forever-staging` in `ap-southeast-2`; the
-forbidden production ref was absent from the connection and configuration.
+Three independent read-only sessions, each separated by at least 20 seconds,
+used the protected staging launcher, Supabase Root 2021 CA, and
+`sslmode=verify-full`. All returned the same project and database identity:
+`garjibjhlzeljsnpzisu` / `forever-staging`, `ap-southeast-2`, healthy;
+database `postgres`, PostgreSQL 17.6, TLS 1.3, and system identifier
+`7662742571317219726`. The canonical sanitized fingerprint SHA-256 is
+`0a93d5fe869aae8bd665ebc445d652bcc3d219778a38123bcccc0c7c868a4c19`.
+No database branch, alternate database, repository-linked default, or
+production credential/configuration was used.
 
-The live catalog contradicted the clean-install premise before any mutation:
+The authoritative pre-repair history was:
 
-- migration history contains `20260721120000_forever_studio_v1` and
-  `20260721123000_studio_internal_acl_hardening`, while the four migrations
-  from `20260722103000` through `20260722130000` have no history row;
-- the catalog contains `studio_members`, `studio_upload_jobs`,
-  `studio_listing_contacts`, and `studio_object_owners`, plus eight
-  `studio_*` functions including
-  `studio_backfill_existing_object_owners()`;
-- the membership roster contains one active Owner and two active Trusted
-  Publishers;
-- 13 Studio jobs are already persisted as published across the five workflows,
-  and two private listing-contact rows exist;
-- current public counts are 10 projects and 2 listings, and the three former
-  public `listings.contact_*` columns are absent;
-- sanitized platform inventory contains 4 confirmed auth users and the private
-  `studio-uploads` bucket in addition to the existing public buckets.
+- `20260718113000_progressive_ingestion_v1`
+- `20260721120000_forever_studio_v1`
+- `20260721123000_studio_internal_acl_hardening`
 
-This is a mixed partial Studio installation, not the authorized clean
-pre-Studio state. The explicit fail-closed condition therefore stopped the task
-before migration dry run or application. No migration-history repair, manual
-SQL, identity repair, Owner bootstrap, ownership backfill call, preview,
-acceptance mutation, or production connection was attempted. PR #95 remains
-open, Draft, unmerged, with auto-merge disabled.
+The exact read-only equivalence audit rebuilt the committed chain through
+`20260722110000` on disposable PostgreSQL 17.6 and compared columns, types,
+defaults, constraints, indexes, RLS, ACLs, normalized function definitions,
+security metadata, and deterministic ownership assignments. Live staging
+matched exactly (catalog SHA-256
+`1a2bb5b101d54ab8fb4061e2b1e1be1acb3ed00755cf5bec1466340d8340d3f2`);
+the later readiness and atomic-resale behavior was absent, as required. The
+expected and observed ownership-assignment SHA-256 were both
+`462f0253e7feaede5d86aa740f21c63fb71062e470039896f719469c2bf26935`.
+
+Only after equivalence passed, the official Supabase migration-repair command
+marked `20260722103000` and `20260722110000` applied. Only history changed;
+schema, application, auth, Storage, ownership counts, and hashes were
+unchanged. No manual history insert or ownership-backfill call occurred.
+
+The isolated official dry run then proposed exactly, in order:
+
+1. `20260722120000_studio_independent_review_corrections.sql`
+2. `20260722130000_studio_resume_principal_authorization.sql`
+
+Both were applied normally through the official CLI. The final catalog exactly
+matches the committed chain (SHA-256
+`e4aed0b0028cb929cb8ea71e03f936543120e4a8105261fab8173e8ee27b6371`).
+The final migration history is contiguous:
+
+- `20260718113000`
+- `20260721120000`
+- `20260721123000`
+- `20260722103000`
+- `20260722110000`
+- `20260722120000`
+- `20260722130000`
+
+All 13 pre-existing published jobs and their project, listing, private contact,
+media, membership, and ownership records were preserved. Their readiness
+markers received the intended backfill. The final post-acceptance read-only
+audit still reports the same catalog hash and history; additional rows are the
+uniquely named synthetic acceptance fixtures retained as evidence.
+
+The fresh task-owned Cloudflare preview built from the accepted code head and
+passed the corrected staging matrix: all five workflows; immediate incomplete
+publication; Owner updates on a Publisher B project without ownership transfer
+or duplication; safe Publisher A denials with exact zero mutation; Owner resume
+of stale Publisher B project and resale jobs with source provenance,
+authorization principal, executor audit, private contact, and ownership all
+correct; disabled and missing source-membership zero-mutation boundaries; a
+slow 26 MiB readiness race, closure-before-readiness privacy, closure-after-
+readiness resume, and exact-retry idempotency; injected atomic resale rollback
+and replay; and selected-media-only publication with byte-exact SHA-256.
+
+Real public HTTP responses reported `image/jpeg` for JPEG, a canonical safe
+image type for HEIC, `video/mp4` for MP4, and a canonical safe video type for
+MOV. A disguised JPEG and unsupported file remained private, and browser-
+declared `text/html` never survived publicly. Public project and resale pages
+opened, seller contact stayed private, saved values and hero selection reloaded,
+upload update and unpublish/republish worked, Studio remained absent from public
+navigation and the sitemap, and Partner Demo rejected writes. Controlled
+browser checks at 1440x900, 1024x768, and 390x844 found zero horizontal
+overflow, console/hydration errors, infrastructure leakage, or private-path
+errors. The corrected controlled route made a second physical-phone upload
+unnecessary. The fresh 62-file client build contained zero exact staging
+secret or server-only identifier matches.
 
 ## Resume-principal corrective pass (2026-07-22)
 
@@ -143,7 +189,13 @@ large unrelated untracked artifacts, and emitted no diagnostic before the
 timeout. It is therefore recorded as a timeout, not a pass; the scoped lint of
 every changed TypeScript/JavaScript file passed.
 
-### Staging migration-history blocker
+### Superseded staging migration-history investigation
+
+This subsection is retained as historical context for the earlier fail-closed
+halt. Its single-session observation is superseded by the three-session stable
+fingerprint, exact catalog equivalence audit, official reconciliation, and
+post-apply verification documented at the top of this report; it is not the
+current staging state or verdict.
 
 The Supabase project inventory identified the intended non-production project
 as `garjibjhlzeljsnpzisu` (`forever-staging`, region `ap-southeast-2`, healthy,
@@ -152,7 +204,7 @@ and not the repository-linked project). The forbidden production ref is
 never queried or changed. An isolated temporary Supabase workdir was explicitly
 linked to staging so no repository-linked default could be used.
 
-The current transaction-enforced read-only audit does **not** reproduce the
+That earlier transaction-enforced read-only audit did **not** reproduce the
 previously reported mixed state. In the relevant range, staging migration
 history now contains only:
 
@@ -521,10 +573,14 @@ server-boundary, direct-publication design.
    must precede any destructive drop. The already-applied progressive
    migration was not touched; no migration was applied.
 
-## Migration (the single PENDING Studio migration)
+## Historical migration design record
 
-`supabase/migrations/20260721120000_forever_studio_v1.sql` — layers on the
-already-applied progressive migration; not applied by this task. Exact truth:
+This section records the original base-migration design. Its former "pending"
+status is superseded: staging is now contiguous through `20260722130000`, as
+verified in the reconciliation section above.
+
+`supabase/migrations/20260721120000_forever_studio_v1.sql` layers on the
+already-applied progressive migration. Design truth:
 
 - **Purely additive:** `studio_members`, `studio_upload_jobs`,
   `studio_listing_contacts` (all RLS on, no policies, service-role only);
@@ -622,26 +678,24 @@ successfully; its persisted upload-to-Published interval was 9.8 seconds for
 the observed JPEG and MP4. Large-media behavior remains covered by full-file
 streaming fixtures rather than a production traffic test.
 
-## Post-review deployment work (outside accepted Gates 2 and 3)
+## Remaining operational follow-up
 
-1. **Codex live-schema check, then apply the single pending Studio migration**
-   `20260721120000_forever_studio_v1.sql`. Do NOT re-apply the progressive
-   migration — it is already applied.
-2. **Environment:** set server-side `SUPABASE_SERVICE_ROLE_KEY`,
+1. **Environment:** set server-side `SUPABASE_SERVICE_ROLE_KEY`,
    `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and either `STUDIO_OWNER_USER_ID`
    (preferred) or `STUDIO_OWNER_EMAIL`; sign in once to bootstrap the Owner;
    optionally disable public sign-ups in the Supabase dashboard.
-3. **Durable background execution:** the poll-driven resume is the working
+2. **Durable background execution:** the poll-driven resume is the working
    default on Cloudflare Workers. For fully unattended completion without an
    open dashboard, wire a Cloudflare Cron Trigger (or an external worker) to
    call the resume entry point; the claim contract is transport-independent.
-4. **Type regeneration:** regenerate `src/integrations/supabase/types.ts` after
-   the migration applies and tighten the deliberately untyped data-access casts.
-5. **Operational follow-up:** rehearse the migration on PostgreSQL 17.6; test
-   real PDF price lists through server-side SIP (`pdftotext` requires a
+3. **Type regeneration:** regenerate `src/integrations/supabase/types.ts` now
+   that the staging migration is applied, and tighten the deliberately untyped
+   data-access casts.
+4. **Operational follow-up:** test real PDF price lists through server-side SIP
+   (`pdftotext` requires a
    self-hosted host, while the Worker safely retains + warns); and measure
    production-scale large-video performance before setting an operational SLO.
-6. **Coralina / Rainpalm production publication** — explicitly NOT done and not
+5. **Coralina / Rainpalm production publication** — explicitly NOT done and not
    authorized by this PR.
 
 ## Risks and deliberate limitations
