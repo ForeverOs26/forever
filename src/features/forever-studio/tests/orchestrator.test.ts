@@ -196,6 +196,84 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     expect(gallery[0].title).toMatch(/^Construction update \d{4}-\d{2}-\d{2}$/);
   });
 
+  it("lets the current Owner run every update workflow on a Publisher-owned project", async () => {
+    const world = makeWorld();
+    const created = await runJob(
+      world,
+      PUBLISHER,
+      {
+        workflow: "new_development",
+        projectFacts: { name: "Rainpalm Villas" },
+        files: [{ name: "price-list.json" }],
+      },
+      { "price-list.json": RAINPALM_PRICE_LIST },
+    );
+    const project = world.executor.store.projects[0];
+    expect(world.data.objectOwners.get(`project:${project.id}`)).toBe(PUBLISHER.userId);
+
+    const facts = await runJob(world, OWNER, {
+      workflow: "project_update",
+      projectSlug: "rainpalm-villas",
+      projectFacts: { shortDescription: "Owner-managed publisher project" },
+      files: [],
+    });
+    expect(facts.result.status).toBe("published");
+
+    const updated = JSON.parse(RAINPALM_PRICE_LIST) as {
+      unit_inventory: Array<Record<string, { value: unknown } | undefined>>;
+    };
+    const priced = updated.unit_inventory.find((row) => row.price?.value != null)!;
+    (priced.price as { value: unknown }).value = 88_888_888;
+    const prices = await runJob(
+      world,
+      OWNER,
+      {
+        workflow: "price_availability_update",
+        projectSlug: "rainpalm-villas",
+        files: [{ name: "price-list.json" }],
+      },
+      { "price-list.json": JSON.stringify(updated) },
+    );
+    expect(prices.result.status).toBe("published");
+    expect(world.executor.store.prices.some((row) => row.price === 88_888_888)).toBe(true);
+
+    const media = await runJob(
+      world,
+      OWNER,
+      {
+        workflow: "construction_media_update",
+        projectSlug: "rainpalm-villas",
+        files: [{ name: "owner-update-1.jpg" }, { name: "owner-update-2.jpg" }],
+      },
+      {
+        "owner-update-1.jpg": tinyJpeg(),
+        "owner-update-2.jpg": Buffer.concat([tinyJpeg(), Buffer.from("second")]),
+      },
+    );
+    expect(media.result.status).toBe("published");
+
+    const counts = {
+      projects: world.executor.store.projects.length,
+      units: world.executor.store.units.length,
+      prices: world.executor.store.prices.length,
+      media: world.executor.store.media.length,
+      batches: world.executor.store.batches.length,
+      warnings: world.executor.store.warnings.length,
+    };
+    for (const job of [created.started, facts.started, prices.started, media.started]) {
+      expect((await processUploadJob(world.deps, OWNER, job.jobId)).status).toBe("published");
+    }
+    expect({
+      projects: world.executor.store.projects.length,
+      units: world.executor.store.units.length,
+      prices: world.executor.store.prices.length,
+      media: world.executor.store.media.length,
+      batches: world.executor.store.batches.length,
+      warnings: world.executor.store.warnings.length,
+    }).toEqual(counts);
+    expect(world.data.objectOwners.get(`project:${project.id}`)).toBe(PUBLISHER.userId);
+  });
+
   it("continues past unreadable and missing files, retaining them privately", async () => {
     const world = makeWorld();
     const started = await startUploadJob(world.deps, OWNER, {

@@ -71,7 +71,7 @@ describe("claim-scoped storage side effects", () => {
     uploadAll(world, started.uploads);
 
     // Worker A claims, then stalls (its request hangs but does not die).
-    const staleClaim = await world.data.claimJob(started.jobId, "stale-A-token", 900);
+    const staleClaim = await world.data.requestJobProcessing(started.jobId, "stale-A-token", 900);
     expect(staleClaim).not.toBeNull();
 
     // The claim goes stale; worker B recovers and publishes.
@@ -202,7 +202,7 @@ describe("terminal failures and the processing lease", () => {
       projectFacts: { name: "Terminal Project" },
       files: [],
     });
-    const claim = await world.data.claimJob(started.jobId, "t1", 900);
+    const claim = await world.data.requestJobProcessing(started.jobId, "t1", 900);
     expect(claim).not.toBeNull();
     await world.data.failJob({
       jobId: started.jobId,
@@ -231,7 +231,7 @@ describe("terminal failures and the processing lease", () => {
       projectFacts: { name: "Lease Project" },
       files: [],
     });
-    await world.data.claimJob(started.jobId, "live-worker", 900);
+    await world.data.requestJobProcessing(started.jobId, "live-worker", 900);
 
     // 10 minutes in, the worker is alive and heartbeats.
     world.advanceMinutes(10);

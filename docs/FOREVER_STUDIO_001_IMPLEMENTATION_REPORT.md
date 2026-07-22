@@ -1,9 +1,76 @@
 # FOREVER-STUDIO-001 — Implementation Report
 
-Status: Implemented and validated through Gates 2 and 3 in open, unmerged PR #95; ready for Owner review with auto-merge disabled. No production connection or change occurred.
+Status: Independent-review corrective code is implemented and locally validated in open, unmerged Draft PR #95. It is **blocked from second Owner review** because the required staging migration-history gate failed; the new correction was not applied and the dependent staging browser matrix was not run. No production connection or change occurred.
 Base commit: `50a79ad8e3584dc6d5569d3979c162fbd81b537e` (authoritative main)
 Branch: `claude/forever-studio-upload-dfev75`
-Date: 2026-07-22 (final controlled-staging Gate 2 and Gate 3 verification)
+Date: 2026-07-22 (independent-review corrective pass; staging gate blocked)
+
+## Independent-review corrective pass (2026-07-22)
+
+The additive migration
+`20260722120000_studio_independent_review_corrections.sql` and its matching
+application/test changes address all five code findings from the independent
+review:
+
+- Object authorization now derives the actor's current active role from
+  `studio_members`. An Owner may update Publisher-owned objects; a Publisher
+  may update only their own objects. Immutable creation attribution is not
+  treated as the actor's current role, legacy unattributed objects remain
+  Owner-only, and an Owner can safely attribute them.
+- A durable `processing_requested_at` marker separates fully received uploads
+  from uploads explicitly released for processing. The request RPC marks and
+  claims atomically, while background claiming ignores pristine received jobs.
+- Actor scoping is applied before every job, due-job, project, and listing
+  limit, preventing another actor's rows from crowding authorized rows out of
+  bounded result sets.
+- Resale facts, provenance, private seller contact, and warning deduplication
+  are written by one authorization-aware transaction with replay-safe behavior
+  and tested rollback.
+- Published media copies stream from private storage and use canonical MIME
+  types derived from verified bytes for JPEG, HEIC, HEIF, MP4, and MOV. Source
+  metadata such as `text/html` cannot leak into public `Content-Type`, and no
+  whole-file buffer is introduced.
+
+Local validation at the corrective head passed:
+
+- all migrations, including the new correction, on clean disposable
+  PostgreSQL 16, followed by the complete real-PostgreSQL assertion suite;
+- complete Studio Vitest suite: 155/155 across 16 files;
+- complete repository Vitest suite: 3,218 passed across 337 files, with 5
+  skipped;
+- TypeScript, changed-file ESLint, changed-file Prettier, `git diff --check`,
+  the Vite/Cloudflare production build, and client-bundle secret scans.
+
+Repository-wide `eslint .` did not finish within 241.5 seconds while traversing
+large unrelated untracked artifacts, and emitted no diagnostic before the
+timeout. It is therefore recorded as a timeout, not a pass; the scoped lint of
+every changed TypeScript/JavaScript file passed.
+
+### Staging migration-history blocker
+
+The protected runtime identified the intended non-production project as
+`garjibjhlzeljsnpzisu` (`forever-staging`), distinct from the repository-linked
+production project. The required read-only migration-history gate showed the
+remote history ending at `20260721123000`; these repository versions have no
+row in `supabase_migrations.schema_migrations`:
+
+- `20260722103000`
+- `20260722110000`
+- `20260722120000`
+
+A separate read-only catalog check found objects introduced by the first two
+versions (including `studio_object_owners` and
+`studio_backfill_existing_object_owners()`), despite their missing history
+rows. The new readiness column from `20260722120000` is absent. This is an
+unsafe mixed state: applying only the new correction would bypass the required
+history prerequisite, while repairing migration history would be an additional
+staging mutation not authorized by this pass.
+
+Accordingly, no staging migration or history repair was performed, the
+correction-dependent browser matrix was not run, and PR #95 remains Draft.
+Production was neither connected nor changed. All earlier Gate 2/Gate 3
+results below are historical evidence from the preceding review round and do
+not constitute staging validation of this corrective head.
 
 ## Ownership corrective pass (2026-07-22)
 

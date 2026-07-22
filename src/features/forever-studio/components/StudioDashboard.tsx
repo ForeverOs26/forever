@@ -65,9 +65,8 @@ export function StudioDashboard() {
       query.state.data && query.state.data.activeJobs > 0 ? 5000 : false,
   });
 
-  // Automatic durable resume: on each poll, ask the server to pick up any
-  // received / retryable-failed / stale-processing job and drive it to
-  // completion. No second publication decision; safe to call repeatedly.
+  // Automatic durable resume: on each poll, ask the server to pick up only
+  // explicitly-ready received / retryable-failed / stale-processing jobs.
   const activeJobs = overview.data?.activeJobs ?? 0;
   useEffect(() => {
     if (activeJobs <= 0) return;

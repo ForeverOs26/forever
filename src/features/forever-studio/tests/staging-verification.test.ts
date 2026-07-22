@@ -14,6 +14,7 @@ import {
   MAX_PARSE_BYTES,
   PRIVATE_SOURCE_BUCKET,
   PUBLIC_IMAGE_BUCKET,
+  canonicalPublicContentType,
   detectMediaClass,
 } from "../server/extraction";
 import { processUploadJob, startUploadJob } from "../server/service";
@@ -149,6 +150,51 @@ describe("private staging and byte verification", () => {
     expect(detectMediaClass(tinyFtyp("qt  "))).toBe("video"); // MOV
     // A generic/unknown ftyp container is NOT assumed to be video.
     expect(detectMediaClass(tinyFtyp("abcd"))).toBe("other");
+  });
+
+  it("derives canonical public MIME from verified bytes, never source metadata", () => {
+    expect(canonicalPublicContentType("x.jpg", tinyJpeg(), "image")).toBe("image/jpeg");
+    expect(canonicalPublicContentType("x.heic", tinyFtyp("heic"), "image")).toBe("image/heic");
+    expect(canonicalPublicContentType("x.heif", tinyFtyp("mif1"), "image")).toBe("image/heif");
+    expect(canonicalPublicContentType("x.mp4", tinyFtyp("mp42"), "video")).toBe("video/mp4");
+    expect(canonicalPublicContentType("x.mov", tinyFtyp("qt  "), "video")).toBe("video/quicktime");
+  });
+
+  it("replaces mismatched text/html metadata on every public phone-media object", async () => {
+    const world = makeWorld();
+    const bytes: Record<string, Buffer> = {
+      "photo.jpg": tinyJpeg(),
+      "phone.heic": tinyFtyp("heic"),
+      "phone.heif": tinyFtyp("mif1"),
+      "clip.mp4": tinyFtyp("mp42"),
+      "clip.mov": tinyFtyp("qt  "),
+    };
+    const started = await startUploadJob(world.deps, OWNER, {
+      workflow: "new_development",
+      projectFacts: { name: "Canonical MIME Project" },
+      files: Object.keys(bytes).map((name) => ({ name, contentType: "text/html" })),
+    });
+    for (const upload of started.uploads) {
+      world.storage.put(upload.bucket, upload.path, bytes[upload.name], "text/html");
+    }
+
+    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("published");
+    const contentTypes = Object.fromEntries(
+      world.storage
+        .publicKeys(PUBLIC_IMAGE_BUCKET)
+        .map((path) => [
+          path.split("-").pop(),
+          world.storage.publicContentType(PUBLIC_IMAGE_BUCKET, path),
+        ]),
+    );
+    expect(contentTypes).toMatchObject({
+      "photo.jpg": "image/jpeg",
+      "phone.heic": "image/heic",
+      "phone.heif": "image/heif",
+      "clip.mp4": "video/mp4",
+      "clip.mov": "video/quicktime",
+    });
+    expect(Object.values(contentTypes)).not.toContain("text/html");
   });
 
   it("streams a FULL SHA-256 for large media and publishes byte-verified", async () => {

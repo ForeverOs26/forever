@@ -16,6 +16,9 @@ import { STUDIO_WORKFLOWS } from "../studio-types";
 
 const MIGRATION_PATH = "supabase/migrations/20260721120000_forever_studio_v1.sql";
 const sql = readFileSync(resolve(process.cwd(), MIGRATION_PATH), "utf8");
+const CORRECTION_PATH =
+  "supabase/migrations/20260722120000_studio_independent_review_corrections.sql";
+const correction = readFileSync(resolve(process.cwd(), CORRECTION_PATH), "utf8");
 const ddl = sql
   .split("\n")
   .filter((line) => !line.trim().startsWith("--"))
@@ -143,5 +146,68 @@ describe("Forever Studio migration contract", () => {
 
   it("contains no credential material", () => {
     expect(sql).not.toMatch(/sb_secret_|service_role_key|eyJ[A-Za-z0-9]/);
+  });
+});
+
+describe("independent-review corrective migration contract", () => {
+  it("is a later additive migration and leaves pristine received jobs unmarked", () => {
+    expect(
+      CORRECTION_PATH.localeCompare(
+        "supabase/migrations/20260722110000_studio_object_ownership_backfill.sql",
+      ),
+    ).toBeGreaterThan(0);
+    expect(correction).toContain("ADD COLUMN IF NOT EXISTS processing_requested_at TIMESTAMPTZ");
+    expect(correction).toMatch(/status IN \('processing', 'published', 'failed'\)/);
+    expect(correction).not.toMatch(/status IN \([^)]*'received'/);
+    expect(correction).not.toMatch(/DROP\s+(TABLE|COLUMN)/i);
+  });
+
+  it("requires readiness for ordinary claims and marks readiness with the first claim", () => {
+    expect(correction).toContain("AND processing_requested_at IS NOT NULL");
+    expect(correction).toContain("CREATE OR REPLACE FUNCTION public.studio_request_job_processing");
+    expect(correction).toContain(
+      "processing_requested_at = COALESCE(processing_requested_at, now())",
+    );
+    expect(correction).toContain(
+      "SELECT * FROM public.studio_claim_job(p_job_id, p_token, p_stale_seconds)",
+    );
+  });
+
+  it("uses current active membership for publish authorization, never the role snapshot", () => {
+    for (const name of ["studio_publish_project", "studio_publish_resale"]) {
+      const body = correction.slice(
+        correction.indexOf(`CREATE OR REPLACE FUNCTION public.${name}`),
+        correction.indexOf("$$;", correction.indexOf(`CREATE OR REPLACE FUNCTION public.${name}`)),
+      );
+      expect(body).toContain("FROM public.studio_members");
+      expect(body).toContain("is_active");
+      expect(body).toContain("v_actor_role = 'trusted_publisher'");
+      expect(body).not.toContain("creator_role");
+    }
+  });
+
+  it("edits resale facts, provenance, contact, and warnings in one locked transaction", () => {
+    const body = correction.slice(correction.indexOf("public.studio_update_resale"));
+    expect(body).toContain("FROM public.listings");
+    expect(body).toContain("FOR UPDATE");
+    expect(body).toContain("field_provenance=v_provenance");
+    expect(body).toContain("public.studio_listing_contacts");
+    expect(body).toContain("public.ingestion_warnings");
+    expect(body).toContain("WHERE NOT EXISTS");
+    expect(body).toContain("studio_resale_edit_injected_failure");
+  });
+
+  it("keeps every corrected RPC service-role-only and contains no credentials", () => {
+    for (const name of [
+      "studio_claim_job",
+      "studio_request_job_processing",
+      "studio_publish_project",
+      "studio_publish_resale",
+      "studio_update_resale",
+    ]) {
+      expect(correction).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${name}`));
+      expect(correction).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${name}`));
+    }
+    expect(correction).not.toMatch(/sb_secret_|service_role_key|eyJ[A-Za-z0-9]/);
   });
 });

@@ -38,6 +38,7 @@ type Phase =
   | { step: "form" }
   | { step: "uploading"; done: number; total: number }
   | { step: "processing" }
+  | { step: "ready" }
   | { step: "result"; result: StudioJobResult; failedUploads: string[] }
   | { step: "error"; message: string; jobId: string | null };
 
@@ -74,8 +75,8 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
   };
 
   const runJob = async (jobId?: string) => {
+    let id = jobId ?? null;
     try {
-      let id = jobId ?? null;
       const failedUploads: string[] = [];
       if (!id) {
         const started = await studioStartJob({
@@ -111,6 +112,8 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
       void queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY });
       if (result.status === "failed") {
         setPhase({ step: "error", message: result.error ?? "Processing failed.", jobId: id });
+      } else if (result.status !== "published") {
+        setPhase({ step: "ready" });
       } else {
         setPhase({ step: "result", result, failedUploads });
       }
@@ -118,7 +121,7 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
       setPhase({
         step: "error",
         message: error instanceof Error ? error.message : String(error),
-        jobId: jobId ?? null,
+        jobId: id,
       });
     }
   };
@@ -127,7 +130,7 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
     return (
       <StatusPanel
         title={`Uploading ${phase.done}/${phase.total}…`}
-        body="You can safely close this page — publishing continues on the server and resumes automatically if anything is interrupted."
+        body="Keep this page open until every file finishes and the processing request reaches the server. Closing now leaves the upload private and it will not publish automatically."
       />
     );
   }
@@ -135,7 +138,15 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
     return (
       <StatusPanel
         title="Publishing…"
-        body="Forever is extracting and organizing the uploaded materials."
+        body="Keep this page open until Forever confirms the processing request. After that confirmation, an interrupted job resumes automatically."
+      />
+    );
+  }
+  if (phase.step === "ready") {
+    return (
+      <StatusPanel
+        title="Processing request confirmed"
+        body="The server recorded that uploading is complete. You can safely close this page; Forever will resume this job automatically if its current worker is interrupted."
       />
     );
   }
@@ -148,7 +159,8 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
         <h2 className="text-lg font-semibold">Not published yet</h2>
         <p className="text-sm text-muted-foreground">{phase.message}</p>
         <p className="text-xs text-muted-foreground">
-          Nothing was lost — the upload is saved as a retryable job.
+          Uploaded files remain private. Retry to confirm processing; a job that never reaches that
+          boundary will not publish automatically.
         </p>
         <div className="flex justify-center gap-2">
           {phase.jobId ? (

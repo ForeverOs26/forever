@@ -75,6 +75,19 @@ const LISTING_DETAIL_COLUMNS =
   "id,slug,title,publication_status,project_id,project_name_raw,location_id,location_name_raw,property_type,bedrooms,bathrooms,area_sqm,price,currency,availability_status,description,photos,field_provenance,updated_at";
 
 function createStudioData(): StudioData {
+  const ownedObjectIds = async (objectType: "project" | "listing", createdBy: string) => {
+    const result = await admin
+      .from("studio_object_owners")
+      .select("object_id")
+      .eq("object_type", objectType)
+      .eq("created_by", createdBy);
+    return (
+      (must(result, "studio object owner scope read failed") ?? []) as Array<{
+        object_id: string;
+      }>
+    ).map((row) => row.object_id);
+  };
+
   return {
     async getMembership(userId) {
       const result = await admin
@@ -122,12 +135,17 @@ function createStudioData(): StudioData {
         .maybeSingle();
       return must(result, "projects read failed") as StudioProjectRow | null;
     },
-    async listProjects() {
-      const result = await admin
+    async listProjects(createdBy) {
+      let query = admin
         .from("projects")
         .select(PROJECT_COLUMNS)
-        .order("updated_at", { ascending: false })
-        .limit(200);
+        .order("updated_at", { ascending: false });
+      if (createdBy) {
+        const ids = await ownedObjectIds("project", createdBy);
+        if (!ids.length) return [];
+        query = query.in("id", ids);
+      }
+      const result = await query.limit(200);
       return (must(result, "projects list failed") ?? []) as StudioProjectRow[];
     },
     async getProjectDetail(slug) {
@@ -208,18 +226,17 @@ function createStudioData(): StudioData {
       const result = await admin.from("listings").update(patch).eq("id", id);
       must(result, "listings update failed");
     },
-    async setListingContact(listingId, contact) {
-      const result = await admin
-        .from("studio_listing_contacts")
-        .upsert({ listing_id: listingId, ...contact }, { onConflict: "listing_id" });
-      must(result, "listing contact upsert failed");
-    },
-    async listListings() {
-      const result = await admin
+    async listListings(createdBy) {
+      let query = admin
         .from("listings")
         .select(LISTING_COLUMNS)
-        .order("updated_at", { ascending: false })
-        .limit(200);
+        .order("updated_at", { ascending: false });
+      if (createdBy) {
+        const ids = await ownedObjectIds("listing", createdBy);
+        if (!ids.length) return [];
+        query = query.in("id", ids);
+      }
+      const result = await query.limit(200);
       return (must(result, "listings list failed") ?? []) as StudioListingRow[];
     },
 
@@ -244,26 +261,40 @@ function createStudioData(): StudioData {
       const rows = must(result, "studio_upload_jobs update failed") as Array<{ id: string }> | null;
       return (rows ?? []).length > 0;
     },
-    async listJobs(limit) {
-      const result = await admin
+    async listJobs(limit, createdBy) {
+      let query = admin
         .from("studio_upload_jobs")
         .select("*")
-        .order("created_at", { ascending: false })
-        .limit(limit);
+        .order("created_at", { ascending: false });
+      if (createdBy) query = query.eq("created_by", createdBy);
+      const result = await query.limit(limit);
       return (must(result, "studio_upload_jobs list failed") ?? []) as StudioJobRow[];
     },
-    async listDueJobs(staleSeconds, limit) {
+    async listDueJobs(staleSeconds, limit, createdBy) {
       const staleBefore = new Date(Date.now() - staleSeconds * 1000).toISOString();
-      // received | retryable-failed | stale-processing.
-      const result = await admin
+      // Only explicitly-ready received | retryable-failed | stale-processing.
+      let query = admin
         .from("studio_upload_jobs")
         .select("*")
+        .not("processing_requested_at", "is", null)
         .or(
           `status.eq.received,and(status.eq.failed,retryable.eq.true),and(status.eq.processing,processing_started_at.lt.${staleBefore})`,
         )
-        .order("created_at", { ascending: true })
-        .limit(limit);
+        .order("created_at", { ascending: true });
+      if (createdBy) query = query.eq("created_by", createdBy);
+      const result = await query.limit(limit);
       return (must(result, "due jobs read failed") ?? []) as StudioJobRow[];
+    },
+
+    async requestJobProcessing(jobId, token, staleSeconds) {
+      const { data, error } = await admin.rpc("studio_request_job_processing", {
+        p_job_id: jobId,
+        p_token: token,
+        p_stale_seconds: staleSeconds,
+      });
+      if (error) throw new Error(`studio_request_job_processing failed: ${error.message}`);
+      const rows = (data ?? []) as StudioJobRow[];
+      return rows.length ? rows[0] : null;
     },
 
     async claimJob(jobId, token, staleSeconds) {
@@ -319,19 +350,24 @@ function createStudioData(): StudioData {
       return { listingId: row.listing_id, slug: row.slug, replayed: Boolean(row.replayed) };
     },
 
-    async addListingWarnings(listingId, warnings) {
-      if (!warnings.length) return;
-      const rows = warnings.map((warning) => ({
-        listing_id: listingId,
-        entity: warning.entity,
-        field: warning.field ?? null,
-        code: warning.code,
-        severity: warning.severity ?? "warning",
-        message: warning.message,
-        payload: warning.payload ?? {},
-      }));
-      const result = await admin.from("ingestion_warnings").insert(rows);
-      must(result, "listing warnings insert failed");
+    async updateResale(input) {
+      const { data, error } = await admin.rpc("studio_update_resale", {
+        p_listing_id: input.listingId,
+        p_actor_id: input.actorId,
+        p_fields: input.fields,
+        p_contact: input.contact,
+        p_supplied_at: input.suppliedAt,
+        p_inject_failure: input.injectFailure ?? false,
+      });
+      if (error) throw new Error(`studio_update_resale failed: ${error.message}`);
+      const result = (data ?? {}) as {
+        warnings?: ProgressiveWarning[];
+        applied_fields?: string[];
+      };
+      return {
+        warnings: result.warnings ?? [],
+        appliedFields: result.applied_fields ?? [],
+      };
     },
 
     async recordAudit(entry: StudioAuditEntry) {
@@ -425,20 +461,19 @@ function createStudioStorage(): StudioStorage {
       if (error || !data) return null;
       return Buffer.from(await data.arrayBuffer());
     },
-    async copyObject(from, to) {
-      const first = await admin.storage
-        .from(from.bucket)
-        .copy(from.path, to.path, { destinationBucket: to.bucket });
-      if (!first.error) return;
-      // Idempotent overwrite for retries: clear then re-copy.
-      await admin.storage
-        .from(to.bucket)
-        .remove([to.path])
-        .catch(() => undefined);
-      const retry = await admin.storage
-        .from(from.bucket)
-        .copy(from.path, to.path, { destinationBucket: to.bucket });
-      if (retry.error) throw new Error(`storage copy failed: ${retry.error.message}`);
+    async copyObject(from, to, contentType) {
+      // Storage copy preserves browser-supplied source metadata. Stream the
+      // verified bytes instead so public metadata is replaced by the canonical
+      // type without materializing even a very large media object in memory.
+      const downloaded = await admin.storage.from(from.bucket).download(from.path).asStream();
+      if (downloaded.error || !downloaded.data) {
+        throw new Error(`storage stream copy download failed: ${downloaded.error?.message}`);
+      }
+      const uploaded = await admin.storage.from(to.bucket).upload(to.path, downloaded.data, {
+        upsert: true,
+        contentType,
+      });
+      if (uploaded.error) throw new Error(`storage stream copy failed: ${uploaded.error.message}`);
     },
     async upload(bucket, path, data, contentType) {
       const { error } = await admin.storage

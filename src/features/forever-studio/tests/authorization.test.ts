@@ -13,7 +13,9 @@ import { describe, expect, it } from "vitest";
 
 import { resolveStudioActor } from "../server/membership";
 import { getOverview, inviteMember, setMemberActive, startUploadJob } from "../server/service";
-import { makeWorld, enroll, OWNER, PUBLISHER } from "./fakes";
+import { makeWorld as makeTestWorld, enroll, OWNER, PUBLISHER } from "./fakes";
+
+const makeWorld = () => makeTestWorld({ defaultMembers: false });
 
 describe("Studio authorization boundary", () => {
   it("rejects an authenticated user with no membership", async () => {
@@ -226,7 +228,7 @@ describe("Studio authorization boundary", () => {
         files: [],
       });
       // Give the owner's job an error so leak checks cover error details too.
-      await world.data.claimJob(ownerJob.jobId, "t-owner", 900);
+      await world.data.requestJobProcessing(ownerJob.jobId, "t-owner", 900);
       await world.data.failJob({
         jobId: ownerJob.jobId,
         token: "t-owner",
@@ -234,6 +236,9 @@ describe("Studio authorization boundary", () => {
         message: "owner job failed",
         retryable: true,
       });
+      // A pristine received job is not active. Mark the publisher job ready
+      // and leave its worker live so the active count has one scoped row.
+      await world.data.requestJobProcessing(publisherJob.jobId, "t-publisher", 900);
 
       const publisherView = await getOverview(world.deps, PUBLISHER);
       // The response contains only the publisher's own job…

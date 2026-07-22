@@ -74,6 +74,7 @@ export interface StudioJobRow {
   listing_id: string | null;
   status: StudioJobStatus;
   processing_token: string | null;
+  processing_requested_at: string | null;
   content_fingerprint: string | null;
   facts: Record<string, unknown>;
   files: StudioJobFile[];
@@ -166,7 +167,8 @@ export interface StudioData {
   bootstrapOwner(userId: string, email: string): Promise<StudioMembershipRow | null>;
 
   findProjectBySlug(slug: string): Promise<StudioProjectRow | null>;
-  listProjects(): Promise<StudioProjectRow[]>;
+  /** Actor ownership is applied by the data query before its 200-row limit. */
+  listProjects(createdBy?: string): Promise<StudioProjectRow[]>;
   getProjectDetail(slug: string): Promise<StudioProjectDetailRow | null>;
 
   /** Internal ownership attribution. Null means legacy/unassigned and Owner-only. */
@@ -176,8 +178,8 @@ export interface StudioData {
   findListingBySlug(slug: string): Promise<StudioListingRow | null>;
   getListingDetail(id: string): Promise<StudioListingDetailRow | null>;
   updateListing(id: string, patch: Record<string, unknown>): Promise<void>;
-  setListingContact(listingId: string, contact: StudioPrivateContact): Promise<void>;
-  listListings(): Promise<StudioListingRow[]>;
+  /** Actor ownership is applied by the data query before its 200-row limit. */
+  listListings(createdBy?: string): Promise<StudioListingRow[]>;
 
   createJob(row: StudioJobRow): Promise<void>;
   getJob(id: string): Promise<StudioJobRow | null>;
@@ -187,9 +189,16 @@ export interface StudioData {
    * claim's records. Returns false when the claim was lost.
    */
   updateJobIfClaimed(id: string, token: string, patch: Partial<StudioJobRow>): Promise<boolean>;
-  listJobs(limit: number): Promise<StudioJobRow[]>;
-  /** Received, retryable-failed, or stale-processing jobs due for resumption. */
-  listDueJobs(staleSeconds: number, limit: number): Promise<StudioJobRow[]>;
+  listJobs(limit: number, createdBy?: string): Promise<StudioJobRow[]>;
+  /** Ready received, retryable-failed, or stale-processing jobs due for resumption. */
+  listDueJobs(staleSeconds: number, limit: number, createdBy?: string): Promise<StudioJobRow[]>;
+
+  /** Atomically records explicit upload completion and obtains the first claim. */
+  requestJobProcessing(
+    jobId: string,
+    token: string,
+    staleSeconds: number,
+  ): Promise<StudioJobRow | null>;
 
   /**
    * Single-winner claim; null if already published, freshly held elsewhere,
@@ -227,8 +236,16 @@ export interface StudioData {
     result: Record<string, unknown>;
   }): Promise<{ listingId: string; slug: string; replayed: boolean }>;
 
-  /** Append listing conflict/enrichment warnings (never replaces history). */
-  addListingWarnings(listingId: string, warnings: ProgressiveWarning[]): Promise<void>;
+  /** Atomic provenance-ranked resale facts + private contact + conflict warnings. */
+  updateResale(input: {
+    listingId: string;
+    actorId: string;
+    fields: Record<string, string | number>;
+    contact: Record<string, string>;
+    suppliedAt: string;
+    /** Test-only rollback injection; production callers always pass false. */
+    injectFailure?: boolean;
+  }): Promise<{ warnings: ProgressiveWarning[]; appliedFields: string[] }>;
 
   recordAudit(entry: StudioAuditEntry): Promise<void>;
 }
@@ -265,6 +282,8 @@ export interface StudioStorage {
   copyObject(
     from: { bucket: string; path: string },
     to: { bucket: string; path: string },
+    /** Canonical type derived from observed bytes; never browser metadata. */
+    contentType: string,
   ): Promise<void>;
   /** Re-stage an expanded archive entry into the private bucket. */
   upload(bucket: string, path: string, data: Buffer, contentType?: string): Promise<void>;

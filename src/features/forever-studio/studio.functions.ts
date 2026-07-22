@@ -101,8 +101,8 @@ export const studioProcessJob = createServerFn({ method: "POST" })
 
 /**
  * Automatic durable resume. Safe to call on every dashboard poll and from a
- * scheduled worker/cron: it claims and completes received, retryable-failed,
- * and stale-processing jobs without a second publication decision.
+ * scheduled worker/cron: it claims and completes explicitly-ready received,
+ * retryable-failed, and stale-processing jobs without another decision.
  */
 export const studioResumePending = createServerFn({ method: "POST" })
   .middleware([requireStudioMember])

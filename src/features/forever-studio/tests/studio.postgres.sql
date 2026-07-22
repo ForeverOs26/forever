@@ -48,7 +48,11 @@ SELECT pg_temp.assert_true(
 SELECT pg_temp.assert_true(
   has_table_privilege('service_role','public.studio_upload_jobs','INSERT')
   AND has_function_privilege('service_role','public.studio_publish_project(uuid,uuid,jsonb,boolean,jsonb)','EXECUTE')
-  AND NOT has_function_privilege('anon','public.studio_publish_project(uuid,uuid,jsonb,boolean,jsonb)','EXECUTE'),
+  AND has_function_privilege('service_role','public.studio_request_job_processing(uuid,uuid,integer)','EXECUTE')
+  AND has_function_privilege('service_role','public.studio_update_resale(uuid,uuid,jsonb,jsonb,timestamptz,boolean)','EXECUTE')
+  AND NOT has_function_privilege('anon','public.studio_publish_project(uuid,uuid,jsonb,boolean,jsonb)','EXECUTE')
+  AND NOT has_function_privilege('authenticated','public.studio_request_job_processing(uuid,uuid,integer)','EXECUTE')
+  AND NOT has_function_privilege('anon','public.studio_update_resale(uuid,uuid,jsonb,jsonb,timestamptz,boolean)','EXECUTE'),
   'studio functions are service_role only');
 
 -- ---------------------------------------------------------------------------
@@ -114,8 +118,20 @@ VALUES ('10000000-0000-0000-0000-000000000001',
 
 SELECT pg_temp.assert_true(
   (SELECT count(*) FROM public.studio_claim_job(
+     '10000000-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-00000000000a',900))=0,
+  'a pristine received manifest cannot be claimed');
+SELECT pg_temp.assert_true(
+  (SELECT processing_requested_at IS NULL FROM public.studio_upload_jobs
+   WHERE id='10000000-0000-0000-0000-000000000001'),
+  'a pristine received manifest remains explicitly unready');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_request_job_processing(
      '10000000-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-00000000000a',900))=1,
-  'first claim wins');
+  'the explicit processing request marks readiness and wins the first claim');
+SELECT pg_temp.assert_true(
+  (SELECT processing_requested_at IS NOT NULL FROM public.studio_upload_jobs
+   WHERE id='10000000-0000-0000-0000-000000000001'),
+  'readiness is durable after the explicit processing request');
 SELECT pg_temp.assert_true(
   (SELECT count(*) FROM public.studio_claim_job(
      '10000000-0000-0000-0000-000000000001','bbbbbbbb-0000-0000-0000-00000000000b',900))=0,
@@ -200,7 +216,7 @@ SELECT pg_temp.assert_true(
 INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status)
 VALUES ('10000000-0000-0000-0000-000000000002',
         '00000000-0000-0000-0000-000000000001','owner','new_development','received');
-SELECT public.studio_claim_job(
+SELECT public.studio_request_job_processing(
   '10000000-0000-0000-0000-000000000002','cccccccc-0000-0000-0000-00000000000c',900);
 
 DO $$
@@ -240,7 +256,7 @@ SELECT pg_temp.assert_true(
 INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status)
 VALUES ('10000000-0000-0000-0000-000000000003',
         '00000000-0000-0000-0000-000000000001','owner','new_development','received');
-SELECT public.studio_claim_job(
+SELECT public.studio_request_job_processing(
   '10000000-0000-0000-0000-000000000003','dddddddd-0000-0000-0000-00000000000d',900);
 SELECT public.studio_publish_project(
   '10000000-0000-0000-0000-000000000003',
@@ -278,17 +294,253 @@ SELECT pg_temp.assert_true(
   'exactly one ingestion batch after replay');
 
 -- ---------------------------------------------------------------------------
+-- 6b. Active Owner may update a Trusted Publisher-owned project without
+--     transferring its immutable creation attribution
+-- ---------------------------------------------------------------------------
+INSERT INTO public.studio_members(user_id,role,email,invited_by,is_active)
+VALUES ('00000000-0000-0000-0000-000000000002','trusted_publisher',
+        'other@example.com','00000000-0000-0000-0000-000000000001',true);
+
+INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status)
+VALUES ('11000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000002','trusted_publisher','new_development','received');
+SELECT public.studio_request_job_processing(
+  '11000000-0000-0000-0000-000000000001','11000000-0000-0000-0000-000000000011',900);
+SELECT public.studio_publish_project(
+  '11000000-0000-0000-0000-000000000001',
+  '11000000-0000-0000-0000-000000000011',
+  jsonb_build_object('schema_version','1','mode','create','batch_fingerprint',repeat('1',64),
+    'project',jsonb_build_object('slug','publisher-owned','name','Publisher Owned'),
+    'units',jsonb_build_array(jsonb_build_object('unit_code','U1'))),
+  true, '{}'::jsonb);
+
+INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status,project_slug)
+VALUES ('11000000-0000-0000-0000-000000000002',
+        '00000000-0000-0000-0000-000000000001','trusted_publisher','project_update','received',
+        'publisher-owned');
+SELECT public.studio_request_job_processing(
+  '11000000-0000-0000-0000-000000000002','11000000-0000-0000-0000-000000000012',900);
+SELECT public.studio_publish_project(
+  '11000000-0000-0000-0000-000000000002',
+  '11000000-0000-0000-0000-000000000012',
+  jsonb_build_object('schema_version','1','mode','enrich','batch_fingerprint',repeat('2',64),
+    'project',jsonb_build_object('slug','publisher-owned',
+      'set',jsonb_build_object('short_description','Owner update'))),
+  true, '{}'::jsonb);
+
+SELECT pg_temp.assert_true(
+  (SELECT short_description FROM public.projects WHERE slug='publisher-owned')='Owner update',
+  'Owner update applies to a Publisher-owned project');
+SELECT pg_temp.assert_true(
+  (SELECT o.created_by='00000000-0000-0000-0000-000000000002'::uuid
+   FROM public.studio_object_owners o JOIN public.projects p ON p.id=o.object_id
+   WHERE o.object_type='project' AND p.slug='publisher-owned'),
+  'Owner update leaves immutable ownership with the creating Publisher');
+
+-- The audit snapshot deliberately says trusted_publisher for every Owner job:
+-- current active studio_members.role, not creator_role, controls authorization.
+INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status,project_slug)
+VALUES ('11000000-0000-0000-0000-000000000003',
+        '00000000-0000-0000-0000-000000000001','trusted_publisher',
+        'price_availability_update','received','publisher-owned');
+SELECT public.studio_request_job_processing(
+  '11000000-0000-0000-0000-000000000003','11000000-0000-0000-0000-000000000013',900);
+SELECT public.studio_publish_project(
+  '11000000-0000-0000-0000-000000000003',
+  '11000000-0000-0000-0000-000000000013',
+  jsonb_build_object('schema_version','1','mode','enrich','batch_fingerprint',repeat('3',64),
+    'project',jsonb_build_object('slug','publisher-owned'),
+    'prices',jsonb_build_array(jsonb_build_object(
+      'unit_code','U1','price',12345678,'currency','THB',
+      'price_source','studio','source_file','owner-price.json','price_list_date','2026-07-22'))),
+  true, '{}'::jsonb);
+
+INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status,project_slug)
+VALUES ('11000000-0000-0000-0000-000000000004',
+        '00000000-0000-0000-0000-000000000001','trusted_publisher',
+        'construction_media_update','received','publisher-owned');
+SELECT public.studio_request_job_processing(
+  '11000000-0000-0000-0000-000000000004','11000000-0000-0000-0000-000000000014',900);
+SELECT public.studio_publish_project(
+  '11000000-0000-0000-0000-000000000004',
+  '11000000-0000-0000-0000-000000000014',
+  jsonb_build_object('schema_version','1','mode','enrich','batch_fingerprint',repeat('4',64),
+    'project',jsonb_build_object('slug','publisher-owned'),
+    'media',jsonb_build_array(jsonb_build_object(
+      'media_type','gallery','url','https://cdn.test/owner-construction.jpg',
+      'title','Construction update 2026-07-22'))),
+  true, '{}'::jsonb);
+
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.unit_price_history ph
+   JOIN public.units u ON u.id=ph.unit_id JOIN public.projects p ON p.id=u.project_id
+   WHERE p.slug='publisher-owned' AND ph.price=12345678)=1,
+  'Owner price/availability workflow updates a Publisher-owned project');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.project_media m JOIN public.projects p ON p.id=m.project_id
+   WHERE p.slug='publisher-owned' AND m.url='https://cdn.test/owner-construction.jpg')=1,
+  'Owner construction-media workflow updates a Publisher-owned project');
+SELECT pg_temp.assert_true(
+  (SELECT o.created_by='00000000-0000-0000-0000-000000000002'::uuid
+   FROM public.studio_object_owners o JOIN public.projects p ON p.id=o.object_id
+   WHERE o.object_type='project' AND p.slug='publisher-owned'),
+  'all Owner workflows preserve Publisher creation attribution');
+
+-- Exact published-job replays do not duplicate graph, price, media, warning,
+-- or ownership rows.
+SELECT public.studio_publish_project(
+  '11000000-0000-0000-0000-000000000002','11000000-0000-0000-0000-000000000012',
+  '{}'::jsonb,true,'{}'::jsonb);
+SELECT public.studio_publish_project(
+  '11000000-0000-0000-0000-000000000003','11000000-0000-0000-0000-000000000013',
+  '{}'::jsonb,true,'{}'::jsonb);
+SELECT public.studio_publish_project(
+  '11000000-0000-0000-0000-000000000004','11000000-0000-0000-0000-000000000014',
+  '{}'::jsonb,true,'{}'::jsonb);
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.projects WHERE slug='publisher-owned')=1
+  AND (SELECT count(*) FROM public.unit_price_history ph
+       JOIN public.units u ON u.id=ph.unit_id JOIN public.projects p ON p.id=u.project_id
+       WHERE p.slug='publisher-owned' AND ph.price=12345678)=1
+  AND (SELECT count(*) FROM public.project_media m JOIN public.projects p ON p.id=m.project_id
+       WHERE p.slug='publisher-owned' AND m.url='https://cdn.test/owner-construction.jpg')=1
+  AND (SELECT count(*) FROM public.studio_object_owners o JOIN public.projects p ON p.id=o.object_id
+       WHERE o.object_type='project' AND p.slug='publisher-owned')=1,
+  'Owner workflow replay creates no duplicate graph, price, media, or ownership');
+
+-- A different Publisher remains denied even when creator_role is forged as
+-- owner; the failed function call leaves project and ownership unchanged.
+INSERT INTO auth.users(id,email,email_confirmed_at)
+VALUES ('00000000-0000-0000-0000-000000000006','publisher-c@example.com',now()),
+       ('00000000-0000-0000-0000-000000000007','nonmember@example.com',now());
+INSERT INTO public.studio_members(user_id,role,email,invited_by,is_active)
+VALUES ('00000000-0000-0000-0000-000000000006','trusted_publisher',
+        'publisher-c@example.com','00000000-0000-0000-0000-000000000001',true);
+INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status,project_slug)
+VALUES ('11000000-0000-0000-0000-000000000005',
+        '00000000-0000-0000-0000-000000000006','owner','project_update','received',
+        'publisher-owned');
+SELECT public.studio_request_job_processing(
+  '11000000-0000-0000-0000-000000000005','11000000-0000-0000-0000-000000000015',900);
+DO $$ BEGIN
+  BEGIN
+    PERFORM public.studio_publish_project(
+      '11000000-0000-0000-0000-000000000005','11000000-0000-0000-0000-000000000015',
+      jsonb_build_object('schema_version','1','mode','enrich','batch_fingerprint',repeat('5',64),
+        'project',jsonb_build_object('slug','publisher-owned',
+          'set',jsonb_build_object('short_description','Cross-publisher overwrite'))),
+      true,'{}'::jsonb);
+    RAISE EXCEPTION 'expected_cross_publisher_denial_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'studio_object_ownership_conflict' THEN RAISE; END IF;
+  END;
+END $$;
+SELECT pg_temp.assert_true(
+  (SELECT short_description FROM public.projects WHERE slug='publisher-owned')='Owner update'
+  AND (SELECT o.created_by='00000000-0000-0000-0000-000000000002'::uuid
+       FROM public.studio_object_owners o JOIN public.projects p ON p.id=o.object_id
+       WHERE o.object_type='project' AND p.slug='publisher-owned'),
+  'cross-Publisher denial has zero project or ownership effect');
+
+-- Legacy/unassigned objects remain Owner-only. The first successful Owner
+-- update writes the one immutable Owner attribution.
+SELECT public.forever_progressive_ingest(jsonb_build_object(
+  'schema_version','1','mode','create','batch_fingerprint',repeat('6',64),
+  'project',jsonb_build_object('slug','legacy-review','name','Legacy Review')));
+INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status,project_slug)
+VALUES ('11000000-0000-0000-0000-000000000006',
+        '00000000-0000-0000-0000-000000000006','owner','project_update','received',
+        'legacy-review');
+SELECT public.studio_request_job_processing(
+  '11000000-0000-0000-0000-000000000006','11000000-0000-0000-0000-000000000016',900);
+DO $$ BEGIN
+  BEGIN
+    PERFORM public.studio_publish_project(
+      '11000000-0000-0000-0000-000000000006','11000000-0000-0000-0000-000000000016',
+      jsonb_build_object('schema_version','1','mode','enrich','batch_fingerprint',repeat('7',64),
+        'project',jsonb_build_object('slug','legacy-review',
+          'set',jsonb_build_object('short_description','Publisher legacy overwrite'))),
+      true,'{}'::jsonb);
+    RAISE EXCEPTION 'expected_legacy_publisher_denial_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'studio_object_ownership_conflict' THEN RAISE; END IF;
+  END;
+END $$;
+SELECT pg_temp.assert_true(
+  NOT EXISTS (SELECT 1 FROM public.studio_object_owners o JOIN public.projects p ON p.id=o.object_id
+              WHERE o.object_type='project' AND p.slug='legacy-review'),
+  'denied Publisher does not attribute or mutate a legacy object');
+
+INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status,project_slug)
+VALUES ('11000000-0000-0000-0000-000000000007',
+        '00000000-0000-0000-0000-000000000001','trusted_publisher','project_update','received',
+        'legacy-review');
+SELECT public.studio_request_job_processing(
+  '11000000-0000-0000-0000-000000000007','11000000-0000-0000-0000-000000000017',900);
+SELECT public.studio_publish_project(
+  '11000000-0000-0000-0000-000000000007','11000000-0000-0000-0000-000000000017',
+  jsonb_build_object('schema_version','1','mode','enrich','batch_fingerprint',repeat('8',64),
+    'project',jsonb_build_object('slug','legacy-review',
+      'set',jsonb_build_object('short_description','Owner legacy update'))),
+  true,'{}'::jsonb);
+SELECT pg_temp.assert_true(
+  (SELECT short_description FROM public.projects WHERE slug='legacy-review')='Owner legacy update'
+  AND (SELECT o.created_by='00000000-0000-0000-0000-000000000001'::uuid
+       FROM public.studio_object_owners o JOIN public.projects p ON p.id=o.object_id
+       WHERE o.object_type='project' AND p.slug='legacy-review'),
+  'Owner updates and receives attribution for a legacy object');
+
+-- Disabled and non-member identities fail on current membership even when
+-- their immutable job snapshot says owner.
+UPDATE public.studio_members SET is_active=false
+WHERE user_id='00000000-0000-0000-0000-000000000001';
+INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status,project_slug)
+VALUES
+  ('11000000-0000-0000-0000-000000000008','00000000-0000-0000-0000-000000000001',
+   'owner','project_update','received','publisher-owned'),
+  ('11000000-0000-0000-0000-000000000009','00000000-0000-0000-0000-000000000007',
+   'owner','project_update','received','publisher-owned');
+SELECT public.studio_request_job_processing(
+  '11000000-0000-0000-0000-000000000008','11000000-0000-0000-0000-000000000018',900);
+SELECT public.studio_request_job_processing(
+  '11000000-0000-0000-0000-000000000009','11000000-0000-0000-0000-000000000019',900);
+DO $$ DECLARE v_job uuid; v_token uuid; BEGIN
+  FOR v_job,v_token IN VALUES
+    ('11000000-0000-0000-0000-000000000008'::uuid,'11000000-0000-0000-0000-000000000018'::uuid),
+    ('11000000-0000-0000-0000-000000000009'::uuid,'11000000-0000-0000-0000-000000000019'::uuid)
+  LOOP
+    BEGIN
+      PERFORM public.studio_publish_project(
+        v_job,v_token,
+        jsonb_build_object('schema_version','1','mode','enrich','batch_fingerprint',repeat('9',64),
+          'project',jsonb_build_object('slug','publisher-owned',
+            'set',jsonb_build_object('short_description','Membership bypass'))),
+        true,'{}'::jsonb);
+      RAISE EXCEPTION 'expected_membership_denial_absent';
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM <> 'studio_membership_required' THEN RAISE; END IF;
+    END;
+  END LOOP;
+END $$;
+UPDATE public.studio_members SET is_active=true
+WHERE user_id='00000000-0000-0000-0000-000000000001';
+SELECT pg_temp.assert_true(
+  (SELECT short_description FROM public.projects WHERE slug='publisher-owned')='Owner update',
+  'disabled and non-member publish attempts have zero project effect');
+
+-- ---------------------------------------------------------------------------
 -- 7. Resale: atomic + idempotent + private contact
 -- ---------------------------------------------------------------------------
 INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status)
 VALUES ('10000000-0000-0000-0000-000000000004',
-        '00000000-0000-0000-0000-000000000001','owner','resale_listing','received');
-SELECT public.studio_claim_job(
+        '00000000-0000-0000-0000-000000000002','trusted_publisher','resale_listing','received');
+SELECT public.studio_request_job_processing(
   '10000000-0000-0000-0000-000000000004','eeeeeeee-0000-0000-0000-00000000000e',900);
 SELECT public.studio_publish_resale(
   '10000000-0000-0000-0000-000000000004',
   'eeeeeeee-0000-0000-0000-00000000000e',
   jsonb_build_object('title','Resale One','slug','resale-one-abc',
+    'price',4000000,
     'photos',jsonb_build_array('https://cdn.test/project-images/x.jpg'),
     'availability_status','available','field_provenance','{}'::jsonb),
   jsonb_build_object('contact_name','Jane','contact_phone','+66 1','contact_email','jane@example.com'),
@@ -302,7 +554,7 @@ SELECT pg_temp.assert_true(
    JOIN public.listings l ON l.id=c.listing_id WHERE l.slug='resale-one-abc')='jane@example.com',
   'contact stored in the private table');
 SELECT pg_temp.assert_true(
-  (SELECT created_by='00000000-0000-0000-0000-000000000001'::uuid
+  (SELECT created_by='00000000-0000-0000-0000-000000000002'::uuid
    FROM public.studio_object_owners o JOIN public.listings l ON l.id=o.object_id
    WHERE o.object_type='listing' AND l.slug='resale-one-abc'),
   'listing ownership attribution is private and immutable');
@@ -312,6 +564,7 @@ SELECT public.studio_publish_resale(
   '10000000-0000-0000-0000-000000000004',
   'eeeeeeee-0000-0000-0000-00000000000e',
   jsonb_build_object('title','Resale One','slug','resale-one-abc',
+    'price',4000000,
     'photos',jsonb_build_array('https://cdn.test/project-images/x.jpg'),
     'availability_status','available','field_provenance','{}'::jsonb),
   jsonb_build_object('contact_name','Jane','contact_phone','+66 1','contact_email','jane@example.com'),
@@ -319,6 +572,59 @@ SELECT public.studio_publish_resale(
 SELECT pg_temp.assert_true(
   (SELECT count(*) FROM public.listings WHERE slug='resale-one-abc')=1,
   'resale replay creates no duplicate listing');
+
+-- Resale editing is one transaction across public facts/provenance, private
+-- contact, and deduplicated conflict warnings. The Owner may edit this
+-- Publisher-owned listing without transferring its creation attribution.
+UPDATE public.listings
+SET field_provenance=jsonb_build_object(
+  'price',jsonb_build_object('status','owner_verified','supplied_at',now()))
+WHERE slug='resale-one-abc';
+DO $$ DECLARE v_listing uuid; BEGIN
+  SELECT id INTO v_listing FROM public.listings WHERE slug='resale-one-abc';
+  BEGIN
+    PERFORM public.studio_update_resale(
+      v_listing,'00000000-0000-0000-0000-000000000001',
+      jsonb_build_object('description','Atomic description','price',1),
+      jsonb_build_object('contact_phone','+66 rollback'),now(),true);
+    RAISE EXCEPTION 'expected_resale_edit_failure_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'studio_resale_edit_injected_failure' THEN RAISE; END IF;
+  END;
+END $$;
+SELECT pg_temp.assert_true(
+  (SELECT description IS NULL AND price=4000000 FROM public.listings WHERE slug='resale-one-abc')
+  AND (SELECT contact_phone='+66 1' FROM public.studio_listing_contacts c
+       JOIN public.listings l ON l.id=c.listing_id WHERE l.slug='resale-one-abc')
+  AND NOT EXISTS (SELECT 1 FROM public.ingestion_warnings w JOIN public.listings l ON l.id=w.listing_id
+                  WHERE l.slug='resale-one-abc' AND w.code='listing_field_conflict_preserved'),
+  'injected resale edit failure rolls back facts, provenance, contact, and warning');
+
+SELECT public.studio_update_resale(
+  (SELECT id FROM public.listings WHERE slug='resale-one-abc'),
+  '00000000-0000-0000-0000-000000000001',
+  jsonb_build_object('description','Atomic description','price',1),
+  jsonb_build_object('contact_phone','+66 committed'),
+  '2026-07-22T12:00:00Z',false);
+SELECT public.studio_update_resale(
+  (SELECT id FROM public.listings WHERE slug='resale-one-abc'),
+  '00000000-0000-0000-0000-000000000001',
+  jsonb_build_object('description','Atomic description','price',1),
+  jsonb_build_object('contact_phone','+66 committed'),
+  '2026-07-22T12:00:00Z',false);
+SELECT pg_temp.assert_true(
+  (SELECT description='Atomic description' AND price=4000000
+          AND field_provenance#>>'{description,status}'='owner_provided'
+   FROM public.listings WHERE slug='resale-one-abc')
+  AND (SELECT contact_phone='+66 committed' FROM public.studio_listing_contacts c
+       JOIN public.listings l ON l.id=c.listing_id WHERE l.slug='resale-one-abc')
+  AND (SELECT count(*) FROM public.ingestion_warnings w JOIN public.listings l ON l.id=w.listing_id
+       WHERE l.slug='resale-one-abc' AND w.code='listing_field_conflict_preserved'
+         AND w.field='price')=1
+  AND (SELECT o.created_by='00000000-0000-0000-0000-000000000002'::uuid
+       FROM public.studio_object_owners o JOIN public.listings l ON l.id=o.object_id
+       WHERE o.object_type='listing' AND l.slug='resale-one-abc'),
+  'resale edit commits atomically, replays without warning duplicates, and preserves ownership');
 
 -- ---------------------------------------------------------------------------
 -- 8. Anon sees only published rows; never private contacts
@@ -365,7 +671,7 @@ INSERT INTO auth.users(id,email) VALUES
   ('000000ff-0000-0000-0000-0000000000ff','tempuser@example.com');
 INSERT INTO public.studio_upload_jobs(id,created_by,creator_email,creator_role,workflow,status)
 VALUES ('100000ff-0000-0000-0000-0000000000ff',
-        '000000ff-0000-0000-0000-0000000000ff','tempuser@example.com','trusted_publisher','resale_listing','published');
+        '000000ff-0000-0000-0000-0000000000ff','tempuser@example.com','trusted_publisher','project_update','published');
 DELETE FROM auth.users WHERE id='000000ff-0000-0000-0000-0000000000ff';
 
 SELECT pg_temp.assert_true(

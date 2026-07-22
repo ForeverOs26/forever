@@ -4,7 +4,7 @@
  *
  * Spins up a throwaway PostgreSQL cluster, applies the prerequisites stub, the
  * COMPLETE committed migration chain in filename order (including the already-
- * applied progressive migration and the pending Studio migration), then runs
+ * applied progressive migration and additive Studio corrections), then runs
  * the behavioral assertion suite. No production connection, no linked project.
  *
  * Usage: node scripts/studio/run-postgres-tests.mjs
@@ -36,10 +36,12 @@ function findBinDir() {
 const BIN = findBinDir();
 const bin = (name) => (BIN ? join(BIN, name) : name);
 const WINDOWS = process.platform === "win32";
+const work = mkdtempSync(join(tmpdir(), "forever-studio-pg-"));
+const data = join(work, "data");
 // PostgreSQL on Windows does not support the Unix-domain socket setup used by
 // the POSIX runner. Keep the disposable cluster loopback-only instead.
 const HOST = WINDOWS ? "127.0.0.1" : work;
-const PORT = WINDOWS ? (process.env.STUDIO_PG_PORT || "55432") : "";
+const PORT = WINDOWS ? process.env.STUDIO_PG_PORT || "55432" : "";
 // Detached Windows postgres children inherit pg_ctl's output handles. Avoid
 // pipe handles there so execFileSync can return once pg_ctl reports ready.
 const PG_CTL_OPTIONS = WINDOWS ? { stdio: "ignore" } : {};
@@ -49,8 +51,6 @@ const PG_CTL_OPTIONS = WINDOWS ? { stdio: "ignore" } : {};
 const RUN_AS =
   process.env.STUDIO_PG_USER || (process.getuid && process.getuid() === 0 ? "postgres" : "");
 
-const work = mkdtempSync(join(tmpdir(), "forever-studio-pg-"));
-const data = join(work, "data");
 let started = false;
 
 if (RUN_AS) {
@@ -106,18 +106,22 @@ function psqlSql(sql) {
 
 try {
   run(bin("initdb"), ["-D", data, "-U", "postgres", "--auth=trust", "-E", "UTF8"]);
-  run(bin("pg_ctl"), [
-    "-D",
-    data,
-    "-o",
-    WINDOWS
-      ? `-h ${HOST} -p ${PORT} -c fsync=off -c synchronous_commit=off`
-      : `-k ${work} -c listen_addresses='' -c fsync=off -c synchronous_commit=off`,
-    "-w",
-    "-l",
-    join(work, "log"),
-    "start",
-  ], PG_CTL_OPTIONS);
+  run(
+    bin("pg_ctl"),
+    [
+      "-D",
+      data,
+      "-o",
+      WINDOWS
+        ? `-h ${HOST} -p ${PORT} -c fsync=off -c synchronous_commit=off`
+        : `-k ${work} -c listen_addresses='' -c fsync=off -c synchronous_commit=off`,
+      "-w",
+      "-l",
+      join(work, "log"),
+      "start",
+    ],
+    PG_CTL_OPTIONS,
+  );
   started = true;
 
   console.log("[studio-pg] applying bootstrap prerequisites");

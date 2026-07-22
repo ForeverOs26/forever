@@ -16,7 +16,11 @@ import type {
   DependencyCandidate,
   DependencyReader,
 } from "@/features/forever-ingestion/dependency-resolution";
-import type { FieldProvenanceMap } from "@/features/forever-ingestion/provenance";
+import {
+  canReplaceField,
+  type FieldProvenance,
+  type FieldProvenanceMap,
+} from "@/features/forever-ingestion/provenance";
 import { FakeIngestExecutor } from "@/features/forever-ingestion/tests/fake-ingest-executor";
 
 import type {
@@ -42,6 +46,7 @@ import type {
 
 export class FakeStorage implements StudioStorage {
   objects = new Map<string, Buffer>();
+  contentTypes = new Map<string, string>();
   signedUploads: string[] = [];
   /** Force copyObject to throw once (models a transient storage failure). */
   failCopyOnce = false;
@@ -55,8 +60,9 @@ export class FakeStorage implements StudioStorage {
   }
 
   /** Simulates the browser upload to a signed URL. */
-  put(bucket: string, path: string, data: Buffer | string): void {
+  put(bucket: string, path: string, data: Buffer | string, contentType?: string): void {
     this.objects.set(this.key(bucket, path), Buffer.isBuffer(data) ? data : Buffer.from(data));
+    if (contentType) this.contentTypes.set(this.key(bucket, path), contentType);
   }
 
   async createSignedUpload(bucket: string, path: string): Promise<{ token: string }> {
@@ -108,6 +114,7 @@ export class FakeStorage implements StudioStorage {
   async copyObject(
     from: { bucket: string; path: string },
     to: { bucket: string; path: string },
+    contentType: string,
   ): Promise<void> {
     if (this.failCopyOnce) {
       this.failCopyOnce = false;
@@ -116,10 +123,12 @@ export class FakeStorage implements StudioStorage {
     const buf = this.objects.get(this.key(from.bucket, from.path));
     if (!buf) throw new Error(`copy source missing: ${from.bucket}/${from.path}`);
     this.objects.set(this.key(to.bucket, to.path), buf);
+    this.contentTypes.set(this.key(to.bucket, to.path), contentType);
   }
 
-  async upload(bucket: string, path: string, data: Buffer): Promise<void> {
+  async upload(bucket: string, path: string, data: Buffer, contentType?: string): Promise<void> {
     this.objects.set(this.key(bucket, path), data);
+    if (contentType) this.contentTypes.set(this.key(bucket, path), contentType);
   }
 
   async remove(bucket: string, paths: string[]): Promise<void> {
@@ -127,7 +136,10 @@ export class FakeStorage implements StudioStorage {
       this.failRemoveOnce = false;
       throw new Error("storage remove failed (injected)");
     }
-    for (const path of paths) this.objects.delete(this.key(bucket, path));
+    for (const path of paths) {
+      this.objects.delete(this.key(bucket, path));
+      this.contentTypes.delete(this.key(bucket, path));
+    }
   }
 
   publicUrl(bucket: string, path: string): string {
@@ -140,6 +152,10 @@ export class FakeStorage implements StudioStorage {
     return [...this.objects.keys()]
       .filter((k) => k.startsWith(prefix))
       .map((k) => k.slice(prefix.length));
+  }
+
+  publicContentType(bucket: string, path: string): string | undefined {
+    return this.contentTypes.get(this.key(bucket, path));
   }
 }
 
@@ -160,6 +176,8 @@ export class FakeData implements StudioData {
   authUsers: Array<{ id: string; email: string }> = [];
   /** Force studio_publish_project to fail AFTER the graph write (rollback test). */
   failAfterIngest = false;
+  /** Force the atomic resale edit to fail after every provisional write. */
+  failAfterResaleEdit = false;
   private sequence = 0;
 
   constructor(
@@ -195,6 +213,12 @@ export class FakeData implements StudioData {
     return row;
   }
 
+  private currentRole(userId: string | null): "owner" | "trusted_publisher" {
+    const member = this.members.find((row) => row.user_id === userId && row.is_active);
+    if (!member) throw new Error("studio_membership_required");
+    return member.role;
+  }
+
   private toProjectRow(row: { slug: string } & Record<string, unknown>): StudioProjectRow {
     return {
       id: String(row.id),
@@ -212,8 +236,13 @@ export class FakeData implements StudioData {
     const row = this.executor.store.projects.find((project) => project.slug === slug);
     return row ? this.toProjectRow(row) : null;
   }
-  async listProjects(): Promise<StudioProjectRow[]> {
-    return this.executor.store.projects.map((row) => this.toProjectRow(row));
+  async listProjects(createdBy?: string): Promise<StudioProjectRow[]> {
+    return this.executor.store.projects
+      .filter(
+        (row) => !createdBy || this.objectOwners.get(`project:${String(row.id)}`) === createdBy,
+      )
+      .slice(0, 200)
+      .map((row) => this.toProjectRow(row));
   }
   async getProjectDetail(slug: string): Promise<StudioProjectDetailRow | null> {
     const project = this.executor.store.projects.find((p) => p.slug === slug);
@@ -253,11 +282,11 @@ export class FakeData implements StudioData {
     if (index < 0) throw new Error(`listing not found: ${id}`);
     this.listings[index] = { ...this.listings[index], ...patch, id };
   }
-  async setListingContact(listingId: string, contact: StudioPrivateContact) {
-    this.contacts.set(listingId, { ...contact });
-  }
-  async listListings() {
-    return this.listings.map((row) => ({ ...row }));
+  async listListings(createdBy?: string) {
+    return this.listings
+      .filter((row) => !createdBy || this.objectOwners.get(`listing:${row.id}`) === createdBy)
+      .slice(0, 200)
+      .map((row) => ({ ...row }));
   }
 
   async createJob(row: StudioJobRow) {
@@ -274,21 +303,24 @@ export class FakeData implements StudioData {
     this.jobs.set(id, { ...job, ...structuredClone(patch) });
     return true;
   }
-  async listJobs(limit: number) {
+  async listJobs(limit: number, createdBy?: string) {
     return [...this.jobs.values()]
+      .filter((job) => !createdBy || job.created_by === createdBy)
       .slice(-limit)
       .reverse()
       .map((j) => structuredClone(j));
   }
-  async listDueJobs(staleSeconds: number, limit: number) {
+  async listDueJobs(staleSeconds: number, limit: number, createdBy?: string) {
     const staleBefore = this.clock() - staleSeconds * 1000;
     return [...this.jobs.values()]
       .filter(
         (job) =>
-          job.status === "received" ||
-          (job.status === "failed" && job.retryable) ||
-          (job.status === "processing" &&
-            (job.processing_started_at == null || job.processing_started_at < staleBefore)),
+          job.processing_requested_at !== null &&
+          (!createdBy || job.created_by === createdBy) &&
+          (job.status === "received" ||
+            (job.status === "failed" && job.retryable) ||
+            (job.status === "processing" &&
+              (job.processing_started_at == null || job.processing_started_at < staleBefore))),
       )
       .slice(0, limit)
       .map((j) => structuredClone(j));
@@ -302,6 +334,7 @@ export class FakeData implements StudioData {
     // A published job and a terminal (retryable=false) failure are NEVER
     // reclaimed.
     const claimable =
+      job.processing_requested_at !== null &&
       job.status !== "published" &&
       (job.status === "received" ||
         (job.status === "failed" && job.retryable) ||
@@ -315,6 +348,17 @@ export class FakeData implements StudioData {
     job.error = null;
     job.error_code = null;
     return structuredClone(job);
+  }
+
+  async requestJobProcessing(
+    jobId: string,
+    token: string,
+    staleSeconds: number,
+  ): Promise<StudioJobRow | null> {
+    const job = this.jobs.get(jobId);
+    if (!job || job.status === "published") return null;
+    job.processing_requested_at ??= new Date(this.clock()).toISOString();
+    return this.claimJob(jobId, token, staleSeconds);
   }
 
   async heartbeatJob(jobId: string, token: string): Promise<boolean> {
@@ -371,9 +415,26 @@ export class FakeData implements StudioData {
     }
     if (job.processing_token !== input.token) throw new Error("studio_job_not_claimed");
 
+    const actorRole = this.currentRole(job.created_by);
+    const slug = input.batch.project.slug;
+    const existingProject = this.executor.store.projects.find((project) => project.slug === slug);
+    const existingOwnerKey = existingProject ? `project:${String(existingProject.id)}` : null;
+    const hadOwner = existingOwnerKey
+      ? this.objectOwners.has(existingOwnerKey) && this.objectOwners.get(existingOwnerKey) != null
+      : false;
+    const existingOwner = existingOwnerKey ? this.objectOwners.get(existingOwnerKey) : undefined;
+    if (
+      existingProject &&
+      actorRole === "trusted_publisher" &&
+      (!hadOwner || existingOwner !== job.created_by)
+    ) {
+      throw new Error("studio_object_ownership_conflict");
+    }
+
     // Snapshot for atomic rollback (graph + publication + job) on any failure.
     const storeSnapshot = structuredClone(this.executor.store);
     const jobSnapshot = structuredClone(job);
+    const ownersSnapshot = new Map(this.objectOwners);
     try {
       const summary = await this.executor.ingest(input.batch);
       if (input.publish) {
@@ -384,7 +445,14 @@ export class FakeData implements StudioData {
         }
       }
       const ownerKey = `project:${summary.project_id}`;
-      if (!this.objectOwners.has(ownerKey)) this.objectOwners.set(ownerKey, job.created_by);
+      if (!existingProject) {
+        if (!this.objectOwners.has(ownerKey)) this.objectOwners.set(ownerKey, job.created_by);
+        if (this.objectOwners.get(ownerKey) !== job.created_by) {
+          throw new Error("studio_object_ownership_conflict");
+        }
+      } else if (actorRole === "owner" && !hadOwner) {
+        this.objectOwners.set(ownerKey, job.created_by);
+      }
       if (this.failAfterIngest) throw new Error("studio_publish_project injected failure");
       const publicStatus = input.publish ? "published" : summary.public_status;
       job.status = "published";
@@ -403,6 +471,7 @@ export class FakeData implements StudioData {
     } catch (error) {
       this.executor.store = storeSnapshot;
       this.jobs.set(input.jobId, jobSnapshot);
+      this.objectOwners = ownersSnapshot;
       throw error;
     }
   }
@@ -426,35 +495,70 @@ export class FakeData implements StudioData {
     }
     if (job.processing_token !== input.token) throw new Error("studio_job_not_claimed");
 
+    const actorRole = this.currentRole(job.created_by);
     const slug = input.listing.slug;
     const existing = this.listings.find((row) => row.slug === slug);
-    let listingId: string;
-    if (existing) {
-      listingId = existing.id;
-      Object.assign(existing, this.listingRowFrom(input.listing), {
-        publication_status: "published",
-      });
-    } else {
-      this.sequence += 1;
-      listingId = `listing-${this.sequence}`;
-      this.listings.push({
-        ...this.listingRowFrom(input.listing),
-        id: listingId,
-        publication_status: "published",
-        updated_at: null,
-      });
-      this.objectOwners.set(`listing:${listingId}`, job.created_by);
+    const existingOwnerKey = existing ? `listing:${existing.id}` : null;
+    const hadOwner = existingOwnerKey
+      ? this.objectOwners.has(existingOwnerKey) && this.objectOwners.get(existingOwnerKey) != null
+      : false;
+    const existingOwner = existingOwnerKey ? this.objectOwners.get(existingOwnerKey) : undefined;
+    if (
+      existing &&
+      actorRole === "trusted_publisher" &&
+      (!hadOwner || existingOwner !== job.created_by)
+    ) {
+      throw new Error("studio_object_ownership_conflict");
     }
-    this.contacts.set(listingId, { ...input.contact });
-    this.listingWarnings = this.listingWarnings.filter((w) => w.listingId !== listingId);
-    for (const warning of input.warnings) this.listingWarnings.push({ listingId, warning });
 
-    job.status = "published";
-    job.processing_token = null;
-    job.listing_id = listingId;
-    job.content_fingerprint = slug;
-    job.result_summary = { ...input.result, listingId, slug };
-    return { listingId, slug, replayed: false };
+    const listingsSnapshot = structuredClone(this.listings);
+    const contactsSnapshot = new Map(this.contacts);
+    const warningsSnapshot = structuredClone(this.listingWarnings);
+    const ownersSnapshot = new Map(this.objectOwners);
+    const jobSnapshot = structuredClone(job);
+    try {
+      let listingId: string;
+      if (existing) {
+        listingId = existing.id;
+        Object.assign(existing, this.listingRowFrom(input.listing), {
+          publication_status: "published",
+        });
+        if (actorRole === "owner" && !hadOwner) {
+          this.objectOwners.set(`listing:${listingId}`, job.created_by);
+        }
+      } else {
+        this.sequence += 1;
+        listingId = `listing-${this.sequence}`;
+        this.listings.push({
+          ...this.listingRowFrom(input.listing),
+          id: listingId,
+          publication_status: "published",
+          updated_at: null,
+        });
+        const ownerKey = `listing:${listingId}`;
+        if (!this.objectOwners.has(ownerKey)) this.objectOwners.set(ownerKey, job.created_by);
+        if (this.objectOwners.get(ownerKey) !== job.created_by) {
+          throw new Error("studio_object_ownership_conflict");
+        }
+      }
+      this.contacts.set(listingId, { ...input.contact });
+      this.listingWarnings = this.listingWarnings.filter((w) => w.listingId !== listingId);
+      for (const warning of input.warnings) this.listingWarnings.push({ listingId, warning });
+
+      job.status = "published";
+      job.processing_token = null;
+      job.listing_id = listingId;
+      job.content_fingerprint = slug;
+      job.result_summary = { ...input.result, listingId, slug };
+      return { listingId, slug, replayed: false };
+    } catch (error) {
+      this.listings = listingsSnapshot;
+      this.contacts = contactsSnapshot;
+      this.listingWarnings = warningsSnapshot;
+      this.objectOwners = ownersSnapshot;
+      this.jobs.set(input.jobId, jobSnapshot);
+      throw error;
+    }
   }
 
   private listingRowFrom(
@@ -483,8 +587,110 @@ export class FakeData implements StudioData {
     } as FakeListingStored;
   }
 
-  async addListingWarnings(listingId: string, warnings: ProgressiveWarning[]) {
-    for (const warning of warnings) this.listingWarnings.push({ listingId, warning });
+  async updateResale(input: {
+    listingId: string;
+    actorId: string;
+    fields: Record<string, string | number>;
+    contact: Record<string, string>;
+    suppliedAt: string;
+    injectFailure?: boolean;
+  }) {
+    const role = this.currentRole(input.actorId);
+    const ownerKey = `listing:${input.listingId}`;
+    if (
+      role === "trusted_publisher" &&
+      (!this.objectOwners.has(ownerKey) || this.objectOwners.get(ownerKey) !== input.actorId)
+    ) {
+      throw new Error("studio_object_ownership_conflict");
+    }
+    const index = this.listings.findIndex((row) => row.id === input.listingId);
+    if (index < 0) throw new Error("listing_not_found");
+
+    const listingSnapshot = structuredClone(this.listings);
+    const contactSnapshot = new Map(this.contacts);
+    const warningsSnapshot = structuredClone(this.listingWarnings);
+    const ownersSnapshot = new Map(this.objectOwners);
+    try {
+      if (role === "owner" && this.objectOwners.get(ownerKey) == null) {
+        this.objectOwners.set(ownerKey, input.actorId);
+      }
+      const listing = this.listings[index];
+      const provenance = {
+        ...((listing.field_provenance as FieldProvenanceMap | undefined) ?? {}),
+      };
+      const incomingStatus = role === "owner" ? "owner_provided" : "trusted_publisher_provided";
+      const conflicts: ProgressiveWarning[] = [];
+      const appliedFields: string[] = [];
+      const mappings: Array<[string, string]> = [
+        ["title", "title"],
+        ["projectName", "project_name_raw"],
+        ["locationText", "location_name_raw"],
+        ["propertyType", "property_type"],
+        ["bedrooms", "bedrooms"],
+        ["bathrooms", "bathrooms"],
+        ["areaSqm", "area_sqm"],
+        ["price", "price"],
+        ["currency", "currency"],
+        ["description", "description"],
+      ];
+      for (const [factKey, column] of mappings) {
+        if (!(factKey in input.fields)) continue;
+        const incoming: FieldProvenance = {
+          status: incomingStatus,
+          supplied_at: input.suppliedAt,
+          note: "studio_manual_entry",
+        };
+        const current = listing[column];
+        if (
+          canReplaceField(provenance[factKey], incoming, current == null || current === "") ===
+          "apply"
+        ) {
+          listing[column] = input.fields[factKey];
+          provenance[factKey] = incoming;
+          appliedFields.push(column);
+        } else {
+          const warning: ProgressiveWarning = {
+            entity: "listing",
+            field: column,
+            code: "listing_field_conflict_preserved",
+            severity: "warning",
+            message: `${column}: the current value was set by a stronger source (${provenance[factKey]?.status ?? "unknown"}) and was preserved; the attempted change by ${role} was recorded, not applied.`,
+            payload: { attempted_by: role, attempted_status: incomingStatus },
+          };
+          conflicts.push(warning);
+          const duplicate = this.listingWarnings.some(
+            (row) =>
+              row.listingId === input.listingId &&
+              row.warning.code === warning.code &&
+              row.warning.field === warning.field &&
+              row.warning.message === warning.message &&
+              JSON.stringify(row.warning.payload ?? {}) === JSON.stringify(warning.payload ?? {}),
+          );
+          if (!duplicate) this.listingWarnings.push({ listingId: input.listingId, warning });
+        }
+      }
+      if (appliedFields.length) listing.field_provenance = provenance;
+
+      if (Object.keys(input.contact).length) {
+        const current = this.contacts.get(input.listingId) ?? {
+          contact_name: null,
+          contact_phone: null,
+          contact_email: null,
+        };
+        this.contacts.set(input.listingId, { ...current, ...input.contact });
+      }
+
+      if (input.injectFailure || this.failAfterResaleEdit) {
+        throw new Error("studio_resale_edit_injected_failure");
+      }
+      return { warnings: conflicts, appliedFields };
+    } catch (error) {
+      this.listings = listingSnapshot;
+      this.contacts = contactSnapshot;
+      this.listingWarnings = warningsSnapshot;
+      this.objectOwners = ownersSnapshot;
+      throw error;
+    }
   }
 
   /** Set to make recordAudit throw (audit-failure regression). */
@@ -591,7 +797,7 @@ export interface FakeWorld {
   locations: DependencyCandidate[];
 }
 
-export function makeWorld(): FakeWorld {
+export function makeWorld(options: { defaultMembers?: boolean } = {}): FakeWorld {
   const executor = new FakeIngestExecutor();
   const storage = new FakeStorage();
   const flags = {
@@ -604,6 +810,26 @@ export function makeWorld(): FakeWorld {
   };
   const clock = () => flags.nowMs;
   const data = new FakeData(executor, clock);
+  if (options.defaultMembers !== false) {
+    data.members.push(
+      {
+        user_id: OWNER.userId,
+        role: OWNER.role,
+        display_name: OWNER.displayName,
+        email: OWNER.email,
+        invited_by: null,
+        is_active: true,
+      },
+      {
+        user_id: PUBLISHER.userId,
+        role: PUBLISHER.role,
+        display_name: PUBLISHER.displayName,
+        email: PUBLISHER.email,
+        invited_by: OWNER.userId,
+        is_active: true,
+      },
+    );
+  }
   const pdfExtractions = new Map<string, PriceListPdfExtraction>();
   const archives = new Map<string, Array<{ name: string; data: Buffer }>>();
   const archiveRejects = new Set<string>();

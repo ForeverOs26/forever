@@ -24,8 +24,6 @@ import type {
 import { fingerprintBatch, buildProgressiveBatch } from "@/features/forever-ingestion/build-batch";
 import { buildListingDraft } from "@/features/forever-ingestion/listings";
 import {
-  canReplaceField,
-  type FieldProvenance,
   type FieldProvenanceMap,
   type ProvenanceStatus,
 } from "@/features/forever-ingestion/provenance";
@@ -291,6 +289,7 @@ export async function startUploadJob(
     listing_id: null,
     status: "received",
     processing_token: null,
+    processing_requested_at: null,
     content_fingerprint: null,
     facts: {
       ...(input.projectFacts ? { projectFacts: input.projectFacts } : {}),
@@ -357,24 +356,28 @@ export async function processUploadJob(
   const job = await deps.data.getJob(jobId);
   if (!job) throw new StudioAccessError("job_not_found");
   assertObjectAccess(actor, job.created_by);
-  return claimAndProcess(deps, actor, job);
+  return claimAndProcess(deps, actor, job, true);
 }
 
 /**
  * Automatic durable resume. Called on every dashboard poll (and safe for a
- * scheduled worker/cron to call) to pick up received, retryable-failed, or
- * stale-processing jobs and drive them to completion — no second publication
- * decision, no lost work when the phone browser closes.
+ * scheduled worker/cron to call) to pick up explicitly-ready received,
+ * retryable-failed, or stale-processing jobs and drive them to completion.
+ * A pristine received manifest is intentionally inert until the browser's
+ * processing request confirms that all intended uploads are done.
  */
 export async function resumeDueJobs(
   deps: StudioDeps,
   actor: StudioActor,
 ): Promise<StudioResumeResult> {
   if (deps.partnerDemoActive()) return { resumed: 0, results: [] };
-  const due = await deps.data.listDueJobs(STALE_PROCESSING_SECONDS, RESUME_BATCH);
-  const mine = due.filter((job) => actor.role === "owner" || job.created_by === actor.userId);
+  const due = await deps.data.listDueJobs(
+    STALE_PROCESSING_SECONDS,
+    RESUME_BATCH,
+    actor.role === "owner" ? undefined : actor.userId,
+  );
   const results: StudioJobResult[] = [];
-  for (const job of mine) {
+  for (const job of due) {
     results.push(await claimAndProcess(deps, actor, job));
   }
   return { resumed: results.filter((r) => r.status === "published").length, results };
@@ -384,6 +387,7 @@ async function claimAndProcess(
   deps: StudioDeps,
   actor: StudioActor,
   jobRow: StudioJobRow,
+  requestProcessing = false,
 ): Promise<StudioJobResult> {
   // Do this before claiming a job: a denied known target must not change job
   // state, create public media, or otherwise leave a database/storage trace.
@@ -399,7 +403,9 @@ async function claimAndProcess(
   }
 
   const token = deps.newToken();
-  const claimed = await deps.data.claimJob(jobRow.id, token, STALE_PROCESSING_SECONDS);
+  const claimed = requestProcessing
+    ? await deps.data.requestJobProcessing(jobRow.id, token, STALE_PROCESSING_SECONDS)
+    : await deps.data.claimJob(jobRow.id, token, STALE_PROCESSING_SECONDS);
   if (!claimed) {
     // Already published, terminally failed, or freshly held by another worker.
     const current = await deps.data.getJob(jobRow.id);
@@ -1074,17 +1080,10 @@ export async function updateResaleListing(
 ): Promise<{ listingId: string; warnings: StudioWarningSummary[] }> {
   assertNotPartnerDemo(deps);
   await requireListingAccess(deps, actor, input.listingId);
-  const listing = await deps.data.getListingDetail(input.listingId);
-  if (!listing) throw new StudioAccessError("listing_not_found");
   const suppliedAt = deps.now();
-  const existingProvenance =
-    (listing as unknown as { field_provenance?: FieldProvenanceMap }).field_provenance ?? {};
-  const incomingStatus = actorProvenanceStatus(actor);
-  const patch: Record<string, unknown> = {};
-  const appliedProvenance: FieldProvenanceMap = {};
-  const conflicts: ProgressiveWarning[] = [];
+  const fields: Record<string, string | number> = {};
 
-  for (const { factKey, column, kind } of RESALE_FIELD_COLUMNS) {
+  for (const { factKey, kind } of RESALE_FIELD_COLUMNS) {
     const raw = input.facts[factKey];
     let value: unknown = kind === "number" ? cleanNumber(raw) : cleanText(raw);
     if (factKey === "currency" && typeof value === "string") {
@@ -1094,51 +1093,29 @@ export async function updateResaleListing(
     }
     if (value === undefined) continue;
 
-    const currentValue = (listing as Record<string, unknown>)[column];
-    const currentIsNull = currentValue == null || currentValue === "";
-    const incoming: FieldProvenance = {
-      status: incomingStatus,
-      supplied_at: suppliedAt,
-      note: "studio_manual_entry",
-    };
-    const verdict = canReplaceField(existingProvenance[factKey], incoming, currentIsNull);
-    if (verdict === "apply") {
-      patch[column] = value;
-      appliedProvenance[factKey] = incoming;
-    } else {
-      conflicts.push({
-        entity: "listing",
-        field: column,
-        code: "listing_field_conflict_preserved",
-        severity: "warning",
-        message: `${column}: the current value was set by a stronger source (${existingProvenance[factKey]?.status ?? "unknown"}) and was preserved; the attempted change by ${actor.role} was recorded, not applied.`,
-        payload: { attempted_by: actor.role, attempted_status: incomingStatus },
-      });
-    }
+    fields[factKey] = value as string | number;
   }
 
-  // Private contact — routed to the private table, never to the public row.
-  // Contact data is operational, not provenance-ranked: always editable.
-  const contactTouched =
-    input.facts.contactName !== undefined ||
-    input.facts.contactPhone !== undefined ||
-    input.facts.contactEmail !== undefined;
-  if (contactTouched) {
-    await deps.data.setListingContact(input.listingId, {
-      contact_name: cleanText(input.facts.contactName) ?? listing.contact.contact_name,
-      contact_phone: cleanText(input.facts.contactPhone) ?? listing.contact.contact_phone,
-      contact_email: cleanText(input.facts.contactEmail) ?? listing.contact.contact_email,
-    });
-  }
+  // Private contact is routed to the private table, never to the public row.
+  // It is not provenance-ranked, but it commits in the same transaction as
+  // public facts, provenance, and conflict warnings.
+  const contact: Record<string, string> = {};
+  const contactName = cleanText(input.facts.contactName);
+  const contactPhone = cleanText(input.facts.contactPhone);
+  const contactEmail = cleanText(input.facts.contactEmail);
+  if (contactName !== undefined) contact.contact_name = contactName;
+  if (contactPhone !== undefined) contact.contact_phone = contactPhone;
+  if (contactEmail !== undefined) contact.contact_email = contactEmail;
 
-  if (Object.keys(patch).length > 0) {
-    patch.field_provenance = { ...existingProvenance, ...appliedProvenance };
-    await deps.data.updateListing(input.listingId, patch);
-  }
-  if (conflicts.length > 0) {
-    // Truthful, persistent conflict records — visible in Studio, never a gate.
-    await deps.data.addListingWarnings(input.listingId, conflicts);
-  }
+  const updated = await deps.data.updateResale({
+    listingId: input.listingId,
+    actorId: actor.userId,
+    fields,
+    contact,
+    suppliedAt,
+  });
+  // Conflict warnings were persisted transactionally by updateResale: they
+  // remain truthful, visible Studio records and never become a gate.
   await recordAuditSafely(deps, {
     actor_id: actor.userId,
     actor_email: actor.email,
@@ -1146,12 +1123,12 @@ export async function updateResaleListing(
     table_name: "listings",
     record_id: input.listingId,
     metadata: {
-      fields: Object.keys(patch),
-      contact: contactTouched,
-      conflicts: conflicts.map((warning) => warning.field),
+      fields: updated.appliedFields,
+      contact: Object.keys(contact).length > 0,
+      conflicts: updated.warnings.map((warning) => warning.field),
     },
   });
-  return { listingId: input.listingId, warnings: warningSummaries(conflicts) };
+  return { listingId: input.listingId, warnings: warningSummaries(updated.warnings) };
 }
 
 // ---------------------------------------------------------------------------
@@ -1242,40 +1219,22 @@ export async function getListingDetail(
 }
 
 export async function getOverview(deps: StudioDeps, actor: StudioActor): Promise<StudioOverview> {
-  const [projects, listings, allJobs] = await Promise.all([
-    deps.data.listProjects(),
-    deps.data.listListings(),
-    deps.data.listJobs(25),
+  const createdBy = actor.role === "owner" ? undefined : actor.userId;
+  const [projects, listings, jobs] = await Promise.all([
+    deps.data.listProjects(createdBy),
+    deps.data.listListings(createdBy),
+    deps.data.listJobs(25, createdBy),
   ]);
   const members = actor.role === "owner" ? await deps.data.listMembers() : [];
-  // Operational-history isolation: the Owner sees every job; a Trusted
-  // Publisher receives ONLY their own jobs (and therefore only their own
-  // errors, creator email, and staging metadata). Enforced here at the data
-  // response boundary — the UI never sees what it must not show.
-  const jobs = allJobs.filter((job) => actor.role === "owner" || job.created_by === actor.userId);
-  const [visibleProjects, visibleListings] = await Promise.all([
-    Promise.all(
-      projects.map(async (project) => ({
-        project,
-        visible:
-          actor.role === "owner" ||
-          (await deps.data.getObjectCreatedBy("project", project.id)) === actor.userId,
-      })),
-    ),
-    Promise.all(
-      listings.map(async (listing) => ({
-        listing,
-        visible:
-          actor.role === "owner" ||
-          (await deps.data.getObjectCreatedBy("listing", listing.id)) === actor.userId,
-      })),
-    ),
-  ]);
+  // Operational-history isolation is enforced by the data query before its
+  // limit: the Owner sees all jobs, while a Publisher receives only their own
+  // errors, creator email, and staging metadata.
   const activeJobs = jobs.filter(
     (job) =>
-      job.status === "received" ||
-      job.status === "processing" ||
-      (job.status === "failed" && job.retryable),
+      job.processing_requested_at !== null &&
+      (job.status === "received" ||
+        job.status === "processing" ||
+        (job.status === "failed" && job.retryable)),
   ).length;
   return {
     session: {
@@ -1284,29 +1243,25 @@ export async function getOverview(deps: StudioDeps, actor: StudioActor): Promise
       role: actor.role,
       displayName: actor.displayName,
     },
-    projects: visibleProjects
-      .filter(({ visible }) => visible)
-      .map(({ project }) => ({
-        id: project.id,
-        slug: project.slug,
-        name: project.name,
-        publicStatus: project.public_status,
-        isActive: project.is_active,
-        mainImageUrl: project.main_image_url,
-        updatedAt: project.updated_at,
-      })),
-    listings: visibleListings
-      .filter(({ visible }) => visible)
-      .map(({ listing }) => ({
-        id: listing.id,
-        slug: listing.slug,
-        title: listing.title,
-        publicationStatus: listing.publication_status,
-        price: listing.price,
-        currency: listing.currency,
-        photos: listing.photos,
-        updatedAt: listing.updated_at,
-      })),
+    projects: projects.map((project) => ({
+      id: project.id,
+      slug: project.slug,
+      name: project.name,
+      publicStatus: project.public_status,
+      isActive: project.is_active,
+      mainImageUrl: project.main_image_url,
+      updatedAt: project.updated_at,
+    })),
+    listings: listings.map((listing) => ({
+      id: listing.id,
+      slug: listing.slug,
+      title: listing.title,
+      publicationStatus: listing.publication_status,
+      price: listing.price,
+      currency: listing.currency,
+      photos: listing.photos,
+      updatedAt: listing.updated_at,
+    })),
     jobs: jobs.map((job) => ({
       id: job.id,
       workflow: job.workflow,

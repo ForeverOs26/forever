@@ -79,7 +79,7 @@ describe("Studio endpoint safe error envelope", () => {
     world.storage.createSignedUpload = async () => {
       throw new Error(`signed upload creation failed (studio-uploads): ${RAW_FAILURE}`);
     };
-    world.data.getListingDetail = async () => {
+    world.data.updateResale = async () => {
       throw new Error(RAW_FAILURE);
     };
     world.data.listings.push({

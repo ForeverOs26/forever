@@ -175,6 +175,90 @@ describe("Studio resale listings", () => {
     expect(world.data.listings).toHaveLength(1);
   });
 
+  it("rolls back and replays public facts, provenance, private contact, and warnings atomically", async () => {
+    const world = makeWorld();
+    const { result } = await runResale(world, PUBLISHER, {
+      workflow: "resale_listing",
+      resaleFacts: {
+        title: "Atomic publisher listing",
+        price: 4_000_000,
+        contactPhone: "+66 old",
+      },
+      files: [],
+    });
+    const listingId = result.listingId!;
+    const listing = world.data.listings[0];
+    listing.field_provenance = {
+      ...(listing.field_provenance as Record<string, unknown>),
+      price: { status: "owner_verified", supplied_at: world.deps.now() },
+    };
+    const before = JSON.stringify({
+      listings: world.data.listings,
+      contacts: [...world.data.contacts],
+      warnings: world.data.listingWarnings,
+      owners: [...world.data.objectOwners],
+    });
+
+    world.data.failAfterResaleEdit = true;
+    await expect(
+      updateResaleListing(world.deps, OWNER, {
+        listingId,
+        facts: {
+          description: "Atomic description",
+          price: 3_500_000,
+          contactPhone: "+66 new",
+        },
+      }),
+    ).rejects.toThrow("studio_resale_edit_injected_failure");
+    expect(
+      JSON.stringify({
+        listings: world.data.listings,
+        contacts: [...world.data.contacts],
+        warnings: world.data.listingWarnings,
+        owners: [...world.data.objectOwners],
+      }),
+    ).toBe(before);
+
+    world.data.failAfterResaleEdit = false;
+    const first = await updateResaleListing(world.deps, OWNER, {
+      listingId,
+      facts: {
+        description: "Atomic description",
+        price: 3_500_000,
+        contactPhone: "+66 new",
+      },
+    });
+    const replay = await updateResaleListing(world.deps, OWNER, {
+      listingId,
+      facts: {
+        description: "Atomic description",
+        price: 3_500_000,
+        contactPhone: "+66 new",
+      },
+    });
+
+    expect(first.warnings.map((warning) => warning.code)).toEqual([
+      "listing_field_conflict_preserved",
+    ]);
+    expect(replay.warnings.map((warning) => warning.code)).toEqual([
+      "listing_field_conflict_preserved",
+    ]);
+    expect(world.data.listings[0]).toMatchObject({
+      description: "Atomic description",
+      price: 4_000_000,
+    });
+    expect(world.data.contacts.get(listingId)?.contact_phone).toBe("+66 new");
+    expect(
+      world.data.listingWarnings.filter(
+        (row) =>
+          row.listingId === listingId &&
+          row.warning.code === "listing_field_conflict_preserved" &&
+          row.warning.field === "price",
+      ),
+    ).toHaveLength(1);
+    expect(world.data.objectOwners.get(`listing:${listingId}`)).toBe(PUBLISHER.userId);
+  });
+
   describe("provenance precedence on resale editing", () => {
     it("a publisher cannot read or mutate an Owner-created listing", async () => {
       const world = makeWorld();

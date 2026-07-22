@@ -24,7 +24,7 @@ import {
   startUploadJob,
   updateResaleListing,
 } from "../server/service";
-import { makeWorld, OWNER, PUBLISHER } from "./fakes";
+import { enroll, makeWorld, OWNER, PUBLISHER } from "./fakes";
 
 const PUBLISHER_B: StudioActor = {
   userId: "user-publisher-b",
@@ -41,6 +41,7 @@ async function createProject(
   actor: StudioActor,
   slug: string,
 ) {
+  enroll(world, actor);
   const started = await startUploadJob(world.deps, actor, {
     workflow: "new_development",
     projectSlug: slug,
@@ -52,6 +53,7 @@ async function createProject(
 }
 
 async function createListing(world: ReturnType<typeof makeWorld>, actor: StudioActor) {
+  enroll(world, actor);
   const started = await startUploadJob(world.deps, actor, {
     workflow: "resale_listing",
     resaleFacts: {

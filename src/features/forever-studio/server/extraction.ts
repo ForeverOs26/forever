@@ -250,6 +250,55 @@ export function detectMediaClass(head: Buffer): MediaClass {
   return "other";
 }
 
+/** Canonical public Content-Type derived only from verified bytes. */
+export function canonicalPublicContentType(
+  name: string,
+  head: Buffer,
+  observed: MediaClass,
+): string | null {
+  if (observed === "pdf") return "application/pdf";
+  if (observed === "image") {
+    if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff)
+      return "image/jpeg";
+    if (
+      head.length >= 8 &&
+      head.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    )
+      return "image/png";
+    if (head.length >= 6 && head.subarray(0, 3).toString("ascii") === "GIF") return "image/gif";
+    if (
+      head.length >= 12 &&
+      head.subarray(0, 4).toString("ascii") === "RIFF" &&
+      head.subarray(8, 12).toString("ascii") === "WEBP"
+    )
+      return "image/webp";
+    if (head.length >= 12 && head.subarray(4, 8).toString("ascii") === "ftyp") {
+      const brands: string[] = [];
+      const boxEnd = Math.min(head.length, Math.max(16, head.readUInt32BE(0)));
+      for (let offset = 8; offset + 4 <= boxEnd; offset += offset === 8 ? 8 : 4) {
+        brands.push(head.subarray(offset, offset + 4).toString("latin1"));
+      }
+      if (brands.some((brand) => brand === "avif" || brand === "avis")) return "image/avif";
+      if (brands.some((brand) => brand === "mif1" || brand === "msf1")) return "image/heif";
+      return "image/heic";
+    }
+  }
+  if (observed === "video") {
+    if (head.length >= 12 && head.subarray(4, 8).toString("ascii") === "ftyp") {
+      const boxEnd = Math.min(head.length, Math.max(16, head.readUInt32BE(0)));
+      for (let offset = 8; offset + 4 <= boxEnd; offset += offset === 8 ? 8 : 4) {
+        if (head.subarray(offset, offset + 4).toString("latin1") === "qt  ") {
+          return "video/quicktime";
+        }
+      }
+      return "video/mp4";
+    }
+    const extension = (name.split(".").pop() ?? "").toLowerCase();
+    return extension === "webm" ? "video/webm" : "video/x-matroska";
+  }
+  return null;
+}
+
 /** The media class the file NAME claims — recorded, never trusted. */
 export function classFromExtension(name: string): MediaClass {
   const ext = (name.split(".").pop() ?? "").toLowerCase();
@@ -396,6 +445,7 @@ function fileWarning(code: string, name: string, message: string): ProgressiveWa
 interface MediaCandidate {
   category: IntakeCategory;
   name: string;
+  contentType: string;
   /** Source (staging) location to copy from. */
   from: { bucket: string; path: string };
 }
@@ -507,6 +557,12 @@ export async function gatherMaterials(
       mediaCandidates.push({
         category,
         name: entry.name,
+        contentType:
+          canonicalPublicContentType(
+            entry.name,
+            entry.data.subarray(0, HEAD_SNIFF_BYTES),
+            mediaClass,
+          ) ?? "application/octet-stream",
         from: { bucket: PRIVATE_SOURCE_BUCKET, path: stagedPath },
       });
     }
@@ -720,6 +776,9 @@ export async function gatherMaterials(
       mediaCandidates.push({
         category: file.category as IntakeCategory,
         name: file.name,
+        contentType:
+          canonicalPublicContentType(file.name, digest.head, observedClass) ??
+          "application/octet-stream",
         from: { bucket: file.stagingBucket, path: file.stagingPath },
       });
       continue;
@@ -747,7 +806,11 @@ export async function gatherMaterials(
     const toPath = publicPathForMedia(job.id, options.token, mediaIndex, candidate.name);
     mediaIndex += 1;
     try {
-      await deps.storage.copyObject(candidate.from, { bucket: toBucket, path: toPath });
+      await deps.storage.copyObject(
+        candidate.from,
+        { bucket: toBucket, path: toPath },
+        candidate.contentType,
+      );
     } catch {
       warnings.push(
         fileWarning(
