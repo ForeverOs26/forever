@@ -1,8 +1,9 @@
 # Forever Studio — Owner Runbook
 
-Status: Companion runbook for FOREVER-STUDIO-001; effective once the single
-pending Studio migration is applied and the environment variables are
-configured. Written 2026-07-21.
+Status: Companion runbook for FOREVER-STUDIO-001. PR #95 is merged, but
+production rollout is **BLOCKED** until the six Owner gates in
+`docs/FOREVER_STUDIO_PRODUCTION_PREFLIGHT_REPORT.md` are satisfied. Updated
+2026-07-23.
 
 Forever Studio is your publishing tool. You sign in on your phone, tablet,
 or computer, upload the materials you have, and the public page goes live
@@ -10,11 +11,19 @@ immediately. Missing information never blocks anything — add it later.
 
 ## One-time setup (done once, by whoever deploys)
 
-1. Apply the **one pending Studio migration**
-   `20260721120000_forever_studio_v1.sql` to Supabase, after Codex's read-only
-   live-schema check. The progressive ingestion migration is already applied
-   (Coralina is imported as an unpublished draft) — do not re-apply it. This is
-   the only step that involves a database.
+Do not treat this numbered list as standing authorization. Each action requires
+the separate Owner confirmation defined in the production preflight report.
+
+1. After Gate A approval, apply the **seven pending Studio migrations** in this
+   exact order. The progressive ingestion migration is already applied
+   (Coralina is imported as an unpublished draft) — do not re-apply it.
+   - `20260721120000_forever_studio_v1.sql`
+   - `20260721123000_studio_internal_acl_hardening.sql`
+   - `20260722103000_studio_object_authorization.sql`
+   - `20260722110000_studio_object_ownership_backfill.sql`
+   - `20260722120000_studio_independent_review_corrections.sql`
+   - `20260722130000_studio_resume_principal_authorization.sql`
+   - `20260722140000_studio_durable_resume_eligibility.sql`
 2. Set the server environment variables:
    - `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` (used to verify the signed-in
      publisher's token), and
@@ -22,13 +31,14 @@ immediately. Missing information never blocks anything — add it later.
      plus
    - either `STUDIO_OWNER_USER_ID=<your Supabase user id>` (preferred, exact
      identity) or `STUDIO_OWNER_EMAIL=<your confirmed email>`.
-3. Create your login (email + password) in Supabase Auth, or keep the one you
-   have. Make sure the email is confirmed if you use the email option.
+3. Create one Owner login (email + password) in the production Supabase Auth
+   project and confirm it. The 2026-07-23 preflight found zero Auth users and
+   public email signup enabled; disable public signup before rollout.
 4. Open `<your site>/studio`, sign in — you become the Owner automatically.
    Nobody else can do this: the database allows exactly one self-bootstrapped
    owner, only while the member list is empty, and only for your configured
-   identity. Optionally, turn off public sign-ups in the Supabase dashboard as
-   an extra layer (Studio already rejects any non-member).
+   identity. Public signups must be off even though Studio also rejects any
+   non-member.
 
 ## Daily use
 

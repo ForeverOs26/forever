@@ -1,7 +1,7 @@
 # Forever Decisions
 
 Status: Canonical decision log
-Last updated: 2026-07-21
+Last updated: 2026-07-23
 
 ## Purpose
 
@@ -18,6 +18,15 @@ Each decision should include:
 - Review trigger, if any
 
 ## Approved decisions
+
+### 2026-07-23 — FOREVER-STUDIO-001 merged; production rollout remains blocked behind six explicit Owner gates
+
+- **Decision:** PR #95 is canonical at merge commit `7963ceeb3e49f932153dd92afde0e5cb446b57f5`. The production database preflight passed read-only identity, TLS, migration-history, catalogue, and no-drift checks, but the overall production preflight is **BLOCKED**. No production write, migration, Auth change, deployment, or publication is authorized. Rollout requires separate Owner confirmation at Gates A–F in `docs/FOREVER_STUDIO_PRODUCTION_PREFLIGHT_REPORT.md`.
+- **Context:** Seven Studio migrations are pending in the expected order and no partial Studio state exists. The deployed Lovable revision and required production secret presence could not be verified, the public production URL returns 404, production has zero Auth users, and public email signup is enabled. The six known fictitious seeded projects remain active and published in the database, while PR #94's repository boundary quarantines them; their durable data cleanup remains a separate Owner-gated obligation.
+- **Consequence:** Studio rollout is technically independent of the truth-data cleanup only if the approved deployment contains PR #94 as an ancestor and the quarantined rows are not edited or published through Studio. The immediate permissible decision is configuration-and-identity readiness only. Migration application, deployment, smoke, and first real publication remain later independent gates. Coralina and Rainpalm remain excluded from the smoke and first-publication gates unless separately authorized. Factory remains A0.
+- **Review trigger:** After hosting revision and secret-name presence are verified, one confirmed Owner identity exists, and public signup is disabled; then again before every Gate A–F action.
+
+The 2026-07-21 Studio entry below is retained as historical pre-merge context and is superseded where it describes PR or migration status.
 
 ### 2026-07-21 — FOREVER-STUDIO-001 implemented in an open draft PR; direct-publication rule recorded as durable
 

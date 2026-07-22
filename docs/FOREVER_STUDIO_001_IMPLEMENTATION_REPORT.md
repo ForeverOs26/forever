@@ -1,10 +1,16 @@
 # FOREVER-STUDIO-001 — Implementation Report
 
-Status: **Durable-resume correction passed locally and on staging. PR #95 is ready for final Owner review, open, unmerged, with auto-merge disabled.** The scoped-count gate, source-membership eligibility ordering, per-job isolation, additive migration, disposable-database assertions, and browser-driven staging acceptance all passed. Production was never connected or changed.
+Status: **PR #95 merged at `7963ceeb3e49f932153dd92afde0e5cb446b57f5`; implementation and staging acceptance are canonical. Production rollout is blocked pending the separate production preflight gates.** The scoped-count gate, source-membership eligibility ordering, per-job isolation, additive migration, disposable-database assertions, and browser-driven staging acceptance all passed. The production database has since been inspected read-only; no production write or deployment occurred.
 Base commit: `50a79ad8e3584dc6d5569d3979c162fbd81b537e` (authoritative main)
 Branch: `claude/forever-studio-upload-dfev75`
 Durable-resume corrective starting head: `6c14e979f6cbda0d91297560d342a06d58eba1ba`
 Date: 2026-07-23 (durable-resume correction and final staging acceptance)
+
+## Post-merge canonical reconciliation (2026-07-23)
+
+PR #95 is merged and the seven Studio migrations are contiguous on staging through `20260722140000`. A separate production preflight used the exact canonical production project, official CA, verified TLS, and explicit read-only transactions. Production remains at the 13 pre-Studio migrations through `20260718113000`; the official dry run proposes exactly the seven committed Studio migrations, in order, and no partial Studio schema, bucket, function, policy, or migration-history state exists. Before/after deterministic production fingerprints are identical.
+
+This section supersedes earlier statements in this report that PR #95 was open or that production had never been queried. Those statements remain accurate historical evidence for their original staging checkpoints. Production has still never been migrated, mutated, deployed, or published by the Studio work. The current blocked rollout status, exact evidence, and Owner gates are canonical in `docs/FOREVER_STUDIO_PRODUCTION_PREFLIGHT_REPORT.md`.
 
 ## Durable-resume corrective pass (2026-07-23)
 
