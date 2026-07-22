@@ -165,6 +165,9 @@ export interface StudioData {
   listProjects(): Promise<StudioProjectRow[]>;
   getProjectDetail(slug: string): Promise<StudioProjectDetailRow | null>;
 
+  /** Internal ownership attribution. Null means legacy/unassigned and Owner-only. */
+  getObjectCreatedBy(objectType: "project" | "listing", objectId: string): Promise<string | null>;
+
   getListing(id: string): Promise<StudioListingRow | null>;
   findListingBySlug(slug: string): Promise<StudioListingRow | null>;
   getListingDetail(id: string): Promise<StudioListingDetailRow | null>;

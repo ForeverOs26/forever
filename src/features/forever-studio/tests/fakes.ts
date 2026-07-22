@@ -152,6 +152,7 @@ interface FakeListingStored extends StudioListingRow, Record<string, unknown> {}
 export class FakeData implements StudioData {
   members: StudioMembershipRow[] = [];
   jobs = new Map<string, StudioJobRow & { processing_started_at: number | null }>();
+  objectOwners = new Map<string, string | null>();
   listings: FakeListingStored[] = [];
   contacts = new Map<string, StudioPrivateContact>();
   listingWarnings: Array<{ listingId: string; warning: ProgressiveWarning }> = [];
@@ -226,6 +227,9 @@ export class FakeData implements StudioData {
         sort_order: m.sort_order,
       }));
     return { project: { ...this.toProjectRow(project), ...project }, media };
+  }
+  async getObjectCreatedBy(objectType: "project" | "listing", objectId: string) {
+    return this.objectOwners.get(`${objectType}:${objectId}`) ?? null;
   }
 
   async getListing(id: string) {
@@ -379,6 +383,8 @@ export class FakeData implements StudioData {
           project.is_active = true;
         }
       }
+      const ownerKey = `project:${summary.project_id}`;
+      if (!this.objectOwners.has(ownerKey)) this.objectOwners.set(ownerKey, job.created_by);
       if (this.failAfterIngest) throw new Error("studio_publish_project injected failure");
       const publicStatus = input.publish ? "published" : summary.public_status;
       job.status = "published";
@@ -437,6 +443,7 @@ export class FakeData implements StudioData {
         publication_status: "published",
         updated_at: null,
       });
+      this.objectOwners.set(`listing:${listingId}`, job.created_by);
     }
     this.contacts.set(listingId, { ...input.contact });
     this.listingWarnings = this.listingWarnings.filter((w) => w.listingId !== listingId);

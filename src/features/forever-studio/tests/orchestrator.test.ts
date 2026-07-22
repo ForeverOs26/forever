@@ -163,7 +163,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     (priced.price as { value: unknown }).value = 99_999_999;
     const { result } = await runJob(
       world,
-      PUBLISHER,
+      OWNER,
       {
         workflow: "price_availability_update",
         projectSlug: "rainpalm-villas",
@@ -184,7 +184,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       projectFacts: { name: "Rainpalm Villas" },
       files: [],
     });
-    const { result } = await runJob(world, PUBLISHER, {
+    const { result } = await runJob(world, OWNER, {
       workflow: "construction_media_update",
       projectSlug: "rainpalm-villas",
       files: [{ name: "IMG_2201.jpg" }, { name: "IMG_2202.jpg" }],

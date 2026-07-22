@@ -82,6 +82,18 @@ describe("Studio endpoint safe error envelope", () => {
     world.data.getListingDetail = async () => {
       throw new Error(RAW_FAILURE);
     };
+    world.data.listings.push({
+      id: "00000000-0000-0000-0000-000000000001",
+      slug: "envelope-listing",
+      title: "Envelope listing",
+      publication_status: "draft",
+      project_id: null,
+      price: null,
+      currency: null,
+      photos: [],
+      updated_at: null,
+    });
+    world.data.objectOwners.set("listing:00000000-0000-0000-0000-000000000001", OWNER.userId);
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     for (const call of [
       () =>

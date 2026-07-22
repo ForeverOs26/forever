@@ -176,7 +176,7 @@ describe("Studio resale listings", () => {
   });
 
   describe("provenance precedence on resale editing", () => {
-    it("a publisher can NEVER silently replace an Owner-provided value", async () => {
+    it("a publisher cannot read or mutate an Owner-created listing", async () => {
       const world = makeWorld();
       const { result } = await runResale(world, OWNER, {
         workflow: "resale_listing",
@@ -185,10 +185,12 @@ describe("Studio resale listings", () => {
       });
       const listingId = result.listingId!;
 
-      const update = await updateResaleListing(world.deps, PUBLISHER, {
-        listingId,
-        facts: { title: "Publisher Rename", price: 1 },
-      });
+      await expect(
+        updateResaleListing(world.deps, PUBLISHER, {
+          listingId,
+          facts: { title: "Publisher Rename", price: 1 },
+        }),
+      ).rejects.toMatchObject({ code: "studio_access_denied" });
 
       // The stronger Owner values are preserved…
       const listing = world.data.listings[0];
@@ -198,15 +200,11 @@ describe("Studio resale listings", () => {
       expect(provenance.title.status).toBe("owner_provided");
       expect(provenance.price.status).toBe("owner_provided");
       // …a truthful conflict record is returned AND persisted (no gate)…
-      expect(update.warnings.length).toBeGreaterThanOrEqual(2);
-      expect(update.warnings.every((w) => w.code === "listing_field_conflict_preserved")).toBe(
-        true,
-      );
       const persisted = world.data.listingWarnings.filter(
         (row) =>
           row.listingId === listingId && row.warning.code === "listing_field_conflict_preserved",
       );
-      expect(persisted.length).toBeGreaterThanOrEqual(2);
+      expect(persisted).toHaveLength(0);
       // …and the listing stays published — a conflict is never an approval gate.
       expect(world.data.publicListings()).toHaveLength(1);
     });

@@ -26,12 +26,13 @@ SELECT pg_temp.assert_true(
   (SELECT bool_and(relrowsecurity) FROM pg_class
    WHERE oid IN ('public.studio_members'::regclass,
                  'public.studio_upload_jobs'::regclass,
-                 'public.studio_listing_contacts'::regclass)),
+                 'public.studio_listing_contacts'::regclass,
+                 'public.studio_object_owners'::regclass)),
   'studio internal tables have RLS enabled');
 
 SELECT pg_temp.assert_true(
   NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public'
-              AND tablename IN ('studio_members','studio_upload_jobs','studio_listing_contacts')),
+              AND tablename IN ('studio_members','studio_upload_jobs','studio_listing_contacts','studio_object_owners')),
   'studio internal tables have zero policies');
 
 SELECT pg_temp.assert_true(
@@ -39,7 +40,9 @@ SELECT pg_temp.assert_true(
   AND NOT has_table_privilege('authenticated','public.studio_members','SELECT')
   AND NOT has_table_privilege('anon','public.studio_upload_jobs','SELECT')
   AND NOT has_table_privilege('anon','public.studio_listing_contacts','SELECT')
-  AND NOT has_table_privilege('authenticated','public.studio_listing_contacts','SELECT'),
+  AND NOT has_table_privilege('authenticated','public.studio_listing_contacts','SELECT')
+  AND NOT has_table_privilege('anon','public.studio_object_owners','SELECT')
+  AND NOT has_table_privilege('authenticated','public.studio_object_owners','SELECT'),
   'anon/authenticated cannot read studio internal tables');
 
 SELECT pg_temp.assert_true(
@@ -250,6 +253,11 @@ SELECT pg_temp.assert_true(
   (SELECT public_status FROM public.projects WHERE slug='retry-proj')='published',
   'create + publish is atomic and published');
 SELECT pg_temp.assert_true(
+  (SELECT created_by='00000000-0000-0000-0000-000000000001'::uuid
+   FROM public.studio_object_owners o JOIN public.projects p ON p.id=o.object_id
+   WHERE o.object_type='project' AND p.slug='retry-proj'),
+  'project ownership attribution is private and immutable');
+SELECT pg_temp.assert_true(
   (SELECT status FROM public.studio_upload_jobs WHERE id='10000000-0000-0000-0000-000000000003')='published',
   'the job is finalized as published');
 
@@ -293,6 +301,11 @@ SELECT pg_temp.assert_true(
   (SELECT contact_email FROM public.studio_listing_contacts c
    JOIN public.listings l ON l.id=c.listing_id WHERE l.slug='resale-one-abc')='jane@example.com',
   'contact stored in the private table');
+SELECT pg_temp.assert_true(
+  (SELECT created_by='00000000-0000-0000-0000-000000000001'::uuid
+   FROM public.studio_object_owners o JOIN public.listings l ON l.id=o.object_id
+   WHERE o.object_type='listing' AND l.slug='resale-one-abc'),
+  'listing ownership attribution is private and immutable');
 
 -- replay: no duplicate listing
 SELECT public.studio_publish_resale(

@@ -153,6 +153,18 @@ function createStudioData(): StudioData {
       }>;
       return { project, media } satisfies StudioProjectDetailRow;
     },
+    async getObjectCreatedBy(objectType, objectId) {
+      const result = await admin
+        .from("studio_object_owners")
+        .select("created_by")
+        .eq("object_type", objectType)
+        .eq("object_id", objectId)
+        .maybeSingle();
+      const row = must(result, "studio object owner read failed") as {
+        created_by: string | null;
+      } | null;
+      return row?.created_by ?? null;
+    },
 
     async getListing(id) {
       const result = await admin
