@@ -197,9 +197,7 @@ describe("resume principal separation", () => {
       tokenSeq: world.flags.tokenSeq,
     });
 
-    await expect(resumeDueJobs(world.deps, OWNER)).rejects.toMatchObject({
-      code: "studio_membership_required",
-    });
+    await expect(resumeDueJobs(world.deps, OWNER)).resolves.toEqual({ resumed: 0, results: [] });
     expect(
       JSON.stringify({
         jobs: [...world.data.jobs],

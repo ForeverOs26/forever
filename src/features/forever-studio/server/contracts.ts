@@ -190,7 +190,17 @@ export interface StudioData {
    */
   updateJobIfClaimed(id: string, token: string, patch: Partial<StudioJobRow>): Promise<boolean>;
   listJobs(limit: number, createdBy?: string): Promise<StudioJobRow[]>;
-  /** Ready received, retryable-failed, or stale-processing jobs due for resumption. */
+  /**
+   * Count every explicitly-ready current job whose source still has an active
+   * membership. Actor scope and source eligibility are applied in the data
+   * query, independently of the bounded history list.
+   */
+  countActiveJobs(createdBy?: string): Promise<number>;
+  /**
+   * Ready received, retryable-failed, or stale-processing jobs due for
+   * resumption. Current-active-source and actor scope are applied before the
+   * bounded result limit.
+   */
   listDueJobs(staleSeconds: number, limit: number, createdBy?: string): Promise<StudioJobRow[]>;
 
   /** Atomically records explicit upload completion and obtains the first claim. */

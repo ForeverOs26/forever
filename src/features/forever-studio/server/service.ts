@@ -441,7 +441,15 @@ export async function resumeDueJobs(
   );
   const results: StudioJobResult[] = [];
   for (const job of due) {
-    results.push(await claimAndProcess(deps, actor, job));
+    try {
+      results.push(await claimAndProcess(deps, actor, job));
+    } catch (error) {
+      // Eligibility can change after the query (or a malformed row can reach
+      // this boundary). Each pre-claim failure is isolated: the job remains
+      // untouched and unrelated eligible work continues. Never include ids,
+      // facts, paths, or other private job fields in the log context.
+      logStudioFailure("automatic_resume_job_skipped", error);
+    }
   }
   return { resumed: results.filter((r) => r.status === "published").length, results };
 }
@@ -1305,22 +1313,16 @@ export async function getListingDetail(
 
 export async function getOverview(deps: StudioDeps, actor: StudioActor): Promise<StudioOverview> {
   const createdBy = actor.role === "owner" ? undefined : actor.userId;
-  const [projects, listings, jobs] = await Promise.all([
+  const [projects, listings, jobs, activeJobs] = await Promise.all([
     deps.data.listProjects(createdBy),
     deps.data.listListings(createdBy),
     deps.data.listJobs(25, createdBy),
+    deps.data.countActiveJobs(createdBy),
   ]);
   const members = actor.role === "owner" ? await deps.data.listMembers() : [];
   // Operational-history isolation is enforced by the data query before its
   // limit: the Owner sees all jobs, while a Publisher receives only their own
   // errors, creator email, and staging metadata.
-  const activeJobs = jobs.filter(
-    (job) =>
-      job.processing_requested_at !== null &&
-      (job.status === "received" ||
-        job.status === "processing" ||
-        (job.status === "failed" && job.retryable)),
-  ).length;
   return {
     session: {
       userId: actor.userId,

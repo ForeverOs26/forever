@@ -22,6 +22,9 @@ const correction = readFileSync(resolve(process.cwd(), CORRECTION_PATH), "utf8")
 const RESUME_PRINCIPAL_PATH =
   "supabase/migrations/20260722130000_studio_resume_principal_authorization.sql";
 const resumePrincipal = readFileSync(resolve(process.cwd(), RESUME_PRINCIPAL_PATH), "utf8");
+const DURABLE_RESUME_PATH =
+  "supabase/migrations/20260722140000_studio_durable_resume_eligibility.sql";
+const durableResume = readFileSync(resolve(process.cwd(), DURABLE_RESUME_PATH), "utf8");
 const ddl = sql
   .split("\n")
   .filter((line) => !line.trim().startsWith("--"))
@@ -241,5 +244,40 @@ describe("resume-principal authorization migration contract", () => {
       expect(resumePrincipal).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${name}`));
     }
     expect(resumePrincipal).not.toMatch(/sb_secret_|service_role_key|eyJ[A-Za-z0-9]/);
+  });
+});
+
+describe("durable-resume eligibility migration contract", () => {
+  it("is a later additive migration with no write statement", () => {
+    expect(DURABLE_RESUME_PATH.localeCompare(RESUME_PRINCIPAL_PATH)).toBeGreaterThan(0);
+    expect(durableResume).not.toMatch(/DROP\s+(TABLE|COLUMN|FUNCTION)/i);
+    const functions = durableResume.slice(durableResume.indexOf("CREATE OR REPLACE FUNCTION"));
+    expect(functions).not.toMatch(/\b(INSERT|UPDATE|DELETE)\b\s+(?:INTO\s+|FROM\s+)?public\./i);
+  });
+
+  it("counts independently and filters active source plus actor before LIMIT", () => {
+    const count = durableResume.slice(
+      durableResume.indexOf("public.studio_count_active_jobs"),
+      durableResume.indexOf("public.studio_list_due_jobs"),
+    );
+    const due = durableResume.slice(durableResume.indexOf("public.studio_list_due_jobs"));
+    for (const body of [count, due]) {
+      expect(body).toContain("INNER JOIN public.studio_members");
+      expect(body).toContain("source.is_active IS TRUE");
+      expect(body).toContain("p_created_by IS NULL OR job.created_by = p_created_by");
+      expect(body).not.toContain("creator_role");
+    }
+    expect(due.indexOf("source.is_active IS TRUE")).toBeLessThan(due.indexOf("LIMIT"));
+    expect(due.indexOf("p_created_by IS NULL OR job.created_by = p_created_by")).toBeLessThan(
+      due.indexOf("LIMIT"),
+    );
+  });
+
+  it("keeps both eligibility functions service-role-only and credential-free", () => {
+    for (const name of ["studio_count_active_jobs", "studio_list_due_jobs"]) {
+      expect(durableResume).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${name}`));
+      expect(durableResume).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${name}`));
+    }
+    expect(durableResume).not.toMatch(/sb_secret_|service_role_key|eyJ[A-Za-z0-9]/);
   });
 });

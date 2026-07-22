@@ -131,6 +131,13 @@ describe("actor scoping before operational limits", () => {
       resolve(process.cwd(), "src/features/forever-studio/server/deps.server.ts"),
       "utf8",
     );
+    const durableResume = readFileSync(
+      resolve(
+        process.cwd(),
+        "supabase/migrations/20260722140000_studio_durable_resume_eligibility.sql",
+      ),
+      "utf8",
+    );
     const between = (start: string, end: string) => {
       const from = source.indexOf(start);
       const to = source.indexOf(end, from + start.length);
@@ -143,12 +150,17 @@ describe("actor scoping before operational limits", () => {
       expect(segment.indexOf("query.in")).toBeGreaterThan(-1);
       expect(segment.indexOf("query.in")).toBeLessThan(segment.indexOf("limit(200)"));
     }
-    for (const segment of [
-      between("async listJobs(limit, createdBy)", "async listDueJobs"),
-      between("async listDueJobs(staleSeconds, limit, createdBy)", "async requestJobProcessing"),
-    ]) {
-      expect(segment.indexOf("query.eq")).toBeGreaterThan(-1);
-      expect(segment.indexOf("query.eq")).toBeLessThan(segment.lastIndexOf("limit("));
-    }
+    const history = between("async listJobs(limit, createdBy)", "async countActiveJobs");
+    expect(history.indexOf("query.eq")).toBeGreaterThan(-1);
+    expect(history.indexOf("query.eq")).toBeLessThan(history.lastIndexOf("limit("));
+
+    const due = durableResume.slice(durableResume.indexOf("public.studio_list_due_jobs"));
+    expect(due.indexOf("p_created_by IS NULL OR job.created_by = p_created_by")).toBeGreaterThan(
+      -1,
+    );
+    expect(due.indexOf("INNER JOIN public.studio_members")).toBeLessThan(due.indexOf("LIMIT"));
+    expect(due.indexOf("p_created_by IS NULL OR job.created_by = p_created_by")).toBeLessThan(
+      due.indexOf("LIMIT"),
+    );
   });
 });

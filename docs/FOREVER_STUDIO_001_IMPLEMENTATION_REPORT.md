@@ -1,10 +1,64 @@
 # FOREVER-STUDIO-001 — Implementation Report
 
-Status: **Staging reconciled and corrected acceptance passed. PR #95 is ready for second Owner review, open, unmerged, with auto-merge disabled.** The stable-fingerprint gate, exact equivalence audit, official history repair, ordered migration apply, and fresh-preview acceptance all passed against the permanent non-production project. Production was never connected or changed.
+Status: **Durable-resume correction passed locally and on staging. PR #95 is ready for final Owner review, open, unmerged, with auto-merge disabled.** The scoped-count gate, source-membership eligibility ordering, per-job isolation, additive migration, disposable-database assertions, and browser-driven staging acceptance all passed. Production was never connected or changed.
 Base commit: `50a79ad8e3584dc6d5569d3979c162fbd81b537e` (authoritative main)
 Branch: `claude/forever-studio-upload-dfev75`
-Accepted code head: `e45c4572aaaa62d287ab64035dd39f4ab02b2da8`
-Date: 2026-07-22 (stable staging reconciliation and corrected acceptance)
+Durable-resume corrective starting head: `6c14e979f6cbda0d91297560d342a06d58eba1ba`
+Date: 2026-07-23 (durable-resume correction and final staging acceptance)
+
+## Durable-resume corrective pass (2026-07-23)
+
+Two retained-head regressions were reproduced before correction. First, the
+dashboard derived `activeJobs` from the newest 25 history rows, so an older
+eligible active job could be invisible and automatic resume would never run.
+Second, the Owner batch selected five due jobs before checking whether each
+job's source membership still existed and was active. Five invalid sources
+could therefore starve a later valid job, and one pre-claim authorization
+failure aborted the whole batch.
+
+The correction separates bounded history from complete active-state counting.
+`studio_count_active_jobs` counts all active jobs for the authorized actor only
+after joining an active source membership. `studio_list_due_jobs` applies the
+same actor and source-membership eligibility before its deterministic
+oldest-first limit. Both functions are stable, service-role-only database
+boundaries. The service processes each selected job independently, logs a
+sanitized skip when eligibility changes between selection and claim, and
+continues the batch without exposing job-private fields.
+
+The later additive migration
+`20260722140000_studio_durable_resume_eligibility.sql` adds only the scoped
+count/list functions, their service-role grants, and a partial eligibility
+index. The official staging dry run proposed exactly that migration. It was
+applied only to `garjibjhlzeljsnpzisu` (`forever-staging`), after which official
+history was contiguous through `20260722140000`, no migrations remained
+pending, and pre-existing row counts and deterministic hashes were unchanged.
+The production ref `abtvsrcnfwlbawvrjeed` was never connected, queried, or
+changed.
+
+Regression coverage proves that an eligible active job older than the 25-row
+history slice is still counted and resumed; disabled and missing source
+memberships are excluded before the five-row limit and remain unchanged; a
+valid job behind eight invalid rows completes; Publisher counts and resumes
+remain actor-scoped; a membership race is isolated to one job; and exact
+retries remain idempotent. The disposable PostgreSQL 17.6 chain and Studio SQL
+assertions passed with the same database behavior.
+
+Final validation passed: 57 focused tests; all 172 Studio tests; the full
+repository suite with 3,235 passed and 5 intentionally skipped tests; TypeScript;
+changed-file ESLint and formatting; `git diff --check`; the Cloudflare/Nitro
+production build; and the 62-file client-bundle scan with zero staging or
+server-only identifier matches and zero exact server-secret matches.
+
+The fresh task-owned staging preview then performed the actual dashboard path
+with synthetic fixture tag `dr95-1784740628249`. The Owner overview returned
+exactly 25 recent jobs while reporting one active older job outside that slice;
+loading `/studio` triggered automatic resume and published that older job.
+Four disabled-source and four missing-source jobs stayed byte-for-byte
+unchanged, the valid job behind them published, Publisher isolation held, and
+pre- and post-dashboard exact retries were idempotent. The rendered dashboard
+had no raw database/private-path leakage and the browser console had no errors.
+Only uniquely named staging acceptance fixtures were added and retained as
+evidence.
 
 ## Stable staging reconciliation and corrected acceptance (2026-07-22)
 

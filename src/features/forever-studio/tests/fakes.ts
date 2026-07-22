@@ -310,17 +310,41 @@ export class FakeData implements StudioData {
       .reverse()
       .map((j) => structuredClone(j));
   }
+  async countActiveJobs(createdBy?: string) {
+    const activeSources = new Set(
+      this.members.filter((member) => member.is_active).map((member) => member.user_id),
+    );
+    return [...this.jobs.values()].filter(
+      (job) =>
+        job.created_by !== null &&
+        activeSources.has(job.created_by) &&
+        (!createdBy || job.created_by === createdBy) &&
+        job.processing_requested_at !== null &&
+        (job.status === "received" ||
+          job.status === "processing" ||
+          (job.status === "failed" && job.retryable)),
+    ).length;
+  }
   async listDueJobs(staleSeconds: number, limit: number, createdBy?: string) {
     const staleBefore = this.clock() - staleSeconds * 1000;
+    const activeSources = new Set(
+      this.members.filter((member) => member.is_active).map((member) => member.user_id),
+    );
     return [...this.jobs.values()]
       .filter(
         (job) =>
+          job.created_by !== null &&
+          activeSources.has(job.created_by) &&
           job.processing_requested_at !== null &&
           (!createdBy || job.created_by === createdBy) &&
           (job.status === "received" ||
             (job.status === "failed" && job.retryable) ||
             (job.status === "processing" &&
               (job.processing_started_at == null || job.processing_started_at < staleBefore))),
+      )
+      .sort(
+        (left, right) =>
+          left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id),
       )
       .slice(0, limit)
       .map((j) => structuredClone(j));

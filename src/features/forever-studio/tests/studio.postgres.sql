@@ -49,9 +49,13 @@ SELECT pg_temp.assert_true(
   has_table_privilege('service_role','public.studio_upload_jobs','INSERT')
   AND has_function_privilege('service_role','public.studio_publish_project(uuid,uuid,jsonb,boolean,jsonb)','EXECUTE')
   AND has_function_privilege('service_role','public.studio_request_job_processing(uuid,uuid,integer)','EXECUTE')
+  AND has_function_privilege('service_role','public.studio_count_active_jobs(uuid)','EXECUTE')
+  AND has_function_privilege('service_role','public.studio_list_due_jobs(timestamptz,integer,uuid)','EXECUTE')
   AND has_function_privilege('service_role','public.studio_update_resale(uuid,uuid,jsonb,jsonb,timestamptz,boolean)','EXECUTE')
   AND NOT has_function_privilege('anon','public.studio_publish_project(uuid,uuid,jsonb,boolean,jsonb)','EXECUTE')
   AND NOT has_function_privilege('authenticated','public.studio_request_job_processing(uuid,uuid,integer)','EXECUTE')
+  AND NOT has_function_privilege('anon','public.studio_count_active_jobs(uuid)','EXECUTE')
+  AND NOT has_function_privilege('authenticated','public.studio_list_due_jobs(timestamptz,integer,uuid)','EXECUTE')
   AND NOT has_function_privilege('anon','public.studio_update_resale(uuid,uuid,jsonb,jsonb,timestamptz,boolean)','EXECUTE'),
   'studio functions are service_role only');
 
@@ -267,10 +271,73 @@ BEGIN
 END;
 $$;
 
+-- ---------------------------------------------------------------------------
+-- 4e. Resume selection excludes disabled/missing sources before LIMIT, while
+--     active counting is independent of any bounded history slice
+-- ---------------------------------------------------------------------------
+INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
+  ('00000000-0000-0000-0000-000000000008','missing-source@example.com',now());
+
+INSERT INTO public.studio_upload_jobs(
+  id,created_by,creator_role,workflow,status,processing_requested_at,created_at
+) VALUES
+  ('12000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000006',
+   'trusted_publisher','new_development','received','2000-01-01','2000-01-01'),
+  ('12000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000006',
+   'trusted_publisher','new_development','received','2000-01-02','2000-01-02'),
+  ('12000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000006',
+   'trusted_publisher','new_development','received','2000-01-03','2000-01-03'),
+  ('12000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-000000000008',
+   'trusted_publisher','new_development','received','2000-01-04','2000-01-04'),
+  ('12000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-000000000008',
+   'trusted_publisher','new_development','received','2000-01-05','2000-01-05'),
+  ('12000000-0000-0000-0000-000000000006','00000000-0000-0000-0000-000000000008',
+   'trusted_publisher','new_development','received','2000-01-06','2000-01-06'),
+  ('12000000-0000-0000-0000-000000000007','00000000-0000-0000-0000-000000000001',
+   'owner','new_development','received','2001-01-01','2001-01-01');
+
+DO $$
+DECLARE
+  v_invalid_before JSONB;
+  v_first_due UUID;
+BEGIN
+  SELECT jsonb_agg(to_jsonb(job) ORDER BY job.id) INTO v_invalid_before
+  FROM public.studio_upload_jobs AS job
+  WHERE job.id BETWEEN '12000000-0000-0000-0000-000000000001'
+                   AND '12000000-0000-0000-0000-000000000006';
+
+  SELECT id INTO v_first_due
+  FROM public.studio_list_due_jobs(now(), 1, NULL);
+  IF v_first_due IS DISTINCT FROM '12000000-0000-0000-0000-000000000007'::uuid THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: invalid sources consumed the resume limit';
+  END IF;
+
+  IF public.studio_count_active_jobs('00000000-0000-0000-0000-000000000006') <> 0
+     OR public.studio_count_active_jobs('00000000-0000-0000-0000-000000000008') <> 0
+     OR public.studio_count_active_jobs('00000000-0000-0000-0000-000000000001') < 1 THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: active count did not enforce actor/source eligibility';
+  END IF;
+
+  IF (SELECT jsonb_agg(to_jsonb(job) ORDER BY job.id)
+      FROM public.studio_upload_jobs AS job
+      WHERE job.id BETWEEN '12000000-0000-0000-0000-000000000001'
+                       AND '12000000-0000-0000-0000-000000000006')
+      IS DISTINCT FROM v_invalid_before THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: eligibility reads mutated invalid jobs';
+  END IF;
+END;
+$$;
+
 DELETE FROM public.studio_upload_jobs
-WHERE id IN ('10000000-0000-0000-0000-000000000006','10000000-0000-0000-0000-000000000007');
+WHERE created_by IN (
+  '00000000-0000-0000-0000-000000000006',
+  '00000000-0000-0000-0000-000000000008'
+) OR id='12000000-0000-0000-0000-000000000007';
 DELETE FROM public.studio_members WHERE user_id='00000000-0000-0000-0000-000000000006';
-DELETE FROM auth.users WHERE id='00000000-0000-0000-0000-000000000006';
+DELETE FROM auth.users WHERE id IN (
+  '00000000-0000-0000-0000-000000000006',
+  '00000000-0000-0000-0000-000000000008'
+);
 
 -- ---------------------------------------------------------------------------
 -- 5. Atomic publish rollback: a failure leaves no project, child, or batch

@@ -270,20 +270,24 @@ function createStudioData(): StudioData {
       const result = await query.limit(limit);
       return (must(result, "studio_upload_jobs list failed") ?? []) as StudioJobRow[];
     },
+    async countActiveJobs(createdBy) {
+      const { data, error } = await admin.rpc("studio_count_active_jobs", {
+        p_created_by: createdBy ?? null,
+      });
+      if (error) throw new Error(`studio active jobs count failed: ${error.message}`);
+      return Number(data ?? 0);
+    },
     async listDueJobs(staleSeconds, limit, createdBy) {
       const staleBefore = new Date(Date.now() - staleSeconds * 1000).toISOString();
-      // Only explicitly-ready received | retryable-failed | stale-processing.
-      let query = admin
-        .from("studio_upload_jobs")
-        .select("*")
-        .not("processing_requested_at", "is", null)
-        .or(
-          `status.eq.received,and(status.eq.failed,retryable.eq.true),and(status.eq.processing,processing_started_at.lt.${staleBefore})`,
-        )
-        .order("created_at", { ascending: true });
-      if (createdBy) query = query.eq("created_by", createdBy);
-      const result = await query.limit(limit);
-      return (must(result, "due jobs read failed") ?? []) as StudioJobRow[];
+      // The service-role-only RPC joins current active membership and applies
+      // actor scope before LIMIT, so invalid sources cannot consume the batch.
+      const { data, error } = await admin.rpc("studio_list_due_jobs", {
+        p_stale_before: staleBefore,
+        p_limit: limit,
+        p_created_by: createdBy ?? null,
+      });
+      if (error) throw new Error(`due jobs read failed: ${error.message}`);
+      return (data ?? []) as StudioJobRow[];
     },
 
     async requestJobProcessing(jobId, token, staleSeconds) {
