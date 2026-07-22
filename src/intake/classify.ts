@@ -18,6 +18,7 @@ const IMAGE_EXTENSIONS = new Set([
   ".webp",
   ".gif",
   ".heic",
+  ".heif",
   ".bmp",
   ".tif",
   ".tiff",

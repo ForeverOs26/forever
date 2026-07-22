@@ -10,10 +10,19 @@
 
 export type ProvenanceStatus =
   | "unverified"
+  // Reserved for an explicit, deliberate verification action — never assigned
+  // by ordinary Studio input. Direct publication authorization is NOT
+  // verification, so a routine Owner upload must never reach this status.
   | "owner_verified"
   | "official_source"
   | "developer_provided"
+  // Direct, first-party Studio input by the Owner. Outranks extracted,
+  // inferred, and any publisher-supplied value, but is not "verified".
+  | "owner_provided"
   | "partner_provided"
+  // Direct Studio input by an invited Trusted Publisher. Outranks extracted
+  // and inferred, but can never silently overwrite an Owner value.
+  | "trusted_publisher_provided"
   | "extracted"
   | "inferred"
   | "conflicting"
@@ -45,7 +54,11 @@ export const PROVENANCE_PRECEDENCE: Record<ProvenanceStatus, number> = {
   owner_verified: 100,
   official_source: 90,
   developer_provided: 80,
+  // Owner's direct Studio input outranks a partner's and every extracted or
+  // inferred value, so a Trusted Publisher's entry can never overwrite it.
+  owner_provided: 78,
   partner_provided: 70,
+  trusted_publisher_provided: 65,
   extracted: 50,
   inferred: 30,
   unverified: 10,
@@ -74,11 +87,7 @@ export function canReplaceField(
   if (PROVENANCE_PRECEDENCE[incoming.status] < PROVENANCE_PRECEDENCE[existing.status]) {
     return "conflict";
   }
-  if (
-    existing.source_date &&
-    incoming.source_date &&
-    incoming.source_date < existing.source_date
-  ) {
+  if (existing.source_date && incoming.source_date && incoming.source_date < existing.source_date) {
     return "conflict";
   }
   return "apply";
