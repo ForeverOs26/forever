@@ -465,20 +465,7 @@ function createStudioStorage(): StudioStorage {
       if (error || !data) return null;
       return Buffer.from(await data.arrayBuffer());
     },
-    async copyObject(from, to, contentType) {
-      // Storage copy preserves browser-supplied source metadata. Stream the
-      // verified bytes instead so public metadata is replaced by the canonical
-      // type without materializing even a very large media object in memory.
-      const downloaded = await admin.storage.from(from.bucket).download(from.path).asStream();
-      if (downloaded.error || !downloaded.data) {
-        throw new Error(`storage stream copy download failed: ${downloaded.error?.message}`);
-      }
-      const uploaded = await admin.storage.from(to.bucket).upload(to.path, downloaded.data, {
-        upsert: true,
-        contentType,
-      });
-      if (uploaded.error) throw new Error(`storage stream copy failed: ${uploaded.error.message}`);
-    },
+
     async upload(bucket, path, data, contentType) {
       const { error } = await admin.storage
         .from(bucket)

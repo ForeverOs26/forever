@@ -78,10 +78,13 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     expect(world.executor.store.units).toHaveLength(198);
     // Every file was uploaded to PRIVATE staging (item 4).
     for (const upload of started.uploads) expect(upload.bucket).toBe(PRIVATE_SOURCE_BUCKET);
-    // Selected media were copied to the public bucket and linked.
+    // The sanitized image is public; PDF metadata cannot yet be safely rewritten.
     const project = world.executor.store.projects[0];
     expect(project.main_image_url).toMatch(/^https:\/\/cdn\.test\/project-images\//);
-    expect(project.brochure_url).toMatch(/^https:\/\/cdn\.test\/project-documents\//);
+    expect(project.brochure_url).toBeNull();
+    expect(
+      result.warnings.some((warning) => warning.code === "media_sanitization_unsupported"),
+    ).toBe(true);
     // Provenance: an ordinary Owner entry is owner_provided, NEVER owner_verified.
     const provenance = project.field_provenance as Record<string, { status: string }>;
     expect(provenance.name.status).toBe("owner_provided");

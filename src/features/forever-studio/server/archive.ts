@@ -59,12 +59,14 @@ export interface StudioArchiveResult {
 }
 
 function archiveWarning(code: string, fileName: string, message: string): ProgressiveWarning {
+  const base = fileName.split(/[\\/]/).pop() ?? "archive.zip";
+  const safeName = base.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 80) || "archive.zip";
   return {
     entity: "document",
     code,
     severity: "warning",
-    message,
-    payload: { file: fileName },
+    message: message.split(fileName).join(safeName),
+    payload: { file: safeName },
   };
 }
 

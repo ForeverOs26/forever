@@ -37,7 +37,13 @@ describe("explicit upload-complete readiness boundary", () => {
     );
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
     expect(result.status).toBe("published");
-    expect(world.executor.store.media).toHaveLength(2);
+    expect(result.warnings.some((warning) => warning.code === "media_sanitization_limit")).toBe(
+      true,
+    );
+    expect(world.executor.store.media).toHaveLength(1);
+    const files = (await world.data.getJob(started.jobId))!.files;
+    expect(files.find((file) => file.name === "late.jpg")?.status).toBe("published_public");
+    expect(files.find((file) => file.name === "large.jpg")?.publicPath).toBeUndefined();
     expect((await world.data.getJob(started.jobId))?.processing_requested_at).not.toBeNull();
   });
 

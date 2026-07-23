@@ -3,7 +3,7 @@
  *
  * Every file lands in private staging; the actual bytes are verified (size,
  * sha256, media class, declared-vs-observed); only selected, byte-matching
- * final media are copied to public buckets; a failed job exposes no public
+ * final media become verified derivatives in public buckets; a failed job exposes no public
  * object; oversized business files are retained, never blocking; and forged
  * media declarations are rejected.
  */
@@ -127,7 +127,7 @@ describe("private staging and byte verification", () => {
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
     expect(result.status).toBe("failed");
-    // The media was copied during gather, then cleaned up on failure.
+    // The derivative was uploaded during gather, then cleaned up on failure.
     expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(0);
     expect(world.executor.publicProjects()).toHaveLength(0);
   });
@@ -160,7 +160,7 @@ describe("private staging and byte verification", () => {
     expect(canonicalPublicContentType("x.mov", tinyFtyp("qt  "), "video")).toBe("video/quicktime");
   });
 
-  it("replaces mismatched text/html metadata on every public phone-media object", async () => {
+  it("publishes only sanitizable phone media with canonical MIME and retains other formats", async () => {
     const world = makeWorld();
     const bytes: Record<string, Buffer> = {
       "photo.jpg": tinyJpeg(),
@@ -178,7 +178,8 @@ describe("private staging and byte verification", () => {
       world.storage.put(upload.bucket, upload.path, bytes[upload.name], "text/html");
     }
 
-    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("published");
+    const result = await processUploadJob(world.deps, OWNER, started.jobId);
+    expect(result.status).toBe("published");
     const contentTypes = Object.fromEntries(
       world.storage
         .publicKeys(PUBLIC_IMAGE_BUCKET)
@@ -187,17 +188,14 @@ describe("private staging and byte verification", () => {
           world.storage.publicContentType(PUBLIC_IMAGE_BUCKET, path),
         ]),
     );
-    expect(contentTypes).toMatchObject({
-      "photo.jpg": "image/jpeg",
-      "phone.heic": "image/heic",
-      "phone.heif": "image/heif",
-      "clip.mp4": "video/mp4",
-      "clip.mov": "video/quicktime",
-    });
+    expect(contentTypes).toEqual({ "photo.jpg": "image/jpeg" });
     expect(Object.values(contentTypes)).not.toContain("text/html");
+    expect(
+      result.warnings.filter((warning) => warning.code === "media_sanitization_unsupported"),
+    ).toHaveLength(4);
   });
 
-  it("streams a FULL SHA-256 for large media and publishes byte-verified", async () => {
+  it("streams a FULL SHA-256 for large media but retains it beyond the transform cap", async () => {
     const world = makeWorld();
     const big = largeMedia(tinyJpeg());
     const started = await startUploadJob(world.deps, OWNER, {
@@ -216,7 +214,10 @@ describe("private staging and byte verification", () => {
     expect(file.observedSize).toBe(big.length);
     expect(file.mediaClass).toBe("image");
     expect(world.storage.hashedPaths).toContain(`${file.stagingBucket}/${file.stagingPath}`);
-    expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(1);
+    expect(result.warnings.some((warning) => warning.code === "media_sanitization_limit")).toBe(
+      true,
+    );
+    expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(0);
   });
 
   it("refuses a LARGE disguised media file — bytes decide, not the extension", async () => {
@@ -257,7 +258,7 @@ describe("private staging and byte verification", () => {
     expect(result.warnings.some((w) => w.code === "file_declared_size_mismatch")).toBe(true);
   });
 
-  it("publishes phone HEIC/HEIF photos and MOV video via brand detection", async () => {
+  it("detects phone HEIC/HEIF/MOV bytes but retains them until a safe sanitizer exists", async () => {
     const world = makeWorld();
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
@@ -272,9 +273,11 @@ describe("private staging and byte verification", () => {
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
     expect(result.status).toBe("published");
-    expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(3);
-    const types = world.executor.store.media.map((m) => m.media_type).sort();
-    expect(types).toEqual(["gallery", "gallery", "video"]);
+    expect(
+      result.warnings.filter((warning) => warning.code === "media_sanitization_unsupported"),
+    ).toHaveLength(3);
+    expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(0);
+    expect(world.executor.store.media).toHaveLength(0);
   });
 
   it("keeps an unrecognized LARGE ftyp container private without blocking", async () => {
@@ -311,6 +314,7 @@ describe("private staging and byte verification", () => {
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
     expect(result.warnings.some((w) => w.code === "duplicate_media_ignored")).toBe(true);
-    expect(world.executor.store.media).toHaveLength(1);
+    expect(result.warnings.some((w) => w.code === "media_sanitization_limit")).toBe(true);
+    expect(world.executor.store.media).toHaveLength(0);
   });
 });

@@ -116,7 +116,7 @@ describe("claim-scoped storage side effects", () => {
     });
     uploadAll(world, started.uploads);
 
-    // Attempt 1 copies its media, then crashes between the public copy and
+    // Attempt 1 uploads its derivative, then crashes between the public upload and
     // the database commit — cleanup also dies (failRemoveOnce), leaving a
     // public orphan under attempt 1's token prefix.
     world.data.failAfterIngest = true;
