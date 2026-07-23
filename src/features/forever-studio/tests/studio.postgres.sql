@@ -934,4 +934,99 @@ BEGIN
 END;
 $$;
 
+-- ---------------------------------------------------------------------------
+-- 12. Public projection grants: real PostgreSQL role behavior
+-- ---------------------------------------------------------------------------
+INSERT INTO public.developers(id,name,description,website,contact_email)
+VALUES ('90000000-0000-0000-0000-000000000001','Privacy Developer','Recorded description','https://developer.example','private-developer@example.com');
+INSERT INTO public.projects(
+  id,developer_id,name,slug,is_active,public_status,field_provenance,start_date_display,completion_date_display
+) VALUES (
+  '90000000-0000-0000-0000-000000000002','90000000-0000-0000-0000-000000000001',
+  'Privacy Published','privacy-published',true,'published',
+  '{"source_path":"forever-data/projects/coralina/source/private.pdf"}'::jsonb,'Q1 2026','Q4 2027'
+),(
+  '90000000-0000-0000-0000-000000000003',NULL,'Privacy Draft','privacy-draft',true,'draft',
+  '{"source_path":"private/draft.pdf"}'::jsonb,NULL,NULL
+);
+INSERT INTO public.units(id,project_id,unit_code,metadata)
+VALUES ('90000000-0000-0000-0000-000000000004','90000000-0000-0000-0000-000000000002','P-1','{"private_path":"units/P-1.pdf"}'::jsonb);
+INSERT INTO public.project_media(id,project_id,media_type,url,metadata)
+VALUES ('90000000-0000-0000-0000-000000000005','90000000-0000-0000-0000-000000000002','gallery','https://cdn.example/privacy.jpg','{"private_path":"media/private.jpg"}'::jsonb);
+INSERT INTO public.investment_data(id,project_id,notes)
+VALUES ('90000000-0000-0000-0000-000000000006','90000000-0000-0000-0000-000000000002','Recorded only');
+INSERT INTO public.unit_price_history(unit_id,price,currency,source_file,source_page,metadata)
+VALUES ('90000000-0000-0000-0000-000000000004',1000000,'THB','forever-data/projects/coralina/source/price-list/private.pdf',1,'{"private_path":"prices/private.pdf"}'::jsonb);
+
+SELECT pg_temp.assert_true(
+  has_column_privilege('anon','public.projects','start_date_display','SELECT')
+  AND has_column_privilege('authenticated','public.projects','completion_date_display','SELECT')
+  AND has_column_privilege('anon','public.developers','logo_url','SELECT')
+  AND has_column_privilege('authenticated','public.units','notes','SELECT')
+  AND has_column_privilege('anon','public.project_media','sort_order','SELECT')
+  AND has_column_privilege('authenticated','public.investment_data','created_at','SELECT'),
+  'anon/authenticated retain every public nested-query projection column');
+SELECT pg_temp.assert_true(
+  NOT has_column_privilege('anon','public.projects','field_provenance','SELECT')
+  AND NOT has_column_privilege('authenticated','public.units','metadata','SELECT')
+  AND NOT has_column_privilege('anon','public.project_media','metadata','SELECT')
+  AND NOT has_column_privilege('authenticated','public.unit_price_history','source_file','SELECT')
+  AND NOT has_column_privilege('anon','public.unit_price_history','source_page','SELECT')
+  AND NOT has_column_privilege('authenticated','public.unit_price_history','metadata','SELECT')
+  AND NOT has_column_privilege('anon','public.developers','contact_email','SELECT'),
+  'public roles cannot select provenance, source paths, metadata, or private developer contact');
+SELECT pg_temp.assert_true(
+  has_column_privilege('service_role','public.projects','field_provenance','SELECT')
+  AND has_column_privilege('service_role','public.units','metadata','SELECT')
+  AND has_column_privilege('service_role','public.project_media','metadata','SELECT')
+  AND has_column_privilege('service_role','public.unit_price_history','source_file','SELECT'),
+  'service_role retains required private-column access');
+
+SET ROLE anon;
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.projects WHERE slug='privacy-published')=1
+  AND (SELECT count(*) FROM public.projects WHERE slug='privacy-draft')=0,
+  'projects RLS still limits anon to active published rows');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.units WHERE unit_code='P-1')=1
+  AND (SELECT count(*) FROM public.project_media WHERE url='https://cdn.example/privacy.jpg')=1
+  AND (SELECT count(*) FROM public.investment_data WHERE notes='Recorded only')=1,
+  'child RLS publication predicates remain effective');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM (
+    SELECT p.id, p.start_date_display, p.completion_date_display,
+      (SELECT jsonb_agg(jsonb_build_object('name',d.name,'website',d.website,'logo',d.logo_url)) FROM public.developers d WHERE d.id=p.developer_id) AS developer,
+      (SELECT jsonb_agg(jsonb_build_object('type',m.media_type,'url',m.url,'sort',m.sort_order)) FROM public.project_media m WHERE m.project_id=p.id) AS media,
+      (SELECT jsonb_agg(jsonb_build_object('code',u.unit_code,'notes',u.notes)) FROM public.units u WHERE u.project_id=p.id) AS units,
+      (SELECT jsonb_agg(jsonb_build_object('notes',i.notes)) FROM public.investment_data i WHERE i.project_id=p.id) AS investment
+    FROM public.projects p WHERE p.slug='privacy-published'
+  ) public_detail)=1,
+  'anon can execute the intended public nested detail projection after grants');
+RESET ROLE;
+SET ROLE authenticated;
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.projects WHERE slug='privacy-published')=1
+  AND (SELECT count(*) FROM public.projects WHERE slug='privacy-draft')=0,
+  'projects RLS still limits authenticated to active published rows');
+RESET ROLE;
+
+DO $$
+DECLARE v_sql text;
+BEGIN
+  FOREACH v_sql IN ARRAY ARRAY[
+    'SELECT field_provenance FROM public.projects',
+    'SELECT metadata FROM public.units',
+    'SELECT metadata FROM public.project_media',
+    'SELECT source_file FROM public.unit_price_history',
+    'SELECT source_page FROM public.unit_price_history',
+    'SELECT metadata FROM public.unit_price_history'
+  ] LOOP
+    BEGIN
+      SET LOCAL ROLE anon;
+      EXECUTE v_sql;
+      RAISE EXCEPTION 'expected_public_projection_denial_absent: %', v_sql;
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+  END LOOP;
+END $$;
 SELECT 'ALL STUDIO POSTGRES ASSERTIONS PASSED' AS result;

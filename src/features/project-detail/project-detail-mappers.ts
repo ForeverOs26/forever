@@ -170,9 +170,11 @@ export function mapProjectDeveloper(row: DeveloperRow | null | undefined) {
     name: row.name,
     description: text(row.description),
     website: text(row.website),
-    contactName: text(row.contact_name),
-    contactPhone: text(row.contact_phone),
-    contactEmail: text(row.contact_email),
+    // Developer contacts have no public-source contract. They remain
+    // server-held until a dedicated public-contact decision is recorded.
+    contactName: "",
+    contactPhone: "",
+    contactEmail: "",
     logoUrl: text(row.logo_url),
   };
 }
