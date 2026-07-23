@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { PRIVATE_SOURCE_BUCKET, PUBLIC_IMAGE_BUCKET } from "../server/extraction";
 import {
@@ -12,7 +12,9 @@ import { processUploadJob, startUploadJob } from "../server/service";
 import { makeWorld, tinyFtyp, uploadAll, OWNER } from "./fakes";
 import {
   FIXTURE_PRIVATE_MARKERS,
+  JFIF_THUMBNAIL_SECRET,
   syntheticJpeg,
+  syntheticJpegWithJfifThumbnail,
   syntheticPng,
   syntheticWebp,
 } from "./media-truth-fixtures";
@@ -66,6 +68,48 @@ describe("FOREVER-MEDIA-TRUTH-001 byte sanitizers", () => {
         orientation: 6,
       }),
     ).toEqual({ ok: true, forbidden: [] });
+  });
+
+  it("removes embedded JFIF thumbnails and verifies zero thumbnail dimensions", () => {
+    const original = syntheticJpegWithJfifThumbnail(6);
+    const originalHash = digest(original);
+    expect(original.includes(JFIF_THUMBNAIL_SECRET)).toBe(true);
+
+    const retainedThumbnailVerification = verifyPublicDerivative(original, "jpeg", {
+      dimensions: { width: 2, height: 3 },
+      orientation: 6,
+    });
+    expect(retainedThumbnailVerification.ok).toBe(false);
+    expect(retainedThumbnailVerification.forbidden).toContain("jpeg_jfif_thumbnail");
+
+    const result = derive(original, "image/jpeg");
+    expect(result.eligible).toBe(true);
+    if (!result.eligible) return;
+    expect(result.record.original).toEqual({ sha256: originalHash, size: original.length });
+    expect(result.record.claims).toMatchObject({
+      dimensions: { width: 2, height: 3 },
+      orientation: 6,
+    });
+    expect(result.bytes.includes(JFIF_THUMBNAIL_SECRET)).toBe(false);
+    const jfif = result.bytes.indexOf(Buffer.from("JFIF\0", "latin1"));
+    expect(jfif).toBeGreaterThan(0);
+    expect(result.bytes[jfif + 12]).toBe(0);
+    expect(result.bytes[jfif + 13]).toBe(0);
+    expect(
+      verifyPublicDerivative(result.bytes, "jpeg", {
+        dimensions: { width: 2, height: 3 },
+        orientation: 6,
+      }),
+    ).toEqual({ ok: true, forbidden: [] });
+  });
+
+  it("fails closed on malformed JFIF thumbnail lengths", () => {
+    const malformed = Buffer.from(syntheticJpegWithJfifThumbnail());
+    const jfif = malformed.indexOf(Buffer.from("JFIF\0", "latin1"));
+    malformed[jfif + 13] = 3;
+    const result = derive(malformed, "image/jpeg");
+    expect(result.eligible).toBe(false);
+    if (!result.eligible) expect(result.reason).toBe("malformed_media");
   });
 
   it("sanitizes PNG eXIf and text metadata without changing dimensions/orientation", () => {
@@ -229,6 +273,82 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
     for (const marker of FIXTURE_PRIVATE_MARKERS) {
       expect.soft(JSON.stringify(result.warnings)).not.toContain(marker);
     }
+  });
+
+  it("keeps hostile original filenames private across every public projection", async () => {
+    const world = makeWorld();
+    const names = [
+      "Avery-Privacy-Person.jpg",
+      "88-Fake-Privacy-Road-Unit-42.jpg",
+      "private.person@example.invalid-+1-202-555-0199.jpg",
+      "C:\\Users\\AveryPrivate\\Documents\\family-photo.jpg",
+      "/Users/avery.private/Library/家庭照片.jpg",
+      "../../../../秘密/ traversal-private.jpg",
+    ];
+    const warningName =
+      "C:\\Users\\AveryPrivate\\88-Fake-Privacy-Road\\private.person@example.invalid.heic";
+    const started = await startUploadJob(world.deps, OWNER, {
+      workflow: "new_development",
+      projectFacts: { name: "Opaque Public Media" },
+      files: [...names, warningName].map((name) => ({ name })),
+    });
+    const contents = Object.fromEntries(
+      names.map((name, index) => [name, syntheticJpeg(true, 6, index + 1)]),
+    );
+    contents[warningName] = tinyFtyp("heic");
+    uploadAll(world, started.uploads, contents);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const result = await processUploadJob(world.deps, OWNER, started.jobId);
+    const serverLogs = errorSpy.mock.calls.flat().map(String).join("\n");
+    errorSpy.mockRestore();
+
+    expect(result.status).toBe("published");
+    const keys = world.storage.publicKeys(PUBLIC_IMAGE_BUCKET);
+    expect(keys).toHaveLength(names.length - 1);
+    for (const [index, key] of keys.entries()) {
+      expect(key).toMatch(
+        new RegExp(
+          `^studio/${started.jobId}/[a-zA-Z0-9]+/${String(index).padStart(2, "0")}-[a-f0-9]{16}\\.jpg$`,
+        ),
+      );
+    }
+    expect(world.executor.store.media.map((item) => item.title)).toEqual(
+      names.slice(0, -1).map((_, index) => `Project photo ${index + 1}`),
+    );
+
+    const publicRecords = world.executor.store.media.map((item) => ({
+      media_type: item.media_type,
+      title: item.title,
+      url: item.url,
+      sort_order: item.sort_order,
+    }));
+    const publicBoundary = JSON.stringify({
+      urls: keys,
+      records: publicRecords,
+      warnings: result.warnings,
+      projectDetail: publicRecords,
+      catalogue: publicRecords,
+    });
+    for (const privateValue of [
+      "Avery-Privacy-Person",
+      "88-Fake-Privacy-Road-Unit-42",
+      "private.person@example.invalid",
+      "+1-202-555-0199",
+      "C:\\Users\\AveryPrivate",
+      "/Users/avery.private",
+      "家庭照片",
+      "秘密",
+      "traversal-private",
+      "..",
+    ]) {
+      expect.soft(publicBoundary).not.toContain(privateValue);
+      expect.soft(serverLogs).not.toContain(privateValue);
+    }
+
+    const privateJob = await world.data.getJob(started.jobId);
+    expect(privateJob!.files.map((file) => file.name)).toEqual([...names, warningName]);
+    expect(JSON.stringify(world.executor.store.media[0].metadata)).toContain(names[0]);
   });
 
   it("rejects a source changed between streamed hashing and bounded transformation", async () => {

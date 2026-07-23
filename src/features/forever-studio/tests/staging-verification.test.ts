@@ -180,16 +180,11 @@ describe("private staging and byte verification", () => {
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
     expect(result.status).toBe("published");
-    const contentTypes = Object.fromEntries(
-      world.storage
-        .publicKeys(PUBLIC_IMAGE_BUCKET)
-        .map((path) => [
-          path.split("-").pop(),
-          world.storage.publicContentType(PUBLIC_IMAGE_BUCKET, path),
-        ]),
-    );
-    expect(contentTypes).toEqual({ "photo.jpg": "image/jpeg" });
-    expect(Object.values(contentTypes)).not.toContain("text/html");
+    const publicPaths = world.storage.publicKeys(PUBLIC_IMAGE_BUCKET);
+    expect(publicPaths).toHaveLength(1);
+    expect(publicPaths[0]).toMatch(/\/00-[a-f0-9]{16}\.jpg$/);
+    expect(publicPaths[0]).not.toContain("photo");
+    expect(world.storage.publicContentType(PUBLIC_IMAGE_BUCKET, publicPaths[0])).toBe("image/jpeg");
     expect(
       result.warnings.filter((warning) => warning.code === "media_sanitization_unsupported"),
     ).toHaveLength(4);

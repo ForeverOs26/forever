@@ -105,6 +105,41 @@ are human observations. Embedded metadata is not promoted to this class.
 The phone-video input workflow remains available. Phone originals still upload
 and remain private, while unsafe video publication is withheld explicitly.
 
+## Final public filename and embedded-thumbnail correction
+
+Public derivative object names are opaque and deterministic. Their only inputs
+are job id, processing-attempt token, media ordinal, the verified final-byte
+SHA-256 prefix, and the canonical extension derived from the verified format:
+`studio/<job>/<attempt>/<ordinal>-<derivative-hash-prefix>.<canonical-ext>`.
+Original filenames never participate in public object paths.
+
+Public media titles are neutral and deterministic category labels such as
+`Project photo 1`, `Master plan 1`, or `Construction update <date>`. The same
+neutral title is the only media-title value available to catalogue and Project
+Detail rendering/alt projections. Original filenames remain only in authorized
+private Studio job records and the non-public `project_media.metadata` column.
+Browser warning payloads use neutral source labels rather than basenames.
+
+JPEG APP0/JFIF is reconstructed rather than retained verbatim. Only validated
+JFIF 1.00-1.02 version/density fields survive in one canonical 14-byte payload;
+`Xthumbnail` and `Ythumbnail` are zero. Original thumbnail bytes, JFXX, and
+other unproven APP0 extensions are removed. Malformed or duplicate JFIF fails
+closed. Final-byte verification independently rejects non-canonical JFIF,
+non-zero thumbnail dimensions, or retained thumbnail payloads.
+
+Hostile synthetic filename regressions cover fake person, property-address,
+phone/email, Windows/POSIX path, Unicode, and traversal values. They prove those
+values are absent from public URLs, public media records/titles, catalogue and
+Project Detail projections, browser warnings, and server logs while remaining
+available in private job/media metadata. Generated client/server bundles are
+scanned after the production build.
+
+A test-only installed Chromium route performs genuine pixel decode for
+representative sanitized JPEG, PNG, and WebP derivatives. This supplements, but
+does not replace, container verification. Physical iOS/Android camera/gallery
+and representative deployed-browser checks remain rollout gates; universal
+visual correctness is not claimed from container parsing or one browser smoke.
+
 ## Private metadata schema
 
 No schema change is required. Direct-file evidence is stored in the existing
@@ -134,16 +169,16 @@ under `mediaTruthEntries`; published derivatives repeat the link in
     "media_class": "image",
     "content_type": "image/jpeg"
   },
-  "sanitizer_version": "forever-media-truth-001/v1",
+  "sanitizer_version": "forever-media-truth-001/v2",
   "verification": { "result": "verified", "forbidden_metadata": [] }
 }
 ```
 
-Exact GPS/device/path claims exist only in these private JSON records. Browser
-warnings, audit descriptions, logs, public URLs, catalogue projections, and
-Project Detail projections receive no sensitive values. Warning filenames are
-reduced to normalized basenames, and the existing path/credential redactor is
-also applied at the final browser-warning projection.
+Exact GPS/device/path claims and original filenames exist only in these private
+JSON records. Browser warnings, audit descriptions, logs, public URLs, public
+titles/alt text, catalogue projections, and Project Detail projections receive
+no private filename text. Browser warnings use only neutral labels; the existing
+path/credential redactor is also applied at the final warning projection.
 
 ## Sanitizer and verifier design
 
@@ -154,7 +189,11 @@ also applied at the final browser-warning projection.
   cycle checks.
 - Removes EXIF, XMP, IPTC, comments, unsafe APP segments, embedded EXIF
   thumbnails, and trailing bytes.
-- Retains JFIF and Adobe rendering markers.
+- Reconstructs at most one canonical JFIF APP0 segment from validated
+  version/density fields; `Xthumbnail` and `Ythumbnail` are always zero and no
+  source thumbnail bytes survive. Duplicate, malformed, or ambiguous JFIF fails
+  closed; JFXX and other APP0 extensions are removed.
+- Retains only a strictly shaped Adobe rendering marker.
 - If orientation is 2-8, creates a deterministic EXIF payload containing only
   tag `0x0112`.
 - Fails closed on an ICC profile because ICC descriptive/device tags cannot be
@@ -264,8 +303,9 @@ the production build.
 
 ## Limitations
 
-- Validation is a strict container/metadata structural rewrite and reparse, not
-  a full platform-native pixel decode of every codec variant.
+- Validation combines strict container/metadata rewrite-and-reparse with a real
+  Chromium decode smoke for representative sanitized JPEG, PNG, and WebP. This
+  does not claim universal visual correctness for every codec variant or device.
 - ICC-bearing images are retained privately because publishing them without a
   validated profile rewriter could change appearance or retain device claims.
 - Video, HEIC/HEIF/AVIF, PDF, other documents, unsupported raster formats, and
@@ -286,7 +326,8 @@ No migration was applied.
 
 1. Owner reviews this Draft PR and the private-only decisions for video,
    HEIC/HEIF/AVIF, PDF, ICC-bearing images, and images above 24 MiB.
-2. Run physical iOS/Android camera and gallery tests before production. This
+2. Run physical iOS/Android camera/gallery tests and representative deployed
+   browser checks before production. Local Chromium decode is proven, but this
    implementation has not been physically phone-verified.
 3. Separately authorize any future Worker-compatible video/HEIC/PDF sanitizer;
    do not relax fail-closed behavior based only on extensions or client claims.
@@ -308,23 +349,33 @@ No migration was applied.
 
 ## Validation evidence
 
-- Prettier and changed-file ESLint: pass.
-- TypeScript `tsc --noEmit`: pass.
-- Focused media-truth and storage-concurrency suites: 2 files, 19 tests passed.
-- Complete Studio plus public-query, Project Detail, and boundary suites: 27
-  files, 214 tests passed after the final source-race hardening.
-- Full repository Vitest run: 342 files; 3,250 tests passed and 5 skipped.
-- Real PostgreSQL harness with PostgreSQL 17 on `PATH`: all migrations and all
-  Studio behavioral assertions passed.
+- Complete media-truth suites: 2 files, 15 tests passed, including real
+  Chromium decode of sanitized JPEG, orientation-aware PNG, and WebP.
+- Storage concurrency and cleanup suites: 2 files, 24 tests passed.
+- Complete Studio plus public-query, Project Detail, and boundary suites: 29
+  files, 228 tests passed.
+- Full repository Vitest run: 343 files; 3,256 tests passed and 5 skipped.
+- TypeScript `tsc --noEmit` with a 240-second allowance: pass.
+- Changed-file ESLint: pass.
+- Prettier check over every changed file: pass.
 - Nitro production build using the `cloudflare-module` preset and compatibility
-  date `2026-07-23`: pass.
-- Corrected absolute-path client/server scans found no synthetic fixture values,
-  Owner filesystem paths, private staging/storage markers, knowledge-source
-  markers, JWT-shaped values, or service-role credential values in client
-  output. The sanitizer version is server-only. The server bundle contains the
-  expected `SUPABASE_SERVICE_ROLE_KEY` environment-variable name, not a key.
+  date `2026-07-23`: pass; no deployment was run.
+- Generated client/server scans found no hostile fixture filenames, fake
+  person/address/phone/email values, Windows/POSIX private paths, fake GPS or
+  device values, JFIF thumbnail secret, embedded database/JWT/private-key
+  secrets, or private Studio boundary identifiers in the client bundle.
+  Expected private boundary identifiers occur only in two server chunks.
+- U+FFFD scan: zero server occurrences. The client contains exactly one
+  dependency-code literal in TanStack Router's path normalizer, which replaces
+  NUL/U+FFFD with `/`; byte-level context proves it is code rather than corrupt
+  filename or record data.
 - `git diff --check`: pass.
 - No schema, grant, or migration file was created or changed.
+- The real PostgreSQL harness was inspected and confirmed to use a disposable
+  loopback-only cluster under the OS temp directory, but it applies the complete
+  committed migration chain inside that cluster. Execution was not claimed:
+  the command safety gate rejected it because this task also says not to apply
+  any migration. No external database was contacted.
 
 ## Environment confirmation
 

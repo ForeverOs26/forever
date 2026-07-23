@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 
 import type { EmbeddedMediaClaims, MediaDimensions, MediaTruthRecord } from "../studio-types";
 
-export const MEDIA_SANITIZER_VERSION = "forever-media-truth-001/v1";
+export const MEDIA_SANITIZER_VERSION = "forever-media-truth-001/v2";
 export const MAX_MEDIA_SANITIZE_BYTES = 24 * 1024 * 1024;
 
 export type SanitizedImageFormat = "jpeg" | "png" | "webp";
@@ -403,6 +403,40 @@ function jpegSegment(marker: number, payload: Buffer): Buffer {
   return Buffer.concat([header, payload]);
 }
 
+interface NormalizedJfif {
+  payload: Buffer;
+  thumbnailRemoved: boolean;
+}
+
+/** Validate JFIF and retain only canonical version/density fields. */
+function normalizeJfif(payload: Buffer): NormalizedJfif | null {
+  if (payload.length < 14 || payload.subarray(0, 5).toString("latin1") !== "JFIF\0") {
+    return null;
+  }
+  const major = payload[5];
+  const minor = payload[6];
+  const units = payload[7];
+  const xDensity = payload.readUInt16BE(8);
+  const yDensity = payload.readUInt16BE(10);
+  const xThumbnail = payload[12];
+  const yThumbnail = payload[13];
+  const thumbnailBytes = 3 * xThumbnail * yThumbnail;
+  if (
+    major !== 1 ||
+    minor > 2 ||
+    units > 2 ||
+    xDensity === 0 ||
+    yDensity === 0 ||
+    payload.length !== 14 + thumbnailBytes
+  ) {
+    return null;
+  }
+  const canonical = Buffer.alloc(14);
+  canonical.write("JFIF\0", 0, 5, "latin1");
+  payload.copy(canonical, 5, 5, 12);
+  return { payload: canonical, thumbnailRemoved: thumbnailBytes > 0 };
+}
+
 function rewriteJpeg(bytes: Buffer): RewriteResult | null {
   const parsed = parseJpeg(bytes);
   if (!parsed) return null;
@@ -410,6 +444,7 @@ function rewriteJpeg(bytes: Buffer): RewriteResult | null {
   let sensitive = false;
   let metadataPresent = false;
   const retained: Buffer[] = [];
+  let sawJfif = false;
   for (const segment of parsed.segments) {
     if (segment.marker === 0xe1) {
       metadataPresent = true;
@@ -429,11 +464,20 @@ function rewriteJpeg(bytes: Buffer): RewriteResult | null {
       continue;
     }
     if (segment.marker >= 0xe0 && segment.marker <= 0xef) {
-      const safeApp0 =
-        segment.marker === 0xe0 &&
-        segment.payload.length >= 14 &&
-        segment.payload.subarray(0, 5).toString("latin1") === "JFIF\0" &&
-        segment.payload.length === 14 + 3 * segment.payload[12] * segment.payload[13];
+      if (segment.marker === 0xe0) {
+        const jfifLike = segment.payload.subarray(0, 4).toString("latin1") === "JFIF";
+        if (jfifLike) {
+          const normalized = normalizeJfif(segment.payload);
+          if (!normalized || sawJfif) return null;
+          sawJfif = true;
+          retained.push(jpegSegment(0xe0, normalized.payload));
+          if (normalized.thumbnailRemoved) {
+            metadataPresent = true;
+            sensitive = true;
+          }
+          continue;
+        }
+      }
       // ICC profiles can themselves contain device/author/private descriptive
       // tags. Without a profile-tag rewriter, preserve color by failing closed.
       if (
@@ -447,7 +491,7 @@ function rewriteJpeg(bytes: Buffer): RewriteResult | null {
         segment.marker === 0xee &&
         segment.payload.length === 12 &&
         segment.payload.subarray(0, 5).toString("latin1") === "Adobe";
-      if (safeApp0 || safeAdobe) retained.push(segment.bytes);
+      if (safeAdobe) retained.push(segment.bytes);
       else {
         metadataPresent = true;
         sensitive = true;
@@ -787,18 +831,24 @@ export function verifyPublicDerivative(
     const parsed = parseJpeg(bytes);
     if (!parsed) forbidden.push("malformed_jpeg");
     else {
+      let jfifCount = 0;
       for (const segment of parsed.segments) {
         if (segment.marker === 0xe1 && !exifIsMinimalOrientation(segment.payload)) {
           forbidden.push("jpeg_exif");
         }
         if (segment.marker === 0xed) forbidden.push("jpeg_iptc");
         if (segment.marker === 0xfe) forbidden.push("jpeg_comment");
+        const jfif = segment.marker === 0xe0 ? normalizeJfif(segment.payload) : null;
+        if (jfif) {
+          jfifCount += 1;
+          if (jfif.thumbnailRemoved) forbidden.push("jpeg_jfif_thumbnail");
+          if (!segment.payload.equals(jfif.payload)) forbidden.push("jpeg_jfif_noncanonical");
+        }
         if (
           segment.marker >= 0xe0 &&
           segment.marker <= 0xef &&
           !(
-            (segment.marker === 0xe0 &&
-              segment.payload.subarray(0, 5).toString("latin1") === "JFIF\0") ||
+            (segment.marker === 0xe0 && jfif != null) ||
             (segment.marker === 0xe1 && exifIsMinimalOrientation(segment.payload)) ||
             (segment.marker === 0xee &&
               segment.payload.subarray(0, 5).toString("latin1") === "Adobe")
@@ -807,6 +857,7 @@ export function verifyPublicDerivative(
           forbidden.push("jpeg_app_metadata");
         }
       }
+      if (jfifCount > 1) forbidden.push("jpeg_jfif_ambiguous");
       if (
         expected.dimensions &&
         (parsed.dimensions.width !== expected.dimensions.width ||

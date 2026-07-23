@@ -38,7 +38,9 @@ describe("claim-scoped storage side effects", () => {
 
     const keys = world.storage.publicKeys(PUBLIC_IMAGE_BUCKET);
     expect(keys).toHaveLength(1);
-    expect(keys[0]).toMatch(new RegExp(`^studio/${started.jobId}/[a-zA-Z0-9]+/00-photo\\.jpg$`));
+    expect(keys[0]).toMatch(
+      new RegExp(`^studio/${started.jobId}/[a-zA-Z0-9]+/00-[a-f0-9]{16}\\.jpg$`),
+    );
     const attempt = (await world.data.getJob(started.jobId))!.result_summary?.attempt;
     expect(typeof attempt).toBe("string");
     expect(keys[0]).toContain(`/${attempt}/`);

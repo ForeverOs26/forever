@@ -159,6 +159,20 @@ export function syntheticJpeg(withPrivateMetadata = false, orientation = 1, salt
   ]);
 }
 
+/** Unique fake payload carried only by the synthetic JFIF thumbnail. */
+export const JFIF_THUMBNAIL_SECRET = Buffer.from("JFIF-SECRET!", "ascii");
+
+export function syntheticJpegWithJfifThumbnail(orientation = 1): Buffer {
+  const base = syntheticJpeg(orientation !== 1, orientation);
+  const thumbnailJfif = Buffer.concat([
+    Buffer.from("JFIF\0", "latin1"),
+    Buffer.from([1, 1, 0, 0, 1, 0, 1, 2, 2]),
+    JFIF_THUMBNAIL_SECRET,
+  ]);
+  // SOI + original APP0 occupies bytes 0..19; replace only that APP0.
+  return Buffer.concat([base.subarray(0, 2), jpegSegment(0xe0, thumbnailJfif), base.subarray(20)]);
+}
+
 let crcTable: Uint32Array | null = null;
 function crc32(bytes: Buffer): number {
   if (!crcTable) {

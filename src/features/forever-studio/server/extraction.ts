@@ -31,7 +31,11 @@ import type { IntakeCategory, IntakeProjectFacts } from "@/intake/types";
 
 import type { StudioJobFile } from "../studio-types";
 import type { StudioDeps, StudioJobRow } from "./contracts";
-import { createPublicDerivative, MAX_MEDIA_SANITIZE_BYTES } from "./media-truth";
+import {
+  createPublicDerivative,
+  MAX_MEDIA_SANITIZE_BYTES,
+  type SanitizedImageFormat,
+} from "./media-truth";
 
 // ---------------------------------------------------------------------------
 // Buckets and limits
@@ -90,15 +94,6 @@ export function sanitizeFileName(name: string): string {
   return clean || "file";
 }
 
-export function prettyTitleFromFileName(name: string): string {
-  const base = (name.split(/[\\/]/).pop() ?? name).replace(/\.[a-z0-9]+$/i, "");
-  const spaced = base
-    .replace(/[-_]+/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-  return spaced || name;
-}
-
 export function stagingPathForJobFile(jobId: string, index: number, name: string): string {
   return `jobs/${jobId}/staging/${String(index).padStart(2, "0")}-${sanitizeFileName(name)}`;
 }
@@ -118,8 +113,29 @@ export function publicJobPrefix(jobId: string): string {
   return `studio/${jobId}`;
 }
 
-function publicPathForMedia(jobId: string, token: string, index: number, name: string): string {
-  return `${publicJobPrefix(jobId)}/${attemptPrefixFromToken(token)}/${String(index).padStart(2, "0")}-${sanitizeFileName(name)}`;
+const PUBLIC_IMAGE_EXTENSION: Record<SanitizedImageFormat, string> = {
+  jpeg: "jpg",
+  png: "png",
+  webp: "webp",
+};
+
+/**
+ * Public names are derived only from server/job identity and verified final
+ * bytes. Client filenames never participate in this public boundary.
+ */
+export function publicPathForDerivative(
+  jobId: string,
+  token: string,
+  index: number,
+  derivativeSha256: string,
+  format: SanitizedImageFormat,
+): string {
+  if (!/^[a-f0-9]{64}$/.test(derivativeSha256)) {
+    throw new Error("invalid_derivative_sha256");
+  }
+  const ordinal = String(index).padStart(2, "0");
+  const hashPrefix = derivativeSha256.slice(0, 16);
+  return `${publicJobPrefix(jobId)}/${attemptPrefixFromToken(token)}/${ordinal}-${hashPrefix}.${PUBLIC_IMAGE_EXTENSION[format]}`;
 }
 
 /** Declare every file into the PRIVATE staging bucket. */
@@ -444,16 +460,39 @@ export interface GatherOptions {
 }
 
 function fileWarning(code: string, name: string, message: string): ProgressiveWarning {
-  // ZIP entry names and legacy browser names can contain local paths. Warnings
-  // cross the browser boundary, so they receive only a normalized basename.
-  const safeName = sanitizeFileName(name);
+  // Original names can contain names, addresses, phone/email-shaped values,
+  // or local paths. Warnings cross the browser boundary, so no portion of the
+  // original filename is projected.
+  const publicLabel = "Private source file";
   return {
     entity: "document",
     code,
     severity: "warning",
-    message: message.split(name).join(safeName),
-    payload: { file: safeName },
+    message: message.split(name).join(publicLabel),
+    payload: { file: publicLabel },
   };
+}
+
+const NEUTRAL_MEDIA_TITLE: Partial<Record<IntakeCategory, string>> = {
+  photo: "Project photo",
+  video: "Project video",
+  brochure: "Project brochure",
+  "master-plan": "Master plan",
+  "floor-plan": "Floor plan",
+  "unit-plan": "Unit plan",
+  "payment-plan": "Payment plan",
+  "map-location": "Location map",
+  "furniture-package": "Furniture package",
+};
+
+function neutralPublicMediaTitle(
+  category: IntakeCategory,
+  ordinal: number,
+  constructionUpdate: boolean,
+  dateLabel: string,
+): string {
+  if (constructionUpdate && category === "photo") return `Construction update ${dateLabel}`;
+  return `${NEUTRAL_MEDIA_TITLE[category] ?? "Project media"} ${ordinal}`;
 }
 
 interface MediaCandidate {
@@ -859,7 +898,7 @@ export async function gatherMaterials(
     const mediaType = mediaTypeForCategory(candidate.category);
     if (!mediaType) continue;
     const toBucket = publicBucketForCategory(candidate.category);
-    const toPath = publicPathForMedia(job.id, options.token, mediaIndex, candidate.name);
+    const mediaOrdinal = mediaIndex;
     mediaIndex += 1;
     let sourceBytes: Buffer = Buffer.alloc(0);
     if (
@@ -894,6 +933,14 @@ export async function gatherMaterials(
       warnings.push(retentionWarning(candidate, derivative.reason));
       continue;
     }
+    const derivativeSha256 = derivative.record.derivative!.sha256;
+    const toPath = publicPathForDerivative(
+      job.id,
+      options.token,
+      mediaOrdinal,
+      derivativeSha256,
+      derivative.format,
+    );
     try {
       await deps.storage.upload(toBucket, toPath, derivative.bytes, derivative.contentType);
       const publicDigest = await deps.storage.hashObject(toBucket, toPath, HEAD_SNIFF_BYTES);
@@ -902,8 +949,7 @@ export async function gatherMaterials(
         publicDigest.sha256 !== derivative.record.derivative!.sha256 ||
         publicDigest.size !== derivative.record.derivative!.size ||
         detectMediaClass(publicDigest.head) !== "image" ||
-        canonicalPublicContentType(candidate.name, publicDigest.head, "image") !==
-          derivative.contentType
+        canonicalPublicContentType(toPath, publicDigest.head, "image") !== derivative.contentType
       ) {
         await deps.storage.remove(toBucket, [toPath]).catch(() => undefined);
         warnings.push(retentionWarning(candidate, "verification_failed"));
@@ -933,10 +979,12 @@ export async function gatherMaterials(
       if (!firstPhotoUrl) firstPhotoUrl = url;
     }
     if (candidate.category === "brochure" && !firstBrochureUrl) firstBrochureUrl = url;
-    const title =
-      constructionUpdate && candidate.category === "photo"
-        ? `Construction update ${dateLabel}`
-        : prettyTitleFromFileName(candidate.name);
+    const title = neutralPublicMediaTitle(
+      candidate.category,
+      sortOrder + 1,
+      constructionUpdate,
+      dateLabel,
+    );
     media.push({
       media_type: mediaType,
       url,

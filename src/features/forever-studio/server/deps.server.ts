@@ -527,13 +527,14 @@ async function extractPriceListPdf(input: {
   buffer: Buffer;
 }): Promise<PriceListPdfExtraction> {
   const warnings: ProgressiveWarning[] = [];
+  const publicLabel = "Private source file";
   const retained = (code: string, message: string): PriceListPdfExtraction => {
     warnings.push({
       entity: "price",
       code,
       severity: "warning",
-      message,
-      payload: { file: input.fileName },
+      message: message.split(input.fileName).join(publicLabel),
+      payload: { file: publicLabel },
     });
     return { priceList: null, warnings };
   };
@@ -573,8 +574,8 @@ async function extractPriceListPdf(input: {
         entity: "price",
         code: "price_list_partially_extracted",
         severity: "info",
-        message: `${input.fileName}: the safely extracted rows were used; the source file stays retained for enrichment.`,
-        payload: { file: input.fileName },
+        message: `${publicLabel}: the safely extracted rows were used; the source file stays retained for enrichment.`,
+        payload: { file: publicLabel },
       });
       return { priceList: sanitized.priceList, warnings };
     }
