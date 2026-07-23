@@ -18,7 +18,7 @@ The production database itself remains ready for an Owner migration decision: it
 
 The authorized identity work is complete: production contains exactly one confirmed Owner Auth user, public signup is disabled, and email/password sign-in remains enabled. The user's email, password, and Auth UUID were never written to this report or Git. No Studio member was created and no Studio login or Owner bootstrap occurred.
 
-End-to-end production readiness is still **BLOCKED**. Hosting verdict: **unresolved because of a specific access limitation**. The available Cloudflare dashboard requires authentication, authenticated Lovable lists the expected projects but its project-detail deployment/configuration metadata does not render, and GitHub exposes no deployment, environment, or Pages evidence. The old Lovable 404 URL is not treated as authoritative. The production host, deployed revision, required environment-name presence, and server-only scope therefore remain unverified.
+End-to-end production readiness is still **BLOCKED**. Cloudflare inventory verdict: **E — access remains blocked for a precise technical reason**. Owner authentication reached an account-scoped Cloudflare dashboard route, but every managed account and Workers & Pages inventory surface remained on Cloudflare's loading screen. A read-only dashboard API GET was blocked by Chrome with `ERR_BLOCKED_BY_CLIENT`, and no already-authorized local Wrangler session is available. No conclusion can therefore be drawn about account correctness, target existence, repository linkage, deployed revision, routes/domains, GitHub integration, or environment-name presence/scope. Authenticated Lovable still provides no contrary authoritative deployment evidence, and GitHub exposes no deployment, environment, or Pages evidence. The old Lovable 404 URL is not treated as authoritative.
 
 No environment value was changed. Cloudflare documents that adding a Worker secret creates and deploys a new version, while its dashboard flow requires **Deploy**; Lovable documents that Live configuration changes affect the production app immediately. Those behaviors exceed the checkpoint's no-deployment/no-activation authority. See [Cloudflare Workers secrets](https://developers.cloudflare.com/workers/configuration/secrets/) and [Lovable environments](https://docs.lovable.dev/features/environments).
 
@@ -35,19 +35,19 @@ No environment value was changed. Cloudflare documents that adding a Worker secr
 
 ## Configuration-and-identity checkpoint — 2026-07-23
 
-| Requirement                           | Sanitized result                                                            |
-| ------------------------------------- | --------------------------------------------------------------------------- |
-| Production Auth users                 | `0 → 1`; exactly one, confirmed                                             |
-| Public signup                         | enabled → disabled                                                          |
-| Existing Owner email/password sign-in | enabled and retained                                                        |
-| Studio members / bootstrap / login    | none; Studio schema remains absent and `/studio` was not opened for sign-in |
-| Hosting verdict                       | unresolved because of a specific access limitation                          |
-| Required environment names            | not verified and not applied; authoritative host/scope unavailable          |
-| Migration/deployment/publication      | none                                                                        |
+| Requirement                           | Sanitized result                                                             |
+| ------------------------------------- | ---------------------------------------------------------------------------- |
+| Production Auth users                 | `0 → 1`; exactly one, confirmed                                              |
+| Public signup                         | enabled → disabled                                                           |
+| Existing Owner email/password sign-in | enabled and retained                                                         |
+| Studio members / bootstrap / login    | none; Studio schema remains absent and `/studio` was not opened for sign-in  |
+| Cloudflare inventory verdict          | E — access blocked by non-rendering UI and browser-blocked read-only API GET |
+| Required environment names            | not verified and not applied; authoritative host/scope unavailable           |
+| Migration/deployment/publication      | none                                                                         |
 
 The production Auth API independently confirmed one user, one confirmed user, disabled signup, and enabled email sign-in without recording identity values in tracked artifacts. The Owner UUID is retrievable only from the protected production source for eventual `STUDIO_OWNER_USER_ID`; it is omitted from this report and Git.
 
-Cloudflare access stopped at its login screen. Lovable's authenticated dashboard listed `Forever Core` and `Forever Homes Foundation`, but both project-detail surfaces failed to expose deployment, domain, DNS, revision, or environment metadata. GitHub returned an empty deployment list, an empty environment list, and no Pages configuration. Repository evidence establishes only a Cloudflare/Nitro build target; an untracked local worker artifact is not proof of a deployed production target. No DNS mutation or external write was attempted.
+After direct Owner authentication, Cloudflare reached account route `5c97aaedf76b78975d84c6576cff7394`, but the account home and Workers & Pages routes never rendered beyond Cloudflare's loader in the managed browser. A focused read-only dashboard API GET was blocked locally by Chrome with `ERR_BLOCKED_BY_CLIENT`; no local Wrangler installation/session exists to provide an authenticated read-only fallback. This proves neither that the account is correct nor that it is wrong, and proves neither target presence nor absence. Lovable's authenticated dashboard listed `Forever Core` and `Forever Homes Foundation`, but both project-detail surfaces failed to expose deployment, domain, DNS, revision, or environment metadata. GitHub returned an empty deployment list, an empty environment list, and no Pages configuration. Repository evidence establishes only a Cloudflare/Nitro build target; an untracked local worker artifact is not proof of a deployed production target. No Cloudflare, DNS, deployment, configuration, secret, version, or external write was attempted.
 
 ## Repository gate
 
@@ -211,7 +211,7 @@ If any condition cannot be proven, Studio rollout stops until truth cleanup is r
 
 Tracked Lovable metadata identifies the TanStack Start template and its template revision, not a deployed application commit. The repository defaults to a Cloudflare/Nitro target. A local untracked build artifact names worker `foreveros26-forever`, but local output is not deployment evidence and was excluded from the branch.
 
-**Hosting verdict: unresolved because of a specific access limitation.** The Cloudflare dashboard is not authenticated. Lovable is authenticated and lists two candidate projects, but their project-detail deployment/configuration surfaces do not render any usable metadata. GitHub has no deployment, environment, or Pages record. The repository and local build output establish a Cloudflare/Nitro build target only, not the real production host or deployed revision. The old Lovable 404 URL is not authoritative and is not used to decide the verdict.
+**Cloudflare inventory verdict: E — access remains blocked for a precise technical reason.** The authenticated account and Workers & Pages routes remained on Cloudflare's loader; Chrome blocked the focused read-only dashboard API GET with `ERR_BLOCKED_BY_CLIENT`; and no already-authorized Wrangler session is available. The inspection could not enumerate accounts, Workers/Pages projects, versions/deployments, domains/routes, GitHub integrations, repo associations, `foreveros26-forever`, deployed revision metadata, or environment/secret names and scopes. Lovable is a design/prototyping tool unless future authoritative deployment evidence proves otherwise. GitHub has no deployment, environment, or Pages record. The repository and local build output establish Cloudflare Workers/Nitro as the preferred canonical production direction, not an existing deployed target. The old Lovable 404 URL is not authoritative and is not used to decide the verdict.
 
 ### Required production environment names
 
@@ -230,7 +230,7 @@ Production exposes the expected publishable and server key types, but values wer
 
 ## Blocking findings
 
-1. The authoritative production host and exact deployed release commit are unresolved because Cloudflare is unauthenticated, Lovable project-detail metadata does not render, and GitHub contains no deployment evidence.
+1. The authoritative production host and exact deployed release commit are unresolved because authenticated Cloudflare inventory remains technically unreadable (`ERR_BLOCKED_BY_CLIENT` plus non-rendering inventory UI), Lovable provides no contrary authoritative deployment evidence, and GitHub contains no deployment evidence.
 2. Required production environment-name presence and server-only scope are unverified and unapplied.
 3. Available platform behavior would deploy/activate or immediately affect production when configuration changes; that action was not authorized.
 4. Six known fictitious seeded projects remain active + published in the database. Repository quarantine makes this a conditional rather than automatic Studio blocker, but the separate cleanup obligation remains open.
@@ -273,7 +273,7 @@ Use the official production CA and `verify-full` for independent SQL validation.
 
 **UI operation:** in the verified authoritative production host, open project/deployment settings, select the production environment, and create the four required names above. Configure only `STUDIO_OWNER_USER_ID` as the Owner selector. Do not place service-role or Owner-selector values in client/public variables.
 
-**Expected effect:** depends on the verified host. Cloudflare Worker secret changes create and deploy a new version; Lovable Live configuration affects production immediately. Treat configuration as a deployment/activation action unless authoritative host evidence proves a deployment-free path.
+**Expected effect:** depends on the verified host. If the provider couples environment configuration to version creation, deployment, activation, or immediate production effect, Gate B must be combined with Gate D under one explicit Owner authorization for the exact approved SHA. Treat configuration as a deployment/activation action unless authoritative host evidence proves a deployment-free path.
 
 **Validate:** name/presence and server-only scope without displaying values; `SUPABASE_URL` ref equals production; configuration contains exactly one Owner selector; deployment/build client bundle contains none of the server-only names or exact secret values.
 
@@ -299,7 +299,7 @@ Use the official production CA and `verify-full` for independent SQL validation.
 
 **Owner confirmation:** approve one recorded main release SHA that contains PR #94, PR #95, and the accepted preflight documentation as ancestors.
 
-**UI operation:** in the verified Lovable production project, select/publish that exact revision to production. Record the release/deployment identifier before clicking Publish/Deploy.
+**UI operation:** conditional on verified authoritative host identity. For Cloudflare Workers, verify the exact account and Worker, create one version from the exact approved SHA with the approved server-only Gate B configuration, record the version identifier, then deploy only that version. For any other verified provider, use its equivalent immutable exact-revision release mechanism. Record provider, account/project/Worker identity, source SHA, version/release identifier, and prior production version before activation. Do not use a design/prototyping project as production without contrary authoritative evidence.
 
 **Expected effect:** public application changes to the reviewed Studio-capable build; no content publication by deployment itself.
 
@@ -307,7 +307,7 @@ Use the official production CA and `verify-full` for independent SQL validation.
 
 **Stop conditions:** SHA mismatch, 404/5xx, wrong Supabase ref, leaked secret, quarantine regression, route regression, automatic content mutation, or inability to identify the deployed build.
 
-**Recovery:** use Lovable's verified previous production release if rollback is supported and its safety boundary is known; otherwise deploy a reviewed forward fix. Never roll back to a release predating PR #94. Required confirmation: Owner.
+**Recovery:** use the verified provider's native rollback to the exact previously recorded healthy production version only if its safety boundary is known; otherwise deploy a reviewed forward fix. Never roll back to a release predating PR #94. Required confirmation: Owner.
 
 ### Gate E — Controlled synthetic production Studio smoke
 
@@ -339,8 +339,8 @@ Use the official production CA and `verify-full` for independent SQL validation.
 
 ## Recommended decision
 
-Do **not** authorize migration or deployment yet. Identity hardening is complete. Restore authenticated access to the actual production hosting metadata (Cloudflare and/or working Lovable project detail), establish the authoritative host and deployed revision, and verify the four exact production environment names and server-only scope. If configuration deploys or activates code, combine it only with a separately authorized exact-revision Gate D plan. Then present a fresh Gate A/B decision packet.
+Do **not** authorize migration or deployment yet. Identity hardening is complete. Resolve the authenticated Cloudflare inventory blocker, establish whether a Cloudflare production target exists and how it maps to `ForeverOs26/forever`, identify the deployed revision, and verify the four exact production environment names and server-only scope. Cloudflare Workers/Nitro remains the preferred canonical production direction; Lovable remains design/prototyping unless contrary authoritative deployment evidence is found. If configuration creates a version, deploys, activates, or immediately affects production, combine Gate B and Gate D only under a later explicit exact-SHA Owner authorization. Then present a fresh Gate A/B decision packet.
 
 ## Final preflight status
 
-**BLOCKED — CONFIGURATION OR IDENTITY READINESS REMAINS INCOMPLETE — NO MIGRATIONS OR DEPLOYMENT**
+**BLOCKED — CLOUDFLARE HOST IDENTITY REMAINS UNRESOLVED — NO MIGRATIONS OR DEPLOYMENT**
