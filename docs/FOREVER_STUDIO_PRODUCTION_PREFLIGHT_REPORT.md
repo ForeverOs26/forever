@@ -1,6 +1,6 @@
 # FOREVER-STUDIO-001 — Production Preflight Report
 
-Status: **BLOCKED — read-only preflight complete; no production writes**
+Status: **BLOCKED — Auth identity hardened; hosting/environment readiness incomplete**
 
 Date: 2026-07-23
 
@@ -14,11 +14,13 @@ Preflight branch: `codex/forever-studio-production-preflight`
 
 ## Executive verdict
 
-The production database itself is ready for an Owner migration decision: its identity and TLS chain are verified, the pre-Studio foundation is healthy, no partial Studio state exists, and the official dry run proposes exactly the seven committed Studio migrations in order. Deterministic before/after inventories are identical.
+The production database itself remains ready for an Owner migration decision: its identity and TLS chain are verified, the pre-Studio foundation is healthy, no partial Studio state exists, and a fresh official dry run still proposes exactly the seven committed Studio migrations in order.
 
-End-to-end production readiness is **BLOCKED**. The deployed Lovable project/revision and required production secret-name presence could not be verified; the known public Lovable URL returns Cloudflare 404 for the root and representative routes; production Auth contains no Owner user; and public email signup is enabled. No migration, schema/data/Auth/Storage mutation, deployment, publication, or other production write was performed.
+The authorized identity work is complete: production contains exactly one confirmed Owner Auth user, public signup is disabled, and email/password sign-in remains enabled. The user's email, password, and Auth UUID were never written to this report or Git. No Studio member was created and no Studio login or Owner bootstrap occurred.
 
-The exact next Owner decision is whether to authorize **configuration-and-identity readiness only**: verify the Lovable production project and deployed revision, verify the four required secret names without exposing values, create and confirm one Owner Auth identity, and disable public signup. This does not authorize Gate A migration application or any later gate.
+End-to-end production readiness is still **BLOCKED**. Hosting verdict: **unresolved because of a specific access limitation**. The available Cloudflare dashboard requires authentication, authenticated Lovable lists the expected projects but its project-detail deployment/configuration metadata does not render, and GitHub exposes no deployment, environment, or Pages evidence. The old Lovable 404 URL is not treated as authoritative. The production host, deployed revision, required environment-name presence, and server-only scope therefore remain unverified.
+
+No environment value was changed. Cloudflare documents that adding a Worker secret creates and deploys a new version, while its dashboard flow requires **Deploy**; Lovable documents that Live configuration changes affect the production app immediately. Those behaviors exceed the checkpoint's no-deployment/no-activation authority. See [Cloudflare Workers secrets](https://developers.cloudflare.com/workers/configuration/secrets/) and [Lovable environments](https://docs.lovable.dev/features/environments).
 
 ## Authority and safety boundary
 
@@ -28,7 +30,24 @@ The exact next Owner decision is whether to authorize **configuration-and-identi
 - TLS used `sslmode=verify-full` with the official production CA.
 - The official migration list and dry run used a fresh isolated workdir linked explicitly to the production ref; repository linkage was not reused.
 - Secrets, access tokens, publishable-key values, service-role-key values, database URLs, signed URLs, and personal email addresses are excluded from this report.
-- No production migration apply, DDL, DML, Auth mutation, Storage mutation, deployment, or publication was attempted.
+- The only production mutations were the authorized creation/confirmation of one Auth user and disabling public signup.
+- No production migration apply, migration repair, DDL, application-data DML, Storage mutation, deployment/redeployment, Worker activation, Studio login/bootstrap, smoke, publication, or cleanup was attempted.
+
+## Configuration-and-identity checkpoint — 2026-07-23
+
+| Requirement                           | Sanitized result                                                            |
+| ------------------------------------- | --------------------------------------------------------------------------- |
+| Production Auth users                 | `0 → 1`; exactly one, confirmed                                             |
+| Public signup                         | enabled → disabled                                                          |
+| Existing Owner email/password sign-in | enabled and retained                                                        |
+| Studio members / bootstrap / login    | none; Studio schema remains absent and `/studio` was not opened for sign-in |
+| Hosting verdict                       | unresolved because of a specific access limitation                          |
+| Required environment names            | not verified and not applied; authoritative host/scope unavailable          |
+| Migration/deployment/publication      | none                                                                        |
+
+The production Auth API independently confirmed one user, one confirmed user, disabled signup, and enabled email sign-in without recording identity values in tracked artifacts. The Owner UUID is retrievable only from the protected production source for eventual `STUDIO_OWNER_USER_ID`; it is omitted from this report and Git.
+
+Cloudflare access stopped at its login screen. Lovable's authenticated dashboard listed `Forever Core` and `Forever Homes Foundation`, but both project-detail surfaces failed to expose deployment, domain, DNS, revision, or environment metadata. GitHub returned an empty deployment list, an empty environment list, and no Pages configuration. Repository evidence establishes only a Cloudflare/Nitro build target; an untracked local worker artifact is not proof of a deployed production target. No DNS mutation or external write was attempted.
 
 ## Repository gate
 
@@ -118,7 +137,7 @@ The legacy `listings.contact_name`, `contact_phone`, and `contact_email` columns
 
 Tracked post-migration Studio code uses the private contact boundary. Remaining tracked legacy-column references are pre-migration ingestion/public-detail compatibility types and focused migration tests; bundle-boundary tests explicitly prohibit private contact identifiers in client code. With zero live contact values and zero catalogue dependants, the relocation has no current data-loss conflict. Gate A must still stop if a fresh pre-apply count is no longer zero or new dependants appear.
 
-## Deterministic before/after inventory
+## Initial read-only deterministic inventory
 
 | Surface                  | Before | After | Fingerprint                        |
 | ------------------------ | -----: | ----: | ---------------------------------- |
@@ -134,7 +153,24 @@ Tracked post-migration Studio code uses the private contact boundary. Remaining 
 | Applied migrations       |     13 |    13 | `d100704f94886957f7277e092e5688bd` |
 | Studio catalogue objects |      0 |     0 | absent                             |
 
-The before/after snapshots are identical. The preflight performed zero production writes.
+The initial before/after snapshots were identical. That read-only preflight performed zero production writes. The Auth-only mutation happened later under the explicit configuration-and-identity authorization.
+
+### Post-identity sanitized inventory
+
+| Surface              | Current | SHA-256 fingerprint                                                |
+| -------------------- | ------: | ------------------------------------------------------------------ |
+| Projects             |       8 | `acbf92bc65c0ffb5dcca60b1207f60f8221e4ccdc86f9ca3dd614d19291af903` |
+| Listings             |       0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| Developers           |       7 | `b1a215d76836127188487a69c7462f7aa1aa7e7c8c34c7d2e96b82bbe3e81d22` |
+| Project media        |       6 | `9d46fbb2eb5a0464a5986fed421c41108dd6dc9cfc5316bff39f624252b0fb66` |
+| Ingestion batches    |       1 | `8e5b23c0451562696747607fee8b4b5ef50f1f6aee10f81119791a339a703add` |
+| Ingestion warnings   |       6 | `88ddeb90efeadb9ff8c8c60cc5508162f13af763e3a56b763c9867c3ac5925eb` |
+| Auth users           |       1 | identity value withheld                                            |
+| Confirmed Auth users |       1 | identity value withheld                                            |
+| Storage buckets      |       0 | no rows                                                            |
+| Storage objects      |       0 | no rows                                                            |
+
+The application-data counts still match the initial baseline. Modeva remains published, Coralina remains draft/unpublished, Rainpalm remains absent, and the six seeded projects are unchanged. Migration history remains at 13 applied versions through `20260718113000`; a fresh isolated official dry run still proposes only the same seven pending Studio migrations. No deployment operation or traffic-changing action was initiated. Because the authoritative host is inaccessible, the external deployment revision and public-traffic state cannot be independently attested; that evidence gap is itself the blocking finding.
 
 ## Current production data facts
 
@@ -175,32 +211,30 @@ If any condition cannot be proven, Studio rollout stops until truth cleanup is r
 
 Tracked Lovable metadata identifies the TanStack Start template and its template revision, not a deployed application commit. The repository defaults to a Cloudflare/Nitro target. A local untracked build artifact names worker `foreveros26-forever`, but local output is not deployment evidence and was excluded from the branch.
 
-The deployed Lovable project, current production release SHA, and production environment-secret presence could not be verified. The signed-in Lovable UI timed out during inspection. `https://forever-home-core.lovable.app`, `/studio`, representative public routes, and `/sitemap.xml` all returned the same Cloudflare 404 response. It is therefore unverified whether production serves reviewed main at all.
+**Hosting verdict: unresolved because of a specific access limitation.** The Cloudflare dashboard is not authenticated. Lovable is authenticated and lists two candidate projects, but their project-detail deployment/configuration surfaces do not render any usable metadata. GitHub has no deployment, environment, or Pages record. The repository and local build output establish a Cloudflare/Nitro build target only, not the real production host or deployed revision. The old Lovable 404 URL is not authoritative and is not used to decide the verdict.
 
 ### Required production environment names
 
-Presence is currently unknown for all four requirements:
+Presence and scope remain unknown for all four exact requirements:
 
 - `SUPABASE_URL`
 - `SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY` — server only; never `VITE_`-prefixed or client-bundled
-- exactly one of `STUDIO_OWNER_USER_ID` (preferred) or `STUDIO_OWNER_EMAIL` — server only
+- `STUDIO_OWNER_USER_ID` — server only; exact confirmed Auth UUID must be retrieved from the protected production source
 
-No value may be copied into a report, command line, client environment, screenshot, or tracked file. Validation is name/presence, server scope, exact project identity, and client-bundle absence only.
+Values were available from protected production sources but were not applied because the authoritative host/scope could not be verified and both candidate platform paths may deploy or immediately affect production. No value may be copied into a report, command line, client environment, screenshot, or tracked file. Validation remains name/presence, server scope, exact project identity, and client-bundle absence only.
 
 ### Auth
 
-Production exposes the expected key types, but values were neither recorded nor reported. Production has zero `auth.users`. Email Auth is enabled, public signup is enabled, and email confirmation is required. No confirmed Owner identity exists, so first-login bootstrap cannot be safely attempted. Public signup must be disabled before deployment even though Studio rejects non-members.
+Production exposes the expected publishable and server key types, but values were neither recorded nor reported. Production has exactly one confirmed Auth user. Email/password sign-in remains enabled and public signup is disabled. No second user, Studio member, first-login bootstrap, or Studio session exists.
 
 ## Blocking findings
 
-1. The Lovable production project and exact deployed release commit are unverified.
-2. The known public production URL and representative routes return Cloudflare 404.
-3. Required production environment name presence and server-only scope are unverified.
-4. Production Auth has zero users; no confirmed Owner identity exists.
-5. Public email signup is enabled.
-6. Six known fictitious seeded projects remain active + published in the database. Repository quarantine makes this a conditional rather than automatic Studio blocker, but the separate cleanup obligation remains open.
-7. No Owner has authorized any Gate A–F action.
+1. The authoritative production host and exact deployed release commit are unresolved because Cloudflare is unauthenticated, Lovable project-detail metadata does not render, and GitHub contains no deployment evidence.
+2. Required production environment-name presence and server-only scope are unverified and unapplied.
+3. Available platform behavior would deploy/activate or immediately affect production when configuration changes; that action was not authorized.
+4. Six known fictitious seeded projects remain active + published in the database. Repository quarantine makes this a conditional rather than automatic Studio blocker, but the separate cleanup obligation remains open.
+5. Gate C's identity provisioning is complete; Gates A, B, D, E, and F remain unauthorized and incomplete.
 
 The database migration/catalogue gate itself has no blocking drift.
 
@@ -237,9 +271,9 @@ Use the official production CA and `verify-full` for independent SQL validation.
 
 **Owner confirmation:** authorize secret configuration only, not deployment.
 
-**UI operation:** in the exact Lovable production project, open project/deployment settings, select the production environment, and create the four required names above. Configure exactly one Owner selector, preferring user ID. Do not place service-role or Owner-selector values in client/public variables.
+**UI operation:** in the verified authoritative production host, open project/deployment settings, select the production environment, and create the four required names above. Configure only `STUDIO_OWNER_USER_ID` as the Owner selector. Do not place service-role or Owner-selector values in client/public variables.
 
-**Expected effect:** deployment configuration changes only; no database or public-site change until deployment.
+**Expected effect:** depends on the verified host. Cloudflare Worker secret changes create and deploy a new version; Lovable Live configuration affects production immediately. Treat configuration as a deployment/activation action unless authoritative host evidence proves a deployment-free path.
 
 **Validate:** name/presence and server-only scope without displaying values; `SUPABASE_URL` ref equals production; configuration contains exactly one Owner selector; deployment/build client bundle contains none of the server-only names or exact secret values.
 
@@ -247,7 +281,7 @@ Use the official production CA and `verify-full` for independent SQL validation.
 
 **Recovery:** unset or rotate the affected secret and rebuild before any deployment. Rotation is reversible operationally but may invalidate active sessions/jobs; record it. Required confirmation: Owner or authorized deployment administrator.
 
-### Gate C — Provision the Owner Auth identity
+### Gate C — Provision the Owner Auth identity — completed 2026-07-23
 
 **Owner confirmation:** authorize one production Auth identity and disabling public signup.
 
@@ -255,7 +289,7 @@ Use the official production CA and `verify-full` for independent SQL validation.
 
 **Expected effect:** one confirmed Auth row and closed public signup; no Studio membership until the first authorized login.
 
-**Validate:** one intended confirmed user, no duplicate, exact configured user ID, signup disabled, and zero Studio members before first login.
+**Validated result:** exactly one confirmed intended user, no duplicate, signup disabled, email/password sign-in enabled, and no Studio member/bootstrap/login. The exact user ID is retrievable from the protected production source for Gate B but is not yet configured because Gate B is blocked.
 
 **Stop conditions:** unconfirmed/duplicate/wrong identity, public signup still enabled, any unexpected member, or selector mismatch.
 
@@ -305,8 +339,8 @@ Use the official production CA and `verify-full` for independent SQL validation.
 
 ## Recommended decision
 
-Do **not** authorize migration or deployment yet. Authorize only a bounded readiness checkpoint that resolves the Lovable project/revision, verifies required production secret-name presence and server-only scope, creates one confirmed Owner identity, and disables public signup. Then repeat the read-only preflight and present a fresh Gate A decision packet.
+Do **not** authorize migration or deployment yet. Identity hardening is complete. Restore authenticated access to the actual production hosting metadata (Cloudflare and/or working Lovable project detail), establish the authoritative host and deployed revision, and verify the four exact production environment names and server-only scope. If configuration deploys or activates code, combine it only with a separately authorized exact-revision Gate D plan. Then present a fresh Gate A/B decision packet.
 
 ## Final preflight status
 
-**BLOCKED — PRODUCTION PREFLIGHT FOUND UNSAFE OR INCOMPLETE STATE — NO PRODUCTION WRITES**
+**BLOCKED — CONFIGURATION OR IDENTITY READINESS REMAINS INCOMPLETE — NO MIGRATIONS OR DEPLOYMENT**

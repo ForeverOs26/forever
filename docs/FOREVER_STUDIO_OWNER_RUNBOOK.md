@@ -24,17 +24,20 @@ the separate Owner confirmation defined in the production preflight report.
    - `20260722120000_studio_independent_review_corrections.sql`
    - `20260722130000_studio_resume_principal_authorization.sql`
    - `20260722140000_studio_durable_resume_eligibility.sql`
-2. Set the server environment variables:
+2. **Pending authoritative host access:** set the server environment variables
+   only in the verified production host and only in an operation whose deployment
+   effect has been separately authorized:
    - `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` (used to verify the signed-in
      publisher's token), and
    - `SUPABASE_SERVICE_ROLE_KEY` (used only on the server for Studio writes),
      plus
-   - either `STUDIO_OWNER_USER_ID=<your Supabase user id>` (preferred, exact
-     identity) or `STUDIO_OWNER_EMAIL=<your confirmed email>`.
-3. Create one Owner login (email + password) in the production Supabase Auth
-   project and confirm it. The 2026-07-23 preflight found zero Auth users and
-   public email signup enabled; disable public signup before rollout.
-4. Open `<your site>/studio`, sign in — you become the Owner automatically.
+   - `STUDIO_OWNER_USER_ID=<your Supabase user id>` (exact identity, server
+     only; never expose the value in logs, screenshots, Git, or client code).
+3. **Completed 2026-07-23:** production Supabase Auth contains exactly one
+   confirmed Owner login; public signup is disabled; email/password sign-in is
+   still enabled. No second user was created.
+4. **Not yet authorized:** open `<your site>/studio`, sign in — you become the
+   Owner automatically.
    Nobody else can do this: the database allows exactly one self-bootstrapped
    owner, only while the member list is empty, and only for your configured
    identity. Public signups must be off even though Studio also rejects any

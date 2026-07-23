@@ -1,6 +1,6 @@
 # FOREVER-STUDIO-001 — Implementation Report
 
-Status: **PR #95 merged at `7963ceeb3e49f932153dd92afde0e5cb446b57f5`; implementation and staging acceptance are canonical. Production rollout is blocked pending the separate production preflight gates.** The scoped-count gate, source-membership eligibility ordering, per-job isolation, additive migration, disposable-database assertions, and browser-driven staging acceptance all passed. The production database has since been inspected read-only; no production write or deployment occurred.
+Status: **PR #95 merged at `7963ceeb3e49f932153dd92afde0e5cb446b57f5`; implementation and staging acceptance are canonical. Production rollout is blocked pending authoritative hosting and environment evidence plus the remaining separate production gates.** The scoped-count gate, source-membership eligibility ordering, per-job isolation, additive migration, disposable-database assertions, and browser-driven staging acceptance all passed. Production now has exactly one confirmed Owner Auth identity and public signup is disabled. No Studio membership/bootstrap/login, migration, deployment, smoke, publication, catalogue mutation, or Storage mutation occurred.
 Base commit: `50a79ad8e3584dc6d5569d3979c162fbd81b537e` (authoritative main)
 Branch: `claude/forever-studio-upload-dfev75`
 Durable-resume corrective starting head: `6c14e979f6cbda0d91297560d342a06d58eba1ba`
@@ -10,7 +10,7 @@ Date: 2026-07-23 (durable-resume correction and final staging acceptance)
 
 PR #95 is merged and the seven Studio migrations are contiguous on staging through `20260722140000`. A separate production preflight used the exact canonical production project, official CA, verified TLS, and explicit read-only transactions. Production remains at the 13 pre-Studio migrations through `20260718113000`; the official dry run proposes exactly the seven committed Studio migrations, in order, and no partial Studio schema, bucket, function, policy, or migration-history state exists. Before/after deterministic production fingerprints are identical.
 
-This section supersedes earlier statements in this report that PR #95 was open or that production had never been queried. Those statements remain accurate historical evidence for their original staging checkpoints. Production has still never been migrated, mutated, deployed, or published by the Studio work. The current blocked rollout status, exact evidence, and Owner gates are canonical in `docs/FOREVER_STUDIO_PRODUCTION_PREFLIGHT_REPORT.md`.
+This section supersedes earlier statements in this report that PR #95 was open or that production had never been queried. Those statements remain accurate historical evidence for their original staging checkpoints. The only later authorized production mutations were creation of one confirmed Owner Auth identity and disabling public signup. Production has not been migrated, deployed, Studio-bootstrapped, smoked, or published by the Studio work. The current blocked rollout status, exact evidence, and Owner gates are canonical in `docs/FOREVER_STUDIO_PRODUCTION_PREFLIGHT_REPORT.md`.
 
 ## Durable-resume corrective pass (2026-07-23)
 
@@ -740,10 +740,13 @@ streaming fixtures rather than a production traffic test.
 
 ## Remaining operational follow-up
 
-1. **Environment:** set server-side `SUPABASE_SERVICE_ROLE_KEY`,
-   `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and either `STUDIO_OWNER_USER_ID`
-   (preferred) or `STUDIO_OWNER_EMAIL`; sign in once to bootstrap the Owner;
-   optionally disable public sign-ups in the Supabase dashboard.
+1. **Hosting/environment:** obtain authenticated access to authoritative
+   production hosting metadata, identify the deployed revision, and verify or
+   set server-side `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL`,
+   `SUPABASE_PUBLISHABLE_KEY`, and `STUDIO_OWNER_USER_ID` only under a separately
+   authorized deployment/activation gate. The Owner Auth identity already
+   exists and public signup is disabled; Studio bootstrap/login is not yet
+   authorized.
 2. **Durable background execution:** the poll-driven resume is the working
    default on Cloudflare Workers. For fully unattended completion without an
    open dashboard, wire a Cloudflare Cron Trigger (or an external worker) to
