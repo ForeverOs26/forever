@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { processUploadJob, resumeDueJobs, startUploadJob } from "../server/service";
 import { makeWorld, tinyJpeg, OWNER } from "./fakes";
+import { syntheticJpeg } from "./media-truth-fixtures";
 
 function largeJpeg(totalBytes = 26 * 1024 * 1024): Buffer {
   const head = tinyJpeg();
@@ -29,15 +30,23 @@ describe("explicit upload-complete readiness boundary", () => {
     expect((await world.data.getJob(started.jobId))?.processing_requested_at).toBeNull();
     expect(world.executor.store.projects).toHaveLength(0);
 
+    // A valid, byte-distinct late photo (distinct scan salt — NOT trailing bytes
+    // after EOI, which the sanitizer now rejects).
     world.storage.put(
       started.uploads[1].bucket,
       started.uploads[1].path,
-      Buffer.concat([tinyJpeg(), Buffer.from("late")]),
+      syntheticJpeg(false, 1, 42),
       "text/html",
     );
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
     expect(result.status).toBe("published");
-    expect(world.executor.store.media).toHaveLength(2);
+    expect(result.warnings.some((warning) => warning.code === "media_sanitization_limit")).toBe(
+      true,
+    );
+    expect(world.executor.store.media).toHaveLength(1);
+    const files = (await world.data.getJob(started.jobId))!.files;
+    expect(files.find((file) => file.name === "late.jpg")?.status).toBe("published_public");
+    expect(files.find((file) => file.name === "large.jpg")?.publicPath).toBeUndefined();
     expect((await world.data.getJob(started.jobId))?.processing_requested_at).not.toBeNull();
   });
 

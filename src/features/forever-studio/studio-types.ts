@@ -11,6 +11,50 @@
  * never creates a follow-on approval or publication gate.
  */
 
+export interface MediaDimensions {
+  width: number;
+  height: number;
+}
+
+export interface EmbeddedMediaClaims {
+  capture_time: string | null;
+  timezone: string | null;
+  orientation: number | null;
+  dimensions: MediaDimensions | null;
+  device_make: string | null;
+  device_model: string | null;
+  software: string | null;
+  gps: { latitude: number; longitude: number; altitude: number | null } | null;
+}
+
+export interface MediaTruthRecord {
+  parser: {
+    format: string;
+    result:
+      | "parsed"
+      | "metadata_absent"
+      | "malformed"
+      | "unsupported"
+      | "over_limit"
+      | "color_profile_unsupported";
+  };
+  claims: EmbeddedMediaClaims;
+  sensitive_metadata_found: boolean | null;
+  sanitization_succeeded: boolean;
+  original: { sha256: string; size: number };
+  derivative: {
+    sha256: string;
+    size: number;
+    media_class: "image";
+    content_type: string;
+  } | null;
+  sanitizer_version: string;
+  verification: {
+    result: "verified" | "not_run" | "failed";
+    forbidden_metadata: string[];
+  };
+}
+
 export type StudioRole = "owner" | "trusted_publisher";
 
 export type StudioWorkflow =
@@ -48,7 +92,7 @@ export type StudioJobFileStatus =
 
 /**
  * One upload record. EVERY file is uploaded to the private staging bucket
- * first; only selected, byte-verified final media are copied to a public
+ * first; only selected, sanitized and byte-verified derivatives are uploaded to a public
  * bucket during finalization. Observed values come from the actual stored
  * bytes, never from the browser's declaration.
  */
@@ -71,9 +115,13 @@ export interface StudioJobFile {
   mediaClass?: string | null;
   /** True when the declared size/type disagrees with the observed bytes. */
   declaredMismatch?: boolean;
-  /** Set only for a selected final media file copied to a public bucket. */
+  /** Set only for a selected verified derivative uploaded to a public bucket. */
   publicBucket?: string | null;
   publicPath?: string | null;
+  /** Private extraction/sanitization evidence; never part of public projections. */
+  mediaTruth?: MediaTruthRecord;
+  /** Per-entry evidence for media expanded from this private ZIP original. */
+  mediaTruthEntries?: Array<{ name: string; mediaTruth: MediaTruthRecord }>;
 }
 
 export interface StudioUploadTarget {

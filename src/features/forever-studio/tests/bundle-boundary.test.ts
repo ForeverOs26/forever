@@ -54,6 +54,18 @@ describe("Studio bundle boundary", () => {
     }
   });
 
+  it("public media paths and titles cannot be derived from original filenames", () => {
+    const extraction = read("src/features/forever-studio/server/extraction.ts");
+    expect(extraction).not.toContain("prettyTitleFromFileName");
+    expect(extraction).not.toContain("publicPathForMedia");
+    expect(extraction).toContain("publicPathForDerivative(");
+    expect(extraction).toContain("derivativeSha256");
+    expect(extraction).toContain("neutralPublicMediaTitle(");
+    expect(extraction).not.toContain(
+      'canonicalPublicContentType(candidate.name, publicDigest.head, "image")',
+    );
+  });
+
   it("server functions and middleware reach server modules only via dynamic import", () => {
     const functions = read("src/features/forever-studio/studio.functions.ts");
     const auth = read("src/features/forever-studio/studio-auth.ts");

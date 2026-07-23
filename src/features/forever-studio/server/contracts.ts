@@ -288,13 +288,7 @@ export interface StudioStorage {
   hashObject(bucket: string, path: string, headBytes: number): Promise<StudioObjectDigest | null>;
   /** Download only when within `maxBytes`; null when absent or over the cap. */
   downloadWithin(bucket: string, path: string, maxBytes: number): Promise<Buffer | null>;
-  /** Server-side copy (no bytes through the app server); publishes final media. */
-  copyObject(
-    from: { bucket: string; path: string },
-    to: { bucket: string; path: string },
-    /** Canonical type derived from observed bytes; never browser metadata. */
-    contentType: string,
-  ): Promise<void>;
+
   /** Re-stage an expanded archive entry into the private bucket. */
   upload(bucket: string, path: string, data: Buffer, contentType?: string): Promise<void>;
   remove(bucket: string, paths: string[]): Promise<void>;

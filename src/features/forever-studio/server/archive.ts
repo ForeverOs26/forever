@@ -59,12 +59,13 @@ export interface StudioArchiveResult {
 }
 
 function archiveWarning(code: string, fileName: string, message: string): ProgressiveWarning {
+  const publicLabel = "Private source archive";
   return {
     entity: "document",
     code,
     severity: "warning",
-    message,
-    payload: { file: fileName },
+    message: message.split(fileName).join(publicLabel),
+    payload: { file: publicLabel },
   };
 }
 

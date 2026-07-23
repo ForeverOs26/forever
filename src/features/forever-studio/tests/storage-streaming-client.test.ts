@@ -49,19 +49,22 @@ describe("installed Supabase Storage streaming download", () => {
     expect(blobCalls).toBe(0);
   });
 
-  it("normalizes public metadata through stream download + canonical upload", () => {
-    const source = readFileSync(
+  it("has no blind public-copy capability and read-verifies bounded derivatives", () => {
+    const storageSource = readFileSync(
       resolve(process.cwd(), "src/features/forever-studio/server/deps.server.ts"),
       "utf8",
     );
-    const start = source.indexOf("async copyObject(from, to, contentType)");
-    const end = source.indexOf("async upload(bucket", start);
-    const body = source.slice(start, end);
-    expect(body).toContain("download(from.path).asStream()");
-    expect(body).toContain("contentType");
-    expect(body).toContain("upsert: true");
-    expect(body).not.toContain("arrayBuffer");
-    expect(body).not.toContain("Buffer.from");
-    expect(body).not.toContain(".copy(");
+    const extractionSource = readFileSync(
+      resolve(process.cwd(), "src/features/forever-studio/server/extraction.ts"),
+      "utf8",
+    );
+    expect(storageSource).not.toContain("copyObject");
+    expect(extractionSource).toContain("createPublicDerivative");
+    expect(extractionSource).toContain("MAX_MEDIA_SANITIZE_BYTES");
+    expect(extractionSource).toContain(
+      "deps.storage.upload(toBucket, toPath, derivative.bytes, derivative.contentType)",
+    );
+    expect(extractionSource).toContain("deps.storage.hashObject(toBucket, toPath");
+    expect(extractionSource).not.toContain("deps.storage.copyObject");
   });
 });

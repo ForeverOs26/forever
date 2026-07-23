@@ -23,6 +23,8 @@ import {
 } from "@/features/forever-ingestion/provenance";
 import { FakeIngestExecutor } from "@/features/forever-ingestion/tests/fake-ingest-executor";
 
+import { syntheticJpeg, syntheticPng, syntheticWebp } from "./media-truth-fixtures";
+
 import type {
   PriceListPdfExtraction,
   StudioActor,
@@ -48,7 +50,7 @@ export class FakeStorage implements StudioStorage {
   objects = new Map<string, Buffer>();
   contentTypes = new Map<string, string>();
   signedUploads: string[] = [];
-  /** Force copyObject to throw once (models a transient storage failure). */
+  /** Force the next public derivative upload to throw once. */
   failCopyOnce = false;
   /** Force remove to throw once (models a crash before cleanup could run). */
   failRemoveOnce = false;
@@ -111,22 +113,11 @@ export class FakeStorage implements StudioStorage {
     return buf;
   }
 
-  async copyObject(
-    from: { bucket: string; path: string },
-    to: { bucket: string; path: string },
-    contentType: string,
-  ): Promise<void> {
-    if (this.failCopyOnce) {
-      this.failCopyOnce = false;
-      throw new Error("storage copy failed (injected)");
-    }
-    const buf = this.objects.get(this.key(from.bucket, from.path));
-    if (!buf) throw new Error(`copy source missing: ${from.bucket}/${from.path}`);
-    this.objects.set(this.key(to.bucket, to.path), buf);
-    this.contentTypes.set(this.key(to.bucket, to.path), contentType);
-  }
-
   async upload(bucket: string, path: string, data: Buffer, contentType?: string): Promise<void> {
+    if (this.failCopyOnce && bucket !== "studio-uploads") {
+      this.failCopyOnce = false;
+      throw new Error("storage derivative upload failed (injected)");
+    }
     this.objects.set(this.key(bucket, path), data);
     if (contentType) this.contentTypes.set(this.key(bucket, path), contentType);
   }
@@ -978,15 +969,17 @@ export function enroll(world: FakeWorld, actor: StudioActor): void {
   });
 }
 
-/** A tiny valid JPEG header (FF D8 FF ... FF D9) for magic-byte media tests. */
+/** Tiny structurally valid synthetic images for magic and sanitizer tests. */
 export function tinyJpeg(): Buffer {
-  return Buffer.from([
-    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0xff, 0xd9,
-  ]);
+  return syntheticJpeg();
 }
 
 export function tinyPng(): Buffer {
-  return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x00]);
+  return syntheticPng();
+}
+
+export function tinyWebp(): Buffer {
+  return syntheticWebp();
 }
 
 export function tinyPdf(): Buffer {
@@ -1015,9 +1008,13 @@ export function tinyFtyp(brand: string): Buffer {
 export function magicBytesFor(name: string): Buffer {
   const ext = name.toLowerCase().split(".").pop() ?? "";
   const suffix = Buffer.from(`::${name}`);
-  if (["jpg", "jpeg", "heic", "bmp", "tif", "tiff"].includes(ext))
-    return Buffer.concat([tinyJpeg(), suffix]);
-  if (["png", "webp", "gif"].includes(ext)) return Buffer.concat([tinyPng(), suffix]);
+  const salt = [...name].reduce((sum, char) => (sum + char.charCodeAt(0)) % 256, 0);
+  if (["jpg", "jpeg", "bmp", "tif", "tiff"].includes(ext)) return syntheticJpeg(false, 1, salt);
+  if (ext === "png" || ext === "gif") return syntheticPng(false, 1, salt);
+  if (ext === "webp") return syntheticWebp(false, 1, salt);
+  if (ext === "heic") return Buffer.concat([tinyFtyp("heic"), suffix]);
+  if (ext === "heif") return Buffer.concat([tinyFtyp("mif1"), suffix]);
+  if (ext === "avif") return Buffer.concat([tinyFtyp("avif"), suffix]);
   if (["mp4", "mov", "webm", "mkv", "avi", "m4v"].includes(ext))
     return Buffer.concat([tinyMp4(), suffix]);
   if (ext === "pdf") return Buffer.concat([tinyPdf(), suffix]);

@@ -19,6 +19,7 @@ const IMAGE_EXTENSIONS = new Set([
   ".gif",
   ".heic",
   ".heif",
+  ".avif",
   ".bmp",
   ".tif",
   ".tiff",

@@ -56,7 +56,7 @@ import {
   type StudioListingPublishRow,
   type StudioPrivateContact,
 } from "./contracts";
-import { logStudioFailure, safeMessageFor, StudioError, toSafeError } from "./errors";
+import { logStudioFailure, redact, safeMessageFor, StudioError, toSafeError } from "./errors";
 import {
   attemptPrefixFromToken,
   declareJobFiles,
@@ -81,7 +81,7 @@ export const STALE_PROCESSING_SECONDS = 900; // 15 minutes
 export const HEARTBEAT_SECONDS = 60;
 /** Jobs auto-resumed per dashboard poll / cron tick. */
 export const RESUME_BATCH = 5;
-/** Public buckets Studio media can be copied into (cleanup sweeps both). */
+/** Public buckets Studio derivatives can be uploaded into (cleanup sweeps both). */
 const PUBLIC_MEDIA_BUCKETS = [PUBLIC_IMAGE_BUCKET, PUBLIC_DOCUMENT_BUCKET];
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,79}$/;
 const TEXT_LIMIT = 4000;
@@ -236,7 +236,7 @@ async function assertKnownProjectTargetAccess(
 }
 
 function warningSummaries(warnings: ProgressiveWarning[]): StudioWarningSummary[] {
-  return warnings.map((warning) => ({ code: warning.code, message: warning.message }));
+  return warnings.map((warning) => ({ code: warning.code, message: redact(warning.message) }));
 }
 
 function sealedBatch(body: Omit<ProgressiveBatch, "batch_fingerprint">): ProgressiveBatch {
