@@ -32,9 +32,12 @@ all four:
 1. **Decoded-dimension bomb.** A tiny compressed file could declare enormous
    dimensions (e.g. 50000×50000) and publish, so a browser/thumbnailer/Worker
    would allocate gigapixels on fetch. Now every parser and the verifier enforce
-   `MAX_MEDIA_DIMENSION = 20000` px/side and `MAX_MEDIA_PIXELS = 256_000_000`
+   `MAX_MEDIA_DIMENSION = 12000` px/side and `MAX_MEDIA_PIXELS = 64_000_000`
    with overflow-safe arithmetic; an over-dimension source is retained privately
-   and produces no public object.
+   and produces no public object. The bounds admit ordinary 12 MP, 24 MP, and
+   48 MP phone photos while capping any public gallery image's decoded RGBA at
+   ≈ 256 MiB, so no fetch can be forced to allocate the ≈ 1 GiB a near-256 MP
+   frame would have demanded.
 2. **Post-SOS metadata smuggling.** The first-SOS-then-copy JPEG reader treated
    all bytes to EOI as opaque scan, so an APP1/EXIF or COM planted between scans
    survived verbatim and still verified. A complete bounded marker/entropy walk
@@ -115,21 +118,21 @@ are human observations. Embedded metadata is not promoted to this class.
 
 ## Final format policy
 
-| Format                                  | Final behavior                                                                                | Conditions / warning                                                                                                                                                                                         |
-| --------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| JPEG/JPG                                | **SANITIZED AND PUBLICATION-ELIGIBLE** or **VERIFIED METADATA-FREE AND PUBLICATION-ELIGIBLE** | At most 24 MiB; ≤ 20000 px/side and ≤ 256 MP; structurally valid; complete marker walk; no trailing bytes after EOI; not ICC/color-managed; orientation retained only in deterministic orientation-only EXIF |
-| PNG                                     | **SANITIZED AND PUBLICATION-ELIGIBLE** or **VERIFIED METADATA-FREE AND PUBLICATION-ELIGIBLE** | At most 24 MiB; ≤ 20000 px/side and ≤ 256 MP; valid signature/chunk bounds/CRC/IHDR/IDAT/IEND; no `iCCP` or unknown critical chunk; safe color/render chunks retained                                        |
-| WebP                                    | **SANITIZED AND PUBLICATION-ELIGIBLE** or **VERIFIED METADATA-FREE AND PUBLICATION-ELIGIBLE** | At most 24 MiB; ≤ 20000 px/side and ≤ 256 MP; exact RIFF bounds; VP8/VP8L payload and dimensions; no `ICCP`; EXIF/XMP stripped and VP8X flags rewritten                                                      |
-| ICC / color-managed image               | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | JPEG `ICC_PROFILE` / PNG `iCCP` / WebP `ICCP`: retained with `media_color_profile_unsupported`; never malformed, never re-color-mapped                                                                       |
-| Supported image over 20000 px or 256 MP | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | Declared decoded size exceeds the pixel/side bound; retained privately, no public object                                                                                                                     |
-| HEIC/HEIF                               | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No compatible Worker-safe item/transform sanitizer                                                                                                                                                           |
-| AVIF                                    | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No compatible Worker-safe item/property sanitizer                                                                                                                                                            |
-| MP4                                     | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No bounded streaming ISO-BMFF metadata rewriter                                                                                                                                                              |
-| MOV/QuickTime                           | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No bounded streaming QuickTime atom rewriter                                                                                                                                                                 |
-| WebM/MKV/AVI/M4V and other video        | **UNSUPPORTED AND PRIVATE**                                                                   | Byte classification may recognize the container, but publication remains fail-closed                                                                                                                         |
-| GIF/BMP/TIFF and other raster           | **UNSUPPORTED AND PRIVATE**                                                                   | No verified orientation/metadata sanitizer                                                                                                                                                                   |
-| PDF and other documents                 | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING** or **UNSUPPORTED AND PRIVATE**            | Public document byte copying is removed until a compatible sanitizer exists                                                                                                                                  |
-| Supported image over 24 MiB             | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | Original is still streamed and hashed; transformation is not attempted                                                                                                                                       |
+| Format                                 | Final behavior                                                                                | Conditions / warning                                                                                                                                                                                        |
+| -------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| JPEG/JPG                               | **SANITIZED AND PUBLICATION-ELIGIBLE** or **VERIFIED METADATA-FREE AND PUBLICATION-ELIGIBLE** | At most 24 MiB; ≤ 12000 px/side and ≤ 64 MP; structurally valid; complete marker walk; no trailing bytes after EOI; not ICC/color-managed; orientation retained only in deterministic orientation-only EXIF |
+| PNG                                    | **SANITIZED AND PUBLICATION-ELIGIBLE** or **VERIFIED METADATA-FREE AND PUBLICATION-ELIGIBLE** | At most 24 MiB; ≤ 12000 px/side and ≤ 64 MP; valid signature/chunk bounds/CRC/IHDR/IDAT/IEND; no `iCCP` or unknown critical chunk; safe color/render chunks retained                                        |
+| WebP                                   | **SANITIZED AND PUBLICATION-ELIGIBLE** or **VERIFIED METADATA-FREE AND PUBLICATION-ELIGIBLE** | At most 24 MiB; ≤ 12000 px/side and ≤ 64 MP; exact RIFF bounds; VP8/VP8L payload and dimensions; no `ICCP`; EXIF/XMP stripped and VP8X flags rewritten                                                      |
+| ICC / color-managed image              | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | JPEG `ICC_PROFILE` / PNG `iCCP` / WebP `ICCP`: retained with `media_color_profile_unsupported`; never malformed, never re-color-mapped                                                                      |
+| Supported image over 12000 px or 64 MP | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | Declared decoded size exceeds the pixel/side bound; retained privately, no public object                                                                                                                    |
+| HEIC/HEIF                              | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No compatible Worker-safe item/transform sanitizer                                                                                                                                                          |
+| AVIF                                   | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No compatible Worker-safe item/property sanitizer                                                                                                                                                           |
+| MP4                                    | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No bounded streaming ISO-BMFF metadata rewriter                                                                                                                                                             |
+| MOV/QuickTime                          | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No bounded streaming QuickTime atom rewriter                                                                                                                                                                |
+| WebM/MKV/AVI/M4V and other video       | **UNSUPPORTED AND PRIVATE**                                                                   | Byte classification may recognize the container, but publication remains fail-closed                                                                                                                        |
+| GIF/BMP/TIFF and other raster          | **UNSUPPORTED AND PRIVATE**                                                                   | No verified orientation/metadata sanitizer                                                                                                                                                                  |
+| PDF and other documents                | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING** or **UNSUPPORTED AND PRIVATE**            | Public document byte copying is removed until a compatible sanitizer exists                                                                                                                                 |
+| Supported image over 24 MiB            | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | Original is still streamed and hashed; transformation is not attempted                                                                                                                                      |
 
 The phone-video input workflow remains available. Phone originals still upload
 and remain private, while unsafe video publication is withheld explicitly.
@@ -217,16 +220,18 @@ Every parser (JPEG SOF, PNG IHDR, WebP VP8X/VP8L/VP8) and the final-byte
 verifier reject dimensions outside safe bounds, so a small compressed file
 cannot declare gigapixels and publish:
 
-- `MAX_MEDIA_DIMENSION = 20000` px per side, and
-- `MAX_MEDIA_PIXELS = 256_000_000` (256 MP) total decoded pixels.
+- `MAX_MEDIA_DIMENSION = 12000` px per side, and
+- `MAX_MEDIA_PIXELS = 64_000_000` (64 MP) total decoded pixels.
 
 The check is overflow-safe: because width and height are unsigned-32-bit fields
-whose raw product can exceed 2^53, each side is compared to 20000 first, after
-which `width*height` is at most 4×10⁸ and exact in IEEE-754. These bounds admit
-the widest current phone sensors (Samsung 200 MP ≈ 16320×12240) with margin,
-while decoded RGBA at the cap (≈ 1 GiB) is the worst case any downstream decoder
-faces. An over-dimension source is retained privately and creates no public
-object; the verifier independently re-enforces the bound on the derivative.
+whose raw product can exceed 2^53, each side is compared to 12000 first, after
+which `width*height` is at most 1.44×10⁸ and exact in IEEE-754. These bounds
+admit ordinary 12 MP, 24 MP, and 48 MP phone photos (a 48 MP sensor ≈ 8000×6000)
+with margin, while capping a public gallery image's decoded RGBA at ≈ 256 MiB —
+so no fetch can be forced to allocate the ≈ 1 GiB an image near the previous
+256 MP ceiling would have demanded. An over-dimension source is retained
+privately and creates no public object; the verifier independently re-enforces
+the bound on the derivative.
 
 ### JPEG
 
@@ -396,9 +401,11 @@ Fixtures are generated in TypeScript and contain fake values only:
 - Malformed EXIF.
 - A size-boundary test using only a declared size (no large committed binary).
 - ZIP entry sanitizer/evidence coverage.
-- Dimension fixtures with header-declared sizes and tiny bodies: 50000×50000
-  bomb, oversized JPEG/PNG/WebP, exact pixel-cap pass, one-pixel-over fail,
-  per-side over, and a 65535² overflow-safety case.
+- Dimension fixtures with header-declared sizes and tiny bodies: ordinary 12 MP
+  / 24 MP / 48 MP phone-photo pass (portrait and landscape), 50000×50000 bomb,
+  a 100 MP frame that the previous 256 MP cap admitted (now retained privately),
+  oversized JPEG/PNG/WebP, exact pixel-cap pass, one-pixel-over fail, per-side
+  over, and a 65535² overflow-safety case.
 - Multi-scan (progressive) JPEG with private COM and/or EXIF planted between
   scans, and a baseline JPEG with `FF00` stuffing + `RSTn` restart markers.
 - A JPEG with trailing bytes after EOI (rejected).
@@ -443,7 +450,7 @@ the production build.
 - JPEG files with any bytes after EOI (for example Samsung/Google Motion Photos,
   which append a video after the still) are retained privately rather than
   trimmed-and-published.
-- Supported images declaring more than 20000 px/side or 256 MP are retained
+- Supported images declaring more than 12000 px/side or 64 MP are retained
   privately with no public object.
 - Video, HEIC/HEIF/AVIF, PDF, other documents, unsupported raster formats, and
   supported images above 24 MiB have no public derivative in this change.
@@ -487,23 +494,27 @@ No migration was applied.
 ## Validation evidence
 
 All results below are from the isolated worktree at PR head
-`0428e676090a2a995994423ace8246c072e36f43` plus this correction pass.
+`75b51f041ea08ef05b08b2e2ef2e760516bac89a` plus the public-decode-limit
+correction pass (`MAX_MEDIA_DIMENSION` 20000→12000, `MAX_MEDIA_PIXELS`
+256_000_000→64_000_000).
 
-- Media-truth + new regression suites: `media-truth.test.ts` (30 tests, incl.
-  dimension-boundary, inter-scan/marker-walk, and ICC/color-profile cases),
-  `media-memory.test.ts` (2 tests), `media-decode-smoke.test.ts` (2 tests, incl.
-  EXIF orientations 2–8): all pass.
+- Media-truth + new regression suites: `media-truth.test.ts` (32 tests, incl.
+  the 12/24/48 MP phone-photo pass, the 100 MP frame the previous cap admitted
+  now retained privately, dimension-boundary, inter-scan/marker-walk, and
+  ICC/color-profile cases), `media-memory.test.ts` (2 tests),
+  `media-decode-smoke.test.ts` (2 tests, incl. EXIF orientations 2–8): all pass.
 - Hostile-filename and JFIF-thumbnail regressions: pass (within the media-truth
   suite).
 - Complete Forever Studio suite (including storage concurrency/replay/cleanup,
   authorization, object/actor boundaries, bundle boundary, upload readiness):
-  21 files, 207 tests passed.
+  21 files, 209 tests passed.
 - Child-process memory measurement (near-cap 22 MiB JPEG and PNG): per-call peak
   RSS growth ≈ one derivative (JPEG ≈ 22.8 MiB / 1.03×, PNG ≈ 22.2 MiB / 1.00×);
   regression asserts growth < 2× source. See the Cloudflare section.
 - Chromium decode: representative sanitized JPEG/PNG/WebP decode, and JPEG
   derivatives for EXIF orientations 2–8 all decode.
-- Full repository Vitest run: 342 test files, 3,269 tests passed and 5 skipped.
+- Full repository Vitest run: 342 test files passed (344 total), 3,271 tests
+  passed and 5 skipped.
   The only failures are two pre-existing, unrelated files that both depend on
   local/gitignored `forever-data` artifacts absent in a fresh worktree checkout:
   `src/import/importer-preflight.test.ts` (3 assertions — fails identically at

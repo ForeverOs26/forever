@@ -21,21 +21,24 @@ export const MAX_MEDIA_SANITIZE_BYTES = 24 * 1024 * 1024;
  * a browser, thumbnailer, or Cloudflare Image Resizing worker would allocate on
  * fetch.
  *
- * - MAX_MEDIA_DIMENSION (20000 px/side) admits the widest current phone sensors
- *   (Samsung 200 MP ≈ 16320×12240) with margin, and rejects e.g. 50000×50000.
- * - MAX_MEDIA_PIXELS (256 MP) admits a full-resolution 200 MP phone frame
- *   (≈199.8 MP) with margin; decoded RGBA at the cap ≈ 1 GiB is the absolute
- *   worst case a downstream decoder faces, and the compressed input is still
- *   capped at 24 MiB so a bomb cannot pass either gate.
+ * - MAX_MEDIA_DIMENSION (12000 px/side) admits ordinary 12 MP, 24 MP, and 48 MP
+ *   phone photos (a 48 MP sensor ≈ 8000×6000) with margin, and rejects e.g.
+ *   50000×50000.
+ * - MAX_MEDIA_PIXELS (64 MP) admits a full-resolution 48 MP phone frame (≈48 MP)
+ *   with margin; decoded RGBA at the cap ≈ 256 MiB, so no public gallery image
+ *   can force a browser, thumbnailer, or resizing Worker to allocate the ≈ 1 GiB
+ *   an image near the previous 256 MP ceiling would have required. Larger
+ *   sources are retained privately, and the compressed input is still capped at
+ *   24 MiB so a bomb cannot pass either gate.
  */
-export const MAX_MEDIA_DIMENSION = 20000;
-export const MAX_MEDIA_PIXELS = 256 * 1000 * 1000;
+export const MAX_MEDIA_DIMENSION = 12000;
+export const MAX_MEDIA_PIXELS = 64 * 1000 * 1000;
 
 /**
  * Overflow-safe decoded-size guard. Width and height are read as unsigned
  * 32-bit fields, so their raw product can exceed 2^53 and lose precision; the
- * per-side check runs first, after which both are ≤ 20000 and width*height
- * ≤ 4e8 is exact in IEEE-754.
+ * per-side check runs first, after which both are ≤ 12000 and width*height
+ * ≤ 1.44e8 is exact in IEEE-754.
  */
 export function withinPixelBounds(width: number, height: number): boolean {
   if (!Number.isInteger(width) || !Number.isInteger(height)) return false;

@@ -463,6 +463,50 @@ describe("FOREVER-MEDIA-TRUTH-001 dimension / pixel-count boundary", () => {
   // (both sides below MAX_MEDIA_DIMENSION), so "one pixel over" is one extra row.
   const edge = Math.floor(Math.sqrt(MAX_MEDIA_PIXELS));
 
+  it("admits ordinary 12 MP, 24 MP, and 48 MP phone photos across JPEG/PNG/WebP", () => {
+    // Portrait and landscape framings of the common phone-sensor resolutions:
+    // 12 MP (4000×3000), 24 MP (6000×4000), and 48 MP (8000×6000). All stay
+    // within MAX_MEDIA_DIMENSION (12000) and MAX_MEDIA_PIXELS (64 MP).
+    const phonePhotos: Array<[number, number]> = [
+      [4000, 3000],
+      [3000, 4000],
+      [6000, 4000],
+      [4000, 6000],
+      [8000, 6000],
+      [6000, 8000],
+    ];
+    for (const [width, height] of phonePhotos) {
+      expect(width * height).toBeLessThanOrEqual(MAX_MEDIA_PIXELS);
+      for (const [make, type] of [
+        [syntheticJpegWithDimensions, "image/jpeg"],
+        [syntheticPngWithDimensions, "image/png"],
+        [syntheticWebpWithDimensions, "image/webp"],
+      ] as const) {
+        expect
+          .soft(derive(make(width, height), type).eligible, `${type} ${width}×${height}`)
+          .toBe(true);
+      }
+    }
+  });
+
+  it("rejects a 100 MP image the previous 256 MP cap admitted and retains no derivative", () => {
+    // 10000×10000 = 100 MP: within the old 20000 px / 256 MP bounds (would have
+    // published), but over the tightened 64 MP cap. Decoded RGBA at 100 MP is
+    // ≈ 400 MiB, and the cap keeps every public gallery image well under the
+    // ≈ 1 GiB a near-256 MP frame would demand.
+    expect(10000).toBeLessThanOrEqual(MAX_MEDIA_DIMENSION);
+    expect(10000 * 10000).toBeGreaterThan(MAX_MEDIA_PIXELS);
+    for (const [make, type] of [
+      [syntheticJpegWithDimensions, "image/jpeg"],
+      [syntheticPngWithDimensions, "image/png"],
+      [syntheticWebpWithDimensions, "image/webp"],
+    ] as const) {
+      const result = derive(make(10000, 10000), type);
+      expect.soft(result.eligible, `${type} 100 MP`).toBe(false);
+      expect.soft(result.record.derivative, `${type} 100 MP derivative`).toBeNull();
+    }
+  });
+
   it("rejects a 50,000 × 50,000 PNG dimension bomb and creates no derivative", () => {
     const result = derive(syntheticPngWithDimensions(50000, 50000), "image/png");
     expect(result.eligible).toBe(false);
