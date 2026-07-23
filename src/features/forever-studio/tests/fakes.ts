@@ -25,9 +25,14 @@ import { FakeIngestExecutor } from "@/features/forever-ingestion/tests/fake-inge
 
 import { syntheticJpeg, syntheticPng, syntheticWebp } from "./media-truth-fixtures";
 
+import type { StudioArchiveEntryState, StudioArchiveStatus } from "../studio-types";
+
 import type {
   PriceListPdfExtraction,
   StudioActor,
+  StudioArchiveEntryOutcome,
+  StudioArchiveEntryRow,
+  StudioArchiveRow,
   StudioAuditEntry,
   StudioData,
   StudioDeps,
@@ -147,6 +152,21 @@ export class FakeStorage implements StudioStorage {
 
   publicContentType(bucket: string, path: string): string | undefined {
     return this.contentTypes.get(this.key(bucket, path));
+  }
+
+  async listObjects(
+    bucket: string,
+    prefix: string,
+  ): Promise<Array<{ name: string; size: number }>> {
+    const objects: Array<{ name: string; size: number }> = [];
+    const fullPrefix = `${bucket}/${prefix}/`;
+    for (const [key, buf] of this.objects) {
+      if (!key.startsWith(fullPrefix)) continue;
+      const rest = key.slice(fullPrefix.length);
+      if (rest.includes("/")) continue;
+      objects.push({ name: rest, size: buf.length });
+    }
+    return objects;
   }
 }
 
@@ -713,6 +733,118 @@ export class FakeData implements StudioData {
       this.objectOwners = ownersSnapshot;
       throw error;
     }
+  }
+
+  // --- Large-archive durable inventory (mirrors the migration's RPCs) ------
+
+  archives = new Map<string, StudioArchiveRow>();
+  archiveEntries = new Map<string, StudioArchiveEntryRow>();
+
+  /** Mirrors the SQL claim check every archive-processing RPC performs. */
+  private jobClaimHeld(jobId: string, token: string): boolean {
+    const job = this.jobs.get(jobId);
+    return !!job && job.status === "processing" && job.processing_token === token;
+  }
+
+  async createArchive(row: StudioArchiveRow) {
+    this.archives.set(row.id, structuredClone(row));
+  }
+  async getArchive(id: string) {
+    const row = this.archives.get(id);
+    return row ? structuredClone(row) : null;
+  }
+  async listJobArchives(jobId: string) {
+    return [...this.archives.values()]
+      .filter((row) => row.job_id === jobId)
+      .sort(
+        (left, right) =>
+          left.ordinal - right.ordinal ||
+          left.created_at.localeCompare(right.created_at) ||
+          left.id.localeCompare(right.id),
+      )
+      .map((row) => structuredClone(row));
+  }
+  async updateArchivePreProcessing(
+    id: string,
+    fromStatuses: StudioArchiveStatus[],
+    patch: Partial<StudioArchiveRow>,
+  ) {
+    const row = this.archives.get(id);
+    if (!row || !fromStatuses.includes(row.status)) return false;
+    this.archives.set(id, { ...row, ...structuredClone(patch) });
+    return true;
+  }
+  async updateArchiveIfClaimed(
+    jobId: string,
+    token: string,
+    archiveId: string,
+    patch: Partial<StudioArchiveRow>,
+  ) {
+    if (!this.jobClaimHeld(jobId, token)) return false;
+    const row = this.archives.get(archiveId);
+    if (!row || row.job_id !== jobId) return false;
+    this.archives.set(archiveId, { ...row, ...structuredClone(patch) });
+    return true;
+  }
+  async insertArchiveEntriesIfClaimed(
+    jobId: string,
+    token: string,
+    entries: StudioArchiveEntryRow[],
+  ) {
+    if (!this.jobClaimHeld(jobId, token)) return false;
+    for (const entry of entries) {
+      const duplicate = [...this.archiveEntries.values()].some(
+        (row) => row.archive_id === entry.archive_id && row.entry_index === entry.entry_index,
+      );
+      if (duplicate) continue;
+      this.archiveEntries.set(entry.id, structuredClone(entry));
+    }
+    return true;
+  }
+  async listArchiveEntries(archiveId: string, states?: StudioArchiveEntryState[]) {
+    return [...this.archiveEntries.values()]
+      .filter((row) => row.archive_id === archiveId && (!states || states.includes(row.state)))
+      .sort((left, right) => left.entry_index - right.entry_index)
+      .map((row) => structuredClone(row));
+  }
+  async listJobArchiveEntries(jobId: string, states?: StudioArchiveEntryState[]) {
+    return [...this.archiveEntries.values()]
+      .filter((row) => row.job_id === jobId && (!states || states.includes(row.state)))
+      .sort((left, right) => left.entry_index - right.entry_index)
+      .map((row) => structuredClone(row));
+  }
+  async settleArchiveEntryIfClaimed(
+    jobId: string,
+    token: string,
+    entryId: string,
+    outcome: StudioArchiveEntryOutcome,
+  ) {
+    if (!this.jobClaimHeld(jobId, token)) return false;
+    const entry = this.archiveEntries.get(entryId);
+    if (!entry || entry.job_id !== jobId || entry.state !== "pending") return false;
+    Object.assign(entry, {
+      state: outcome.state,
+      outcome_code: outcome.outcomeCode,
+      observed_size: outcome.observedSize ?? null,
+      sha256: outcome.sha256 ?? null,
+      media_class: outcome.mediaClass ?? null,
+      public_bucket: outcome.publicBucket ?? null,
+      public_path: outcome.publicPath ?? null,
+      public_url: outcome.publicUrl ?? null,
+      media_type: outcome.mediaType ?? null,
+      media_title: outcome.mediaTitle ?? null,
+      media_truth: outcome.mediaTruth ? structuredClone(outcome.mediaTruth) : null,
+      attempt: outcome.attempt,
+      processed_at: outcome.processedAt,
+    });
+    return true;
+  }
+  async releaseJobIfClaimed(jobId: string, token: string) {
+    const job = this.jobs.get(jobId);
+    if (!job || job.status !== "processing" || job.processing_token !== token) return false;
+    job.status = "received";
+    job.processing_token = null;
+    return true;
   }
 
   /** Set to make recordAudit throw (audit-failure regression). */

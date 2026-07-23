@@ -99,6 +99,70 @@ export const studioProcessJob = createServerFn({ method: "POST" })
     );
   });
 
+const archivePlanSchema = z
+  .object({
+    jobId: z.string().uuid(),
+    fileName: z.string().min(1).max(300),
+    declaredSize: z.number().int().positive(),
+  })
+  .strip();
+
+const archiveConfirmSchema = z
+  .object({
+    jobId: z.string().uuid(),
+    archiveId: z.string().uuid(),
+    partSha256: z
+      .array(z.string().regex(/^[a-f0-9]{64}$/))
+      .min(1)
+      .max(64),
+  })
+  .strip();
+
+/**
+ * Register (or resume) one large-archive chunked upload for an owned job:
+ * returns the fixed part geometry, which parts are already stored, and fresh
+ * signed targets for the parts that still need bytes.
+ */
+export const studioPlanArchiveUpload = createServerFn({ method: "POST" })
+  .middleware([requireStudioMember])
+  .validator(archivePlanSchema)
+  .handler(async ({ data, context }) => {
+    const { planJobArchiveUpload } = await import("./server/service");
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("archive_plan", () =>
+      planJobArchiveUpload(context.deps, context.actor, data),
+    );
+  });
+
+/**
+ * Confirm one chunked upload. Acceptance requires every stored part to exist
+ * with exactly the planned size (the browser's claim is never trusted); the
+ * recorded per-part SHA-256 claims are verified against the actual stored
+ * bytes by the first processing slices before any expansion.
+ */
+export const studioConfirmArchiveUpload = createServerFn({ method: "POST" })
+  .middleware([requireStudioMember])
+  .validator(archiveConfirmSchema)
+  .handler(async ({ data, context }) => {
+    const { confirmJobArchiveUpload } = await import("./server/service");
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("archive_confirm", () =>
+      confirmJobArchiveUpload(context.deps, context.actor, data),
+    );
+  });
+
+/** Durable, public-safe processing progress for one owned job. */
+export const studioGetJobProgress = createServerFn({ method: "GET" })
+  .middleware([requireStudioMember])
+  .validator(z.object({ jobId: z.string().uuid() }))
+  .handler(async ({ data, context }) => {
+    const { getJobProgress } = await import("./server/service");
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("job_progress", () =>
+      getJobProgress(context.deps, context.actor, data.jobId),
+    );
+  });
+
 /**
  * Automatic durable resume. Safe to call on every dashboard poll and from a
  * scheduled worker/cron: it claims and completes explicitly-ready received,

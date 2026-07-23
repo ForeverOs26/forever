@@ -1161,4 +1161,166 @@ SELECT pg_temp.assert_true(
     ='private-developer@example.com',
   'service_role can execute private-column queries');
 RESET ROLE;
+
+-- ===========================================================================
+-- LARGE ARCHIVES (FOREVER-STUDIO-LARGE-ARCHIVE-001)
+-- Durable inventory tables + claim-checked slice functions.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- LA-1. Internal-only posture of the archive tables
+-- ---------------------------------------------------------------------------
+SELECT pg_temp.assert_true(
+  (SELECT bool_and(relrowsecurity) FROM pg_class
+   WHERE oid IN ('public.studio_archives'::regclass,
+                 'public.studio_archive_entries'::regclass)),
+  'archive tables have RLS enabled');
+
+SELECT pg_temp.assert_true(
+  NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public'
+              AND tablename IN ('studio_archives','studio_archive_entries')),
+  'archive tables have zero policies');
+
+SELECT pg_temp.assert_true(
+  NOT has_table_privilege('anon','public.studio_archives','SELECT')
+  AND NOT has_table_privilege('authenticated','public.studio_archives','SELECT')
+  AND NOT has_table_privilege('anon','public.studio_archive_entries','SELECT')
+  AND NOT has_table_privilege('authenticated','public.studio_archive_entries','SELECT')
+  AND has_table_privilege('service_role','public.studio_archives','INSERT')
+  AND has_table_privilege('service_role','public.studio_archive_entries','INSERT'),
+  'archive tables are service-role only');
+
+SELECT pg_temp.assert_true(
+  has_function_privilege('service_role','public.studio_release_job(uuid,uuid)','EXECUTE')
+  AND has_function_privilege('service_role','public.studio_update_archive_claimed(uuid,uuid,uuid,jsonb)','EXECUTE')
+  AND has_function_privilege('service_role','public.studio_index_archive_entries(uuid,uuid,uuid,jsonb)','EXECUTE')
+  AND has_function_privilege('service_role','public.studio_settle_archive_entry(uuid,uuid,uuid,jsonb)','EXECUTE')
+  AND has_function_privilege('service_role','public.studio_job_archive_entry_counts(uuid)','EXECUTE')
+  AND NOT has_function_privilege('anon','public.studio_release_job(uuid,uuid)','EXECUTE')
+  AND NOT has_function_privilege('authenticated','public.studio_settle_archive_entry(uuid,uuid,uuid,jsonb)','EXECUTE'),
+  'archive slice functions are service-role only');
+
+-- ---------------------------------------------------------------------------
+-- LA-2. Claim-checked inventory insert (idempotent) + archive patch
+-- ---------------------------------------------------------------------------
+INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status)
+VALUES ('60000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000001','owner','new_development','received');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_request_job_processing(
+     '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',900))=1,
+  'archive test job is claimed by its worker token');
+
+INSERT INTO public.studio_archives(id,job_id,ordinal,file_name,declared_size,part_size,part_count,status)
+VALUES ('61000000-0000-0000-0000-000000000001',
+        '60000000-0000-0000-0000-000000000001',0,'dossier.zip',16777216,8388608,2,'uploaded');
+
+-- A stale token can neither index nor patch.
+SELECT pg_temp.assert_true(
+  NOT public.studio_index_archive_entries(
+    '60000000-0000-0000-0000-000000000001','dddddddd-0000-0000-0000-00000000000d',
+    '61000000-0000-0000-0000-000000000001',
+    '[{"entry_index":0,"entry_name":"photos/a.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":10,"uncompressed_size":10}]'::jsonb),
+  'a stale token cannot insert inventory');
+SELECT pg_temp.assert_true(
+  NOT public.studio_update_archive_claimed(
+    '60000000-0000-0000-0000-000000000001','dddddddd-0000-0000-0000-00000000000d',
+    '61000000-0000-0000-0000-000000000001','{"status":"rejected"}'::jsonb),
+  'a stale token cannot patch archive state');
+
+-- The claim holder inserts; a re-run fills nothing twice.
+SELECT pg_temp.assert_true(
+  public.studio_index_archive_entries(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    '61000000-0000-0000-0000-000000000001',
+    '[{"entry_index":0,"entry_name":"photos/a.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":10,"uncompressed_size":10},
+      {"entry_index":1,"entry_name":"video/b.mp4","display_label":"entry 2 (video)","category":"video","compressed_size":20,"uncompressed_size":20}]'::jsonb),
+  'the claim holder inserts the inventory');
+SELECT pg_temp.assert_true(
+  public.studio_index_archive_entries(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    '61000000-0000-0000-0000-000000000001',
+    '[{"entry_index":0,"entry_name":"photos/a.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":10,"uncompressed_size":10}]'::jsonb)
+  AND (SELECT count(*) FROM public.studio_archive_entries
+       WHERE archive_id='61000000-0000-0000-0000-000000000001')=2,
+  're-indexing is idempotent (conflict-skip, no duplicates)');
+
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    '61000000-0000-0000-0000-000000000001',
+    '{"status":"indexed","entry_count":2,"total_uncompressed":30}'::jsonb),
+  'the claim holder patches archive state');
+SELECT pg_temp.assert_true(
+  (SELECT status FROM public.studio_archives
+   WHERE id='61000000-0000-0000-0000-000000000001')='indexed',
+  'the archive patch is durable');
+
+-- ---------------------------------------------------------------------------
+-- LA-3. Pending-only, claim-checked settlement (settled outcomes immutable)
+-- ---------------------------------------------------------------------------
+SELECT pg_temp.assert_true(
+  NOT public.studio_settle_archive_entry(
+    '60000000-0000-0000-0000-000000000001','dddddddd-0000-0000-0000-00000000000d',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+      AND archive_id='61000000-0000-0000-0000-000000000001'),
+    '{"state":"published_public","outcomeCode":null,"attempt":"stale","processedAt":"2026-07-24T00:00:00Z"}'::jsonb),
+  'a stale token cannot settle an entry');
+
+SELECT pg_temp.assert_true(
+  public.studio_settle_archive_entry(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+      AND archive_id='61000000-0000-0000-0000-000000000001'),
+    '{"state":"published_public","outcomeCode":null,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","observedSize":10,"publicBucket":"project-images","publicPath":"studio/x/att/00-a.jpg","publicUrl":"https://cdn/x.jpg","mediaType":"gallery","attempt":"cccccccc0000","processedAt":"2026-07-24T00:00:00Z"}'::jsonb),
+  'the claim holder settles a pending entry');
+
+SELECT pg_temp.assert_true(
+  NOT public.studio_settle_archive_entry(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+      AND archive_id='61000000-0000-0000-0000-000000000001'),
+    '{"state":"failed","outcomeCode":"rewrite","attempt":"late","processedAt":"2026-07-24T00:00:01Z"}'::jsonb),
+  'a settled entry never re-settles, even under the live claim');
+SELECT pg_temp.assert_true(
+  (SELECT state FROM public.studio_archive_entries WHERE entry_index=0
+    AND archive_id='61000000-0000-0000-0000-000000000001')='published_public',
+  'the settled outcome remains immutable');
+
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_job_archive_entry_counts(
+     '60000000-0000-0000-0000-000000000001'))=2,
+  'entry counts aggregate by state');
+
+-- ---------------------------------------------------------------------------
+-- LA-4. Slice release: prompt continuation without the stale window
+-- ---------------------------------------------------------------------------
+SELECT pg_temp.assert_true(
+  NOT public.studio_release_job(
+    '60000000-0000-0000-0000-000000000001','dddddddd-0000-0000-0000-00000000000d'),
+  'a stale token cannot release the job');
+SELECT pg_temp.assert_true(
+  public.studio_release_job(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c'),
+  'the claim holder releases the slice');
+SELECT pg_temp.assert_true(
+  (SELECT status='received' AND processing_token IS NULL AND processing_requested_at IS NOT NULL
+   FROM public.studio_upload_jobs WHERE id='60000000-0000-0000-0000-000000000001'),
+  'release restores received with readiness preserved');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_claim_job(
+     '60000000-0000-0000-0000-000000000001','eeeeeeee-0000-0000-0000-00000000000e',900))=1,
+  'a released job is immediately claimable by the next poll');
+
+-- ---------------------------------------------------------------------------
+-- LA-5. Job deletion cascades the durable inventory
+-- ---------------------------------------------------------------------------
+DELETE FROM public.studio_upload_jobs WHERE id='60000000-0000-0000-0000-000000000001';
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_archives
+    WHERE job_id='60000000-0000-0000-0000-000000000001')=0
+  AND (SELECT count(*) FROM public.studio_archive_entries
+    WHERE job_id='60000000-0000-0000-0000-000000000001')=0,
+  'deleting a job cascades its archives and entries');
+
 SELECT 'ALL STUDIO POSTGRES ASSERTIONS PASSED' AS result;

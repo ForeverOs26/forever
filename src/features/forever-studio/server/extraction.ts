@@ -342,7 +342,7 @@ async function sha256Of(buffer: Buffer): Promise<string> {
 // Structured JSON detection (Fast Intake artifact shapes, consumed verbatim)
 // ---------------------------------------------------------------------------
 
-function parseJsonBuffer(buffer: Buffer): unknown | null {
+export function parseJsonBuffer(buffer: Buffer): unknown | null {
   try {
     return JSON.parse(buffer.toString("utf8").replace(/^\uFEFF/, ""));
   } catch {
@@ -458,6 +458,12 @@ export interface GatherOptions {
   token: string;
   /** Lease heartbeat, awaited between files/entries; throws to abort. */
   heartbeat?: () => Promise<void>;
+  /**
+   * SHA-256 digests already published durably by this job's large-archive
+   * entries (digest → public-safe label). Ordinary files and legacy inline
+   * ZIP entries matching one of these are deterministic duplicates.
+   */
+  seedHashes?: Map<string, string>;
 }
 
 function fileWarning(code: string, name: string, message: string): ProgressiveWarning {
@@ -474,7 +480,7 @@ function fileWarning(code: string, name: string, message: string): ProgressiveWa
   };
 }
 
-const NEUTRAL_MEDIA_TITLE: Partial<Record<IntakeCategory, string>> = {
+export const NEUTRAL_MEDIA_TITLE: Partial<Record<IntakeCategory, string>> = {
   photo: "Project photo",
   video: "Project video",
   brochure: "Project brochure",
@@ -564,7 +570,7 @@ export async function gatherMaterials(
   const warnings: ProgressiveWarning[] = [];
   const files: StudioJobFile[] = job.files.map((file) => ({ ...file }));
   const mediaCandidates: MediaCandidate[] = [];
-  const seenHashes = new Map<string, string>();
+  const seenHashes = new Map<string, string>(options.seedHashes ?? []);
   let priceList: ExtractedPriceList | null = null;
   let priceListSource: string | null = null;
   let factFields: ExtractedFactFields | null = null;

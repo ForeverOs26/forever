@@ -35,7 +35,12 @@ import {
   STUDIO_WORKFLOWS,
   type StartJobInput,
   type StartJobResult,
+  type StudioArchiveConfirmInput,
+  type StudioArchiveConfirmResult,
+  type StudioArchivePlanInput,
+  type StudioArchivePlanResult,
   type StudioInviteResult,
+  type StudioJobProgress,
   type StudioJobResult,
   type StudioListingDetail,
   type StudioOverview,
@@ -67,6 +72,14 @@ import {
   publicJobPrefix,
   type GatheredMaterials,
 } from "./extraction";
+import {
+  buildJobProgress,
+  composeArchiveMaterials,
+  confirmArchiveUpload,
+  planArchiveUpload,
+  runArchiveSlice,
+  type ComposedArchiveMaterials,
+} from "./large-archive";
 import { assertNotPartnerDemo, assertOwner } from "./membership";
 
 export const MAX_JOB_FILES = 60;
@@ -422,6 +435,78 @@ export async function processUploadJob(
   return claimAndProcess(deps, actor, job, true);
 }
 
+// ---------------------------------------------------------------------------
+// Large-archive uploads: plan (resumable part targets) / confirm / progress
+// ---------------------------------------------------------------------------
+
+async function requireJobAccess(
+  deps: StudioDeps,
+  actor: StudioActor,
+  jobId: string,
+): Promise<StudioJobRow> {
+  const job = await deps.data.getJob(jobId);
+  if (!job) throw new StudioAccessError("job_not_found");
+  assertObjectAccess(actor, job.created_by);
+  return job;
+}
+
+export async function planJobArchiveUpload(
+  deps: StudioDeps,
+  actor: StudioActor,
+  input: StudioArchivePlanInput,
+): Promise<StudioArchivePlanResult> {
+  assertNotPartnerDemo(deps);
+  const job = await requireJobAccess(deps, actor, input.jobId);
+  // Same pre-authorization as processing: a denied known target must not
+  // allocate private staging parts or signed targets as a side channel.
+  await assertKnownProjectTargetAccess(
+    deps,
+    actor,
+    job.project_slug,
+    job.facts.projectFacts as StudioProjectFacts | undefined,
+  );
+  const plan = await planArchiveUpload(deps, job, input);
+  await recordAuditSafely(deps, {
+    actor_id: actor.userId,
+    actor_email: actor.email,
+    action: "studio_archive_planned",
+    table_name: "studio_archives",
+    record_id: plan.archiveId,
+    metadata: { job_id: job.id, parts: plan.partCount, resumed: plan.presentParts.length > 0 },
+  });
+  return plan;
+}
+
+export async function confirmJobArchiveUpload(
+  deps: StudioDeps,
+  actor: StudioActor,
+  input: StudioArchiveConfirmInput,
+): Promise<StudioArchiveConfirmResult> {
+  assertNotPartnerDemo(deps);
+  const job = await requireJobAccess(deps, actor, input.jobId);
+  const result = await confirmArchiveUpload(deps, job, input);
+  if (result.accepted) {
+    await recordAuditSafely(deps, {
+      actor_id: actor.userId,
+      actor_email: actor.email,
+      action: "studio_archive_accepted",
+      table_name: "studio_archives",
+      record_id: result.archiveId,
+      metadata: { job_id: job.id },
+    });
+  }
+  return result;
+}
+
+export async function getJobProgress(
+  deps: StudioDeps,
+  actor: StudioActor,
+  jobId: string,
+): Promise<StudioJobProgress> {
+  const job = await requireJobAccess(deps, actor, jobId);
+  return buildJobProgress(deps, job);
+}
+
 /**
  * Automatic durable resume. Called on every dashboard poll (and safe for a
  * scheduled worker/cron to call) to pick up explicitly-ready received,
@@ -516,33 +601,80 @@ async function removeGroupedByBucket(
 }
 
 /**
- * Post-commit hygiene by the winning attempt: remove every other attempt's
- * token-scoped public objects for this job (orphans of stale, failed, or
- * crashed attempts). The winner's own prefix is never touched; failures here
+ * Post-commit hygiene by the winning attempt: remove every token-scoped
+ * public object of this job that is NOT referenced by the committed
+ * publication — i.e. not among the winner's own uploads and not owned by a
+ * durably settled archive-entry row (entries published by earlier slices
+ * under earlier claim tokens are page media and must survive). Failures here
  * are logged and never affect the committed publication.
  */
-async function cleanupForeignAttemptObjects(
+async function cleanupUnreferencedJobObjects(
   deps: StudioDeps,
   jobId: string,
-  token: string,
+  referenced: ReadonlySet<string>,
 ): Promise<void> {
-  const mine = attemptPrefixFromToken(token);
   const prefix = publicJobPrefix(jobId);
   for (const bucket of PUBLIC_MEDIA_BUCKETS) {
     try {
       const children = await deps.storage.listNames(bucket, prefix);
       for (const child of children) {
-        if (child === mine) continue;
         const inner = await deps.storage.listNames(bucket, `${prefix}/${child}`);
         const paths = inner.size
           ? [...inner].map((name) => `${prefix}/${child}/${name}`)
           : [`${prefix}/${child}`];
-        await deps.storage.remove(bucket, paths);
+        const orphans = paths.filter((path) => !referenced.has(`${bucket}/${path}`));
+        if (orphans.length) await deps.storage.remove(bucket, orphans);
       }
     } catch (error) {
       logStudioFailure("orphan_cleanup_deferred", error);
     }
   }
+}
+
+/** Keys of every public object the committed publication references. */
+function referencedObjectKeys(
+  materials: GatheredMaterials,
+  archiveObjects: Array<{ bucket: string; path: string }>,
+): Set<string> {
+  const keys = new Set<string>();
+  for (const object of materials.publicObjects) keys.add(`${object.bucket}/${object.path}`);
+  for (const object of archiveObjects) keys.add(`${object.bucket}/${object.path}`);
+  return keys;
+}
+
+/**
+ * Merge durable large-archive outcomes into the attempt's gathered materials.
+ * Archives settle first in strict deterministic order, so their adopted
+ * price list / facts win over a same-upload ordinary file; media appends
+ * after the ordinary items with continuous sort order.
+ */
+function mergeComposedIntoMaterials(
+  materials: GatheredMaterials,
+  composed: ComposedArchiveMaterials,
+): void {
+  const base = materials.media.length;
+  for (const item of composed.media) {
+    materials.media.push({ ...item, sort_order: (item.sort_order ?? 0) + base });
+  }
+  materials.photoUrls.push(...composed.photoUrls);
+  if (!materials.firstPhotoUrl) materials.firstPhotoUrl = composed.firstPhotoUrl;
+  if (!materials.firstBrochureUrl) materials.firstBrochureUrl = composed.firstBrochureUrl;
+  if (composed.priceList) {
+    if (materials.priceList) {
+      materials.warnings.push({
+        entity: "price",
+        code: "price_list_duplicate_ignored",
+        severity: "warning",
+        message:
+          "The price list extracted from an uploaded archive was applied; a separately uploaded price list was retained but not applied.",
+      });
+    }
+    materials.priceList = composed.priceList;
+    materials.priceListSource = composed.priceListSource;
+  }
+  if (composed.factFields && !materials.factFields) materials.factFields = composed.factFields;
+  if (composed.derivedName && !materials.derivedName) materials.derivedName = composed.derivedName;
+  materials.warnings.push(...composed.warnings);
 }
 
 /**
@@ -588,11 +720,49 @@ export async function processClaimedJob(
   // this attempt's public objects belong to the published page and must
   // never be removed, and the job must never be reported as failed.
   const commitState = { committed: false };
+  const heartbeat = makeHeartbeat(deps, claimed.id, token);
+  // Public objects owned by durably settled archive entries (any attempt).
+  // They are page media once publication commits and are NEVER cleanup
+  // candidates; they are populated only after every archive is terminal.
+  let archiveObjects: Array<{ bucket: string; path: string }> = [];
   try {
+    // Large-archive lane first: advance one bounded, claim-scoped slice of
+    // part verification / directory indexing / entry routing. When budgets
+    // end the slice with work remaining, release the claim so the very next
+    // poll — from this browser, any signed-in Studio session, or a scheduled
+    // caller — claims and continues from the durable entry checkpoints.
+    const slice = await runArchiveSlice(deps, claimed, token, heartbeat);
+    if (slice.pendingWork) {
+      await deps.data.releaseJobIfClaimed(claimed.id, token);
+      return {
+        jobId: claimed.id,
+        status: "processing",
+        workflow: claimed.workflow,
+        pagePath: null,
+        projectSlug: claimed.project_slug,
+        listingId: claimed.listing_id,
+        publicStatus: null,
+        counts: null,
+        warnings: [],
+        errorCode: null,
+        error: null,
+        retryable: true,
+        progress: await buildJobProgress(deps, { ...claimed, status: "processing" }),
+      };
+    }
+    // Every archive is terminal: compose the durable entry outcomes into
+    // publishable materials, then verify and gather the ordinary files.
+    let composed: ComposedArchiveMaterials | undefined;
+    if (slice.archiveCount > 0) {
+      composed = await composeArchiveMaterials(deps, claimed, 0);
+      archiveObjects = composed.referencedPublicObjects;
+    }
     materials = await gatherMaterials(deps, claimed, {
       token,
-      heartbeat: makeHeartbeat(deps, claimed.id, token),
+      heartbeat,
+      seedHashes: composed?.settledHashes,
     });
+    if (composed) mergeComposedIntoMaterials(materials, composed);
     // Persist the observed file records (size, sha256, media class, status).
     // Claim-checked: a stale worker must not overwrite a newer claim's data.
     const stillClaimed = await deps.data.updateJobIfClaimed(claimed.id, token, {
@@ -607,8 +777,24 @@ export async function processClaimedJob(
     }
     const result =
       claimed.workflow === "resale_listing"
-        ? await finalizeResale(deps, principals, claimed, materials, token, commitState)
-        : await finalizeProject(deps, principals, claimed, materials, token, commitState);
+        ? await finalizeResale(
+            deps,
+            principals,
+            claimed,
+            materials,
+            token,
+            commitState,
+            archiveObjects,
+          )
+        : await finalizeProject(
+            deps,
+            principals,
+            claimed,
+            materials,
+            token,
+            commitState,
+            archiveObjects,
+          );
     return result;
   } catch (error) {
     const safe = toSafeError(error, mapFailureCode(error));
@@ -708,6 +894,7 @@ async function finalizeProject(
   materials: GatheredMaterials,
   token: string,
   commitState: { committed: boolean },
+  archiveObjects: Array<{ bucket: string; path: string }> = [],
 ): Promise<StudioJobResult> {
   const suppliedAt = job.created_at;
   const manual = manualProjectFields(
@@ -817,13 +1004,19 @@ async function finalizeProject(
 
   if (summary.replayed) {
     // Another attempt already published this job; our token-scoped copies
-    // are orphans (the page references the winner's paths). Remove only ours.
+    // are orphans (the page references the winner's paths). Remove only ours
+    // — never the durably settled archive-entry objects, which the winner's
+    // publication references.
     await removeGroupedByBucket(deps, materials.publicObjects);
   } else {
-    // We won: sweep other attempts' orphaned public objects, then audit.
-    // Both are post-commit hygiene — non-destructive to the publication and
-    // non-fatal on failure.
-    await cleanupForeignAttemptObjects(deps, job.id, token);
+    // We won: sweep every job object the publication does not reference
+    // (foreign attempts' orphans), then audit. Both are post-commit hygiene —
+    // non-destructive to the publication and non-fatal on failure.
+    await cleanupUnreferencedJobObjects(
+      deps,
+      job.id,
+      referencedObjectKeys(materials, archiveObjects),
+    );
     await recordAuditSafely(deps, {
       actor_id: principals.execution.userId,
       actor_email: principals.execution.email,
@@ -882,6 +1075,7 @@ async function finalizeResale(
   materials: GatheredMaterials,
   token: string,
   commitState: { committed: boolean },
+  archiveObjects: Array<{ bucket: string; path: string }> = [],
 ): Promise<StudioJobResult> {
   const suppliedAt = job.created_at;
   const facts = (job.facts.resaleFacts ?? {}) as StudioResaleFacts;
@@ -991,7 +1185,11 @@ async function finalizeResale(
   if (published.replayed) {
     await removeGroupedByBucket(deps, materials.publicObjects);
   } else {
-    await cleanupForeignAttemptObjects(deps, job.id, token);
+    await cleanupUnreferencedJobObjects(
+      deps,
+      job.id,
+      referencedObjectKeys(materials, archiveObjects),
+    );
     await recordAuditSafely(deps, {
       actor_id: principals.execution.userId,
       actor_email: principals.execution.email,

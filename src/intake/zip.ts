@@ -110,13 +110,15 @@ const CRC_TABLE: Uint32Array = (() => {
   return table;
 })();
 
-function crc32(buffer: Buffer): number {
+export function zipCrc32(buffer: Buffer): number {
   let crc = 0xffffffff;
   for (let i = 0; i < buffer.length; i += 1) {
     crc = CRC_TABLE[(crc ^ buffer[i]) & 0xff] ^ (crc >>> 8);
   }
   return (crc ^ 0xffffffff) >>> 0;
 }
+
+const crc32 = zipCrc32;
 
 // ---------------------------------------------------------------------------
 // Central-directory parsing (bounds-checked, authoritative)
@@ -308,8 +310,24 @@ export function validateZipEntries(
   limits: ZipLimits,
   destDir: string,
 ): void {
-  if (buffer.length > limits.maxArchiveBytes) {
-    throw new ZipLimitError(`zip_archive_too_large: ${buffer.length} > ${limits.maxArchiveBytes}`);
+  validateZipEntrySet(buffer.length, entries, limits, destDir);
+}
+
+/**
+ * The complete entry-set safety contract, expressed against the archive's
+ * byte length rather than a materialized buffer so range-based readers (which
+ * never hold the whole archive in memory) enforce the identical contract.
+ */
+export function validateZipEntrySet(
+  archiveByteLength: number,
+  entries: ZipEntry[],
+  limits: ZipLimits,
+  destDir: string,
+): void {
+  if (archiveByteLength > limits.maxArchiveBytes) {
+    throw new ZipLimitError(
+      `zip_archive_too_large: ${archiveByteLength} > ${limits.maxArchiveBytes}`,
+    );
   }
   if (entries.length > limits.maxEntries) {
     throw new ZipLimitError(`zip_too_many_entries: ${entries.length} > ${limits.maxEntries}`);

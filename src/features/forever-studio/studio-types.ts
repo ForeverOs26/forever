@@ -208,6 +208,11 @@ export interface StudioJobResult {
   error: string | null;
   /** Whether an automatic or manual retry can still succeed. */
   retryable: boolean;
+  /**
+   * Present while a large-archive job is mid-processing: the slice completed,
+   * the claim was released, and the caller should poll again to continue.
+   */
+  progress?: StudioJobProgress | null;
 }
 
 export interface StudioSessionInfo {
@@ -314,6 +319,114 @@ export interface StudioInviteResult {
 export interface StudioResumeResult {
   resumed: number;
   results: StudioJobResult[];
+}
+
+// ---------------------------------------------------------------------------
+// Large-archive intake (FOREVER-STUDIO-LARGE-ARCHIVE-001)
+// ---------------------------------------------------------------------------
+
+/**
+ * Server-defined chunked-upload geometry. The browser slices a large archive
+ * into fixed-size parts and uploads each through its own short-lived signed
+ * URL; the server verifies the stored bytes of every part before the archive
+ * is accepted. Values are returned by the plan endpoint — never client-chosen.
+ */
+export const ARCHIVE_PART_BYTES = 8 * 1024 * 1024; // 8 MiB
+/** Product ceiling for one ZIP archive routed through the large-archive lane. */
+export const LARGE_ARCHIVE_MAX_BYTES = 300 * 1024 * 1024; // 300 MiB
+/** Archives above the legacy inline limit MUST use the chunked lane. */
+export const LARGE_ARCHIVE_MIN_BYTES = 16 * 1024 * 1024; // legacy inline cap
+export const MAX_ARCHIVES_PER_JOB = 8;
+/** Initial per-job source-material budget (declared bytes, all files+archives). */
+export const JOB_SOURCE_BUDGET_BYTES = 1024 * 1024 * 1024; // 1 GiB
+
+export type StudioArchiveStatus =
+  | "planned" // part plan registered; parts still uploading
+  | "uploaded" // every part present with the planned size; hashes pending
+  | "verifying" // slice-driven per-part hash verification in progress
+  | "indexed" // entry inventory persisted durably; entries pending
+  | "completed" // every entry settled
+  | "rejected"; // safety/verification rejection; original retained privately
+
+export type StudioArchiveEntryState =
+  | "pending"
+  | "published_public"
+  | "retained_private"
+  | "skipped_duplicate"
+  | "failed";
+
+/** One signed part-upload target (private staging bucket, server-chosen path). */
+export interface StudioArchivePartTarget {
+  index: number;
+  bucket: string;
+  path: string;
+  token: string;
+}
+
+export interface StudioArchivePlanInput {
+  jobId: string;
+  fileName: string;
+  declaredSize: number;
+}
+
+/**
+ * Plan response. `presentParts` lists indexes already stored with the planned
+ * size (resume support); `parts` holds fresh signed targets for every part
+ * that still needs bytes. Re-planning the same (name, size) returns the SAME
+ * archive so an interrupted upload resumes instead of duplicating.
+ */
+export interface StudioArchivePlanResult {
+  archiveId: string;
+  partSize: number;
+  partCount: number;
+  presentParts: number[];
+  parts: StudioArchivePartTarget[];
+}
+
+export interface StudioArchiveConfirmInput {
+  jobId: string;
+  archiveId: string;
+  /** Client-computed per-part SHA-256 claims (recorded, then server-verified). */
+  partSha256: string[];
+}
+
+export interface StudioArchiveConfirmResult {
+  archiveId: string;
+  accepted: boolean;
+  /** Parts absent or with a wrong stored size; re-upload via fresh targets. */
+  missingParts: StudioArchivePartTarget[];
+}
+
+/** Public-safe per-archive progress (labels never expose original filenames). */
+export interface StudioArchiveProgress {
+  archiveId: string;
+  /** Neutral display label ("Archive 1") — original names stay private. */
+  label: string;
+  status: StudioArchiveStatus;
+  partCount: number;
+  verifiedParts: number;
+  entryCount: number | null;
+  entriesProcessed: number;
+  entriesPublished: number;
+  entriesRetained: number;
+  entriesSkipped: number;
+  entriesFailed: number;
+  warningCode: string | null;
+}
+
+export interface StudioJobProgress {
+  jobId: string;
+  status: StudioJobStatus;
+  archives: StudioArchiveProgress[];
+  /** Aggregate entry counts across every archive of the job. */
+  discovered: number;
+  processed: number;
+  published: number;
+  retained: number;
+  skippedDuplicates: number;
+  failed: number;
+  pending: number;
+  warnings: StudioWarningSummary[];
 }
 
 /** Public page path helpers shared by UI and server result summaries. */
