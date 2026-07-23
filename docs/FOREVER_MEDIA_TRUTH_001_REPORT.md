@@ -554,3 +554,38 @@ correction pass (`MAX_MEDIA_DIMENSION` 20000→12000, `MAX_MEDIA_PIXELS`
 Staging and production were not accessed. No production or persistent migration
 was applied (only disposable test-cluster setup). No deploy occurred. Coralina
 and Rainpalm were not published.
+
+## Device-gate validation (2026-07-23, staging only)
+
+Full detail: `docs/FOREVER_MEDIA_TRUTH_DEVICE_VALIDATION_REPORT.md`. Summary:
+
+- **Android physical validation: PASS.** The Owner completed a real Android Chrome
+  Studio session (project-update workflow, job `2a295ac3…`): 4 photos published as
+  sanitized public derivatives, 1 MP4 retained private. Every claim is corroborated
+  by the live staging database, Storage, and byte-level inspection and matches the
+  Owner screenshots — opaque public paths, neutral titles, byte-identical private
+  originals (anon-denied), no duplicates, hero/gallery persisted, orientation
+  preserved (orientation-only EXIF in the derivative).
+- **MP4 private-retention: PASS.** `status=uploaded`, no public object, no
+  `media_type=video` row, neutral `media_sanitization_unsupported` warning; the
+  images and project still published.
+- **Metadata privacy defect fixed and re-proven on real data.** PR #99 had written the
+  full media-truth record — including extracted GPS/device/capture/software `claims` —
+  into the anon-readable `project_media.metadata`. It is now projected to
+  `Omit<MediaTruthRecord,"claims">` for the public row (full record kept privately),
+  with a regression test. On the Owner's real photos (which carried device make/model +
+  capture timestamps), every public row has no `claims` and no GPS/device/capture token,
+  verified via the anonymous read path.
+- **iPhone: AUTOMATED WEBKIT/IPHONE-COMPATIBILITY PASS** (Playwright WebKit 26.5, iPhone
+  emulation) — decodes sanitized JPEG/PNG/WebP + orientations 2–8, renders the live
+  public gallery + reload, exposes no device/filename tokens, renders the Studio shell;
+  sanitizer behavior for HEIC/HEIF/MOV/ICC-P3/duplicate/mixed confirmed via the real
+  code. **Physical iPhone NOT PERFORMED** (Owner has no iPhone) — real iPhone
+  camera/file-picker behavior is deferred, not represented as tested.
+- **Staging access was staging-only** (ref `garjibjhlzeljsnpzisu`), hard-guarded against
+  the production ref; dedicated test mutations were cleaned up. Final staging counts
+  equal the baseline plus only the Owner's preserved evidence. Production ref
+  `abtvsrcnfwlbawvrjeed` was never accessed; no deploy, no production migration.
+- **Rollout gate reminder:** apply `20260723130000_public_projection_privacy.sql` via the
+  authorised process before public rollout to close the pre-existing anon-readable
+  `original_name` column at the database layer.
