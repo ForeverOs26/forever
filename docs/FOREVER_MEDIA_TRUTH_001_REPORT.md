@@ -23,6 +23,33 @@ Every other image/video container and every selected PDF/document fails closed
 to private retention with a neutral warning. Unsupported media does not fail
 the job.
 
+## Final correction pass (post independent review)
+
+An independent read-only review confirmed the boundary was sound but flagged
+four residual defects. Sanitizer version `forever-media-truth-001/v3` addresses
+all four:
+
+1. **Decoded-dimension bomb.** A tiny compressed file could declare enormous
+   dimensions (e.g. 50000×50000) and publish, so a browser/thumbnailer/Worker
+   would allocate gigapixels on fetch. Now every parser and the verifier enforce
+   `MAX_MEDIA_DIMENSION = 20000` px/side and `MAX_MEDIA_PIXELS = 256_000_000`
+   with overflow-safe arithmetic; an over-dimension source is retained privately
+   and produces no public object.
+2. **Post-SOS metadata smuggling.** The first-SOS-then-copy JPEG reader treated
+   all bytes to EOI as opaque scan, so an APP1/EXIF or COM planted between scans
+   survived verbatim and still verified. A complete bounded marker/entropy walk
+   now tokenizes the whole stream: multi-scan/progressive JPEG is supported,
+   inter-scan APPn/COM are stripped, and trailing bytes after EOI are rejected.
+3. **ICC / Display-P3 handling.** An ICC-bearing image (common on iPhone
+   exports) was treated as `malformed`. It is now retained privately with the
+   dedicated `media_color_profile_unsupported` reason/warning — never
+   misclassified — so its color is never silently reinterpreted as sRGB.
+4. **Worker memory amplification.** Verification re-ran the full sanitizer,
+   building a second derivative. Verification now inspects the already-built
+   derivative directly (no re-rewrite), parsers use zero-copy subarray views,
+   and unchanged PNG/WebP chunks are re-emitted verbatim. Measured peak growth
+   for a near-cap image is ≈ one derivative (see Cloudflare section).
+
 ## Verified pre-change media path
 
 1. The browser accepts materials and exposes an `image/*` environment-camera
@@ -88,19 +115,21 @@ are human observations. Embedded metadata is not promoted to this class.
 
 ## Final format policy
 
-| Format                           | Final behavior                                                                                | Conditions / warning                                                                                                                                                   |
-| -------------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| JPEG/JPG                         | **SANITIZED AND PUBLICATION-ELIGIBLE** or **VERIFIED METADATA-FREE AND PUBLICATION-ELIGIBLE** | At most 24 MiB; structurally valid; dimensions present; no ICC profile requiring unsafe preservation; orientation retained only in deterministic orientation-only EXIF |
-| PNG                              | **SANITIZED AND PUBLICATION-ELIGIBLE** or **VERIFIED METADATA-FREE AND PUBLICATION-ELIGIBLE** | At most 24 MiB; valid signature/chunk bounds/CRC/IHDR/IDAT/IEND; no `iCCP` or unknown critical chunk; safe color/render chunks retained                                |
-| WebP                             | **SANITIZED AND PUBLICATION-ELIGIBLE** or **VERIFIED METADATA-FREE AND PUBLICATION-ELIGIBLE** | At most 24 MiB; exact RIFF bounds; VP8/VP8L payload and dimensions; no ICC profile; EXIF/XMP stripped and VP8X flags rewritten                                         |
-| HEIC/HEIF                        | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No compatible Worker-safe item/transform sanitizer                                                                                                                     |
-| AVIF                             | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No compatible Worker-safe item/property sanitizer                                                                                                                      |
-| MP4                              | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No bounded streaming ISO-BMFF metadata rewriter                                                                                                                        |
-| MOV/QuickTime                    | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No bounded streaming QuickTime atom rewriter                                                                                                                           |
-| WebM/MKV/AVI/M4V and other video | **UNSUPPORTED AND PRIVATE**                                                                   | Byte classification may recognize the container, but publication remains fail-closed                                                                                   |
-| GIF/BMP/TIFF and other raster    | **UNSUPPORTED AND PRIVATE**                                                                   | No verified orientation/metadata sanitizer                                                                                                                             |
-| PDF and other documents          | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING** or **UNSUPPORTED AND PRIVATE**            | Public document byte copying is removed until a compatible sanitizer exists                                                                                            |
-| Supported image over 24 MiB      | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | Original is still streamed and hashed; transformation is not attempted                                                                                                 |
+| Format                                  | Final behavior                                                                                | Conditions / warning                                                                                                                                                                                         |
+| --------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| JPEG/JPG                                | **SANITIZED AND PUBLICATION-ELIGIBLE** or **VERIFIED METADATA-FREE AND PUBLICATION-ELIGIBLE** | At most 24 MiB; ≤ 20000 px/side and ≤ 256 MP; structurally valid; complete marker walk; no trailing bytes after EOI; not ICC/color-managed; orientation retained only in deterministic orientation-only EXIF |
+| PNG                                     | **SANITIZED AND PUBLICATION-ELIGIBLE** or **VERIFIED METADATA-FREE AND PUBLICATION-ELIGIBLE** | At most 24 MiB; ≤ 20000 px/side and ≤ 256 MP; valid signature/chunk bounds/CRC/IHDR/IDAT/IEND; no `iCCP` or unknown critical chunk; safe color/render chunks retained                                        |
+| WebP                                    | **SANITIZED AND PUBLICATION-ELIGIBLE** or **VERIFIED METADATA-FREE AND PUBLICATION-ELIGIBLE** | At most 24 MiB; ≤ 20000 px/side and ≤ 256 MP; exact RIFF bounds; VP8/VP8L payload and dimensions; no `ICCP`; EXIF/XMP stripped and VP8X flags rewritten                                                      |
+| ICC / color-managed image               | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | JPEG `ICC_PROFILE` / PNG `iCCP` / WebP `ICCP`: retained with `media_color_profile_unsupported`; never malformed, never re-color-mapped                                                                       |
+| Supported image over 20000 px or 256 MP | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | Declared decoded size exceeds the pixel/side bound; retained privately, no public object                                                                                                                     |
+| HEIC/HEIF                               | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No compatible Worker-safe item/transform sanitizer                                                                                                                                                           |
+| AVIF                                    | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No compatible Worker-safe item/property sanitizer                                                                                                                                                            |
+| MP4                                     | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No bounded streaming ISO-BMFF metadata rewriter                                                                                                                                                              |
+| MOV/QuickTime                           | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | No bounded streaming QuickTime atom rewriter                                                                                                                                                                 |
+| WebM/MKV/AVI/M4V and other video        | **UNSUPPORTED AND PRIVATE**                                                                   | Byte classification may recognize the container, but publication remains fail-closed                                                                                                                         |
+| GIF/BMP/TIFF and other raster           | **UNSUPPORTED AND PRIVATE**                                                                   | No verified orientation/metadata sanitizer                                                                                                                                                                   |
+| PDF and other documents                 | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING** or **UNSUPPORTED AND PRIVATE**            | Public document byte copying is removed until a compatible sanitizer exists                                                                                                                                  |
+| Supported image over 24 MiB             | **PRIVATE RETENTION ONLY WITH TRANSPARENT WARNING**                                           | Original is still streamed and hashed; transformation is not attempted                                                                                                                                       |
 
 The phone-video input workflow remains available. Phone originals still upload
 and remain private, while unsafe video publication is withheld explicitly.
@@ -169,7 +198,7 @@ under `mediaTruthEntries`; published derivatives repeat the link in
     "media_class": "image",
     "content_type": "image/jpeg"
   },
-  "sanitizer_version": "forever-media-truth-001/v2",
+  "sanitizer_version": "forever-media-truth-001/v3",
   "verification": { "result": "verified", "forbidden_metadata": [] }
 }
 ```
@@ -182,56 +211,118 @@ path/credential redactor is also applied at the final warning projection.
 
 ## Sanitizer and verifier design
 
+### Decoded-dimension and pixel-count boundary
+
+Every parser (JPEG SOF, PNG IHDR, WebP VP8X/VP8L/VP8) and the final-byte
+verifier reject dimensions outside safe bounds, so a small compressed file
+cannot declare gigapixels and publish:
+
+- `MAX_MEDIA_DIMENSION = 20000` px per side, and
+- `MAX_MEDIA_PIXELS = 256_000_000` (256 MP) total decoded pixels.
+
+The check is overflow-safe: because width and height are unsigned-32-bit fields
+whose raw product can exceed 2^53, each side is compared to 20000 first, after
+which `width*height` is at most 4×10⁸ and exact in IEEE-754. These bounds admit
+the widest current phone sensors (Samsung 200 MP ≈ 16320×12240) with margin,
+while decoded RGBA at the cap (≈ 1 GiB) is the worst case any downstream decoder
+faces. An over-dimension source is retained privately and creates no public
+object; the verifier independently re-enforces the bound on the derivative.
+
 ### JPEG
 
-- Parses marker lengths and requires dimensions plus an SOS scan ending in EOI.
+- Performs a **complete bounded marker/entropy walk** over the whole stream
+  rather than stopping at the first SOS. Stuffed `FF00` bytes and restart
+  markers `FFD0–FFD7` are treated as entropy; multiple SOS scans and inter-scan
+  `DHT/DQT/DRI/DNL` tables are supported (valid progressive JPEG is preserved).
+- Because the walk sees every segment, `APP0–APP15` and `COM` planted **between
+  scans** are stripped exactly like pre-scan segments — they can no longer hide
+  inside opaque scan bytes. Requires SOF dimensions (within bounds), at least
+  one SOS, and an EOI; **bytes after EOI are rejected** (fail closed).
 - Extracts TIFF/EXIF claims with explicit bounds, IFD-count, value-size, and
-  cycle checks.
-- Removes EXIF, XMP, IPTC, comments, unsafe APP segments, embedded EXIF
-  thumbnails, and trailing bytes.
+  cycle checks; removes EXIF, XMP, IPTC, comments, unsafe APP segments, and
+  embedded EXIF thumbnails.
 - Reconstructs at most one canonical JFIF APP0 segment from validated
   version/density fields; `Xthumbnail` and `Ythumbnail` are always zero and no
   source thumbnail bytes survive. Duplicate, malformed, or ambiguous JFIF fails
   closed; JFXX and other APP0 extensions are removed.
 - Retains only a strictly shaped Adobe rendering marker.
 - If orientation is 2-8, creates a deterministic EXIF payload containing only
-  tag `0x0112`.
-- Fails closed on an ICC profile because ICC descriptive/device tags cannot be
-  safely rewritten by the present parser.
+  tag `0x0112` (metadata orientation only — see decode/render notes).
+- On an ICC (`APP2 ICC_PROFILE`) profile, retains the source privately as a
+  color-managed image (see ICC policy) — never re-emitted, never malformed.
 
 ### PNG
 
-- Verifies signature, exact chunk bounds, CRCs, IHDR dimensions, IDAT presence,
-  IEND, and absence of trailing bytes.
+- Verifies signature, exact chunk bounds, CRCs, IHDR dimensions (within the
+  decoded bound), IDAT presence, IEND, and absence of trailing bytes.
 - Removes `eXIf`, `tEXt`, `zTXt`, `iTXt`, `tIME`, and unknown ancillary chunks.
-- Retains only documented rendering chunks. Unknown critical chunks and `iCCP`
-  fail closed.
-- Reconstructs only a minimal orientation `eXIf` where required and writes a
-  new CRC.
+- Retains only documented rendering chunks; unknown critical chunks fail closed.
+  An `iCCP` chunk routes the source to private color-profile retention.
+- Reconstructs only a minimal orientation `eXIf` where required. Unchanged
+  chunks (including large IDAT) are re-emitted verbatim without a re-CRC.
 
 ### WebP
 
-- Verifies exact RIFF size, chunk bounds/padding, dimensions, and VP8/VP8L
-  presence.
-- Removes EXIF, XMP, and unknown chunks. ICC fails closed.
+- Verifies exact RIFF size, chunk bounds/padding, dimensions (within the decoded
+  bound), and VP8/VP8L presence.
+- Removes EXIF, XMP, and unknown chunks; an `ICCP` chunk routes the source to
+  private color-profile retention.
 - Reconstructs a minimal orientation-only EXIF chunk where required.
-- Clears/sets VP8X EXIF/XMP flags consistently and recomputes RIFF/chunk sizes.
+- Clears/sets VP8X EXIF/XMP flags consistently and recomputes RIFF/chunk sizes;
+  the VP8/VP8L bitstream is re-emitted as a view (no extra copy).
+
+### ICC / color-profile policy
+
+An embedded ICC / color-managed image (Display-P3 iPhone exports, ICC-tagged
+JPEG/PNG/WebP) is **not malformed**. Silently stripping the profile would leave
+wide-gamut pixels reinterpreted as sRGB (visibly wrong color), and ICC profiles
+can also carry device/author descriptive tags. This task adds no native
+Cloudflare-incompatible dependency and no paid media service, and does not
+implement in-Worker color conversion; a strict byte-hash profile allowlist was
+evaluated but not adopted (canonical profile bytes cannot be pinned truthfully
+in this pass). The chosen policy is therefore **private retention with the
+dedicated `media_color_profile_unsupported` reason/warning**, applied uniformly
+to JPEG `APP2 ICC_PROFILE` (including split multi-segment and
+incomplete/malformed sequences), PNG `iCCP`, and WebP `ICCP`. Practical phone
+limitation: an ordinary iPhone photo exported/shared as a Display-P3 JPEG stays
+private (with this neutral reason) until a validated profile handler exists,
+rather than publishing with altered color.
 
 ### Result verification and upload
 
 The transformer first requires the bounded source bytes to match the SHA-256
 and size already observed by the streaming original read, closing a source
 replacement race between hashing and transformation. The verifier then
-reparses the derivative bytes. It rejects forbidden chunks or segments, magic
-mismatch, dimension change, orientation change, malformed or empty output, and
-any EXIF that is not exactly the one-tag orientation form. Only after this
-passes is the derivative uploaded to the attempt-token public path. Studio
-then streams that public object again and requires the expected SHA-256, size,
-image magic class, and canonical MIME before creating a media record.
+independently **re-parses the derivative bytes without re-running the
+sanitizer**. It rejects forbidden chunks or segments (including any inter-scan
+APPn/COM, `iCCP`/`ICCP`, or JFIF thumbnail), magic mismatch, out-of-bound or
+changed dimensions, orientation change (read directly from the derivative's own
+minimal metadata), and any EXIF that is not exactly the one-tag orientation
+form. Only after this passes is the derivative uploaded to the attempt-token
+public path. Studio then streams that public object again and requires the
+expected SHA-256, size, image magic class, and canonical MIME before creating a
+media record.
 
 Originals are never overwritten. Original and derivative hashes are never
 claimed to be equal. A metadata-free source may produce the same payload hash,
 but it is still a separate public object with independently verified evidence.
+
+### Decode and render validation
+
+An installed-Chromium smoke (`media-decode-smoke.test.ts`, skipped when no
+Chromium is present) performs genuine pixel decode of representative sanitized
+derivatives:
+
+- JPEG, PNG, and WebP derivatives decode with `naturalWidth/Height > 0`.
+- JPEG derivatives carrying preserved EXIF orientations **2–8** each decode
+  successfully in Chromium.
+
+Orientation is preserved as **metadata** (a minimal one-tag EXIF for JPEG/WebP,
+a minimal `eXIf` for PNG) — the pixels are **not** rotated. Browser support for
+metadata orientation differs by container and must be validated on real devices:
+Chromium/Safari honor **JPEG** EXIF orientation broadly; **PNG `eXIf`**
+orientation is honored only in newer engines; **WebP** EXIF orientation is not
+reliably honored by current browsers. No pixel rotation is claimed here.
 
 ## Cloudflare/Nitro runtime compatibility and resource safety
 
@@ -247,6 +338,34 @@ but it is still a separate public object with independently verified evidence.
 - Video, HEIC/HEIF/AVIF, documents, large images, malformed metadata, ICC
   profiles, and unknown critical chunks stay private rather than risking
   memory exhaustion or ambiguous rendering.
+
+### Measured memory boundary
+
+The sanitizer no longer amplifies memory. Verification inspects the
+already-built derivative instead of re-running the transformer (which had built
+a second full derivative), parsers use zero-copy `Buffer.subarray` views, and
+unchanged PNG/WebP chunks are re-emitted verbatim, so the only large allocation
+is the single derivative built alongside the resident source.
+
+Measured in a clean child process on a generated near-cap (22 MiB) valid image
+via `process.resourceUsage().maxRSS` sampled before and after the call
+(`src/features/forever-studio/tests/media-memory.test.ts`):
+
+| Metric                      | JPEG        | PNG        |
+| --------------------------- | ----------- | ---------- |
+| Source bytes                | 23,068,672  | 23,068,672 |
+| Derivative bytes            | 23,068,672  | 23,068,672 |
+| Peak RSS growth of the call | ≈ 22–23 MiB | ≈ 22 MiB   |
+| Ratio to one derivative     | ≈ 1.03×     | ≈ 1.00×    |
+
+- Selected transformation cap: `MAX_MEDIA_SANITIZE_BYTES = 24 MiB`.
+- Safety margin: peak image-data footprint is ≈ 2× the payload (source +
+  one derivative ≈ 46 MiB at the 24 MiB cap), well under the 128 MiB Worker
+  envelope this repository assumes for the request path; workerd's runtime
+  baseline is smaller than the Node baseline used for the measurement above.
+- The regression test asserts the per-call peak growth stays below 2× the
+  source size, which would fail if a second-derivative rewrite were reintroduced
+  (that path roughly triples the growth).
 
 ## Studio, replay, and cleanup behavior
 
@@ -277,6 +396,14 @@ Fixtures are generated in TypeScript and contain fake values only:
 - Malformed EXIF.
 - A size-boundary test using only a declared size (no large committed binary).
 - ZIP entry sanitizer/evidence coverage.
+- Dimension fixtures with header-declared sizes and tiny bodies: 50000×50000
+  bomb, oversized JPEG/PNG/WebP, exact pixel-cap pass, one-pixel-over fail,
+  per-side over, and a 65535² overflow-safety case.
+- Multi-scan (progressive) JPEG with private COM and/or EXIF planted between
+  scans, and a baseline JPEG with `FF00` stuffing + `RSTn` restart markers.
+- A JPEG with trailing bytes after EOI (rejected).
+- ICC-bearing JPEG (single, split multi-segment, and incomplete-sequence) with a
+  fake in-profile device marker.
 
 The tests prove private original stability, distinct hashes after metadata
 removal, forbidden-value absence, dimension/orientation preservation,
@@ -306,8 +433,18 @@ the production build.
 - Validation combines strict container/metadata rewrite-and-reparse with a real
   Chromium decode smoke for representative sanitized JPEG, PNG, and WebP. This
   does not claim universal visual correctness for every codec variant or device.
-- ICC-bearing images are retained privately because publishing them without a
-  validated profile rewriter could change appearance or retain device claims.
+- ICC / color-managed images (including common Display-P3 iPhone exports) are
+  retained privately with `media_color_profile_unsupported` until a validated
+  Worker-safe profile handler exists; publishing them without one would alter
+  color or retain device claims.
+- Orientation is preserved as metadata, not pixel rotation; browser honoring
+  differs by container (JPEG broad, PNG `eXIf` newer engines only, WebP EXIF not
+  reliable). Real-device verification is required.
+- JPEG files with any bytes after EOI (for example Samsung/Google Motion Photos,
+  which append a video after the still) are retained privately rather than
+  trimmed-and-published.
+- Supported images declaring more than 20000 px/side or 256 MP are retained
+  privately with no public object.
 - Video, HEIC/HEIF/AVIF, PDF, other documents, unsupported raster formats, and
   supported images above 24 MiB have no public derivative in this change.
 - Exact GPS and other embedded claims are private evidence only; no public GPS
@@ -349,35 +486,60 @@ No migration was applied.
 
 ## Validation evidence
 
-- Complete media-truth suites: 2 files, 15 tests passed, including real
-  Chromium decode of sanitized JPEG, orientation-aware PNG, and WebP.
-- Storage concurrency and cleanup suites: 2 files, 24 tests passed.
-- Complete Studio plus public-query, Project Detail, and boundary suites: 29
-  files, 228 tests passed.
-- Full repository Vitest run: 343 files; 3,256 tests passed and 5 skipped.
-- TypeScript `tsc --noEmit` with a 240-second allowance: pass.
+All results below are from the isolated worktree at PR head
+`0428e676090a2a995994423ace8246c072e36f43` plus this correction pass.
+
+- Media-truth + new regression suites: `media-truth.test.ts` (30 tests, incl.
+  dimension-boundary, inter-scan/marker-walk, and ICC/color-profile cases),
+  `media-memory.test.ts` (2 tests), `media-decode-smoke.test.ts` (2 tests, incl.
+  EXIF orientations 2–8): all pass.
+- Hostile-filename and JFIF-thumbnail regressions: pass (within the media-truth
+  suite).
+- Complete Forever Studio suite (including storage concurrency/replay/cleanup,
+  authorization, object/actor boundaries, bundle boundary, upload readiness):
+  21 files, 207 tests passed.
+- Child-process memory measurement (near-cap 22 MiB JPEG and PNG): per-call peak
+  RSS growth ≈ one derivative (JPEG ≈ 22.8 MiB / 1.03×, PNG ≈ 22.2 MiB / 1.00×);
+  regression asserts growth < 2× source. See the Cloudflare section.
+- Chromium decode: representative sanitized JPEG/PNG/WebP decode, and JPEG
+  derivatives for EXIF orientations 2–8 all decode.
+- Full repository Vitest run: 342 test files, 3,269 tests passed and 5 skipped.
+  The only failures are two pre-existing, unrelated files that both depend on
+  local/gitignored `forever-data` artifacts absent in a fresh worktree checkout:
+  `src/import/importer-preflight.test.ts` (3 assertions — fails identically at
+  the pristine PR head with this change stashed) and
+  `src/features/project-detail/partner-demo-data.test.ts` (module-load failure:
+  cannot resolve the gitignored `forever-data/projects/modeva/...` source files).
+  Neither touches `forever-studio`; no media/studio test fails.
+- TypeScript `tsc --noEmit`: the only error is a pre-existing, unrelated missing
+  gitignored data artifact
+  (`forever-data/projects/modeva/extracted/price-list.json`) imported by
+  `partner-demo-data.ts`; that file is byte-identical to the PR head and absent
+  in any fresh checkout. All changed files (media-truth, extraction,
+  studio-types, tests) typecheck cleanly.
 - Changed-file ESLint: pass.
 - Prettier check over every changed file: pass.
-- Nitro production build using the `cloudflare-module` preset and compatibility
-  date `2026-07-23`: pass; no deployment was run.
-- Generated client/server scans found no hostile fixture filenames, fake
-  person/address/phone/email values, Windows/POSIX private paths, fake GPS or
-  device values, JFIF thumbnail secret, embedded database/JWT/private-key
-  secrets, or private Studio boundary identifiers in the client bundle.
-  Expected private boundary identifiers occur only in two server chunks.
-- U+FFFD scan: zero server occurrences. The client contains exactly one
-  dependency-code literal in TanStack Router's path normalizer, which replaces
-  NUL/U+FFFD with `/`; byte-level context proves it is code rather than corrupt
-  filename or record data.
+- Nitro/Cloudflare production build (`vite build`, cloudflare target): pass;
+  generated `.output/server/wrangler.json`, `.wrangler/deploy/config.json`, and
+  the Cloudflare worker. No deployment was run.
+- Generated client/server artifact scans: the sanitizer version
+  `forever-media-truth-001/v3` and `media_color_profile_unsupported` appear only
+  in the server output, never in `.output/public`. No fixture person/device/GPS
+  values, JFIF thumbnail secret, or ICC marker appear in any generated output.
+  No real secret key value appears in the client bundle — the only `sb_secret_`
+  occurrence is a Supabase library key-type guard (`e.startsWith("sb_secret_")`),
+  not a key. Zero U+FFFD in server output.
 - `git diff --check`: pass.
 - No schema, grant, or migration file was created or changed.
-- The real PostgreSQL harness was inspected and confirmed to use a disposable
-  loopback-only cluster under the OS temp directory, but it applies the complete
-  committed migration chain inside that cluster. Execution was not claimed:
-  the command safety gate rejected it because this task also says not to apply
-  any migration. No external database was contacted.
+- Disposable PostgreSQL suite (`npm run studio:pg-test`, explicitly authorized):
+  a throwaway loopback-only PostgreSQL 17 cluster under the OS temp directory
+  applied the complete committed migration chain as test setup and ran the
+  behavioral assertions — result `ALL STUDIO POSTGRES ASSERTIONS PASSED`,
+  `[studio-pg] PASS`. The cluster was destroyed on exit. No remote/persistent
+  database was contacted; no production migration was applied.
 
 ## Environment confirmation
 
-Staging and production were not accessed. No migration was applied. No deploy
-occurred. Coralina and Rainpalm were not published.
+Staging and production were not accessed. No production or persistent migration
+was applied (only disposable test-cluster setup). No deploy occurred. Coralina
+and Rainpalm were not published.
