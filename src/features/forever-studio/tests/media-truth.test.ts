@@ -5,18 +5,27 @@ import { describe, expect, it, vi } from "vitest";
 import { PRIVATE_SOURCE_BUCKET, PUBLIC_IMAGE_BUCKET } from "../server/extraction";
 import {
   createPublicDerivative,
+  MAX_MEDIA_DIMENSION,
+  MAX_MEDIA_PIXELS,
   MAX_MEDIA_SANITIZE_BYTES,
   verifyPublicDerivative,
 } from "../server/media-truth";
 import { processUploadJob, startUploadJob } from "../server/service";
 import { makeWorld, tinyFtyp, uploadAll, OWNER } from "./fakes";
 import {
+  FIXTURE_ICC_MARKER,
   FIXTURE_PRIVATE_MARKERS,
   JFIF_THUMBNAIL_SECRET,
   syntheticJpeg,
+  syntheticJpegMultiScan,
+  syntheticJpegTrailingBytes,
+  syntheticJpegWithDimensions,
+  syntheticJpegWithIcc,
   syntheticJpegWithJfifThumbnail,
   syntheticPng,
+  syntheticPngWithDimensions,
   syntheticWebp,
+  syntheticWebpWithDimensions,
 } from "./media-truth-fixtures";
 
 const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
@@ -446,5 +455,203 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
     expect(second).toEqual(first);
     expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toEqual(firstKeys);
     expect(world.executor.store.media).toHaveLength(1);
+  });
+});
+
+describe("FOREVER-MEDIA-TRUTH-001 dimension / pixel-count boundary", () => {
+  // The pixel cap is exercised at a square whose area is exactly MAX_MEDIA_PIXELS
+  // (both sides below MAX_MEDIA_DIMENSION), so "one pixel over" is one extra row.
+  const edge = Math.floor(Math.sqrt(MAX_MEDIA_PIXELS));
+
+  it("rejects a 50,000 × 50,000 PNG dimension bomb and creates no derivative", () => {
+    const result = derive(syntheticPngWithDimensions(50000, 50000), "image/png");
+    expect(result.eligible).toBe(false);
+    if (!result.eligible) expect(result.reason).toBe("malformed_media");
+    expect(result.record.derivative).toBeNull();
+  });
+
+  it("rejects oversized JPEG SOF, PNG IHDR, and WebP VP8X dimensions", () => {
+    expect(derive(syntheticJpegWithDimensions(40000, 40000), "image/jpeg").eligible).toBe(false);
+    expect(derive(syntheticPngWithDimensions(40000, 40000), "image/png").eligible).toBe(false);
+    expect(derive(syntheticWebpWithDimensions(50000, 50000), "image/webp").eligible).toBe(false);
+  });
+
+  it("rejects a single side over MAX_MEDIA_DIMENSION even when total pixels are small", () => {
+    expect(
+      derive(syntheticJpegWithDimensions(MAX_MEDIA_DIMENSION, 10), "image/jpeg").eligible,
+    ).toBe(true);
+    expect(
+      derive(syntheticJpegWithDimensions(MAX_MEDIA_DIMENSION + 1, 10), "image/jpeg").eligible,
+    ).toBe(false);
+  });
+
+  it("passes at exactly the pixel-count boundary and fails one pixel over (JPEG/PNG/WebP)", () => {
+    expect(edge * edge).toBeLessThanOrEqual(MAX_MEDIA_PIXELS);
+    expect(edge * (edge + 1)).toBeGreaterThan(MAX_MEDIA_PIXELS);
+    for (const [make, type] of [
+      [syntheticJpegWithDimensions, "image/jpeg"],
+      [syntheticPngWithDimensions, "image/png"],
+      [syntheticWebpWithDimensions, "image/webp"],
+    ] as const) {
+      expect.soft(derive(make(edge, edge), type).eligible, `${type} boundary`).toBe(true);
+      expect.soft(derive(make(edge, edge + 1), type).eligible, `${type} over`).toBe(false);
+    }
+  });
+
+  it("uses overflow-safe arithmetic: 65535 × 65535 does not wrap past the guard", () => {
+    // 65535² ≈ 4.29e9 pixels — far over the cap; must reject, never wrap to a
+    // small value. (65535 is the largest 16-bit JPEG SOF dimension.)
+    expect(derive(syntheticJpegWithDimensions(65535, 65535), "image/jpeg").eligible).toBe(false);
+  });
+
+  it("retains the oversized source privately and publishes no public object", async () => {
+    const world = makeWorld();
+    const started = await startUploadJob(world.deps, OWNER, {
+      workflow: "new_development",
+      projectFacts: { name: "Dimension Bomb" },
+      files: [{ name: "bomb.png" }],
+    });
+    uploadAll(world, started.uploads, { "bomb.png": syntheticPngWithDimensions(50000, 50000) });
+
+    const result = await processUploadJob(world.deps, OWNER, started.jobId);
+
+    expect(result.status).toBe("published");
+    expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(0);
+    expect(result.warnings.some((warning) => warning.code === "media_sanitization_failed")).toBe(
+      true,
+    );
+    const job = await world.data.getJob(started.jobId);
+    expect(job!.files[0].publicPath).toBeUndefined();
+    expect(
+      world.storage.objects.get(`${PRIVATE_SOURCE_BUCKET}/${started.uploads[0].path}`),
+    ).toBeDefined();
+  });
+});
+
+describe("FOREVER-MEDIA-TRUTH-001 complete JPEG scan/marker walk", () => {
+  it("decodes a valid multi-scan (progressive) JPEG", () => {
+    const result = derive(syntheticJpegMultiScan(), "image/jpeg");
+    expect(result.eligible).toBe(true);
+    if (result.eligible) {
+      expect(
+        verifyPublicDerivative(result.bytes, "jpeg", { dimensions: null, orientation: null }).ok,
+      ).toBe(true);
+    }
+  });
+
+  it("strips a private COM planted BETWEEN scans", () => {
+    const result = derive(syntheticJpegMultiScan({ interScanComment: true }), "image/jpeg");
+    expect(result.eligible).toBe(true);
+    if (!result.eligible) return;
+    expect(result.bytes.toString("latin1")).not.toContain("fixture@example.invalid");
+    expect(result.bytes.toString("latin1")).not.toContain("inter-scan comment");
+  });
+
+  it("strips a private APP1/EXIF planted BETWEEN scans (values do not survive)", () => {
+    const result = derive(syntheticJpegMultiScan({ interScanExif: true }), "image/jpeg");
+    expect(result.eligible).toBe(true);
+    if (!result.eligible) return;
+    expectPrivateMarkersAbsent(result.bytes);
+    // The EXIF is captured as private evidence but never re-emitted publicly.
+    expect(result.record.claims.device_make).toBe("FixtureCam Inc");
+  });
+
+  it("strips both inter-scan COM and EXIF at once and verifies clean", () => {
+    const result = derive(
+      syntheticJpegMultiScan({ interScanComment: true, interScanExif: true }),
+      "image/jpeg",
+    );
+    expect(result.eligible).toBe(true);
+    if (!result.eligible) return;
+    expectPrivateMarkersAbsent(result.bytes);
+    expect(result.bytes.toString("latin1")).not.toContain("fixture@example.invalid");
+    // The inter-scan EXIF's sensitive values are stripped, but its orientation
+    // claim (6) is legitimately preserved in the minimal one-tag EXIF.
+    expect(result.record.claims.orientation).toBe(6);
+    expect(
+      verifyPublicDerivative(result.bytes, "jpeg", {
+        dimensions: { width: 2, height: 3 },
+        orientation: 6,
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("rejects trailing bytes after EOI", () => {
+    const result = derive(syntheticJpegTrailingBytes(), "image/jpeg");
+    expect(result.eligible).toBe(false);
+    if (!result.eligible) expect(result.reason).toBe("malformed_media");
+  });
+
+  it("still accepts an ordinary baseline JPEG (stuffing/restart tolerant)", () => {
+    // FF00 stuffing and RSTn markers inside the scan must not be mistaken for
+    // segment boundaries.
+    const app0 = Buffer.from([0xff, 0xd8]);
+    const scanWithStuffingAndRestart = Buffer.from([0x11, 0xff, 0x00, 0x22, 0xff, 0xd0, 0x33]);
+    const jpeg = Buffer.concat([
+      app0,
+      Buffer.from([0xff, 0xe0, 0x00, 0x10]),
+      Buffer.from("JFIF\0", "latin1"),
+      Buffer.from([1, 1, 0, 0, 1, 0, 1, 0, 0]),
+      Buffer.from([0xff, 0xc0, 0x00, 0x11, 8, 0, 3, 0, 2, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0]),
+      Buffer.from([0xff, 0xda, 0x00, 0x0c, 3, 1, 0, 2, 0, 3, 0, 0, 63, 0]),
+      scanWithStuffingAndRestart,
+      Buffer.from([0xff, 0xd9]),
+    ]);
+    const result = derive(jpeg, "image/jpeg");
+    expect(result.eligible).toBe(true);
+    if (result.eligible) {
+      // The stuffed/restart entropy bytes are preserved verbatim in the scan.
+      expect(result.bytes.includes(scanWithStuffingAndRestart)).toBe(true);
+    }
+  });
+});
+
+describe("FOREVER-MEDIA-TRUTH-001 ICC / color-profile policy", () => {
+  it("retains an ICC-bearing JPEG privately with a dedicated reason (not malformed)", () => {
+    const result = derive(syntheticJpegWithIcc(1), "image/jpeg");
+    expect(result.eligible).toBe(false);
+    if (!result.eligible) {
+      expect(result.reason).toBe("color_profile_unsupported");
+      expect(result.record.parser.result).toBe("color_profile_unsupported");
+      // Never misclassified as malformed, and no ICC bytes are exposed.
+      expect(result.record.derivative).toBeNull();
+    }
+  });
+
+  it("retains a split multi-segment JPEG ICC profile privately", () => {
+    const result = derive(syntheticJpegWithIcc(2, 2), "image/jpeg");
+    expect(result.eligible).toBe(false);
+    if (!result.eligible) expect(result.reason).toBe("color_profile_unsupported");
+  });
+
+  it("retains an incomplete/malformed ICC segment sequence privately (not malformed)", () => {
+    // Declares 3 segments but supplies 1: still a color profile, still private.
+    const result = derive(syntheticJpegWithIcc(1, 3), "image/jpeg");
+    expect(result.eligible).toBe(false);
+    if (!result.eligible) expect(result.reason).toBe("color_profile_unsupported");
+  });
+
+  it("routes ICC-bearing media to the dedicated warning and keeps it private", async () => {
+    const world = makeWorld();
+    const started = await startUploadJob(world.deps, OWNER, {
+      workflow: "new_development",
+      projectFacts: { name: "Display P3 Photo" },
+      files: [{ name: "photo.jpg" }],
+    });
+    uploadAll(world, started.uploads, { "photo.jpg": syntheticJpegWithIcc(1) });
+
+    const result = await processUploadJob(world.deps, OWNER, started.jobId);
+
+    expect(result.status).toBe("published");
+    expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(0);
+    expect(
+      result.warnings.some((warning) => warning.code === "media_color_profile_unsupported"),
+    ).toBe(true);
+    expect(JSON.stringify(result.warnings)).not.toContain(FIXTURE_ICC_MARKER);
+    const job = await world.data.getJob(started.jobId);
+    expect(job!.files[0].mediaTruth).toMatchObject({
+      sanitization_succeeded: false,
+      parser: { result: "color_profile_unsupported" },
+    });
   });
 });

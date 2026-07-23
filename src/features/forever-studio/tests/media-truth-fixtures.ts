@@ -268,3 +268,168 @@ export const FIXTURE_PRIVATE_MARKERS = [
   "fixture@example.invalid",
   "+1-555-0100",
 ] as const;
+
+// ---------------------------------------------------------------------------
+// Dimension / pixel-count boundary fixtures (tiny bodies, header-declared dims)
+// ---------------------------------------------------------------------------
+
+/** Baseline JPEG declaring arbitrary SOF0 dimensions with a minimal scan. */
+export function syntheticJpegWithDimensions(width: number, height: number): Buffer {
+  const app0 = Buffer.concat([
+    Buffer.from("JFIF\0", "latin1"),
+    Buffer.from([1, 1, 0, 0, 1, 0, 1, 0, 0]),
+  ]);
+  const sof = Buffer.from([
+    8,
+    (height >> 8) & 0xff,
+    height & 0xff,
+    (width >> 8) & 0xff,
+    width & 0xff,
+    3,
+    1,
+    0x11,
+    0,
+    2,
+    0x11,
+    0,
+    3,
+    0x11,
+    0,
+  ]);
+  const sos = Buffer.from([3, 1, 0, 2, 0, 3, 0, 0, 63, 0]);
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8]),
+    jpegSegment(0xe0, app0),
+    jpegSegment(0xc0, sof),
+    jpegSegment(0xda, sos),
+    Buffer.from([0x00, 0xff, 0xd9]),
+  ]);
+}
+
+/** PNG declaring arbitrary IHDR dimensions with a minimal IDAT. */
+export function syntheticPngWithDimensions(width: number, height: number): Buffer {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(Buffer.alloc(4))),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+/** WebP declaring arbitrary VP8X dimensions with a 1×1 VP8L bitstream. */
+export function syntheticWebpWithDimensions(width: number, height: number): Buffer {
+  const vp8x = Buffer.alloc(10);
+  vp8x[0] = 0;
+  vp8x.writeUIntLE(width - 1, 4, 3);
+  vp8x.writeUIntLE(height - 1, 7, 3);
+  const vp8l = Buffer.alloc(5);
+  vp8l[0] = 0x2f;
+  vp8l.writeUInt32LE(0, 1); // 1×1 bitstream
+  const body = Buffer.concat([
+    Buffer.from("WEBP", "ascii"),
+    webpChunk("VP8X", vp8x),
+    webpChunk("VP8L", vp8l),
+  ]);
+  const header = Buffer.alloc(8);
+  header.write("RIFF", 0, 4, "ascii");
+  header.writeUInt32LE(body.length, 4);
+  return Buffer.concat([header, body]);
+}
+
+// ---------------------------------------------------------------------------
+// ICC / color-profile fixtures
+// ---------------------------------------------------------------------------
+
+/** Fake private descriptor carried only inside the synthetic ICC profile. */
+export const FIXTURE_ICC_MARKER = "FixtureICCDeviceSerial";
+
+/**
+ * Baseline JPEG carrying an APP2 ICC profile split across `segmentCount`
+ * markers, declaring a total of `declaredTotal` (mismatch => incomplete/
+ * malformed multi-segment sequence). A single canonical profile uses
+ * segmentCount = declaredTotal = 1.
+ */
+export function syntheticJpegWithIcc(segmentCount = 1, declaredTotal = segmentCount): Buffer {
+  const app0 = Buffer.concat([
+    Buffer.from("JFIF\0", "latin1"),
+    Buffer.from([1, 1, 0, 0, 1, 0, 1, 0, 0]),
+  ]);
+  const sof = Buffer.from([8, 0, 3, 0, 2, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0]);
+  const sos = Buffer.from([3, 1, 0, 2, 0, 3, 0, 0, 63, 0]);
+  const iccSegments: Buffer[] = [];
+  for (let seq = 1; seq <= segmentCount; seq += 1) {
+    const body = Buffer.concat([
+      Buffer.from("ICC_PROFILE\0", "latin1"),
+      Buffer.from([seq, declaredTotal]),
+      Buffer.from(`${FIXTURE_ICC_MARKER}-${seq}`, "utf8"),
+      Buffer.alloc(16, 0x10),
+    ]);
+    iccSegments.push(jpegSegment(0xe2, body));
+  }
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8]),
+    jpegSegment(0xe0, app0),
+    ...iccSegments,
+    jpegSegment(0xc0, sof),
+    jpegSegment(0xda, sos),
+    Buffer.from([0x00, 0xff, 0xd9]),
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Multi-scan / inter-scan-metadata and trailing-byte fixtures
+// ---------------------------------------------------------------------------
+
+/**
+ * Progressive-style JPEG with TWO SOS scans and a valid DHT table between them.
+ * When requested, a private EXIF (APP1) and/or COM segment is planted BETWEEN
+ * the scans — the exact place a first-SOS-then-copy reader would have preserved
+ * verbatim. A complete marker walk must strip both.
+ */
+export function syntheticJpegMultiScan(
+  opts: { interScanExif?: boolean; interScanComment?: boolean } = {},
+): Buffer {
+  const app0 = Buffer.concat([
+    Buffer.from("JFIF\0", "latin1"),
+    Buffer.from([1, 1, 0, 0, 1, 0, 1, 0, 0]),
+  ]);
+  const sof = Buffer.from([8, 0, 3, 0, 2, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0]);
+  const dht = jpegSegment(0xc4, Buffer.from([0x00, 0x01, ...Array(16).fill(0), 0x00]));
+  const sos = jpegSegment(0xda, Buffer.from([3, 1, 0, 2, 0, 3, 0, 0, 63, 0]));
+  const interScan: Buffer[] = [];
+  if (opts.interScanComment) {
+    interScan.push(
+      jpegSegment(0xfe, Buffer.from("Fixture inter-scan comment fixture@example.invalid", "utf8")),
+    );
+  }
+  if (opts.interScanExif) {
+    // A structurally valid EXIF (FixtureCam/GPS/etc) planted between scans.
+    interScan.push(jpegSegment(0xe1, syntheticExif(6)));
+  }
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8]),
+    jpegSegment(0xe0, app0),
+    jpegSegment(0xc2, sof), // progressive SOF2
+    dht,
+    sos,
+    Buffer.from([0x11, 0x22]), // scan 1 entropy
+    ...interScan,
+    dht,
+    sos,
+    Buffer.from([0x33, 0x44]), // scan 2 entropy
+    Buffer.from([0xff, 0xd9]),
+  ]);
+}
+
+/** Baseline JPEG followed by junk bytes AFTER the EOI marker. */
+export function syntheticJpegTrailingBytes(): Buffer {
+  return Buffer.concat([
+    syntheticJpeg(false, 1),
+    Buffer.from("TRAILING fixture@example.invalid", "utf8"),
+  ]);
+}

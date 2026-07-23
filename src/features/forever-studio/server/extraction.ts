@@ -514,6 +514,7 @@ function retentionWarning(
     | "over_limit"
     | "source_changed"
     | "malformed_media"
+    | "color_profile_unsupported"
     | "verification_failed"
     | "read_failed",
 ): ProgressiveWarning {
@@ -529,6 +530,16 @@ function retentionWarning(
       "media_sanitization_unsupported",
       candidate.name,
       `${candidate.name} uses a format that Forever cannot safely sanitize for public delivery yet; it remains private.`,
+    );
+  }
+  if (reason === "color_profile_unsupported") {
+    // A valid color-managed (e.g. Display-P3 / embedded-ICC) image. Its color
+    // cannot be safely re-interpreted as sRGB without a profile rewriter, so it
+    // is retained privately with a dedicated, non-alarming reason.
+    return fileWarning(
+      "media_color_profile_unsupported",
+      candidate.name,
+      `${candidate.name} carries an embedded color profile that Forever cannot yet re-render safely for public delivery; it remains private.`,
     );
   }
   return fileWarning(

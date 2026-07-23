@@ -30,7 +30,13 @@ export interface EmbeddedMediaClaims {
 export interface MediaTruthRecord {
   parser: {
     format: string;
-    result: "parsed" | "metadata_absent" | "malformed" | "unsupported" | "over_limit";
+    result:
+      | "parsed"
+      | "metadata_absent"
+      | "malformed"
+      | "unsupported"
+      | "over_limit"
+      | "color_profile_unsupported";
   };
   claims: EmbeddedMediaClaims;
   sensitive_metadata_found: boolean | null;

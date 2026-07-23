@@ -11,10 +11,50 @@ import { createHash } from "node:crypto";
 
 import type { EmbeddedMediaClaims, MediaDimensions, MediaTruthRecord } from "../studio-types";
 
-export const MEDIA_SANITIZER_VERSION = "forever-media-truth-001/v2";
+export const MEDIA_SANITIZER_VERSION = "forever-media-truth-001/v3";
 export const MAX_MEDIA_SANITIZE_BYTES = 24 * 1024 * 1024;
 
+/**
+ * Decoded-image bounds. A small compressed file must not be able to declare
+ * enormous dimensions and pass publication (a "decompression / dimension
+ * bomb"): the 24 MiB byte cap bounds the *compressed* input, but not the pixels
+ * a browser, thumbnailer, or Cloudflare Image Resizing worker would allocate on
+ * fetch.
+ *
+ * - MAX_MEDIA_DIMENSION (20000 px/side) admits the widest current phone sensors
+ *   (Samsung 200 MP ≈ 16320×12240) with margin, and rejects e.g. 50000×50000.
+ * - MAX_MEDIA_PIXELS (256 MP) admits a full-resolution 200 MP phone frame
+ *   (≈199.8 MP) with margin; decoded RGBA at the cap ≈ 1 GiB is the absolute
+ *   worst case a downstream decoder faces, and the compressed input is still
+ *   capped at 24 MiB so a bomb cannot pass either gate.
+ */
+export const MAX_MEDIA_DIMENSION = 20000;
+export const MAX_MEDIA_PIXELS = 256 * 1000 * 1000;
+
+/**
+ * Overflow-safe decoded-size guard. Width and height are read as unsigned
+ * 32-bit fields, so their raw product can exceed 2^53 and lose precision; the
+ * per-side check runs first, after which both are ≤ 20000 and width*height
+ * ≤ 4e8 is exact in IEEE-754.
+ */
+export function withinPixelBounds(width: number, height: number): boolean {
+  if (!Number.isInteger(width) || !Number.isInteger(height)) return false;
+  if (width < 1 || height < 1) return false;
+  if (width > MAX_MEDIA_DIMENSION || height > MAX_MEDIA_DIMENSION) return false;
+  return width * height <= MAX_MEDIA_PIXELS;
+}
+
 export type SanitizedImageFormat = "jpeg" | "png" | "webp";
+
+/**
+ * A sanitizer either produces a derivative or rejects with a truthful reason:
+ * `malformed` (structure/metadata could not be safely rewritten) or
+ * `color_profile` (a valid ICC/color-managed image that must stay private
+ * because its pixels cannot be re-interpreted as sRGB without a profile
+ * rewriter or color conversion). `color_profile` is NOT malformed.
+ */
+export type RewriteRejection = "malformed" | "color_profile";
+export type RewriteOutcome = RewriteResult | { rejected: RewriteRejection };
 
 export type MediaDerivativeResult =
   | {
@@ -31,6 +71,7 @@ export type MediaDerivativeResult =
         | "over_limit"
         | "source_changed"
         | "malformed_media"
+        | "color_profile_unsupported"
         | "verification_failed";
       record: MediaTruthRecord;
     };
@@ -315,83 +356,131 @@ function minimalOrientationExif(orientation: number): Buffer {
   return Buffer.concat([Buffer.from("Exif\0\0", "latin1"), tiff]);
 }
 
-function exifIsMinimalOrientation(exif: Buffer): boolean {
+/** Orientation value iff `exif` is exactly the one-tag orientation form, else null. */
+function minimalOrientationValue(exif: Buffer): number | null {
   const parsed = readExif(exif);
-  return (
-    parsed.result === "parsed" &&
-    parsed.entryCount === 1 &&
-    parsed.claims.orientation != null &&
-    !parsed.sensitive &&
-    parsed.claims.capture_time == null &&
-    parsed.claims.device_make == null &&
-    parsed.claims.device_model == null &&
-    parsed.claims.software == null &&
-    parsed.claims.gps == null
-  );
+  if (
+    parsed.result !== "parsed" ||
+    parsed.entryCount !== 1 ||
+    parsed.claims.orientation == null ||
+    parsed.sensitive ||
+    parsed.claims.capture_time != null ||
+    parsed.claims.device_make != null ||
+    parsed.claims.device_model != null ||
+    parsed.claims.software != null ||
+    parsed.claims.gps != null
+  ) {
+    return null;
+  }
+  return parsed.claims.orientation;
 }
 
-interface JpegSegment {
+/** SOFn markers that carry frame dimensions (baseline + progressive + others). */
+const JPEG_SOF_MARKERS = new Set([
+  0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf,
+]);
+
+interface JpegSegmentToken {
+  kind: "segment";
   marker: number;
-  bytes: Buffer;
+  /** View of the segment payload (after the 2-byte length), never a copy. */
   payload: Buffer;
 }
+interface JpegEntropyToken {
+  kind: "entropy";
+  /** View of a raw entropy run (may contain stuffed FF00 and RSTn), never a copy. */
+  bytes: Buffer;
+}
+type JpegToken = JpegSegmentToken | JpegEntropyToken;
 
-function parseJpeg(
-  bytes: Buffer,
-): { segments: JpegSegment[]; scan: Buffer; dimensions: MediaDimensions } | null {
-  if (bytes.length < 8 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
-  const segments: JpegSegment[] = [];
+interface ParsedJpeg {
+  /** Every token in file order: segments (incl. SOS headers) and entropy runs. */
+  tokens: JpegToken[];
+  /** Convenience view over the marker segments only (for the verifier's scan). */
+  segments: JpegSegmentToken[];
+  dimensions: MediaDimensions;
+}
+
+/**
+ * Complete bounded JPEG marker/entropy walk. Unlike a first-SOS-then-copy
+ * reader, this tokenizes the ENTIRE stream so inter-scan metadata cannot hide
+ * inside opaque scan bytes:
+ *   - stuffed FF00 and restart markers FFD0–FFD7 are entropy, not markers;
+ *   - multiple SOS scans and inter-scan DHT/DQT/DRI/DNL tables are supported;
+ *   - APP0–APP15 and COM are surfaced as segments wherever they appear so the
+ *     rewriter can strip them and the verifier can independently reject them;
+ *   - trailing bytes after EOI are rejected (fail closed).
+ * Returns null on any structure not fully understood.
+ */
+function parseJpeg(bytes: Buffer): ParsedJpeg | null {
+  const len = bytes.length;
+  if (len < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
+  const tokens: JpegToken[] = [];
+  const segments: JpegSegmentToken[] = [];
   let dimensions: MediaDimensions | null = null;
+  let sawSos = false;
+  let sawEoi = false;
   let offset = 2;
-  while (offset + 4 <= bytes.length) {
-    if (bytes[offset] !== 0xff) return null;
-    while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
-    const marker = bytes[offset];
-    offset += 1;
-    if (marker === 0xd9) return null;
-    if (marker === 0xda) {
-      if (offset + 2 > bytes.length) return null;
-      const length = bytes.readUInt16BE(offset);
-      const start = offset - 2;
-      const scanStart = offset + length;
-      if (length < 2 || scanStart > bytes.length) return null;
-      let end = -1;
-      for (let index = scanStart; index + 1 < bytes.length; index += 1) {
-        if (bytes[index] !== 0xff) continue;
-        const next = bytes[index + 1];
-        if (next === 0x00 || (next >= 0xd0 && next <= 0xd7)) {
-          index += 1;
-          continue;
-        }
-        if (next === 0xd9) {
-          end = index + 2;
-          break;
-        }
-      }
-      if (end < 0 || !dimensions) return null;
-      return { segments, scan: Buffer.from(bytes.subarray(start, end)), dimensions };
+  while (offset < len) {
+    if (bytes[offset] !== 0xff) return null; // expected a marker prefix here
+    // Skip fill bytes (a marker may be preceded by one or more 0xFF).
+    let markerAt = offset + 1;
+    while (markerAt < len && bytes[markerAt] === 0xff) markerAt += 1;
+    if (markerAt >= len) return null;
+    const marker = bytes[markerAt];
+    offset = markerAt + 1;
+    if (marker === 0xd9) {
+      // EOI: nothing may follow it.
+      if (offset !== len) return null;
+      sawEoi = true;
+      break;
     }
-    if (offset + 2 > bytes.length) return null;
-    const length = bytes.readUInt16BE(offset);
-    const start = offset - 2;
-    const end = offset + length;
-    if (length < 2 || end > bytes.length) return null;
-    const payload = bytes.subarray(offset + 2, end);
-    const segmentBytes = bytes.subarray(start, end);
-    segments.push({ marker, bytes: Buffer.from(segmentBytes), payload: Buffer.from(payload) });
-    if (
-      [0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(
-        marker,
-      ) &&
-      payload.length >= 5
-    ) {
+    // Standalone markers (TEM/RSTn) are only valid inside entropy, never here.
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) return null;
+    // Everything else is length-prefixed.
+    if (offset + 2 > len) return null;
+    const segLength = bytes.readUInt16BE(offset);
+    if (segLength < 2) return null;
+    const payloadStart = offset + 2;
+    const segEnd = offset + segLength;
+    if (segEnd > len) return null;
+    const payload = bytes.subarray(payloadStart, segEnd);
+    const token: JpegSegmentToken = { kind: "segment", marker, payload };
+    tokens.push(token);
+    segments.push(token);
+    if (JPEG_SOF_MARKERS.has(marker)) {
+      if (payload.length < 5) return null;
       const height = payload.readUInt16BE(1);
       const width = payload.readUInt16BE(3);
-      if (width > 0 && height > 0) dimensions = { width, height };
+      if (!withinPixelBounds(width, height)) return null;
+      dimensions = { width, height };
     }
-    offset = end;
+    offset = segEnd;
+    if (marker === 0xda) {
+      // Scan header consumed; walk the entropy run up to the next real marker.
+      sawSos = true;
+      let index = offset;
+      for (; index + 1 < len; index += 1) {
+        if (bytes[index] !== 0xff) continue;
+        const next = bytes[index + 1];
+        if (next === 0x00) {
+          index += 1; // stuffed literal 0xFF
+          continue;
+        }
+        if (next >= 0xd0 && next <= 0xd7) {
+          index += 1; // restart marker, part of the scan
+          continue;
+        }
+        if (next === 0xff) continue; // fill byte before a marker; re-examine
+        break; // a real marker begins at `index`
+      }
+      if (index + 1 >= len) return null; // no terminating marker => malformed
+      tokens.push({ kind: "entropy", bytes: bytes.subarray(offset, index) });
+      offset = index;
+    }
   }
-  return null;
+  if (!sawEoi || !sawSos || !dimensions) return null;
+  return { tokens, segments, dimensions };
 }
 
 function jpegSegment(marker: number, payload: Buffer): Buffer {
@@ -437,74 +526,82 @@ function normalizeJfif(payload: Buffer): NormalizedJfif | null {
   return { payload: canonical, thumbnailRemoved: thumbnailBytes > 0 };
 }
 
-function rewriteJpeg(bytes: Buffer): RewriteResult | null {
+function rewriteJpeg(bytes: Buffer): RewriteOutcome {
   const parsed = parseJpeg(bytes);
-  if (!parsed) return null;
+  if (!parsed) return { rejected: "malformed" };
   let claims: EmbeddedMediaClaims = { ...EMPTY_CLAIMS, dimensions: parsed.dimensions };
   let sensitive = false;
   let metadataPresent = false;
-  const retained: Buffer[] = [];
+  // Emitted in file order. Entropy runs and unchanged structural segments are
+  // subarray views into `bytes`; Buffer.concat below is the single copy, after
+  // which the derivative no longer references the source buffer.
+  const body: Buffer[] = [];
   let sawJfif = false;
-  for (const segment of parsed.segments) {
-    if (segment.marker === 0xe1) {
+  for (const token of parsed.tokens) {
+    if (token.kind === "entropy") {
+      body.push(token.bytes);
+      continue;
+    }
+    const { marker, payload } = token;
+    if (marker === 0xe1) {
       metadataPresent = true;
-      if (segment.payload.subarray(0, 6).toString("latin1") === "Exif\0\0") {
-        const exif = readExif(segment.payload);
-        if (exif.result === "malformed") return null;
+      if (payload.subarray(0, 6).toString("latin1") === "Exif\0\0") {
+        const exif = readExif(payload);
+        if (exif.result === "malformed") return { rejected: "malformed" };
         claims = mergeClaims(claims, exif.claims);
         sensitive = sensitive || exif.sensitive;
       } else {
         sensitive = true;
       }
-      continue;
+      continue; // APP1 (EXIF/XMP) is always stripped
     }
-    if (segment.marker === 0xed || segment.marker === 0xfe) {
+    if (marker === 0xed || marker === 0xfe) {
       metadataPresent = true;
       sensitive = true;
-      continue;
+      continue; // IPTC (APP13) and COM stripped, wherever they appear
     }
-    if (segment.marker >= 0xe0 && segment.marker <= 0xef) {
-      if (segment.marker === 0xe0) {
-        const jfifLike = segment.payload.subarray(0, 4).toString("latin1") === "JFIF";
-        if (jfifLike) {
-          const normalized = normalizeJfif(segment.payload);
-          if (!normalized || sawJfif) return null;
-          sawJfif = true;
-          retained.push(jpegSegment(0xe0, normalized.payload));
-          if (normalized.thumbnailRemoved) {
-            metadataPresent = true;
-            sensitive = true;
-          }
-          continue;
+    if (marker >= 0xe0 && marker <= 0xef) {
+      if (marker === 0xe0 && payload.subarray(0, 4).toString("latin1") === "JFIF") {
+        const normalized = normalizeJfif(payload);
+        if (!normalized || sawJfif) return { rejected: "malformed" };
+        sawJfif = true;
+        body.push(jpegSegment(0xe0, normalized.payload));
+        if (normalized.thumbnailRemoved) {
+          metadataPresent = true;
+          sensitive = true;
         }
+        continue;
       }
-      // ICC profiles can themselves contain device/author/private descriptive
-      // tags. Without a profile-tag rewriter, preserve color by failing closed.
+      // A valid ICC/color-managed image is NOT malformed: without a profile-tag
+      // rewriter or color conversion we retain it privately rather than strip
+      // the profile and mis-render P3 pixels as sRGB.
       if (
-        segment.marker === 0xe2 &&
-        segment.payload.length >= 12 &&
-        segment.payload.subarray(0, 12).toString("latin1") === "ICC_PROFILE\0"
+        marker === 0xe2 &&
+        payload.length >= 12 &&
+        payload.subarray(0, 12).toString("latin1") === "ICC_PROFILE\0"
       ) {
-        return null;
+        return { rejected: "color_profile" };
       }
       const safeAdobe =
-        segment.marker === 0xee &&
-        segment.payload.length === 12 &&
-        segment.payload.subarray(0, 5).toString("latin1") === "Adobe";
-      if (safeAdobe) retained.push(segment.bytes);
+        marker === 0xee &&
+        payload.length === 12 &&
+        payload.subarray(0, 5).toString("latin1") === "Adobe";
+      if (safeAdobe) body.push(jpegSegment(0xee, payload));
       else {
         metadataPresent = true;
         sensitive = true;
       }
       continue;
     }
-    retained.push(segment.bytes);
+    // Structural segment (SOF/SOS/DHT/DQT/DRI/DNL/…): re-emit canonically.
+    body.push(jpegSegment(marker, payload));
   }
   const orientation = claims.orientation;
+  const head: Buffer[] = [Buffer.from([0xff, 0xd8])];
   if (orientation != null && orientation !== 1) {
-    retained.unshift(jpegSegment(0xe1, minimalOrientationExif(orientation)));
+    head.push(jpegSegment(0xe1, minimalOrientationExif(orientation)));
   }
-  const derivative = Buffer.concat([Buffer.from([0xff, 0xd8]), ...retained, parsed.scan]);
+  const derivative = Buffer.concat([...head, ...body, Buffer.from([0xff, 0xd9])]);
   return {
     format: "jpeg",
     contentType: "image/jpeg",
@@ -516,7 +613,7 @@ function rewriteJpeg(bytes: Buffer): RewriteResult | null {
 }
 
 let crcTable: Uint32Array | null = null;
-function crc32(bytes: Buffer): number {
+function crcTableOnce(): Uint32Array {
   if (!crcTable) {
     crcTable = new Uint32Array(256);
     for (let n = 0; n < 256; n += 1) {
@@ -525,14 +622,24 @@ function crc32(bytes: Buffer): number {
       crcTable[n] = c >>> 0;
     }
   }
+  return crcTable;
+}
+
+/** CRC-32 over the concatenation of `a` and `b` without allocating a joined buffer. */
+function crc32Pair(a: Buffer, b: Buffer): number {
+  const table = crcTableOnce();
   let crc = 0xffffffff;
-  for (const byte of bytes) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  for (let i = 0; i < a.length; i += 1) crc = table[(crc ^ a[i]) & 0xff] ^ (crc >>> 8);
+  for (let i = 0; i < b.length; i += 1) crc = table[(crc ^ b[i]) & 0xff] ^ (crc >>> 8);
   return (crc ^ 0xffffffff) >>> 0;
 }
 
 interface PngChunk {
   type: string;
+  /** View of the chunk data field, never a copy. */
   data: Buffer;
+  /** View of the whole chunk (length+type+data+crc) for verbatim re-emission. */
+  raw: Buffer;
 }
 
 function pngChunk(type: string, data: Buffer): Buffer {
@@ -541,7 +648,7 @@ function pngChunk(type: string, data: Buffer): Buffer {
   result.writeUInt32BE(data.length, 0);
   typeBytes.copy(result, 4);
   data.copy(result, 8);
-  result.writeUInt32BE(crc32(Buffer.concat([typeBytes, data])), 8 + data.length);
+  result.writeUInt32BE(crc32Pair(typeBytes, data), 8 + data.length);
   return result;
 }
 
@@ -560,19 +667,19 @@ function parsePng(bytes: Buffer): { chunks: PngChunk[]; dimensions: MediaDimensi
     const typeBytes = bytes.subarray(offset + 4, offset + 8);
     const type = typeBytes.toString("ascii");
     if (!/^[A-Za-z]{4}$/.test(type)) return null;
-    const data = Buffer.from(bytes.subarray(offset + 8, offset + 8 + length));
+    const data = bytes.subarray(offset + 8, offset + 8 + length);
     const expected = bytes.readUInt32BE(offset + 8 + length);
-    if (crc32(Buffer.concat([typeBytes, data])) !== expected) return null;
+    if (crc32Pair(typeBytes, data) !== expected) return null;
     if (!chunks.length && type !== "IHDR") return null;
     if (type === "IHDR") {
       if (chunks.length || length !== 13) return null;
       const width = data.readUInt32BE(0);
       const height = data.readUInt32BE(4);
-      if (!width || !height) return null;
+      if (!withinPixelBounds(width, height)) return null;
       dimensions = { width, height };
     }
     if (type === "IDAT") sawIdat = true;
-    chunks.push({ type, data });
+    chunks.push({ type, data, raw: bytes.subarray(offset, end) });
     offset = end;
     if (type === "IEND") {
       sawIend = true;
@@ -614,9 +721,9 @@ const PNG_RENDER_ALLOWLIST = new Set([
   "fdAT",
 ]);
 
-function rewritePng(bytes: Buffer): RewriteResult | null {
+function rewritePng(bytes: Buffer): RewriteOutcome {
   const parsed = parsePng(bytes);
-  if (!parsed) return null;
+  if (!parsed) return { rejected: "malformed" };
   let claims: EmbeddedMediaClaims = { ...EMPTY_CLAIMS, dimensions: parsed.dimensions };
   let sensitive = false;
   let metadataPresent = false;
@@ -625,7 +732,7 @@ function rewritePng(bytes: Buffer): RewriteResult | null {
     if (chunk.type === "eXIf") {
       metadataPresent = true;
       const exif = readExif(chunk.data);
-      if (exif.result === "malformed") return null;
+      if (exif.result === "malformed") return { rejected: "malformed" };
       claims = mergeClaims(claims, exif.claims);
       sensitive = sensitive || exif.sensitive;
       continue;
@@ -636,7 +743,9 @@ function rewritePng(bytes: Buffer): RewriteResult | null {
       claims = mergeClaims(claims, pngTextClaim(chunk));
       continue;
     }
-    if (chunk.type === "iCCP") return null;
+    // A valid ICC/color-managed PNG is retained privately, not treated as
+    // malformed, so its color is never silently reinterpreted as sRGB.
+    if (chunk.type === "iCCP") return { rejected: "color_profile" };
     const validRenderingLength =
       (chunk.type !== "sRGB" || chunk.data.length === 1) &&
       (chunk.type !== "gAMA" || chunk.data.length === 4) &&
@@ -648,12 +757,12 @@ function rewritePng(bytes: Buffer): RewriteResult | null {
       (chunk.type !== "acTL" || chunk.data.length === 8) &&
       (chunk.type !== "fcTL" || chunk.data.length === 26) &&
       (chunk.type !== "fdAT" || chunk.data.length >= 4);
-    if (!validRenderingLength) return null;
+    if (!validRenderingLength) return { rejected: "malformed" };
     if (PNG_RENDER_ALLOWLIST.has(chunk.type)) {
       retained.push(chunk);
     } else if (chunk.type[0] === chunk.type[0].toUpperCase()) {
       // An unknown critical chunk cannot be removed or rendered safely.
-      return null;
+      return { rejected: "malformed" };
     } else {
       metadataPresent = true;
       sensitive = true;
@@ -667,7 +776,9 @@ function rewritePng(bytes: Buffer): RewriteResult | null {
       output.push(pngChunk("eXIf", minimalOrientationExif(orientation).subarray(6)));
       orientationWritten = true;
     }
-    output.push(pngChunk(chunk.type, chunk.data));
+    // Unchanged chunks are re-emitted verbatim (view), avoiding a re-CRC and an
+    // extra full-size copy of large IDAT payloads.
+    output.push(chunk.raw);
   }
   return {
     format: "png",
@@ -681,7 +792,10 @@ function rewritePng(bytes: Buffer): RewriteResult | null {
 
 interface WebpChunk {
   type: string;
+  /** View of the chunk data (excluding header/pad), never a copy. */
   data: Buffer;
+  /** View of the whole chunk (header+data+pad) for verbatim re-emission. */
+  raw: Buffer;
 }
 
 function webpChunk(type: string, data: Buffer): Buffer {
@@ -737,22 +851,28 @@ function parseWebp(bytes: Buffer): { chunks: WebpChunk[]; dimensions: MediaDimen
     const length = bytes.readUInt32LE(offset + 4);
     const end = offset + 8 + length;
     if (length > MAX_MEDIA_SANITIZE_BYTES || end > bytes.length) return null;
-    chunks.push({ type, data: Buffer.from(bytes.subarray(offset + 8, end)) });
-    offset = end + (length % 2);
+    const rawEnd = end + (length % 2);
+    chunks.push({
+      type,
+      data: bytes.subarray(offset + 8, end),
+      raw: bytes.subarray(offset, Math.min(rawEnd, bytes.length)),
+    });
+    offset = rawEnd;
   }
   if (offset !== bytes.length) return null;
   const dimensions = webpDimensions(chunks);
   if (!dimensions || !chunks.some((chunk) => chunk.type === "VP8 " || chunk.type === "VP8L")) {
     return null;
   }
+  if (!withinPixelBounds(dimensions.width, dimensions.height)) return null;
   return { chunks, dimensions };
 }
 
 const WEBP_RENDER_ALLOWLIST = new Set(["VP8X", "ALPH", "ANIM", "ANMF", "VP8 ", "VP8L"]);
 
-function rewriteWebp(bytes: Buffer): RewriteResult | null {
+function rewriteWebp(bytes: Buffer): RewriteOutcome {
   const parsed = parseWebp(bytes);
-  if (!parsed) return null;
+  if (!parsed) return { rejected: "malformed" };
   let claims: EmbeddedMediaClaims = { ...EMPTY_CLAIMS, dimensions: parsed.dimensions };
   let sensitive = false;
   let metadataPresent = false;
@@ -761,7 +881,7 @@ function rewriteWebp(bytes: Buffer): RewriteResult | null {
     if (chunk.type === "EXIF") {
       metadataPresent = true;
       const exif = readExif(chunk.data);
-      if (exif.result === "malformed") return null;
+      if (exif.result === "malformed") return { rejected: "malformed" };
       claims = mergeClaims(claims, exif.claims);
       sensitive = sensitive || exif.sensitive;
       continue;
@@ -771,7 +891,8 @@ function rewriteWebp(bytes: Buffer): RewriteResult | null {
       sensitive = true;
       continue;
     }
-    if (chunk.type === "ICCP") return null;
+    // A valid ICC/color-managed WebP is retained privately, not malformed.
+    if (chunk.type === "ICCP") return { rejected: "color_profile" };
     if (WEBP_RENDER_ALLOWLIST.has(chunk.type)) retained.push(chunk);
     else {
       metadataPresent = true;
@@ -779,28 +900,31 @@ function rewriteWebp(bytes: Buffer): RewriteResult | null {
     }
   }
   const orientation = claims.orientation;
-  let vp8x = retained.find((chunk) => chunk.type === "VP8X");
-  if (vp8x) {
-    if (vp8x.data.length !== 10) return null;
-    vp8x = { type: "VP8X", data: Buffer.from(vp8x.data) };
-    vp8x.data[0] &= ~0x0c;
-    if (orientation != null && orientation !== 1) vp8x.data[0] |= 0x08;
-    const index = retained.findIndex((chunk) => chunk.type === "VP8X");
-    retained[index] = vp8x;
-  } else if (orientation != null && orientation !== 1) {
-    const data = Buffer.alloc(10);
-    data[0] = 0x08;
-    data.writeUIntLE(parsed.dimensions.width - 1, 4, 3);
-    data.writeUIntLE(parsed.dimensions.height - 1, 7, 3);
-    retained.unshift({ type: "VP8X", data });
+  const orient = orientation != null && orientation !== 1;
+  const existingVp8x = retained.find((chunk) => chunk.type === "VP8X");
+  let vp8xData: Buffer | null = null;
+  if (existingVp8x) {
+    if (existingVp8x.data.length !== 10) return { rejected: "malformed" };
+    vp8xData = Buffer.from(existingVp8x.data); // 10 bytes
+    vp8xData[0] &= ~0x0c; // clear stale EXIF/XMP flags
+    if (orient) vp8xData[0] |= 0x08;
+  } else if (orient) {
+    vp8xData = Buffer.alloc(10);
+    vp8xData[0] = 0x08;
+    vp8xData.writeUIntLE(parsed.dimensions.width - 1, 4, 3);
+    vp8xData.writeUIntLE(parsed.dimensions.height - 1, 7, 3);
   }
-  if (orientation != null && orientation !== 1) {
-    retained.push({ type: "EXIF", data: minimalOrientationExif(orientation) });
+  // Emit VP8X first (rebuilt), then all other retained chunks verbatim (views),
+  // then the orientation EXIF. Only the tiny VP8X/EXIF chunks are rebuilt; the
+  // large VP8/VP8L bitstream is re-emitted as a view (single final copy).
+  const emit: Buffer[] = [];
+  if (vp8xData) emit.push(webpChunk("VP8X", vp8xData));
+  for (const chunk of retained) {
+    if (chunk.type === "VP8X") continue;
+    emit.push(chunk.raw);
   }
-  const body = Buffer.concat([
-    Buffer.from("WEBP", "ascii"),
-    ...retained.map((c) => webpChunk(c.type, c.data)),
-  ]);
+  if (orient) emit.push(webpChunk("EXIF", minimalOrientationExif(orientation!)));
+  const body = Buffer.concat([Buffer.from("WEBP", "ascii"), ...emit]);
   const header = Buffer.alloc(8);
   header.write("RIFF", 0, 4, "ascii");
   header.writeUInt32LE(body.length, 4);
@@ -814,12 +938,25 @@ function rewriteWebp(bytes: Buffer): RewriteResult | null {
   };
 }
 
-function rewrite(bytes: Buffer, format: SanitizedImageFormat): RewriteResult | null {
+function rewrite(bytes: Buffer, format: SanitizedImageFormat): RewriteOutcome {
   if (format === "jpeg") return rewriteJpeg(bytes);
   if (format === "png") return rewritePng(bytes);
   return rewriteWebp(bytes);
 }
 
+/** Type guard: a successful rewrite (not a rejection). */
+function isRewritten(outcome: RewriteOutcome): outcome is RewriteResult {
+  return !("rejected" in outcome);
+}
+
+/**
+ * Independently inspect the FINAL derivative bytes. This never re-runs the
+ * sanitizer (which would build a second full-size derivative and duplicate the
+ * source parse): it re-parses the derivative, rejects any forbidden segment or
+ * chunk, confirms dimensions stay in bounds and unchanged, and reads the
+ * orientation directly from the derivative's own minimal metadata so the
+ * orientation round-trip is checked without another rewrite.
+ */
 export function verifyPublicDerivative(
   bytes: Buffer,
   format: SanitizedImageFormat,
@@ -827,44 +964,53 @@ export function verifyPublicDerivative(
 ): { ok: boolean; forbidden: string[] } {
   const forbidden: string[] = [];
   if (identifyFormat(bytes)?.format !== format) forbidden.push("magic_mismatch");
+  let orientationObserved: number | null = null;
+  const checkDimensions = (dimensions: MediaDimensions): void => {
+    if (!withinPixelBounds(dimensions.width, dimensions.height)) {
+      forbidden.push("dimensions_out_of_bounds");
+    }
+    if (
+      expected.dimensions &&
+      (dimensions.width !== expected.dimensions.width ||
+        dimensions.height !== expected.dimensions.height)
+    ) {
+      forbidden.push("dimensions_changed");
+    }
+  };
   if (format === "jpeg") {
     const parsed = parseJpeg(bytes);
     if (!parsed) forbidden.push("malformed_jpeg");
     else {
       let jfifCount = 0;
       for (const segment of parsed.segments) {
-        if (segment.marker === 0xe1 && !exifIsMinimalOrientation(segment.payload)) {
-          forbidden.push("jpeg_exif");
+        const { marker, payload } = segment;
+        if (marker === 0xe1) {
+          const orient = minimalOrientationValue(payload);
+          if (orient == null) forbidden.push("jpeg_exif");
+          else orientationObserved = orient;
         }
-        if (segment.marker === 0xed) forbidden.push("jpeg_iptc");
-        if (segment.marker === 0xfe) forbidden.push("jpeg_comment");
-        const jfif = segment.marker === 0xe0 ? normalizeJfif(segment.payload) : null;
+        if (marker === 0xed) forbidden.push("jpeg_iptc");
+        if (marker === 0xfe) forbidden.push("jpeg_comment");
+        const jfif = marker === 0xe0 ? normalizeJfif(payload) : null;
         if (jfif) {
           jfifCount += 1;
           if (jfif.thumbnailRemoved) forbidden.push("jpeg_jfif_thumbnail");
-          if (!segment.payload.equals(jfif.payload)) forbidden.push("jpeg_jfif_noncanonical");
+          if (!payload.equals(jfif.payload)) forbidden.push("jpeg_jfif_noncanonical");
         }
         if (
-          segment.marker >= 0xe0 &&
-          segment.marker <= 0xef &&
+          marker >= 0xe0 &&
+          marker <= 0xef &&
           !(
-            (segment.marker === 0xe0 && jfif != null) ||
-            (segment.marker === 0xe1 && exifIsMinimalOrientation(segment.payload)) ||
-            (segment.marker === 0xee &&
-              segment.payload.subarray(0, 5).toString("latin1") === "Adobe")
+            (marker === 0xe0 && jfif != null) ||
+            (marker === 0xe1 && minimalOrientationValue(payload) != null) ||
+            (marker === 0xee && payload.subarray(0, 5).toString("latin1") === "Adobe")
           )
         ) {
           forbidden.push("jpeg_app_metadata");
         }
       }
       if (jfifCount > 1) forbidden.push("jpeg_jfif_ambiguous");
-      if (
-        expected.dimensions &&
-        (parsed.dimensions.width !== expected.dimensions.width ||
-          parsed.dimensions.height !== expected.dimensions.height)
-      ) {
-        forbidden.push("dimensions_changed");
-      }
+      checkDimensions(parsed.dimensions);
     }
   } else if (format === "png") {
     const parsed = parsePng(bytes);
@@ -874,20 +1020,17 @@ export function verifyPublicDerivative(
         if (["tEXt", "zTXt", "iTXt", "tIME"].includes(chunk.type)) {
           forbidden.push(`png_${chunk.type}`);
         }
-        if (chunk.type === "eXIf" && !exifIsMinimalOrientation(chunk.data)) {
-          forbidden.push("png_exif");
+        if (chunk.type === "eXIf") {
+          const orient = minimalOrientationValue(chunk.data);
+          if (orient == null) forbidden.push("png_exif");
+          else orientationObserved = orient;
         }
+        if (chunk.type === "iCCP") forbidden.push("png_iccp");
         if (!PNG_RENDER_ALLOWLIST.has(chunk.type) && chunk.type !== "eXIf") {
           forbidden.push("png_unknown_metadata");
         }
       }
-      if (
-        expected.dimensions &&
-        (parsed.dimensions.width !== expected.dimensions.width ||
-          parsed.dimensions.height !== expected.dimensions.height)
-      ) {
-        forbidden.push("dimensions_changed");
-      }
+      checkDimensions(parsed.dimensions);
     }
   } else {
     const parsed = parseWebp(bytes);
@@ -895,30 +1038,21 @@ export function verifyPublicDerivative(
     else {
       for (const chunk of parsed.chunks) {
         if (chunk.type === "XMP ") forbidden.push("webp_xmp");
-        if (chunk.type === "EXIF" && !exifIsMinimalOrientation(chunk.data)) {
-          forbidden.push("webp_exif");
+        if (chunk.type === "ICCP") forbidden.push("webp_iccp");
+        if (chunk.type === "EXIF") {
+          const orient = minimalOrientationValue(chunk.data);
+          if (orient == null) forbidden.push("webp_exif");
+          else orientationObserved = orient;
         }
         if (!WEBP_RENDER_ALLOWLIST.has(chunk.type) && chunk.type !== "EXIF") {
           forbidden.push("webp_unknown_metadata");
         }
       }
-      if (
-        expected.dimensions &&
-        (parsed.dimensions.width !== expected.dimensions.width ||
-          parsed.dimensions.height !== expected.dimensions.height)
-      ) {
-        forbidden.push("dimensions_changed");
-      }
+      checkDimensions(parsed.dimensions);
     }
   }
   const orientationExpected =
     expected.orientation != null && expected.orientation !== 1 ? expected.orientation : null;
-  const rewritten = rewrite(bytes, format);
-  if (!rewritten) forbidden.push("sanitizer_reparse_failed");
-  const orientationObserved =
-    rewritten?.claims.orientation != null && rewritten.claims.orientation !== 1
-      ? rewritten.claims.orientation
-      : null;
   if (orientationExpected !== orientationObserved) forbidden.push("orientation_changed");
   return { ok: forbidden.length === 0, forbidden: [...new Set(forbidden)] };
 }
@@ -968,8 +1102,31 @@ export function createPublicDerivative(input: {
     record.verification.forbidden_metadata = ["source_changed_after_hash"];
     return { eligible: false, reason: "source_changed", record };
   }
-  const rewritten = rewrite(input.bytes, identified.format);
-  if (!rewritten || rewritten.bytes.length === 0) {
+  const outcome = rewrite(input.bytes, identified.format);
+  if (!isRewritten(outcome)) {
+    if (outcome.rejected === "color_profile") {
+      // A valid color-managed image: retained privately with a dedicated
+      // reason, never misclassified as malformed.
+      const record = unsupportedRecord(
+        identified.format,
+        input.originalSha256,
+        input.originalSize,
+        "color_profile_unsupported",
+      );
+      return { eligible: false, reason: "color_profile_unsupported", record };
+    }
+    const record = unsupportedRecord(
+      identified.format,
+      input.originalSha256,
+      input.originalSize,
+      "malformed",
+    );
+    record.verification.result = "failed";
+    record.verification.forbidden_metadata = ["malformed_source"];
+    return { eligible: false, reason: "malformed_media", record };
+  }
+  const rewritten = outcome;
+  if (rewritten.bytes.length === 0) {
     const record = unsupportedRecord(
       identified.format,
       input.originalSha256,

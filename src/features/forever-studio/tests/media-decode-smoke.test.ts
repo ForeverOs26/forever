@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { createPublicDerivative } from "../server/media-truth";
-import { syntheticPng } from "./media-truth-fixtures";
+import { syntheticJpeg, syntheticPng } from "./media-truth-fixtures";
 
 const CHROMIUM_CANDIDATES = [
   process.env.CHROME_PATH,
@@ -103,5 +103,32 @@ decodeDescribe("real browser image decode smoke", () => {
       </script></body>`);
 
     expect(dom).toMatch(/DECODE_RESULT=jpeg:ok:\d+x\d+,png:ok:3x2,webp:ok:1x1/);
+  }, 60_000);
+
+  it("decodes JPEG derivatives carrying preserved EXIF orientations 2–8", () => {
+    // The sanitizer preserves orientation as a minimal one-tag EXIF (metadata
+    // orientation, NOT a pixel rotation). Browsers honor JPEG EXIF orientation,
+    // so every orientation-tagged derivative must still decode. For the 90°
+    // orientations (5–8) Chromium swaps naturalWidth/Height; we only assert a
+    // successful decode here rather than exact post-rotation dimensions.
+    const orientations = [2, 3, 4, 5, 6, 7, 8];
+    const tags = orientations
+      .map((orientation) => {
+        const bytes = derivative(syntheticJpeg(true, orientation), "image/jpeg");
+        return `<img data-name="o${orientation}" src="data:image/jpeg;base64,${bytes.toString("base64")}">`;
+      })
+      .join("");
+    const dom = chromiumDom(`<!doctype html><body>${tags}<script>
+        addEventListener("load", () => {
+          const result = [...document.images].map((image) =>
+            image.complete && image.naturalWidth > 0 && image.naturalHeight > 0
+              ? image.dataset.name + ":ok"
+              : image.dataset.name + ":failed"
+          );
+          document.body.textContent = "ORIENT_RESULT=" + result.join(",");
+        });
+      </script></body>`);
+
+    expect(dom).toMatch(/ORIENT_RESULT=o2:ok,o3:ok,o4:ok,o5:ok,o6:ok,o7:ok,o8:ok/);
   }, 60_000);
 });
