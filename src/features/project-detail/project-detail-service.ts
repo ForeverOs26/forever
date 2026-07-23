@@ -4,11 +4,17 @@ import { mapProjectDetail } from "./project-detail-mappers";
 import type { ProjectDetail, ProjectDetailRecord } from "./project-detail-types";
 
 export const PROJECT_DETAIL_SELECT = `
-  *,
-  developer:developers(*),
-  media:project_media(*),
-  units:units(*),
-  investment:investment_data(*)
+  id, developer_id, name, slug, project_type, location_area, address,
+  short_description, full_description, construction_status, completion_date,
+  ownership_type, distance_to_beach, distance_to_airport, latitude, longitude,
+  main_image_url, brochure_url, is_featured, is_active, sales_status,
+  starting_price_thb, price_range, price_per_sqm_display, last_price_update,
+  tagline, highlights, beds_display, area_range, nearby_schools,
+  nearby_hospitals, lifestyle, developer_name_raw, location_name_raw,
+  developer:developers(id, name, description, website, contact_name, contact_phone, contact_email, logo_url),
+  media:project_media(id, project_id, media_type, title, url, sort_order, created_at),
+  units:units(id, project_id, building_id, unit_code, unit_type, bedrooms, bathrooms, size_sqm, floor, view_type, ownership_type, base_price_thb, discounted_price_thb, price_per_sqm, availability_status, payment_plan, furniture_package, rental_guarantee, roi_estimate, notes, created_at, updated_at),
+  investment:investment_data(id, project_id, unit_id, expected_daily_rate, expected_monthly_rent, expected_yearly_rent, occupancy_rate, annual_roi_percent, guaranteed_rental_percent, guarantee_years, management_company, notes, created_at, updated_at)
 ` as const;
 
 /**
