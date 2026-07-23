@@ -138,10 +138,18 @@ by the staging project:
 - Temporary port `5183` (`--strictPort`); server-side env injected from `.env` in-process
   (never on a command line); a hard staging-only guard runs before binding.
 - No cloud deployment of any kind was performed.
+- Route health: `/` **200**, `/studio` **200**, `/projects` **200** (all serve).
 
 > If Windows shows a one-time private-network firewall prompt for Node on first phone
 > connection, the Owner should approve that single prompt. No firewall rule was created by the
 > operator (that would be a system-settings change).
+
+> **Preview-only note (not part of the PR):** the marketing/catalogue routes eagerly import a
+> `forever-data/projects/modeva/**` demo dataset that is absent from this worktree (the
+> pre-existing, unrelated issue behind the lone `tsc` error and 2 unrelated test failures). To
+> let the public pages render on the preview, minimal **local, untracked** placeholder files
+> were supplied at those paths. They are not committed, not part of PR #99, and unrelated to the
+> media-truth feature; the Studio flow never touches them.
 
 ---
 
