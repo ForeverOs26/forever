@@ -46,8 +46,19 @@ type ProjectWithRelations = ProjectRow & {
   media: Pick<MediaRow, "media_type" | "url" | "sort_order">[];
 };
 
+/**
+ * Deliberate public projection. Do not replace this with `*`: projects carry
+ * internal provenance and progressive-ingestion metadata which must not cross
+ * the anonymous client boundary. The matching database column grants live in
+ * migration 20260723130000_public_projection_privacy.sql.
+ */
 const SELECT = `
-  *,
+  id, slug, name, project_type, location_area, short_description,
+  full_description, construction_status, distance_to_beach, distance_to_airport,
+  main_image_url, is_featured, is_active, created_at, sales_status,
+  starting_price_thb, price_range, price_per_sqm_display, last_price_update,
+  tagline, highlights, beds_display, area_range, nearby_schools,
+  nearby_hospitals, lifestyle, start_date_display, completion_date_display,
   developer:developers(name),
   media:project_media(media_type, url, sort_order)
 ` as const;
