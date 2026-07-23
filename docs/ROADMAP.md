@@ -8,13 +8,13 @@ The strategic direction is governed by `docs/FOREVER_STRATEGIC_NORTH_STAR.md`.
 
 ## Current phase
 
-**Forever Studio — Publisher Direct Upload**
+**Forever Studio — Production Preflight and Owner Rollout Decision**
 
 FOREVER-TRUTH-001A repository implementation is completed and canonical after PR #94. Fabricated public claims and optimistic evidence defaults are removed or fail closed. The prepared production cleanup plan remains unexecuted and Owner-gated; PR #94 performed no production inventory or cleanup.
 
-The active product checkpoint is **FOREVER-STUDIO-001 — Authenticated Mobile Owner and Trusted Publisher Direct Upload**.
+The active product checkpoint is **FOREVER-STUDIO-001 production readiness**.
 
-At a high level, an Owner or Trusted Publisher upload is direct publication authorization: no separate readiness, verification, review, or publication approval follows. Incomplete business data never blocks publication; Forever displays useful available information and leaves missing fields absent or neutral for later enrichment. The intended surface supports new developments, project updates, price updates, construction media, and resale on phone, tablet, and desktop. Targets are 2–5 minutes of publisher interaction and a usable public result within 15 minutes. The implementation exists in an open, unmerged draft PR pending independent review (`docs/FOREVER_STUDIO_001_IMPLEMENTATION_REPORT.md`); no migration has been applied and no production change has occurred.
+PR #95 merged the implementation at `7963ceeb3e49f932153dd92afde0e5cb446b57f5`. The read-only production database preflight passed its identity, TLS, history, catalogue, and no-drift checks, with seven Studio migrations pending in the exact committed order. The configuration-and-identity checkpoint completed the Auth portion: exactly one confirmed Owner exists, public signup is disabled, and email/password sign-in remains enabled. End-to-end rollout is still **BLOCKED** under Cloudflare verdict E because authenticated inventory remains technically unreadable; the authoritative target, repo/revision identity, and four required server environment names/scopes cannot be verified. Cloudflare Workers/Nitro is the preferred canonical production direction; Lovable remains design/prototyping absent contrary authoritative deployment evidence. The roadmap therefore retains the six Owner gates documented in `docs/FOREVER_STUDIO_PRODUCTION_PREFLIGHT_REPORT.md`: migration approval, server environment, Owner Auth, exact-revision deployment, controlled synthetic smoke, then a separately authorized first real publication. Gate C's identity provisioning is complete, and any provider-coupled environment/version activation must combine Gate B and Gate D under one later explicit exact-SHA Owner authorization.
 
 TG-WATCH-001A is canonical as a bounded manual offline capability. Live Telegram transport and broad channel scaling are deferred until catalogue freshness becomes a measured operating bottleneck.
 

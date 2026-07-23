@@ -1,7 +1,7 @@
 # Forever Current Stage
 
 Status: Canonical active-stage document
-Last updated: 2026-07-21
+Last updated: 2026-07-23
 
 ## Stage name
 
@@ -34,7 +34,7 @@ This stage must:
 5. provide a usable phone, tablet, and desktop interface;
 6. target 2–5 minutes of publisher interaction and a usable public result within 15 minutes.
 
-The FOREVER-STUDIO-001 implementation now exists, hardened, in an open, unmerged draft PR on branch `claude/forever-studio-upload-dfev75` (report: `docs/FOREVER_STUDIO_001_IMPLEMENTATION_REPORT.md`; runbook: `docs/FOREVER_STUDIO_OWNER_RUNBOOK.md`). It remains pending independent Codex audit and Owner approval. Its single pending Studio migration (`20260721120000_forever_studio_v1.sql`) is prepared but NOT applied — mostly additive, plus one documented relocation of listing contact data into a private table with the public contact columns dropped; the progressive ingestion migration it builds on is already applied (Coralina is imported as an unpublished draft). No production connection, publication, or data change has occurred.
+FOREVER-STUDIO-001 is implemented and canonical after PR #95 merged at `7963ceeb3e49f932153dd92afde0e5cb446b57f5` (report: `docs/FOREVER_STUDIO_001_IMPLEMENTATION_REPORT.md`; runbook: `docs/FOREVER_STUDIO_OWNER_RUNBOOK.md`). The 2026-07-23 configuration-and-identity checkpoint created exactly one confirmed production Owner Auth identity and disabled public signup while retaining email/password sign-in. No Studio membership, bootstrap, or login occurred. Production rollout remains **BLOCKED** under Cloudflare verdict E: Owner authentication reached an account route, but the account and Workers & Pages inventory surfaces never rendered, Chrome blocked the focused read-only dashboard API GET with `ERR_BLOCKED_BY_CLIENT`, and no authorized Wrangler fallback exists. Cloudflare Workers/Nitro remains the preferred canonical production direction; Lovable remains design/prototyping absent contrary authoritative deployment evidence. Consequently, target/repository identity, deployed revision, and the four required production environment names/scopes remain unverified. No migration, deployment, smoke, publication, catalogue mutation, or Storage mutation occurred. See `docs/FOREVER_STUDIO_PRODUCTION_PREFLIGHT_REPORT.md`.
 
 ## Canonical foundations retained
 
@@ -72,7 +72,7 @@ The current constraints are:
 | ------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------- |
 | TG-WATCH-001A offline watcher core and real Coralina pilot    | Codex / Owner          | Completed and canonical offline tooling; no live transport expansion                      |
 | FOREVER-TRUTH-001A public truth audit and fail-closed cleanup | Claude / Codex / Owner | Repository implementation completed and canonical; production cleanup remains Owner-gated |
-| FOREVER-STUDIO-001 direct publisher upload                    | Owner / Architect      | Implemented in an open, unmerged draft PR; pending independent review and Owner approval  |
+| FOREVER-STUDIO-001 direct publisher upload                    | Owner / Architect      | PR #95 merged; Auth ready; rollout blocked on authoritative host and environment scope    |
 | Present Partner Demo v1 and collect structured feedback       | Owner                  | Parallel pending business checkpoint                                                      |
 | Establish lead-response and guest-feedback baseline           | Owner / Architect      | Starts during this stage                                                                  |
 | Coralina publication readiness                                | Owner / Architect      | Next separate checkpoint; publication not authorized here                                 |
@@ -215,4 +215,4 @@ This stage is complete when:
 2. external partner or guest feedback has been collected and reviewed;
 3. the next checkpoint is selected from evidence rather than infrastructure momentum.
 
-The expected next checkpoint is **Coralina Publication Readiness**, followed by a focused pilot catalogue of 5–8 commercially important real projects. That sequence may change if external feedback provides stronger evidence.
+The immediate checkpoint is an Owner decision on the blocked Studio production-readiness gates. No rollout action is authorized by this document. **Coralina Publication Readiness** remains the next separate product checkpoint after a safe Studio decision, followed by a focused pilot catalogue of 5–8 commercially important real projects. That sequence may change if external feedback provides stronger evidence.

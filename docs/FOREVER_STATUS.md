@@ -23,7 +23,7 @@ The project now prioritizes:
 
 FOREVER-TRUTH-001A repository implementation is completed and canonical after PR #94. Fabricated public claims and optimistic evidence defaults are removed or fail closed. Its prepared production cleanup plan remains unexecuted and Owner-gated; no production inventory or cleanup was performed by PR #94.
 
-The active product checkpoint is **FOREVER-STUDIO-001 — Authenticated Mobile Owner and Trusted Publisher Direct Upload**. An Owner or Trusted Publisher upload is direct publication authorization: no separate readiness, verification, review, or publication approval follows. Incomplete business data never blocks publication; useful available information is displayed and missing fields remain absent or neutral for later enrichment. The intended scope covers new developments, project updates, price updates, construction media, and resale across phone, tablet, and desktop, with a 2–5 minute publisher interaction target and a usable public result within 15 minutes. The implementation now exists, hardened, in an open, unmerged draft PR (branch `claude/forever-studio-upload-dfev75`; see `docs/FOREVER_STUDIO_001_IMPLEMENTATION_REPORT.md`) and remains pending independent Codex audit and Owner approval; its single pending Studio migration is prepared but not applied — mostly additive, plus one documented private-contact relocation with the public contact columns dropped (the progressive migration it builds on is already applied) — and no production change has occurred.
+The active product checkpoint is **FOREVER-STUDIO-001 production preflight and Owner rollout decision**. PR #95 merged the hardened Studio implementation at `7963ceeb3e49f932153dd92afde0e5cb446b57f5`. A TLS-verified, transaction-read-only production inspection found the foundation healthy and the seven Studio migrations pending in the exact committed order. The 2026-07-23 configuration-and-identity checkpoint then created exactly one confirmed production Owner Auth identity and disabled public signup while keeping email/password sign-in enabled. Rollout remains **BLOCKED** under Cloudflare verdict E: authenticated account and Workers & Pages surfaces never rendered, Chrome blocked the focused read-only dashboard API GET with `ERR_BLOCKED_BY_CLIENT`, and no authorized Wrangler fallback exists. Cloudflare Workers/Nitro remains the preferred canonical production direction; Lovable remains design/prototyping absent contrary authoritative evidence. The real production target, repo/revision identity, and four required environment names/scopes therefore remain unverified. No migration, deployment, Studio login/bootstrap, smoke, publication, catalogue mutation, or Storage mutation occurred. See `docs/FOREVER_STUDIO_PRODUCTION_PREFLIGHT_REPORT.md`.
 
 This strategic documentation ratification does not itself change product behavior or authorize a production cleanup, publication, import, lead mutation, or production write.
 
@@ -208,10 +208,10 @@ Current boundaries remain:
 
 ## Immediate next work
 
-See `docs/CURRENT_STAGE.md` for the active FOREVER-STUDIO-001 checkpoint.
+See `docs/CURRENT_STAGE.md` and `docs/FOREVER_STUDIO_PRODUCTION_PREFLIGHT_REPORT.md` for the active FOREVER-STUDIO-001 production-readiness checkpoint.
 
-The approved next direction is FOREVER-STUDIO-001. Coralina remains unpublished; Rainpalm remains unimported and unpublished; Partner Demo remains canonical; Factory remains A0.
+The identity portion of the authorized readiness checkpoint is complete: exactly one confirmed production Owner Auth identity exists and public signup is disabled. The next prerequisite is authenticated access to the authoritative production hosting metadata so the actual host, deployed revision, and the four required server environment names/scopes can be verified. Environment changes remain unapplied because the host is unresolved and the available platforms apply configuration through a production deployment or activation path. Applying migrations, deploying, smoking production, bootstrapping Studio, and publishing real content remain separate later gates. Coralina remains unpublished; Rainpalm remains unimported and unpublished; Partner Demo remains canonical; Factory remains A0.
 
 ## Last updated
 
-2026-07-21
+2026-07-23

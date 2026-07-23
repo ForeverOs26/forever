@@ -1,7 +1,7 @@
 # Forever Decisions
 
 Status: Canonical decision log
-Last updated: 2026-07-21
+Last updated: 2026-07-23
 
 ## Purpose
 
@@ -18,6 +18,22 @@ Each decision should include:
 - Review trigger, if any
 
 ## Approved decisions
+
+### 2026-07-23 — Configuration-and-identity checkpoint completes Auth hardening but remains blocked on hosting evidence
+
+- **Decision:** The Owner-authorized readiness checkpoint created exactly one confirmed Auth identity in production and disabled public signup while retaining email/password sign-in. It did not create a Studio member, bootstrap the Owner, sign in to Studio, migrate, deploy, smoke, publish, or alter catalogue/Storage state.
+- **Context:** Production database identity, migration history, and non-Auth inventory remain stable, with the same seven Studio migrations pending. Cloudflare inventory verdict E applies: Owner authentication reached an account route, but the account and Workers & Pages surfaces never rendered, Chrome blocked the focused read-only dashboard API GET with `ERR_BLOCKED_BY_CLIENT`, and no authorized Wrangler fallback exists. Lovable provides no contrary authoritative deployment evidence, and GitHub reports no deployment/environment evidence. The four required environment names therefore remain unverified and unapplied.
+- **Consequence:** Gate C identity provisioning is complete. PR #96 remains Draft. No Gate A, B, D, E, or F action is authorized. Cloudflare Workers/Nitro is the preferred canonical production direction; Lovable remains design/prototyping absent contrary authoritative evidence. Before any environment change, an operator must verify the host, repository/revision identity, and whether configuration creates a version, deploys, activates, or immediately affects production; if it does, Gate B and Gate D require one later explicit exact-SHA Owner authorization.
+- **Review trigger:** When authenticated production hosting metadata is accessible, before any environment mutation, and again before every remaining rollout gate.
+
+### 2026-07-23 — FOREVER-STUDIO-001 merged; production rollout remains blocked behind six explicit Owner gates
+
+- **Decision:** PR #95 is canonical at merge commit `7963ceeb3e49f932153dd92afde0e5cb446b57f5`. The production database preflight passed read-only identity, TLS, migration-history, catalogue, and no-drift checks, but the overall production preflight is **BLOCKED**. At the time of this decision, no production write, migration, Auth change, deployment, or publication had been authorized. Rollout requires separate Owner confirmation at Gates A–F in `docs/FOREVER_STUDIO_PRODUCTION_PREFLIGHT_REPORT.md`.
+- **Context:** Seven Studio migrations were pending in the expected order and no partial Studio state existed. The deployed Lovable revision and required production secret presence could not be verified; production had zero Auth users and public email signup was enabled. The later configuration-and-identity decision above supersedes those two Auth findings. The six known fictitious seeded projects remain active and published in the database, while PR #94's repository boundary quarantines them; their durable data cleanup remains a separate Owner-gated obligation.
+- **Consequence:** Studio rollout is technically independent of the truth-data cleanup only if the approved deployment contains PR #94 as an ancestor and the quarantined rows are not edited or published through Studio. At that checkpoint, the immediate permissible decision was configuration-and-identity readiness only; the later decision above records its partial completion. Migration application, deployment, smoke, and first real publication remain later independent gates. Coralina and Rainpalm remain excluded from the smoke and first-publication gates unless separately authorized. Factory remains A0.
+- **Review trigger:** After hosting revision and secret-name presence are verified; then again before every remaining Gate A–F action.
+
+The 2026-07-21 Studio entry below is retained as historical pre-merge context and is superseded where it describes PR or migration status.
 
 ### 2026-07-21 — FOREVER-STUDIO-001 implemented in an open draft PR; direct-publication rule recorded as durable
 
