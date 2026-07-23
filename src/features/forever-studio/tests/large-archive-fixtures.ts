@@ -14,7 +14,11 @@ import { zipCrc32 } from "@/intake/zip";
 
 import { confirmJobArchiveUpload, planJobArchiveUpload, startUploadJob } from "../server/service";
 import type { StudioActor } from "../server/contracts";
-import type { StartJobInput } from "../studio-types";
+import {
+  UPLOAD_FINGERPRINT_DOMAIN,
+  uploadFingerprintSampleRanges,
+  type StartJobInput,
+} from "../studio-types";
 import { PRIVATE_SOURCE_BUCKET } from "../server/extraction";
 import type { FakeWorld } from "./fakes";
 
@@ -151,6 +155,36 @@ export function patternBytes(size: number, seed: number): Buffer {
   return buffer;
 }
 
+/**
+ * Node mirror of the browser's computeUploadFingerprint over pre-built parts:
+ * identical domain prefix, sample ranges, and trailing 8-byte length, reading
+ * the sampled ranges across part boundaries without concatenating the whole
+ * archive.
+ */
+export function fingerprintForParts(parts: Buffer[], totalSize: number): string {
+  const partSize = parts[0]?.length ?? 1;
+  const readRange = (start: number, end: number): Buffer => {
+    const out: Buffer[] = [];
+    let cursor = start;
+    while (cursor < end) {
+      const index = Math.floor(cursor / partSize);
+      const within = cursor - index * partSize;
+      const take = Math.min(end - cursor, parts[index].length - within);
+      out.push(parts[index].subarray(within, within + take));
+      cursor += take;
+    }
+    return Buffer.concat(out);
+  };
+  const pieces: Buffer[] = [Buffer.from(UPLOAD_FINGERPRINT_DOMAIN, "utf8")];
+  for (const range of uploadFingerprintSampleRanges(totalSize)) {
+    pieces.push(readRange(range.start, Math.min(range.end, totalSize)));
+  }
+  const size = Buffer.alloc(8);
+  size.writeBigUInt64BE(BigInt(totalSize), 0);
+  pieces.push(size);
+  return createHash("sha256").update(Buffer.concat(pieces)).digest("hex");
+}
+
 // ---------------------------------------------------------------------------
 // Simulated browser: start job → plan → upload parts → confirm
 // ---------------------------------------------------------------------------
@@ -185,12 +219,19 @@ export async function uploadArchiveParts(
   fileName: string,
   parts: Buffer[],
   totalSize: number,
-  options: { skipParts?: number[]; tamperPart?: number; skipConfirm?: boolean } = {},
+  options: {
+    skipParts?: number[];
+    tamperPart?: number;
+    skipConfirm?: boolean;
+    /** Override the content-derived fingerprint (collision regressions). */
+    uploadFingerprint?: string;
+  } = {},
 ): Promise<UploadedArchive> {
   const plan = await planJobArchiveUpload(world.deps, actor, {
     jobId,
     fileName,
     declaredSize: totalSize,
+    uploadFingerprint: options.uploadFingerprint ?? fingerprintForParts(parts, totalSize),
   });
   for (const target of plan.parts) {
     if (options.skipParts?.includes(target.index)) continue;

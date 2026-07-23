@@ -104,6 +104,11 @@ const archivePlanSchema = z
     jobId: z.string().uuid(),
     fileName: z.string().min(1).max(300),
     declaredSize: z.number().int().positive(),
+    // Client upload fingerprint (bounded-sample SHA-256): resume identity so
+    // different archives sharing a name and size never attach to each other's
+    // stored parts. Recorded privately; never a substitute for server
+    // verification of the actual stored bytes.
+    uploadFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   })
   .strip();
 
@@ -135,10 +140,12 @@ export const studioPlanArchiveUpload = createServerFn({ method: "POST" })
   });
 
 /**
- * Confirm one chunked upload. Acceptance requires every stored part to exist
- * with exactly the planned size (the browser's claim is never trusted); the
+ * Confirm one chunked upload. STORAGE acceptance requires every stored part
+ * to exist with exactly the planned size (the browser's claim is never
+ * trusted) — that makes the archive safely stored, NOT verified. The
  * recorded per-part SHA-256 claims are verified against the actual stored
- * bytes by the first processing slices before any expansion.
+ * bytes by the first processing slices; the archive is byte-verified only
+ * after every part matches, and no UI may say otherwise.
  */
 export const studioConfirmArchiveUpload = createServerFn({ method: "POST" })
   .middleware([requireStudioMember])
@@ -164,9 +171,12 @@ export const studioGetJobProgress = createServerFn({ method: "GET" })
   });
 
 /**
- * Automatic durable resume. Safe to call on every dashboard poll and from a
- * scheduled worker/cron: it claims and completes explicitly-ready received,
- * retryable-failed, and stale-processing jobs without another decision.
+ * Automatic durable resume from a signed-in Studio session (dashboard poll).
+ * The BACKGROUND continuation path is separate and needs no session at all:
+ * the Cloudflare Cron Trigger fires the Worker's scheduled() export, which
+ * runs runScheduledStudioTick with server-only credentials (see
+ * server/scheduled.plugin.ts) — this endpoint is a convenience accelerator,
+ * not the guarantee.
  */
 export const studioResumePending = createServerFn({ method: "POST" })
   .middleware([requireStudioMember])

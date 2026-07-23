@@ -28,7 +28,10 @@ import { inflateRawSync } from "node:zlib";
 
 import {
   validateZipEntrySet,
+  ZIP_CRC32_SEED,
   zipCrc32,
+  zipCrc32Finish,
+  zipCrc32Update,
   ZipIntegrityError,
   ZipLimitError,
   ZipUnsupportedError,
@@ -207,6 +210,32 @@ export async function readZipDirectoryRanged(
 }
 
 /**
+ * Validate ONE entry's local header (bounded 30-byte read) and locate its
+ * compressed payload span. Shared by the buffered reader and the streaming
+ * reader; performs the same containment check (entry data must live strictly
+ * before the central directory) and no payload read.
+ */
+export async function locateZipEntryData(
+  source: ZipByteSource,
+  directory: RangedZipDirectory,
+  entry: ZipEntry,
+): Promise<{ dataStart: number; dataEnd: number }> {
+  const headerStart = entry.localHeaderOffset;
+  const header = await readExact(source, headerStart, headerStart + 30);
+  if (header.readUInt32LE(0) !== LOCAL_SIGNATURE) {
+    throw new ZipIntegrityError("zip_local_header_corrupt");
+  }
+  const nameLength = header.readUInt16LE(26);
+  const extraLength = header.readUInt16LE(28);
+  const dataStart = headerStart + 30 + nameLength + extraLength;
+  const dataEnd = dataStart + entry.compressedSize;
+  if (dataEnd > directory.centralDirectoryOffset) {
+    throw new ZipIntegrityError("zip_local_header_corrupt");
+  }
+  return { dataStart, dataEnd };
+}
+
+/**
  * Read and verify ONE entry: bounded local-header read, bounded compressed
  * read, inflate with an explicit output cap, then declared-size and CRC-32
  * verification. Peak memory is one compressed payload plus one inflated entry.
@@ -224,18 +253,7 @@ export async function readZipEntryDataRanged(
   if (entry.compressedSize > limits.maxCompressedEntryBytes) {
     throw new ZipLimitError(`zip_entry_compressed_too_large: ${entry.name}`);
   }
-  const headerStart = entry.localHeaderOffset;
-  const header = await readExact(source, headerStart, headerStart + 30);
-  if (header.readUInt32LE(0) !== LOCAL_SIGNATURE) {
-    throw new ZipIntegrityError("zip_local_header_corrupt");
-  }
-  const nameLength = header.readUInt16LE(26);
-  const extraLength = header.readUInt16LE(28);
-  const dataStart = headerStart + 30 + nameLength + extraLength;
-  const dataEnd = dataStart + entry.compressedSize;
-  if (dataEnd > directory.centralDirectoryOffset) {
-    throw new ZipIntegrityError("zip_local_header_corrupt");
-  }
+  const { dataStart, dataEnd } = await locateZipEntryData(source, directory, entry);
   const compressed = await readExact(source, dataStart, dataEnd);
 
   let data: Buffer;
@@ -258,4 +276,101 @@ export async function readZipEntryDataRanged(
     throw new ZipIntegrityError(`zip_crc_mismatch: ${entry.name}`);
   }
   return data;
+}
+
+/**
+ * Stream ONE entry's uncompressed bytes through `onData` with bounded memory,
+ * for entries too large to buffer whole: the compressed span is read in
+ * `maxChunkBytes` pieces, STORE passes chunks straight through, DEFLATE runs
+ * through a streaming raw inflater with backpressure, and the running output
+ * is capped at the declared uncompressed size. After the last chunk the exact
+ * size and CRC-32 of the FULL uncompressed stream are verified against the
+ * central-directory record — the same fail-closed contract as the buffered
+ * reader. Peak memory ≈ one compressed chunk + the inflater window + one
+ * output chunk, independent of entry size.
+ *
+ * NOTE: `onData` receives bytes BEFORE final CRC/size verification completes;
+ * a caller persisting them must discard its side effects when this throws.
+ */
+export async function streamZipEntryDataRanged(
+  source: ZipByteSource,
+  directory: RangedZipDirectory,
+  entry: ZipEntry,
+  options: { maxChunkBytes: number },
+  onData: (chunk: Buffer) => Promise<void>,
+): Promise<void> {
+  if (entry.isDirectory) return;
+  if (entry.method !== 0 && entry.method !== 8) {
+    throw new ZipUnsupportedError(`zip_unsupported_compression_method: ${entry.method}`);
+  }
+  const chunkBytes = Math.max(64 * 1024, options.maxChunkBytes);
+  const { dataStart, dataEnd } = await locateZipEntryData(source, directory, entry);
+
+  let produced = 0;
+  let crcState = ZIP_CRC32_SEED;
+  const consume = async (chunk: Buffer): Promise<void> => {
+    if (chunk.length === 0) return;
+    produced += chunk.length;
+    if (produced > entry.uncompressedSize) {
+      throw new ZipIntegrityError(`zip_size_mismatch: ${entry.name}`);
+    }
+    crcState = zipCrc32Update(crcState, chunk);
+    await onData(chunk);
+  };
+
+  if (entry.method === 0) {
+    for (let start = dataStart; start < dataEnd; start += chunkBytes) {
+      const end = Math.min(dataEnd, start + chunkBytes);
+      await consume(await readExact(source, start, end));
+    }
+  } else {
+    const { createInflateRaw } = await import("node:zlib");
+    const { Readable, Writable } = await import("node:stream");
+    const { pipeline } = await import("node:stream/promises");
+    // Distinguish errors raised by our own source reads and consumer (short
+    // reads, the size cap, the caller's storage writes — propagated verbatim)
+    // from zlib/stream failures (a corrupt DEFLATE stream — reported as the
+    // entry's integrity failure).
+    let consumerError: unknown;
+    async function* compressedChunks(): AsyncGenerator<Buffer> {
+      for (let start = dataStart; start < dataEnd; start += chunkBytes) {
+        const end = Math.min(dataEnd, start + chunkBytes);
+        try {
+          yield await readExact(source, start, end);
+        } catch (error) {
+          consumerError ??= error;
+          throw error;
+        }
+      }
+    }
+    try {
+      await pipeline(
+        Readable.from(compressedChunks()),
+        createInflateRaw(),
+        new Writable({
+          highWaterMark: chunkBytes,
+          write(chunk: Buffer, _encoding, callback) {
+            consume(chunk).then(
+              () => callback(),
+              (error) => {
+                consumerError ??= error;
+                callback(error as Error);
+              },
+            );
+          },
+        }),
+      );
+    } catch (error) {
+      if (consumerError !== undefined) throw consumerError;
+      if (error instanceof ZipIntegrityError) throw error;
+      throw new ZipIntegrityError(`zip_inflate_failed: ${entry.name}`);
+    }
+  }
+
+  if (produced !== entry.uncompressedSize) {
+    throw new ZipIntegrityError(`zip_size_mismatch: ${entry.name}`);
+  }
+  if (zipCrc32Finish(crcState) !== entry.crc32) {
+    throw new ZipIntegrityError(`zip_crc_mismatch: ${entry.name}`);
+  }
 }

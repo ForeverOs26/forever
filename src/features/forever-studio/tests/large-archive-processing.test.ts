@@ -354,12 +354,13 @@ describe("large-archive sliced processing", () => {
     expect(result.warnings.some((w) => w.code === "archive_part_integrity_failed")).toBe(true);
   });
 
-  it("retains oversized entries privately without expanding them (per-entry, not archive-fatal)", async () => {
+  it("extracts oversized entries into independent private evidence (per-entry, not archive-fatal)", async () => {
     const world = makeWorld();
     const jobId = await startArchiveJob(world, OWNER, { projectFacts: { name: "Video Manor" } });
+    const bigBytes = 25 * 1024 * 1024;
     const archive = buildZipParts(
       [
-        { name: "video/big-walkthrough.mp4", data: () => patternBytes(25 * 1024 * 1024, 7) },
+        { name: "video/big-walkthrough.mp4", data: () => patternBytes(bigBytes, 7) },
         jpegEntry("photos/small.jpg"),
       ],
       PART,
@@ -371,7 +372,20 @@ describe("large-archive sliced processing", () => {
     const video = entries.find((entry) => entry.entry_name === "video/big-walkthrough.mp4");
     expect(video?.state).toBe("retained_private");
     expect(video?.outcome_code).toBe("entry_over_size_limit");
-    expect(video?.observed_size).toBeNull(); // never expanded
+    // The oversized entry IS independently extracted now: exact size, real
+    // SHA-256, and a durable private evidence manifest — never public.
+    expect(video?.observed_size).toBe(bigBytes);
+    expect(video?.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(video?.evidence?.partCount).toBe(Math.ceil(bigBytes / PART));
+    expect(video?.evidence?.totalSize).toBe(bigBytes);
+    expect(video?.evidence?.crc32Verified).toBe(true);
+    for (const part of video!.evidence!.parts) {
+      const stored = await world.storage.statObject(
+        video!.evidence!.bucket,
+        `${video!.evidence!.prefix}/${String(part.index).padStart(5, "0")}`,
+      );
+      expect(stored?.size).toBe(part.size);
+    }
     expect(world.executor.store.media).toHaveLength(1);
   });
 

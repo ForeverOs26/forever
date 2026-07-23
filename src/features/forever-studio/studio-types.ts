@@ -340,13 +340,30 @@ export const MAX_ARCHIVES_PER_JOB = 8;
 /** Initial per-job source-material budget (declared bytes, all files+archives). */
 export const JOB_SOURCE_BUDGET_BYTES = 1024 * 1024 * 1024; // 1 GiB
 
+/**
+ * Truthful archive lifecycle. Each name states exactly what has been proven
+ * about the stored bytes at that point — "stored" is never called "verified":
+ *
+ *   planned             part plan registered; parts still uploading
+ *   uploaded_unverified every part exists with the planned size; NO stored
+ *                       byte has been hash-verified yet
+ *   byte_verifying      slice-driven per-part streamed SHA-256 verification
+ *                       of the actual stored bytes is in progress
+ *   byte_verified       EVERY stored part hash-verified against its recorded
+ *                       claim ("Archive byte verification passed")
+ *   processing_entries  entry inventory persisted durably; entries routing
+ *   completed           every entry settled
+ *   rejected            safety/verification rejection; original retained
+ *                       privately
+ */
 export type StudioArchiveStatus =
-  | "planned" // part plan registered; parts still uploading
-  | "uploaded" // every part present with the planned size; hashes pending
-  | "verifying" // slice-driven per-part hash verification in progress
-  | "indexed" // entry inventory persisted durably; entries pending
-  | "completed" // every entry settled
-  | "rejected"; // safety/verification rejection; original retained privately
+  | "planned"
+  | "uploaded_unverified"
+  | "byte_verifying"
+  | "byte_verified"
+  | "processing_entries"
+  | "completed"
+  | "rejected";
 
 export type StudioArchiveEntryState =
   | "pending"
@@ -367,6 +384,41 @@ export interface StudioArchivePlanInput {
   jobId: string;
   fileName: string;
   declaredSize: number;
+  /**
+   * Stable client upload fingerprint (SHA-256 hex over bounded content
+   * samples + exact size — see computeUploadFingerprint). Resume identity:
+   * two different archives with the same filename and byte size never attach
+   * to each other's stored parts. Never a substitute for server verification
+   * of the actual stored bytes; stored privately, never projected.
+   */
+  uploadFingerprint: string;
+}
+
+// --- Upload fingerprint (resume identity) ----------------------------------
+
+/** Bytes per content sample hashed into the upload fingerprint. */
+export const UPLOAD_FINGERPRINT_SAMPLE_BYTES = 256 * 1024;
+/** Domain separator so the digest can never collide with a plain file hash. */
+export const UPLOAD_FINGERPRINT_DOMAIN = "forever-upload-fingerprint-v1";
+
+/**
+ * Deterministic sampled byte ranges for the upload fingerprint: head, two
+ * interior windows, and tail (whole file when small). Bounded — at most
+ * 4 × 256 KiB is ever read/hashed, cheap even for a 300 MiB phone upload.
+ * Interior samples make archives that share a common prefix/suffix (e.g.
+ * re-exports of the same dossier) fingerprint differently.
+ */
+export function uploadFingerprintSampleRanges(size: number): Array<{ start: number; end: number }> {
+  const sample = UPLOAD_FINGERPRINT_SAMPLE_BYTES;
+  if (size <= 4 * sample) return [{ start: 0, end: size }];
+  const third = Math.floor(size / 3);
+  const twoThirds = Math.floor((2 * size) / 3);
+  return [
+    { start: 0, end: sample },
+    { start: third, end: third + sample },
+    { start: twoThirds, end: twoThirds + sample },
+    { start: size - sample, end: size },
+  ];
 }
 
 /**
@@ -404,6 +456,9 @@ export interface StudioArchiveProgress {
   label: string;
   status: StudioArchiveStatus;
   partCount: number;
+  /** Parts durably stored with their planned size (server-observed). */
+  uploadedParts: number;
+  /** Parts whose ACTUAL stored bytes hash-verified against their claims. */
   verifiedParts: number;
   entryCount: number | null;
   entriesProcessed: number;

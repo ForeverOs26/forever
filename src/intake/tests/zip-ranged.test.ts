@@ -11,11 +11,16 @@ import { describe, expect, it } from "vitest";
 import {
   readZipDirectoryRanged,
   readZipEntryDataRanged,
+  streamZipEntryDataRanged,
   type RangedZipLimits,
   type ZipByteSource,
 } from "../zip-ranged";
 import {
   readZipEntries,
+  ZIP_CRC32_SEED,
+  zipCrc32,
+  zipCrc32Finish,
+  zipCrc32Update,
   ZipCollisionError,
   ZipIntegrityError,
   ZipLimitError,
@@ -246,5 +251,113 @@ describe("readZipEntryDataRanged", () => {
     await expect(
       readZipEntryDataRanged(short, directory, directory.entries[0], LIMITS),
     ).rejects.toBeInstanceOf(ZipIntegrityError);
+  });
+});
+
+describe("streamZipEntryDataRanged", () => {
+  const collect = () => {
+    const chunks: Buffer[] = [];
+    return {
+      chunks,
+      onData: async (chunk: Buffer) => {
+        chunks.push(Buffer.from(chunk));
+      },
+    };
+  };
+
+  it("streams STORE and DEFLATE entries byte-identically to the buffered reader, in bounded chunks", async () => {
+    const payload = Buffer.alloc(700 * 1024);
+    for (let i = 0; i < payload.length; i += 1) payload[i] = (i * 31) & 0xff;
+    const zip = makeZip([
+      { name: "stored.bin", data: payload, method: 0 },
+      { name: "deflated.bin", data: payload, method: 8 },
+    ]);
+    for (const name of ["stored.bin", "deflated.bin"]) {
+      const source = new TrackingSource(zip);
+      const directory = await readZipDirectoryRanged(source, LIMITS, DEST);
+      const entry = directory.entries.find((candidate) => candidate.name === name)!;
+      const reference = await readZipEntryDataRanged(source, directory, entry, LIMITS);
+      const sink = collect();
+      const chunked = new TrackingSource(zip);
+      await streamZipEntryDataRanged(
+        chunked,
+        directory,
+        entry,
+        { maxChunkBytes: 64 * 1024 },
+        sink.onData,
+      );
+      expect(Buffer.concat(sink.chunks).equals(reference)).toBe(true);
+      // Bounded: apart from the directory/tail reads, every payload read
+      // stays at the requested chunk granularity.
+      const payloadReads = chunked.reads.filter((read) => read.end - read.start > 30);
+      expect(Math.max(...payloadReads.map((read) => read.end - read.start))).toBeLessThanOrEqual(
+        64 * 1024,
+      );
+    }
+  });
+
+  it("verifies size and CRC-32 over the FULL stream and fails closed on corruption", async () => {
+    const payload = Buffer.alloc(96 * 1024, 5);
+    const zip = makeZip([{ name: "damaged.bin", data: payload, method: 8, crcOverride: 0xdead }]);
+    const source = new TrackingSource(zip);
+    const directory = await readZipDirectoryRanged(source, LIMITS, DEST);
+    const sink = collect();
+    await expect(
+      streamZipEntryDataRanged(
+        source,
+        directory,
+        directory.entries[0],
+        { maxChunkBytes: 16 * 1024 },
+        sink.onData,
+      ),
+    ).rejects.toBeInstanceOf(ZipIntegrityError);
+  });
+
+  it("caps output at the declared uncompressed size (a lying stream cannot expand past it)", async () => {
+    const payload = Buffer.alloc(64 * 1024, 9);
+    const zip = makeZip([{ name: "liar.bin", data: payload, method: 8 }]);
+    const source = new TrackingSource(zip);
+    const directory = await readZipDirectoryRanged(source, LIMITS, DEST);
+    const entry = { ...directory.entries[0], uncompressedSize: 1000 };
+    const sink = collect();
+    await expect(
+      streamZipEntryDataRanged(source, directory, entry, { maxChunkBytes: 16 * 1024 }, sink.onData),
+    ).rejects.toBeInstanceOf(ZipIntegrityError);
+    // Never delivered (let alone buffered) anything close to the real size.
+    expect(sink.chunks.reduce((sum, chunk) => sum + chunk.length, 0)).toBeLessThanOrEqual(
+      16 * 1024 + 1000,
+    );
+  });
+
+  it("propagates consumer errors verbatim instead of mislabelling them as ZIP corruption", async () => {
+    const payload = Buffer.alloc(128 * 1024, 3);
+    const zip = makeZip([{ name: "sink-fails.bin", data: payload, method: 8 }]);
+    const source = new TrackingSource(zip);
+    const directory = await readZipDirectoryRanged(source, LIMITS, DEST);
+    class StorageDown extends Error {}
+    await expect(
+      streamZipEntryDataRanged(
+        source,
+        directory,
+        directory.entries[0],
+        { maxChunkBytes: 16 * 1024 },
+        async () => {
+          throw new StorageDown("private staging write failed");
+        },
+      ),
+    ).rejects.toBeInstanceOf(StorageDown);
+  });
+
+  it("incremental CRC-32 equals the one-shot CRC over any chunking", () => {
+    const payload = Buffer.alloc(100 * 1024);
+    for (let i = 0; i < payload.length; i += 1) payload[i] = (i * 7 + 13) & 0xff;
+    const oneShot = zipCrc32(payload);
+    for (const chunkSize of [1, 7, 1024, 65_536, payload.length]) {
+      let state = ZIP_CRC32_SEED;
+      for (let start = 0; start < payload.length; start += chunkSize) {
+        state = zipCrc32Update(state, payload.subarray(start, start + chunkSize));
+      }
+      expect(zipCrc32Finish(state)).toBe(oneShot);
+    }
   });
 });

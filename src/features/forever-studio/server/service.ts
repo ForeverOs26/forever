@@ -127,6 +127,11 @@ interface StudioJobPrincipals {
   authorization: StudioActor;
   /** Signed-in account/background context that executes this attempt. */
   execution: StudioActor;
+  /**
+   * How this attempt was initiated — a signed-in session call or the
+   * scheduled background runner. Audit truthfulness only, never authorization.
+   */
+  executionVia?: "session" | "scheduled_runner";
 }
 
 async function resolveJobPrincipals(
@@ -165,6 +170,7 @@ function jobPrincipalAuditMetadata(
     authorization_principal_role: principals.authorization.role,
     executed_by_id: principals.execution.userId,
     executed_by_role: principals.execution.role,
+    executed_via: principals.executionVia ?? "session",
     resumed_by_owner:
       principals.execution.role === "owner" &&
       principals.execution.userId !== principals.source.userId,
@@ -537,6 +543,133 @@ export async function resumeDueJobs(
     }
   }
   return { resumed: results.filter((r) => r.status === "published").length, results };
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled background runner (no browser session, no user token)
+// ---------------------------------------------------------------------------
+
+/** Slice advancements one scheduled invocation may perform (bounded work). */
+export const SCHEDULED_TICK_MAX_SLICES = 12;
+
+export interface StudioScheduledTickResult {
+  /** Explicitly processing-requested jobs the tick saw as due. */
+  due: number;
+  /** Claim-scoped slice advancements performed. */
+  advanced: number;
+  published: number;
+  failed: number;
+  /** Jobs skipped pre-claim (claim lost, membership change, malformed row). */
+  skipped: number;
+}
+
+/**
+ * Execution principals for a SCHEDULED attempt: authorization is (as always)
+ * the job creator's CURRENT active membership, and the attempt executes under
+ * that same membership's authority — the Owner/Trusted Publisher upload
+ * remains the publication authorization; the scheduler adds none of its own.
+ * Audit metadata records executed_via=scheduled_runner truthfully.
+ */
+async function resolveScheduledJobPrincipals(
+  deps: StudioDeps,
+  job: StudioJobRow,
+): Promise<StudioJobPrincipals> {
+  if (!job.created_by) throw new StudioAccessError("studio_membership_required");
+  const membership = await deps.data.getMembership(job.created_by);
+  if (!membership?.is_active) throw new StudioAccessError("studio_membership_required");
+  const authorization: StudioActor = {
+    userId: membership.user_id,
+    email: membership.email,
+    role: membership.role,
+    displayName: membership.display_name,
+  };
+  return {
+    source: { userId: job.created_by, email: job.creator_email, role: job.creator_role },
+    authorization,
+    execution: authorization,
+    executionVia: "scheduled_runner",
+  };
+}
+
+/**
+ * One scheduled background tick. Invoked by the Cloudflare Cron Trigger
+ * through the Worker's `scheduled()` export (Nitro cloudflare-module preset)
+ * via the `cloudflare:scheduled` runtime hook — see scheduled.plugin.ts.
+ * Runs with server-only credentials; there is NO HTTP endpoint, NO user Auth
+ * token, and NO browser session involved.
+ *
+ * Claims ONLY explicitly processing-requested jobs (studio_list_due_jobs
+ * enforces processing_requested_at + a currently active source membership
+ * before its LIMIT), uses the ordinary single-winner claim (never
+ * requestJobProcessing — the runner never marks readiness itself), advances
+ * bounded claim-scoped slices, and stops at its per-invocation slice budget.
+ * A per-job failure is isolated; the tick itself never throws.
+ */
+export async function runScheduledStudioTick(
+  deps: StudioDeps,
+  options: { maxJobs?: number; maxSlices?: number } = {},
+): Promise<StudioScheduledTickResult> {
+  const result: StudioScheduledTickResult = {
+    due: 0,
+    advanced: 0,
+    published: 0,
+    failed: 0,
+    skipped: 0,
+  };
+  if (deps.partnerDemoActive()) return result;
+  const maxJobs = options.maxJobs ?? RESUME_BATCH;
+  const maxSlices = options.maxSlices ?? SCHEDULED_TICK_MAX_SLICES;
+  let slices = 0;
+
+  const due = await deps.data.listDueJobs(STALE_PROCESSING_SECONDS, maxJobs, undefined);
+  result.due = due.length;
+
+  for (const job of due) {
+    let current: StudioJobRow = job;
+    for (;;) {
+      if (slices >= maxSlices) return result;
+      try {
+        const principals = await resolveScheduledJobPrincipals(deps, current);
+        await assertKnownProjectTargetAccess(
+          deps,
+          principals.authorization,
+          current.project_slug,
+          current.facts.projectFacts as StudioProjectFacts | undefined,
+        );
+        if (current.status === "published" && current.result_summary) break;
+        const token = deps.newToken();
+        const claimed = await deps.data.claimJob(current.id, token, STALE_PROCESSING_SECONDS);
+        if (!claimed) {
+          result.skipped += 1;
+          break;
+        }
+        slices += 1;
+        result.advanced += 1;
+        const outcome = await processClaimedJob(deps, principals.execution, claimed, token, {
+          ...principals,
+        });
+        if (outcome.status === "published") {
+          result.published += 1;
+          break;
+        }
+        if (outcome.status !== "processing") {
+          result.failed += 1;
+          break;
+        }
+        // The slice released the claim with work remaining — continue this
+        // job immediately (still inside the tick's slice budget).
+        const refreshed = await deps.data.getJob(current.id);
+        if (!refreshed) break;
+        current = refreshed;
+      } catch (error) {
+        result.skipped += 1;
+        // Same redaction rule as automatic resume: never log job fields.
+        logStudioFailure("scheduled_tick_job_skipped", error);
+        break;
+      }
+    }
+  }
+  return result;
 }
 
 async function claimAndProcess(

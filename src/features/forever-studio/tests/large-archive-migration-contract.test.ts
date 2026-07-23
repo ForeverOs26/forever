@@ -112,4 +112,31 @@ describe("large-archive migration contract", () => {
     expect(sql).not.toMatch(/sb_secret_|service_role_key|eyJ[A-Za-z0-9]/);
     expect(ddl).not.toContain("storage.objects");
   });
+
+  it("enforces the TRUTHFUL archive lifecycle — the ambiguous states are gone", () => {
+    expect(ddl).toContain("'uploaded_unverified'");
+    expect(ddl).toContain("'byte_verifying'");
+    expect(ddl).toContain("'byte_verified'");
+    expect(ddl).toContain("'processing_entries'");
+    // The retired ambiguous values must not be accepted by the CHECK.
+    expect(ddl).not.toMatch(/'uploaded'/);
+    expect(ddl).not.toMatch(/'verifying'/);
+    expect(ddl).not.toMatch(/'indexed'/);
+  });
+
+  it("carries the resume fingerprint, the exact archive hash, and the evidence manifest", () => {
+    expect(ddl).toMatch(/upload_fingerprint TEXT NOT NULL CHECK/);
+    expect(ddl).toMatch(/archive_sha256 TEXT CHECK/);
+    expect(ddl).toContain("idx_studio_archives_job_fingerprint");
+    expect(ddl).toMatch(/evidence JSONB/);
+    // Both new mutable fields are writable ONLY through the claim-checked
+    // whitelists (fingerprint is insert-time and deliberately NOT patchable).
+    const patch = ddl.slice(ddl.indexOf("studio_update_archive_claimed"));
+    expect(patch).toContain("archive_sha256 = COALESCE(p_patch->>'archive_sha256'");
+    expect(patch).not.toContain("upload_fingerprint = COALESCE");
+    const settle = ddl.slice(ddl.indexOf("studio_settle_archive_entry"));
+    expect(settle).toContain("evidence = p_outcome->'evidence'");
+    // The digest-of-part-digests is never labelled as the file hash.
+    expect(sql).toContain("NOT the file's SHA-256");
+  });
 });

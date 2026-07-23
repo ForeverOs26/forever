@@ -12,16 +12,20 @@
 -- one request. This migration adds the durable state a 300 MiB chunked-upload
 -- archive needs instead:
 --   * studio_archives         — one row per uploaded ZIP: the server-verified
---                               part manifest (sizes + SHA-256 per part),
---                               lifecycle status, and adopted structured
---                               artifacts (price list / facts) so a later
---                               slice finalizes from durable state.
+--                               part manifest (sizes + SHA-256 per part), the
+--                               client upload fingerprint (resume identity),
+--                               the exact whole-archive SHA-256, a TRUTHFUL
+--                               lifecycle status (stored ≠ verified), and
+--                               adopted structured artifacts (price list /
+--                               facts) so a later slice finalizes from
+--                               durable state.
 --   * studio_archive_entries  — one row per archive entry: the durable
 --                               entry-level inventory (identity, sizes,
 --                               verified SHA-256, byte class, routing outcome,
---                               public derivative location, private evidence).
---                               Completion is derived from these rows, never
---                               from an in-memory loop.
+--                               public derivative location, and the private
+--                               evidence manifest for independently retained
+--                               entries). Completion is derived from these
+--                               rows, never from an in-memory loop.
 --
 -- Concurrency contract (same one-winner model as studio_upload_jobs):
 --   * Every processing-phase write is guarded by the JOB's live processing
@@ -62,15 +66,33 @@ CREATE TABLE IF NOT EXISTS public.studio_archives (
   ordinal INTEGER NOT NULL DEFAULT 0 CHECK (ordinal >= 0),
   -- PRIVATE original filename (service-role only; never projected publicly).
   file_name TEXT NOT NULL,
+  -- Client upload fingerprint (SHA-256 hex over bounded content samples +
+  -- exact size). Resume identity ONLY: re-planning matches on
+  -- (upload_fingerprint, declared_size) — never the filename — so two
+  -- different archives with the same name and size never attach to each
+  -- other's stored parts. PRIVATE; never a substitute for server
+  -- verification of the actual stored bytes.
+  upload_fingerprint TEXT NOT NULL CHECK (upload_fingerprint ~ '^[0-9a-f]{64}$'),
   declared_size BIGINT NOT NULL CHECK (declared_size > 0),
   part_size INTEGER NOT NULL CHECK (part_size > 0),
   part_count INTEGER NOT NULL CHECK (part_count > 0),
   -- [{index, size, declaredSha256, sha256, verified}] — bounded (≤ 64 parts).
+  -- Server-verified per-part hashes are preserved here after completion.
   parts JSONB NOT NULL DEFAULT '[]',
   observed_size BIGINT,
+  -- Digest OVER the ordered per-part digests. NOT the file's SHA-256 — the
+  -- exact one is archive_sha256 below and the two are never conflated.
   composite_sha256 TEXT CHECK (composite_sha256 IS NULL OR composite_sha256 ~ '^[0-9a-f]{64}$'),
+  -- EXACT SHA-256 of the whole archive, streamed across the ordered verified
+  -- parts after byte verification (bounded reads, never a whole-file buffer).
+  archive_sha256 TEXT CHECK (archive_sha256 IS NULL OR archive_sha256 ~ '^[0-9a-f]{64}$'),
+  -- Truthful lifecycle: 'uploaded_unverified' = every part stored with its
+  -- exact planned size, NOTHING hash-verified yet; 'byte_verified' = every
+  -- stored part's actual bytes matched its recorded claim. Nothing expands
+  -- before byte_verified.
   status TEXT NOT NULL DEFAULT 'planned'
-    CHECK (status IN ('planned','uploaded','verifying','indexed','completed','rejected')),
+    CHECK (status IN ('planned','uploaded_unverified','byte_verifying','byte_verified',
+                      'processing_entries','completed','rejected')),
   entry_count INTEGER,
   total_uncompressed BIGINT,
   -- Durable adopted structured artifacts (sanitized price list, fact fields).
@@ -82,6 +104,9 @@ CREATE TABLE IF NOT EXISTS public.studio_archives (
 
 CREATE INDEX IF NOT EXISTS idx_studio_archives_job
   ON public.studio_archives (job_id, ordinal, created_at, id);
+-- Resume-identity lookup: fingerprint + declared size within one job.
+CREATE INDEX IF NOT EXISTS idx_studio_archives_job_fingerprint
+  ON public.studio_archives (job_id, upload_fingerprint, declared_size);
 
 ALTER TABLE public.studio_archives ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.studio_archives FROM PUBLIC;
@@ -117,6 +142,13 @@ CREATE TABLE IF NOT EXISTS public.studio_archive_entries (
   media_title TEXT,
   -- Full private evidence (claims allowed here — internal table only).
   media_truth JSONB,
+  -- Independently addressable PRIVATE evidence manifest for retained entries:
+  -- {bucket, prefix, partSize, partCount, parts:[{index,size,sha256}],
+  --  totalSize, crc32Verified}. The entry's uncompressed bytes re-staged as
+  -- fixed-size private objects so videos, HEIC, large PDFs and unknown
+  -- documents are retrievable and hash-verifiable WITHOUT the parent archive
+  -- (which remains the immutable parent evidence).
+  evidence JSONB,
   attempt TEXT,
   processed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -198,6 +230,7 @@ BEGIN
       parts = COALESCE(p_patch->'parts', parts),
       observed_size = COALESCE((p_patch->>'observed_size')::BIGINT, observed_size),
       composite_sha256 = COALESCE(p_patch->>'composite_sha256', composite_sha256),
+      archive_sha256 = COALESCE(p_patch->>'archive_sha256', archive_sha256),
       entry_count = COALESCE((p_patch->>'entry_count')::INTEGER, entry_count),
       total_uncompressed = COALESCE((p_patch->>'total_uncompressed')::BIGINT, total_uncompressed),
       extracted = COALESCE(p_patch->'extracted', extracted),
@@ -297,6 +330,7 @@ BEGIN
       media_type = p_outcome->>'mediaType',
       media_title = p_outcome->>'mediaTitle',
       media_truth = p_outcome->'mediaTruth',
+      evidence = p_outcome->'evidence',
       attempt = p_outcome->>'attempt',
       processed_at = COALESCE((p_outcome->>'processedAt')::TIMESTAMPTZ, now())
   WHERE id = p_entry_id

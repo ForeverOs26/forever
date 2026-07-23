@@ -834,6 +834,7 @@ export class FakeData implements StudioData {
       media_type: outcome.mediaType ?? null,
       media_title: outcome.mediaTitle ?? null,
       media_truth: outcome.mediaTruth ? structuredClone(outcome.mediaTruth) : null,
+      evidence: outcome.evidence ? structuredClone(outcome.evidence) : null,
       attempt: outcome.attempt,
       processed_at: outcome.processedAt,
     });

@@ -80,6 +80,18 @@ describe("large-archive bounded memory (≈290 MiB genuine ZIP)", () => {
         const memory = process.memoryUsage();
         return memory.rss;
       };
+      // The in-memory FAKE keeps every stored object's bytes resident, so the
+      // private evidence copies written for the 36 retained 8 MiB entries
+      // (~288 MiB of fake-storage payloads — remote objects in production)
+      // would dominate RSS and mask what this test measures: the ENGINE's
+      // bounded working set. Evidence parts are verified at write time inside
+      // the slice; their payloads are evicted from the fake BETWEEN slices.
+      const evidencePrefix = `${PRIVATE_SOURCE_BUCKET}/jobs/${jobId}/evidence/`;
+      const evictFakeEvidencePayloads = () => {
+        for (const key of world.storage.objects.keys()) {
+          if (key.startsWith(evidencePrefix)) world.storage.objects.set(key, Buffer.alloc(0));
+        }
+      };
       const baselineRss = usage();
       let peakRss = baselineRss;
 
@@ -87,6 +99,7 @@ describe("large-archive bounded memory (≈290 MiB genuine ZIP)", () => {
       let result = await processUploadJob(world.deps, OWNER, jobId);
       slices += 1;
       peakRss = Math.max(peakRss, usage());
+      evictFakeEvidencePayloads();
       while (result.status === "processing") {
         // Between slices the claim is released — durable, promptly claimable.
         const row = await world.deps.data.getJob(jobId);
@@ -94,6 +107,7 @@ describe("large-archive bounded memory (≈290 MiB genuine ZIP)", () => {
         result = await processUploadJob(world.deps, OWNER, jobId);
         slices += 1;
         peakRss = Math.max(peakRss, usage());
+        evictFakeEvidencePayloads();
         if (slices > 60) throw new Error("did not settle within 60 slices");
       }
 

@@ -389,11 +389,13 @@ function ArchiveUploadPanel(props: {
   const stateLabel =
     progress.state === "retrying"
       ? "Connection hiccup — retrying this part…"
-      : progress.state === "verifying"
-        ? "Verifying stored parts on the server…"
-        : progress.state === "accepted"
-          ? "Accepted"
-          : "Uploading…";
+      : progress.state === "confirming"
+        ? "Confirming stored parts on the server…"
+        : progress.state === "stored"
+          ? "Upload safely stored. Integrity verification continues."
+          : progress.state === "preparing"
+            ? "Preparing the upload…"
+            : "Uploading…";
   return (
     <div className="mx-auto max-w-md space-y-4 py-14 text-center">
       <h2 className="text-lg font-semibold">
@@ -414,26 +416,62 @@ function ArchiveUploadPanel(props: {
   );
 }
 
+/**
+ * Truthful per-archive status line. "Verified" appears ONLY at byte_verified
+ * or later — storage acceptance alone is described as stored, never verified.
+ */
+function archiveStatusLine(archive: StudioJobProgress["archives"][number]): string {
+  switch (archive.status) {
+    case "rejected":
+      return "kept private";
+    case "completed":
+      return "done — byte verification passed";
+    case "processing_entries":
+      return archive.entryCount != null
+        ? `processing ${archive.entriesProcessed}/${archive.entryCount}`
+        : "reading entries…";
+    case "byte_verified":
+      return "Archive byte verification passed.";
+    case "byte_verifying":
+    case "uploaded_unverified":
+      return `verifying stored bytes ${archive.verifiedParts}/${archive.partCount} parts`;
+    default:
+      return `uploading parts ${archive.uploadedParts}/${archive.partCount}`;
+  }
+}
+
 function ArchiveProcessingPanel(props: { progress: StudioJobProgress | null }) {
   const { progress } = props;
   const percent =
     progress && progress.discovered > 0
       ? Math.round((progress.processed / progress.discovered) * 100)
       : null;
+  const allByteVerified =
+    !!progress &&
+    progress.archives.length > 0 &&
+    progress.archives.every(
+      (archive) =>
+        archive.status === "byte_verified" ||
+        archive.status === "processing_entries" ||
+        archive.status === "completed",
+    );
   return (
     <div className="mx-auto max-w-md space-y-4 py-14 text-center">
       <h2 className="text-lg font-semibold">Processing your archives…</h2>
       <p className="rounded-lg border border-border/40 bg-muted/30 p-3 text-sm">
-        You may close this page. Uploading is complete and verified; Forever continues processing
-        and resumes automatically — check the Studio dashboard any time.
+        Upload safely stored. Integrity verification continues. You may close this page — Forever
+        continues processing automatically in the background and on the Studio dashboard.
       </p>
+      {allByteVerified ? (
+        <p className="text-sm text-muted-foreground">Archive byte verification passed.</p>
+      ) : null}
       {progress ? (
         <div className="space-y-3 text-left">
           {percent !== null ? <Progress value={percent} /> : null}
           <p className="text-center text-sm text-muted-foreground">
             {progress.discovered > 0
-              ? `${progress.processed} of ${progress.discovered} files processed`
-              : "Verifying and reading archives…"}
+              ? `${progress.discovered} entries discovered · ${progress.processed} processed`
+              : "Verifying stored bytes and reading archives…"}
           </p>
           <ul className="space-y-1 text-sm">
             {progress.archives.map((archive) => (
@@ -442,15 +480,7 @@ function ArchiveProcessingPanel(props: { progress: StudioJobProgress | null }) {
                 className="flex items-center justify-between rounded-lg border border-border/40 px-3 py-2"
               >
                 <span>{archive.label}</span>
-                <span className="text-xs text-muted-foreground">
-                  {archive.status === "rejected"
-                    ? "kept private"
-                    : archive.status === "completed"
-                      ? "done"
-                      : archive.entryCount != null
-                        ? `${archive.entriesProcessed}/${archive.entryCount}`
-                        : `verifying ${archive.verifiedParts}/${archive.partCount}`}
-                </span>
+                <span className="text-xs text-muted-foreground">{archiveStatusLine(archive)}</span>
               </li>
             ))}
           </ul>

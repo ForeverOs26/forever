@@ -7,25 +7,33 @@
  *   UPLOAD    The browser slices a ZIP into fixed 8 MiB parts and uploads each
  *             through its own short-lived signed URL into the PRIVATE staging
  *             bucket — resumable at part granularity over unstable internet,
- *             and never proxied through the application server. The server
- *             verifies the stored bytes of every part (existence, exact size,
- *             then streamed SHA-256) before the archive is accepted.
+ *             and never proxied through the application server. Resume
+ *             identity is a client upload fingerprint + exact size, never the
+ *             filename. Storage acceptance proves existence + exact size of
+ *             every part (uploaded_unverified); the stored bytes of every
+ *             part are then streamed through SHA-256 by the first processing
+ *             slices, and ONLY after all of them match does the archive
+ *             become byte_verified. Nothing expands before that.
  *
- *   INVENTORY Once accepted, the archive's central directory is read through
- *             bounded range reads (never the whole archive), the COMPLETE
- *             entry-set safety contract runs before any expansion, and a
- *             durable per-entry inventory row is written for every file entry.
- *             Completion is derived from these rows, never an in-memory loop.
+ *   INVENTORY Once byte-verified (and the exact whole-archive SHA-256 is
+ *             recorded from the ordered parts), the central directory is read
+ *             through bounded range reads (never the whole archive), the
+ *             COMPLETE entry-set safety contract runs before any expansion,
+ *             and a durable per-entry inventory row is written for every file
+ *             entry. Completion is derived from these rows, never a loop.
  *
  *   SLICES    Processing advances in bounded, claim-scoped slices: each slice
  *             verifies a few parts, or indexes, or routes a bounded batch of
  *             entries (facts JSON → fields, price artifacts → price pipeline,
- *             supported images → the PR #99 media-truth pipeline, everything
- *             else → truthful private retention), checkpointing every outcome
- *             through claim-checked pending-only writes. The slice then
- *             releases the claim so the next poll — from any signed-in Studio
- *             session — continues promptly. The browser may close after
- *             upload acceptance; pending work stays claimable.
+ *             supported images → the PR #99 media-truth pipeline, oversized
+ *             entries → the streaming private-evidence lane, everything else
+ *             → private retention WITH independently addressable evidence),
+ *             checkpointing every outcome through claim-checked pending-only
+ *             writes. The slice then releases the claim so the next caller —
+ *             the uploader page, any signed-in Studio session, or the
+ *             scheduled runner (Cloudflare Cron → Worker scheduled() → the
+ *             cloudflare:scheduled hook) — continues promptly with no browser
+ *             session required.
  *
  * Privacy: original filenames and raw entry paths live only in the internal
  * service-role tables. Everything projected to the browser uses neutral
@@ -40,6 +48,7 @@ import type {
 import {
   readZipDirectoryRanged,
   readZipEntryDataRanged,
+  streamZipEntryDataRanged,
   type RangedZipDirectory,
   type RangedZipLimits,
   type ZipByteSource,
@@ -69,6 +78,8 @@ import type {
   StudioArchivePartRecord,
   StudioArchiveRow,
   StudioDeps,
+  StudioEntryEvidence,
+  StudioEntryEvidencePart,
   StudioJobRow,
 } from "./contracts";
 import { StudioAccessError } from "./contracts";
@@ -127,6 +138,8 @@ export const SLICE_MAX_ENTRIES = 24;
 export const SLICE_MAX_EXPANDED_BYTES = 64 * 1024 * 1024;
 /** Part hashes verified per slice (8 MiB streamed each). */
 export const SLICE_MAX_VERIFY_PARTS = 12;
+/** Fixed size of one stored private evidence part (mirrors upload parts). */
+export const EVIDENCE_PART_BYTES = ARCHIVE_PART_BYTES;
 /** Public media budget per job across ordinary files and every archive. */
 export const MAX_PUBLIC_MEDIA_PER_JOB = 500;
 /** Cap on durable adopted-artifact payload (sanitized price list + facts). */
@@ -145,6 +158,20 @@ export function archivePartPath(jobId: string, archiveId: string, index: number)
 
 function archivePartFolder(jobId: string, archiveId: string): string {
   return `jobs/${jobId}/parts/${archiveId}`;
+}
+
+/**
+ * Private evidence folder for ONE entry. Deterministic (no attempt token):
+ * every attempt derives byte-identical content from the same verified archive
+ * parts, so a concurrent rewrite can only write the same bytes — and the
+ * settled manifest records what was verified in storage.
+ */
+export function entryEvidenceFolder(jobId: string, archiveId: string, entryIndex: number): string {
+  return `jobs/${jobId}/evidence/${archiveId}/${String(entryIndex).padStart(5, "0")}`;
+}
+
+export function entryEvidencePartPath(prefix: string, index: number): string {
+  return `${prefix}/${String(index).padStart(5, "0")}`;
 }
 
 /** Neutral public-safe archive label; original filenames stay private. */
@@ -269,9 +296,11 @@ async function storedPartSizes(
 
 /**
  * Register (or resume) one large-archive upload for a job the actor owns.
- * Re-planning the same (name, size) returns the SAME archive with the parts
- * that are already stored, so an interrupted upload resumes instead of
- * duplicating. The job must not be published yet.
+ * Resume identity is the client upload fingerprint + exact declared size —
+ * NEVER the filename: re-planning the same content resumes the SAME archive
+ * with the parts already stored, while a DIFFERENT archive that merely shares
+ * a name and byte size gets a fresh archive id and fresh part paths, so stale
+ * parts can never attach to it. The job must not be published yet.
  */
 export async function planArchiveUpload(
   deps: StudioDeps,
@@ -298,11 +327,15 @@ export async function planArchiveUpload(
       `Archives up to ${Math.round(LARGE_ARCHIVE_MAX_BYTES / (1024 * 1024))} MB are supported.`,
     );
   }
+  const fingerprint = input.uploadFingerprint?.toLowerCase();
+  if (!fingerprint || !SHA256_HEX.test(fingerprint)) {
+    throw new StudioAccessError("archive_fingerprint_invalid");
+  }
 
   const archives = await deps.data.listJobArchives(job.id);
   const existing = archives.find(
     (archive) =>
-      archive.file_name === fileName &&
+      archive.upload_fingerprint === fingerprint &&
       archive.declared_size === input.declaredSize &&
       archive.status !== "rejected",
   );
@@ -345,6 +378,7 @@ export async function planArchiveUpload(
     // artifacts adopt first-archive-wins, independent of clock resolution.
     ordinal: archives.length,
     file_name: fileName,
+    upload_fingerprint: fingerprint,
     declared_size: input.declaredSize,
     part_size: ARCHIVE_PART_BYTES,
     part_count: partCount,
@@ -357,6 +391,7 @@ export async function planArchiveUpload(
     })),
     observed_size: null,
     composite_sha256: null,
+    archive_sha256: null,
     status: "planned",
     entry_count: null,
     total_uncompressed: null,
@@ -384,10 +419,13 @@ export async function planArchiveUpload(
 // ---------------------------------------------------------------------------
 
 /**
- * The browser's completion claim is never trusted: acceptance requires every
- * part to exist in private staging with exactly the planned size. Per-part
- * SHA-256 claims are recorded here and verified against the ACTUAL stored
- * bytes by the first processing slices before any expansion.
+ * The browser's completion claim is never trusted: storage acceptance
+ * requires every part to exist in private staging with exactly the planned
+ * size. That makes the archive UPLOADED_UNVERIFIED — durably stored, NOT yet
+ * byte-verified. Per-part SHA-256 claims are recorded here and verified
+ * against the ACTUAL stored bytes by the first processing slices; only after
+ * EVERY part hash-verifies does the archive become byte_verified. No caller
+ * may describe this acceptance as "verified".
  */
 export async function confirmArchiveUpload(
   deps: StudioDeps,
@@ -442,7 +480,7 @@ export async function confirmArchiveUpload(
   const accepted = await deps.data.updateArchivePreProcessing(archive.id, ["planned"], {
     parts,
     observed_size: observed,
-    status: "uploaded",
+    status: "uploaded_unverified",
   });
   if (!accepted) {
     const current = await deps.data.getArchive(archive.id);
@@ -493,7 +531,9 @@ async function updateArchiveClaimedOrThrow(
  * Verify part hashes against the ACTUAL stored bytes, a bounded number per
  * slice, checkpointing each verified part. A hash mismatch rejects the whole
  * archive (retained privately) — corrupted originals are never expanded.
- * Returns true when the archive became fully verified in this slice.
+ * Only when EVERY part has hash-verified does the archive durably become
+ * byte_verified — the single point after which "byte verification passed"
+ * may be shown. Returns true when that happened in this slice.
  */
 async function verifyArchiveParts(
   deps: StudioDeps,
@@ -503,9 +543,11 @@ async function verifyArchiveParts(
   budget: SliceBudget,
   heartbeat: () => Promise<void>,
 ): Promise<boolean> {
-  if (archive.status === "uploaded") {
-    await updateArchiveClaimedOrThrow(deps, job.id, token, archive.id, { status: "verifying" });
-    archive.status = "verifying";
+  if (archive.status === "uploaded_unverified") {
+    await updateArchiveClaimedOrThrow(deps, job.id, token, archive.id, {
+      status: "byte_verifying",
+    });
+    archive.status = "byte_verifying";
   }
   const parts = archive.parts.map((part) => ({ ...part }));
   for (const part of parts) {
@@ -542,10 +584,43 @@ async function verifyArchiveParts(
   await updateArchiveClaimedOrThrow(deps, job.id, token, archive.id, {
     parts,
     composite_sha256: composite,
+    status: "byte_verified",
   });
   archive.parts = parts;
   archive.composite_sha256 = composite;
+  archive.status = "byte_verified";
   return true;
+}
+
+/**
+ * Exact SHA-256 of the WHOLE archive, streamed across the ordered verified
+ * parts — one bounded 8 MiB read at a time, never a whole-archive buffer.
+ * Runs once after byte verification (idempotent: interrupted passes simply
+ * restart; there is no partial state to corrupt). This is the archive's true
+ * file digest; composite_sha256 remains the digest-of-part-digests and is
+ * never labelled as the file hash.
+ */
+async function computeExactArchiveSha(
+  deps: StudioDeps,
+  job: StudioJobRow,
+  archive: StudioArchiveRow,
+  heartbeat: () => Promise<void>,
+): Promise<string> {
+  const { createHash } = await import("node:crypto");
+  const hash = createHash("sha256");
+  for (let index = 0; index < archive.part_count; index += 1) {
+    await heartbeat();
+    const data = await deps.storage.downloadWithin(
+      PRIVATE_SOURCE_BUCKET,
+      archivePartPath(job.id, archive.id, index),
+      archive.part_size,
+    );
+    if (!data || data.length !== expectedPartSize(archive, index)) {
+      throw new StudioError("storage_unavailable", safeMessageFor("storage_unavailable"), true);
+    }
+    hash.update(data);
+  }
+  return hash.digest("hex");
 }
 
 /**
@@ -602,6 +677,7 @@ async function indexArchive(
       media_type: null,
       media_title: null,
       media_truth: null,
+      evidence: null,
       attempt: null,
       processed_at: null,
     });
@@ -617,11 +693,11 @@ async function indexArchive(
     if (!inserted) throw new ClaimLostError();
   }
   await updateArchiveClaimedOrThrow(deps, job.id, token, archive.id, {
-    status: "indexed",
+    status: "processing_entries",
     entry_count: rows.length,
     total_uncompressed: totalUncompressed,
   });
-  archive.status = "indexed";
+  archive.status = "processing_entries";
   archive.entry_count = rows.length;
   return directory;
 }
@@ -669,6 +745,194 @@ async function adoptExtracted(
   return true;
 }
 
+// --- Private entry evidence -------------------------------------------------
+
+/**
+ * Chunk-buffered writer for one entry's private evidence: accumulates the
+ * uncompressed stream into fixed 8 MiB parts, uploads each to the private
+ * bucket, re-hashes the ACTUAL stored object before recording it, and keeps a
+ * running SHA-256 + head sniff of the whole entry. Peak memory ≈ one pending
+ * part + one incoming chunk, independent of entry size.
+ */
+class EvidenceWriter {
+  private readonly parts: StudioEntryEvidencePart[] = [];
+  private pending: Buffer[] = [];
+  private pendingLength = 0;
+  private readonly headChunks: Buffer[] = [];
+  private headLength = 0;
+  totalBytes = 0;
+
+  private constructor(
+    private readonly deps: StudioDeps,
+    private readonly prefix: string,
+    private readonly heartbeat: () => Promise<void>,
+    private readonly hash: import("node:crypto").Hash,
+  ) {}
+
+  static async open(
+    deps: StudioDeps,
+    prefix: string,
+    heartbeat: () => Promise<void>,
+  ): Promise<EvidenceWriter> {
+    const { createHash } = await import("node:crypto");
+    return new EvidenceWriter(deps, prefix, heartbeat, createHash("sha256"));
+  }
+
+  async push(chunk: Buffer): Promise<void> {
+    if (chunk.length === 0) return;
+    this.totalBytes += chunk.length;
+    this.hash.update(chunk);
+    if (this.headLength < HEAD_SNIFF_BYTES) {
+      const take = chunk.subarray(0, HEAD_SNIFF_BYTES - this.headLength);
+      this.headChunks.push(Buffer.from(take));
+      this.headLength += take.length;
+    }
+    this.pending.push(chunk);
+    this.pendingLength += chunk.length;
+    while (this.pendingLength >= EVIDENCE_PART_BYTES) {
+      const merged = this.pending.length === 1 ? this.pending[0] : Buffer.concat(this.pending);
+      await this.flushPart(merged.subarray(0, EVIDENCE_PART_BYTES));
+      const rest = merged.subarray(EVIDENCE_PART_BYTES);
+      this.pending = rest.length ? [rest] : [];
+      this.pendingLength = rest.length;
+    }
+  }
+
+  private async flushPart(data: Buffer): Promise<void> {
+    await this.heartbeat();
+    const index = this.parts.length;
+    const path = entryEvidencePartPath(this.prefix, index);
+    const expectedSha = await sha256Hex(data);
+    await this.deps.storage.upload(
+      PRIVATE_SOURCE_BUCKET,
+      path,
+      Buffer.from(data),
+      "application/octet-stream",
+    );
+    // The manifest records only server-observed stored bytes: re-hash the
+    // object we just wrote (bounded read) before trusting it.
+    const check = await this.deps.storage.hashObject(PRIVATE_SOURCE_BUCKET, path, 4);
+    if (!check || check.size !== data.length || check.sha256 !== expectedSha) {
+      throw new StudioError("storage_unavailable", safeMessageFor("storage_unavailable"), true);
+    }
+    this.parts.push({ index, size: check.size, sha256: check.sha256 });
+  }
+
+  head(): Buffer {
+    return Buffer.concat(this.headChunks);
+  }
+
+  /** Flush the tail part and seal the manifest. Call at most once. */
+  async finish(): Promise<{ evidence: StudioEntryEvidence; sha256: string }> {
+    if (this.pendingLength > 0) {
+      const tail = this.pending.length === 1 ? this.pending[0] : Buffer.concat(this.pending);
+      this.pending = [];
+      this.pendingLength = 0;
+      await this.flushPart(tail);
+    }
+    return {
+      evidence: {
+        bucket: PRIVATE_SOURCE_BUCKET,
+        prefix: this.prefix,
+        partSize: EVIDENCE_PART_BYTES,
+        partCount: this.parts.length,
+        parts: this.parts,
+        totalSize: this.totalBytes,
+        crc32Verified: true,
+      },
+      sha256: this.hash.digest("hex"),
+    };
+  }
+
+  /** Best-effort removal of every part written so far (failed extraction). */
+  async abort(): Promise<void> {
+    const paths = this.parts.map((part) => entryEvidencePartPath(this.prefix, part.index));
+    if (paths.length) {
+      await this.deps.storage.remove(PRIVATE_SOURCE_BUCKET, paths).catch(() => undefined);
+    }
+  }
+}
+
+async function removeEvidenceParts(deps: StudioDeps, evidence: StudioEntryEvidence): Promise<void> {
+  const paths = evidence.parts.map((part) => entryEvidencePartPath(evidence.prefix, part.index));
+  if (paths.length) await deps.storage.remove(evidence.bucket, paths).catch(() => undefined);
+}
+
+/**
+ * Private evidence for a retained entry whose (CRC-verified) bytes are
+ * already in memory: chunked into the same fixed-size part objects.
+ */
+async function writeBufferedEvidence(
+  deps: StudioDeps,
+  jobId: string,
+  archiveId: string,
+  entryIndex: number,
+  data: Buffer,
+  heartbeat: () => Promise<void>,
+): Promise<StudioEntryEvidence> {
+  const writer = await EvidenceWriter.open(
+    deps,
+    entryEvidenceFolder(jobId, archiveId, entryIndex),
+    heartbeat,
+  );
+  try {
+    for (let offset = 0; offset < data.length; offset += EVIDENCE_PART_BYTES) {
+      await writer.push(data.subarray(offset, Math.min(data.length, offset + EVIDENCE_PART_BYTES)));
+    }
+    const { evidence } = await writer.finish();
+    return evidence;
+  } catch (error) {
+    await writer.abort();
+    throw error;
+  }
+}
+
+interface StreamedEvidence {
+  evidence: StudioEntryEvidence;
+  sha256: string;
+  head: Buffer;
+  size: number;
+}
+
+/**
+ * Streaming evidence lane for entries larger than the in-memory cap: the
+ * entry's uncompressed bytes (STORE or DEFLATE) stream straight from bounded
+ * archive-part reads into fixed-size private evidence parts. CRC-32 and the
+ * exact uncompressed size are verified over the FULL stream by the ranged
+ * reader; a mismatch throws after this helper removed its written parts. No
+ * buffer ever approaches the entry size.
+ */
+async function streamEntryEvidence(
+  deps: StudioDeps,
+  job: StudioJobRow,
+  archive: StudioArchiveRow,
+  source: PartedArchiveSource,
+  directory: RangedZipDirectory,
+  zipEntry: RangedZipDirectory["entries"][number],
+  entryIndex: number,
+  heartbeat: () => Promise<void>,
+): Promise<StreamedEvidence> {
+  const writer = await EvidenceWriter.open(
+    deps,
+    entryEvidenceFolder(job.id, archive.id, entryIndex),
+    heartbeat,
+  );
+  try {
+    await streamZipEntryDataRanged(
+      source,
+      directory,
+      zipEntry,
+      { maxChunkBytes: ARCHIVE_PART_BYTES },
+      (chunk) => writer.push(chunk),
+    );
+    const { evidence, sha256 } = await writer.finish();
+    return { evidence, sha256, head: writer.head(), size: evidence.totalSize };
+  } catch (error) {
+    await writer.abort();
+    throw error;
+  }
+}
+
 /**
  * Route ONE entry to its outcome. Every path ends in exactly one claim-checked
  * pending-only settle; a data-level failure of this entry never affects any
@@ -685,6 +949,7 @@ async function routeEntry(
   ctx: EntryContext,
   /** Running expanded-byte total for THIS archive (durable + this slice). */
   expanded: { bytes: number },
+  heartbeat: () => Promise<void>,
 ): Promise<void> {
   const at = deps.now();
   const settle = async (
@@ -708,18 +973,74 @@ async function routeEntry(
     return;
   }
 
-  // Benign size overages are PER-ENTRY outcomes, never archive-fatal: a
-  // large video inside the ZIP stays inside the privately retained original
-  // and everything else continues.
+  // The archive-wide expansion budget bounds EVERY extraction, including the
+  // streaming lane: beyond it, entries stay inside the privately retained
+  // original parts (truthfully recorded as not independently extracted).
+  if (expanded.bytes + row.uncompressed_size > LARGE_ARCHIVE_ZIP_LIMITS.maxTotalBytes) {
+    await settle(settledOutcome("retained_private", "archive_expansion_budget_reached", token, at));
+    return;
+  }
+
+  // Entries above the bounded in-memory cap (large videos, big PDFs/HEIC,
+  // unknown documents) take the STREAMING evidence lane: uncompressed bytes
+  // stream from bounded part reads into fixed-size private evidence objects,
+  // with full-stream CRC-32/size verification and a server-observed SHA-256 —
+  // never a whole-entry buffer, never archive-fatal, never public.
   if (
     row.uncompressed_size > LARGE_ARCHIVE_ZIP_LIMITS.maxFileBytes ||
     row.compressed_size > LARGE_ARCHIVE_ZIP_LIMITS.maxCompressedEntryBytes
   ) {
-    await settle(settledOutcome("retained_private", "entry_over_size_limit", token, at));
-    return;
-  }
-  if (expanded.bytes + row.uncompressed_size > LARGE_ARCHIVE_ZIP_LIMITS.maxTotalBytes) {
-    await settle(settledOutcome("retained_private", "archive_expansion_budget_reached", token, at));
+    let streamed: StreamedEvidence;
+    try {
+      streamed = await streamEntryEvidence(
+        deps,
+        job,
+        archive,
+        source,
+        directory,
+        zipEntry,
+        row.entry_index,
+        heartbeat,
+      );
+    } catch (error) {
+      if (error instanceof ZipError) {
+        // One damaged entry is isolated (its partial evidence was removed);
+        // everything else continues.
+        await settle(settledOutcome("failed", "entry_integrity_failed", token, at));
+        return;
+      }
+      throw error;
+    }
+    expanded.bytes += streamed.size;
+    const streamedBase = {
+      observedSize: streamed.size,
+      sha256: streamed.sha256,
+      mediaClass: detectMediaClass(streamed.head),
+    };
+    const streamedDuplicate = ctx.seenHashes.get(streamed.sha256);
+    if (streamedDuplicate || ctx.existingProjectHashes.has(streamed.sha256)) {
+      // The identical bytes are already durably retained elsewhere; the
+      // fresh evidence copy is redundant and removed.
+      await removeEvidenceParts(deps, streamed.evidence);
+      ctx.seenHashes.set(streamed.sha256, row.display_label);
+      await settle(
+        settledOutcome(
+          "skipped_duplicate",
+          streamedDuplicate ? "duplicate_content_skipped" : "duplicate_of_existing_media",
+          token,
+          at,
+          streamedBase,
+        ),
+      );
+      return;
+    }
+    ctx.seenHashes.set(streamed.sha256, row.display_label);
+    await settle(
+      settledOutcome("retained_private", "entry_over_size_limit", token, at, {
+        ...streamedBase,
+        evidence: streamed.evidence,
+      }),
+    );
     return;
   }
 
@@ -756,6 +1077,33 @@ async function routeEntry(
   }
   ctx.seenHashes.set(digest, row.display_label);
 
+  // Every entry that settles retained_private below gets independently
+  // addressable private evidence (CRC-verified bytes re-staged as fixed-size
+  // private objects), written lazily exactly once. Evidence part paths are
+  // deterministic per entry, so a lost-claim race can only rewrite identical
+  // bytes — no orphan cleanup is needed for them.
+  let bufferedEvidence: StudioEntryEvidence | null = null;
+  const retainedEvidence = async (): Promise<StudioEntryEvidence> => {
+    bufferedEvidence ??= await writeBufferedEvidence(
+      deps,
+      job.id,
+      archive.id,
+      row.entry_index,
+      data,
+      heartbeat,
+    );
+    return bufferedEvidence;
+  };
+  const settleRetained = async (
+    code: string,
+    extra: Partial<StudioArchiveEntryOutcome> = {},
+  ): Promise<void> => {
+    const evidence = await retainedEvidence();
+    await settle(
+      settledOutcome("retained_private", code, token, at, { ...base, evidence, ...extra }),
+    );
+  };
+
   const lowerName = row.entry_name.toLowerCase();
   const category = row.category as IntakeCategory;
 
@@ -764,9 +1112,7 @@ async function routeEntry(
     const parsed = parseJsonBuffer(data);
     if (parsed && looksLikePriceList(parsed)) {
       if (archive.extracted?.priceList) {
-        await settle(
-          settledOutcome("retained_private", "price_list_duplicate_ignored", token, at, base),
-        );
+        await settleRetained("price_list_duplicate_ignored");
         return;
       }
       const sanitized = sanitizePriceList(parsed as ExtractedPriceList);
@@ -775,20 +1121,10 @@ async function routeEntry(
           priceList: sanitized.priceList,
           priceListSource: row.display_label,
         });
-        await settle(
-          settledOutcome(
-            "retained_private",
-            adopted ? "price_list_extracted" : "price_list_too_large_retained",
-            token,
-            at,
-            base,
-          ),
-        );
+        await settleRetained(adopted ? "price_list_extracted" : "price_list_too_large_retained");
         return;
       }
-      await settle(
-        settledOutcome("retained_private", "price_list_unusable_retained", token, at, base),
-      );
+      await settleRetained("price_list_unusable_retained");
       return;
     }
     if (parsed && looksLikeProjectFacts(parsed)) {
@@ -798,12 +1134,10 @@ async function routeEntry(
           typeof factFields.fields.name === "string" ? factFields.fields.name : undefined;
         await adoptExtracted(deps, job, token, archive, { factFields, derivedName });
       }
-      await settle(settledOutcome("retained_private", "project_facts_extracted", token, at, base));
+      await settleRetained("project_facts_extracted");
       return;
     }
-    await settle(
-      settledOutcome("retained_private", "structured_artifact_unrecognized", token, at, base),
-    );
+    await settleRetained("structured_artifact_unrecognized");
     return;
   }
 
@@ -819,12 +1153,10 @@ async function routeEntry(
         priceList: extraction.priceList,
         priceListSource: row.display_label,
       });
-      await settle(settledOutcome("retained_private", "price_list_extracted", token, at, base));
+      await settleRetained("price_list_extracted");
       return;
     }
-    await settle(
-      settledOutcome("retained_private", "price_list_retained_for_extraction", token, at, base),
-    );
+    await settleRetained("price_list_retained_for_extraction");
     return;
   }
 
@@ -832,19 +1164,20 @@ async function routeEntry(
   const mediaType = mediaTypeForCategory(category);
   if (mediaType) {
     if (!isPublishableMediaClass(category, mediaClass)) {
-      await settle(settledOutcome("retained_private", "media_class_mismatch", token, at, base));
+      await settleRetained("media_class_mismatch");
       return;
     }
     if (ctx.publishedCount >= MAX_PUBLIC_MEDIA_PER_JOB) {
-      await settle(settledOutcome("retained_private", "media_budget_reached", token, at, base));
+      await settleRetained("media_budget_reached");
       return;
     }
     const contentType =
       canonicalPublicContentType(row.entry_name, head, mediaClass) ?? "application/octet-stream";
     if (!["image/jpeg", "image/png", "image/webp"].includes(contentType)) {
       // Video, HEIC/HEIF, PDFs and other classes have no safe public
-      // sanitizer yet — truthfully retained private, never silently dropped.
-      await settle(settledOutcome("retained_private", "media_format_private", token, at, base));
+      // sanitizer yet — truthfully retained private (with independently
+      // addressable evidence), never silently dropped.
+      await settleRetained("media_format_private");
       return;
     }
     const derivative = createPublicDerivative({
@@ -854,12 +1187,7 @@ async function routeEntry(
       observedContentType: contentType,
     });
     if (!derivative.eligible) {
-      await settle(
-        settledOutcome("retained_private", `media_${derivative.reason}`, token, at, {
-          ...base,
-          mediaTruth: derivative.record,
-        }),
-      );
+      await settleRetained(`media_${derivative.reason}`, { mediaTruth: derivative.record });
       return;
     }
     const toBucket = publicBucketForCategory(category);
@@ -880,22 +1208,12 @@ async function routeEntry(
         detectMediaClass(check.head) !== "image"
       ) {
         await deps.storage.remove(toBucket, [toPath]).catch(() => undefined);
-        await settle(
-          settledOutcome("retained_private", "media_verification_failed", token, at, {
-            ...base,
-            mediaTruth: derivative.record,
-          }),
-        );
+        await settleRetained("media_verification_failed", { mediaTruth: derivative.record });
         return;
       }
     } catch {
       await deps.storage.remove(toBucket, [toPath]).catch(() => undefined);
-      await settle(
-        settledOutcome("retained_private", "media_publish_deferred", token, at, {
-          ...base,
-          mediaTruth: derivative.record,
-        }),
-      );
+      await settleRetained("media_publish_deferred", { mediaTruth: derivative.record });
       return;
     }
     ctx.publishedCount += 1;
@@ -914,7 +1232,7 @@ async function routeEntry(
   }
 
   // --- Everything else: truthful private retention --------------------------
-  await settle(settledOutcome("retained_private", "retained_unrecognized", token, at, base));
+  await settleRetained("retained_unrecognized");
 }
 
 // ---------------------------------------------------------------------------
@@ -978,26 +1296,36 @@ export async function runArchiveSlice(
       continue;
     }
 
-    if (archive.status === "uploaded" || archive.status === "verifying") {
+    if (archive.status === "uploaded_unverified" || archive.status === "byte_verifying") {
       const verified = await verifyArchiveParts(deps, job, token, archive, budget, heartbeat);
       if (!verified) {
         const current = await deps.data.getArchive(archive.id);
         if (current?.status === "rejected") continue;
         return { pendingWork: true, archiveCount: archives.length };
       }
-      archive.status = "verifying";
     }
 
     const size = archive.observed_size ?? archive.declared_size;
     const source = new PartedArchiveSource(deps, job.id, archive, size);
 
     let directory: RangedZipDirectory | null = null;
-    if (archive.status === "verifying") {
+    if (archive.status === "byte_verified") {
+      // Record the EXACT whole-archive SHA-256: the ordered verified parts
+      // streamed through one hash, 8 MiB at a time — never a whole-archive
+      // buffer. Idempotent: an interrupted pass has no partial state and
+      // simply restarts on the next slice.
+      if (!archive.archive_sha256) {
+        const exact = await computeExactArchiveSha(deps, job, archive, heartbeat);
+        await updateArchiveClaimedOrThrow(deps, job.id, token, archive.id, {
+          archive_sha256: exact,
+        });
+        archive.archive_sha256 = exact;
+      }
       directory = await indexArchive(deps, job, token, archive, source);
       if (!directory) continue; // rejected fail-closed
     }
 
-    if (archive.status === "indexed") {
+    if (archive.status === "processing_entries") {
       const pending = await deps.data.listArchiveEntries(archive.id, ["pending"]);
       if (pending.length > 0 && !directory) {
         directory = await readZipDirectoryRanged(source, LARGE_ARCHIVE_ZIP_LIMITS, VIRTUAL_DEST);
@@ -1017,7 +1345,18 @@ export async function runArchiveSlice(
           return { pendingWork: true, archiveCount: archives.length };
         }
         await heartbeat();
-        await routeEntry(deps, job, token, archive, source, directory!, row, ctx, expanded);
+        await routeEntry(
+          deps,
+          job,
+          token,
+          archive,
+          source,
+          directory!,
+          row,
+          ctx,
+          expanded,
+          heartbeat,
+        );
         budget.entries += 1;
         budget.expandedBytes += row.uncompressed_size;
       }
@@ -1082,9 +1421,9 @@ const OUTCOME_WARNING_TEXT: Record<string, string> = {
   price_list_unusable_retained: "price-list artifact(s) had no safely usable rows; retained.",
   retained_unrecognized: "archive item(s) were retained privately as source evidence.",
   entry_over_size_limit:
-    "archive item(s) exceed the per-file processing limit and remain inside the privately retained archive.",
+    "archive item(s) exceed the public processing limit; each was extracted into independently retrievable private evidence and remains private.",
   archive_expansion_budget_reached:
-    "archive item(s) beyond the expansion budget remain inside the privately retained archive.",
+    "archive item(s) beyond the expansion budget remain inside the privately retained archive (not independently extracted).",
 };
 
 const ARCHIVE_ERROR_TEXT: Record<string, string> = {
@@ -1252,6 +1591,7 @@ export async function buildJobProgress(
       label: archiveLabel(index),
       status: archive.status,
       partCount: archive.part_count,
+      uploadedParts: archive.parts.filter((part) => part.size != null).length,
       verifiedParts: archive.parts.filter((part) => part.verified).length,
       entryCount: archive.entry_count,
       entriesProcessed: archiveEntries.length - count("pending"),

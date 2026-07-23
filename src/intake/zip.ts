@@ -118,6 +118,23 @@ export function zipCrc32(buffer: Buffer): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
+// Incremental CRC-32 over a chunked stream: seed with ZIP_CRC32_SEED, fold
+// each chunk through zipCrc32Update, then zipCrc32Finish. Identical result to
+// zipCrc32 over the concatenation (asserted by the ranged-reader tests).
+export const ZIP_CRC32_SEED = 0xffffffff;
+
+export function zipCrc32Update(state: number, chunk: Buffer): number {
+  let crc = state >>> 0;
+  for (let i = 0; i < chunk.length; i += 1) {
+    crc = CRC_TABLE[(crc ^ chunk[i]) & 0xff] ^ (crc >>> 8);
+  }
+  return crc >>> 0;
+}
+
+export function zipCrc32Finish(state: number): number {
+  return (state ^ 0xffffffff) >>> 0;
+}
+
 const crc32 = zipCrc32;
 
 // ---------------------------------------------------------------------------

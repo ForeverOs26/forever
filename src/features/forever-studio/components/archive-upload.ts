@@ -19,6 +19,8 @@ import { studioConfirmArchiveUpload, studioPlanArchiveUpload } from "../studio.f
 import {
   LARGE_ARCHIVE_MAX_BYTES,
   LARGE_ARCHIVE_MIN_BYTES,
+  UPLOAD_FINGERPRINT_DOMAIN,
+  uploadFingerprintSampleRanges,
   type StudioArchivePartTarget,
 } from "../studio-types";
 
@@ -32,12 +34,56 @@ export function archiveTooLarge(file: File): boolean {
 }
 
 export interface ArchiveUploadProgress {
-  /** Bytes accepted so far (uploaded parts × part size, capped at total). */
+  /** Bytes stored so far (uploaded parts × part size, capped at total). */
   uploadedBytes: number;
   totalBytes: number;
   partsDone: number;
   partCount: number;
-  state: "preparing" | "uploading" | "retrying" | "verifying" | "accepted";
+  /**
+   * Truthful client-side upload states. "stored" means the server confirmed
+   * every part EXISTS with its exact planned size — durably stored, NOT yet
+   * byte-verified: hash verification of the actual stored bytes happens in
+   * the background processing slices and is reported by the job progress.
+   */
+  state: "preparing" | "uploading" | "retrying" | "confirming" | "stored";
+}
+
+/** Blob bytes with a FileReader fallback (older WebKit, jsdom). */
+async function blobBytes(blob: Blob): Promise<Uint8Array> {
+  if (typeof blob.arrayBuffer === "function") return new Uint8Array(await blob.arrayBuffer());
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
+    reader.readAsArrayBuffer(blob);
+  });
+}
+
+/**
+ * Stable client upload fingerprint: SHA-256 over a domain prefix, bounded
+ * content samples (head, two interior windows, tail — at most 4 × 256 KiB),
+ * and the exact byte length. Distinguishes different archives that share a
+ * filename and size, resumes the same archive deterministically, and costs
+ * about one part's worth of hashing even for a 300 MiB phone upload. It is a
+ * resume identity only — the server still verifies every stored byte.
+ */
+export async function computeUploadFingerprint(file: File): Promise<string> {
+  const pieces: Uint8Array[] = [new TextEncoder().encode(UPLOAD_FINGERPRINT_DOMAIN)];
+  for (const range of uploadFingerprintSampleRanges(file.size)) {
+    pieces.push(await blobBytes(file.slice(range.start, range.end)));
+  }
+  const sizeBytes = new Uint8Array(8);
+  new DataView(sizeBytes.buffer).setBigUint64(0, BigInt(file.size), false);
+  pieces.push(sizeBytes);
+  const total = pieces.reduce((sum, piece) => sum + piece.byteLength, 0);
+  const joined = new Uint8Array(total);
+  let offset = 0;
+  for (const piece of pieces) {
+    joined.set(piece, offset);
+    offset += piece.byteLength;
+  }
+  const digest = await crypto.subtle.digest("SHA-256", joined);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 const PART_UPLOAD_ATTEMPTS = 4;
@@ -82,18 +128,29 @@ async function uploadOnePart(
 }
 
 /**
- * Upload one large archive resumably and wait for server acceptance.
- * Resolves with the archive id once the server has verified every stored
- * part's existence and exact size; throws when the upload cannot complete
- * (the caller offers a retry — re-running resumes from the stored parts).
+ * Upload one large archive resumably and wait for STORAGE acceptance: the
+ * server confirming that every part exists in private staging with exactly
+ * its planned size. That means "safely stored", never "verified" — byte
+ * verification of the actual stored bytes happens in the background
+ * processing slices. Throws when the upload cannot complete (the caller
+ * offers a retry — re-running resumes from the stored parts, keyed by the
+ * upload fingerprint rather than the filename).
  */
 export async function uploadLargeArchive(
   jobId: string,
   file: File,
   onProgress: (progress: ArchiveUploadProgress) => void,
 ): Promise<{ archiveId: string }> {
+  onProgress({
+    uploadedBytes: 0,
+    totalBytes: file.size,
+    partsDone: 0,
+    partCount: 0,
+    state: "preparing",
+  });
+  const uploadFingerprint = await computeUploadFingerprint(file);
   const plan = await studioPlanArchiveUpload({
-    data: { jobId, fileName: file.name, declaredSize: file.size },
+    data: { jobId, fileName: file.name, declaredSize: file.size, uploadFingerprint },
   });
   const report = (state: ArchiveUploadProgress["state"], partsDone: number) =>
     onProgress({
@@ -105,15 +162,16 @@ export async function uploadLargeArchive(
     });
 
   let done = plan.presentParts.length;
-  report(plan.parts.length ? "uploading" : "verifying", done);
+  report(plan.parts.length ? "uploading" : "confirming", done);
   for (const target of plan.parts) {
     await uploadOnePart(file, plan.partSize, target, () => report("retrying", done));
     done += 1;
     report("uploading", done);
   }
 
-  // Per-part SHA-256 claims for every part (server verifies the stored bytes).
-  report("verifying", done);
+  // Per-part SHA-256 claims for every part; the server later hash-verifies
+  // the ACTUAL stored bytes against these before anything expands.
+  report("confirming", done);
   const partSha256: string[] = [];
   for (let index = 0; index < plan.partCount; index += 1) {
     const start = index * plan.partSize;
@@ -127,7 +185,7 @@ export async function uploadLargeArchive(
       data: { jobId, archiveId: plan.archiveId, partSha256 },
     });
     if (confirm.accepted) {
-      report("accepted", plan.partCount);
+      report("stored", plan.partCount);
       return { archiveId: plan.archiveId };
     }
     // The server found absent or wrong-sized parts: re-upload just those
@@ -136,5 +194,5 @@ export async function uploadLargeArchive(
       await uploadOnePart(file, plan.partSize, target, () => report("retrying", done));
     }
   }
-  throw new Error(`${file.name} could not be verified in storage. Retry to resume this upload.`);
+  throw new Error(`${file.name} could not be confirmed in storage. Retry to resume this upload.`);
 }

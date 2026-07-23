@@ -1211,9 +1211,36 @@ SELECT pg_temp.assert_true(
      '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',900))=1,
   'archive test job is claimed by its worker token');
 
-INSERT INTO public.studio_archives(id,job_id,ordinal,file_name,declared_size,part_size,part_count,status)
+INSERT INTO public.studio_archives(
+  id,job_id,ordinal,file_name,upload_fingerprint,declared_size,part_size,part_count,status)
 VALUES ('61000000-0000-0000-0000-000000000001',
-        '60000000-0000-0000-0000-000000000001',0,'dossier.zip',16777216,8388608,2,'uploaded');
+        '60000000-0000-0000-0000-000000000001',0,'dossier.zip',
+        repeat('a',64),16777216,8388608,2,'uploaded_unverified');
+
+-- The truthful lifecycle is DB-enforced: the retired ambiguous states are
+-- rejected, and the fingerprint must be a well-formed digest.
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO public.studio_archives(
+      id,job_id,ordinal,file_name,upload_fingerprint,declared_size,part_size,part_count,status)
+    VALUES ('61000000-0000-0000-0000-00000000000e',
+            '60000000-0000-0000-0000-000000000001',1,'legacy.zip',
+            repeat('b',64),16777216,8388608,2,'uploaded');
+    RAISE EXCEPTION 'expected_legacy_status_rejection_absent';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO public.studio_archives(
+      id,job_id,ordinal,file_name,upload_fingerprint,declared_size,part_size,part_count,status)
+    VALUES ('61000000-0000-0000-0000-00000000000f',
+            '60000000-0000-0000-0000-000000000001',1,'badfp.zip',
+            'not-a-digest',16777216,8388608,2,'planned');
+    RAISE EXCEPTION 'expected_bad_fingerprint_rejection_absent';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+END;
+$$;
 
 -- A stale token can neither index nor patch.
 SELECT pg_temp.assert_true(
@@ -1249,12 +1276,14 @@ SELECT pg_temp.assert_true(
   public.studio_update_archive_claimed(
     '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
     '61000000-0000-0000-0000-000000000001',
-    '{"status":"indexed","entry_count":2,"total_uncompressed":30}'::jsonb),
+    ('{"status":"processing_entries","entry_count":2,"total_uncompressed":30,'
+     || '"archive_sha256":"' || repeat('9',64) || '"}')::jsonb),
   'the claim holder patches archive state');
 SELECT pg_temp.assert_true(
-  (SELECT status FROM public.studio_archives
-   WHERE id='61000000-0000-0000-0000-000000000001')='indexed',
-  'the archive patch is durable');
+  (SELECT status='processing_entries' AND archive_sha256=repeat('9',64)
+   FROM public.studio_archives
+   WHERE id='61000000-0000-0000-0000-000000000001'),
+  'the archive patch (including the exact archive SHA-256) is durable');
 
 -- ---------------------------------------------------------------------------
 -- LA-3. Pending-only, claim-checked settlement (settled outcomes immutable)
@@ -1274,6 +1303,29 @@ SELECT pg_temp.assert_true(
       AND archive_id='61000000-0000-0000-0000-000000000001'),
     '{"state":"published_public","outcomeCode":null,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","observedSize":10,"publicBucket":"project-images","publicPath":"studio/x/att/00-a.jpg","publicUrl":"https://cdn/x.jpg","mediaType":"gallery","attempt":"cccccccc0000","processedAt":"2026-07-24T00:00:00Z"}'::jsonb),
   'the claim holder settles a pending entry');
+
+-- The private evidence manifest persists durably on a retained settlement.
+SELECT pg_temp.assert_true(
+  public.studio_settle_archive_entry(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=1
+      AND archive_id='61000000-0000-0000-0000-000000000001'),
+    ('{"state":"retained_private","outcomeCode":"entry_over_size_limit",'
+     || '"sha256":"' || repeat('b',64) || '","observedSize":20,'
+     || '"evidence":{"bucket":"studio-uploads","prefix":"jobs/j/evidence/a/00001",'
+     || '"partSize":8388608,"partCount":1,'
+     || '"parts":[{"index":0,"size":20,"sha256":"' || repeat('c',64) || '"}],'
+     || '"totalSize":20,"crc32Verified":true},'
+     || '"attempt":"cccccccc0000","processedAt":"2026-07-24T00:00:00Z"}')::jsonb),
+  'the claim holder settles a retained entry with its evidence manifest');
+SELECT pg_temp.assert_true(
+  (SELECT evidence->>'prefix'='jobs/j/evidence/a/00001'
+      AND (evidence->>'partCount')::int=1
+      AND (evidence->'parts'->0->>'sha256')=repeat('c',64)
+      AND (evidence->>'crc32Verified')::boolean
+   FROM public.studio_archive_entries WHERE entry_index=1
+     AND archive_id='61000000-0000-0000-0000-000000000001'),
+  'the evidence manifest is durable and structured');
 
 SELECT pg_temp.assert_true(
   NOT public.studio_settle_archive_entry(

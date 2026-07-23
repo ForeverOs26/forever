@@ -197,19 +197,63 @@ export interface StudioArchiveRow {
   ordinal: number;
   /** Original client filename — PRIVATE (service-role only); never projected. */
   file_name: string;
+  /**
+   * Client upload fingerprint (SHA-256 hex over bounded content samples +
+   * size). Resume identity ONLY — two different archives with the same name
+   * and size never attach to each other's parts. Never a substitute for
+   * server verification of the actual stored bytes. PRIVATE.
+   */
+  upload_fingerprint: string;
   declared_size: number;
   part_size: number;
   part_count: number;
   parts: StudioArchivePartRecord[];
   observed_size: number | null;
-  /** SHA-256 over the ordered per-part SHA-256 hex digests (archive identity). */
+  /**
+   * SHA-256 over the ordered per-part SHA-256 hex digests. NOT the file's
+   * SHA-256 — the exact one is archive_sha256 below.
+   */
   composite_sha256: string | null;
+  /**
+   * Exact SHA-256 of the WHOLE archive, streamed across the ordered verified
+   * parts after byte verification (never buffered); null until computed.
+   */
+  archive_sha256: string | null;
   status: StudioArchiveStatus;
   entry_count: number | null;
   total_uncompressed: number | null;
   extracted: StudioArchiveExtracted | null;
   error_code: string | null;
   created_at: string;
+}
+
+/** One fixed-size stored piece of an entry's private evidence. */
+export interface StudioEntryEvidencePart {
+  index: number;
+  /** Exact stored byte count, re-observed from storage after the write. */
+  size: number;
+  /** SHA-256 of this part's bytes, re-hashed from the ACTUAL stored object. */
+  sha256: string;
+}
+
+/**
+ * Durable manifest of one entry's independently addressable PRIVATE evidence:
+ * the entry's uncompressed bytes, extracted/streamed out of the archive into
+ * fixed-size private objects so the entry is retrievable and hash-verifiable
+ * on its own (video, HEIC, large PDFs, unknown documents) without touching
+ * the parent archive. The source archive parts remain the immutable parent.
+ */
+export interface StudioEntryEvidence {
+  bucket: string;
+  /** Folder holding the fixed-size evidence parts (00000, 00001, …). */
+  prefix: string;
+  partSize: number;
+  partCount: number;
+  parts: StudioEntryEvidencePart[];
+  /** Exact uncompressed byte count of the whole reconstructed entry. */
+  totalSize: number;
+  /** True: the full extracted stream matched the entry's declared CRC-32. */
+  crc32Verified: boolean;
 }
 
 export interface StudioArchiveEntryRow {
@@ -236,6 +280,8 @@ export interface StudioArchiveEntryRow {
   media_title: string | null;
   /** Full private evidence record (claims allowed — table is service-role only). */
   media_truth: MediaTruthRecord | null;
+  /** Independently addressable private evidence manifest (retained entries). */
+  evidence: StudioEntryEvidence | null;
   /** Attempt discriminator of the claim that settled this entry. */
   attempt: string | null;
   processed_at: string | null;
@@ -254,6 +300,7 @@ export interface StudioArchiveEntryOutcome {
   mediaType?: string | null;
   mediaTitle?: string | null;
   mediaTruth?: MediaTruthRecord | null;
+  evidence?: StudioEntryEvidence | null;
   attempt: string;
   processedAt: string;
 }
