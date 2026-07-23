@@ -15,6 +15,30 @@ export const MEDIA_SANITIZER_VERSION = "forever-media-truth-001/v3";
 export const MAX_MEDIA_SANITIZE_BYTES = 24 * 1024 * 1024;
 
 /**
+ * A media-truth record with the extracted `claims` removed. `claims` describes
+ * the PRIVATE original — capture time, timezone, device make/model, editing
+ * software, and GPS latitude/longitude/altitude — and must never appear in a
+ * public projection. The full record (including `claims`) is retained on the
+ * private studio job file record; only this reduced form is safe to embed in
+ * the anonymously readable `project_media.metadata`. Everything kept here is a
+ * one-way hash, a byte size, a format string, or a boolean/enum with no
+ * source-identifying content.
+ */
+export type PublicMediaTruthProjection = Omit<MediaTruthRecord, "claims">;
+
+/**
+ * Project a media-truth record down to its public-safe fields. Stripping
+ * `claims` guarantees no extracted GPS coordinate, device identifier, capture
+ * timestamp, or software string can reach a public row — independently of
+ * whether the defence-in-depth column-grant migration has been applied.
+ */
+export function publicMediaTruthProjection(record: MediaTruthRecord): PublicMediaTruthProjection {
+  const { claims: _claims, ...publicSafe } = record;
+  void _claims;
+  return publicSafe;
+}
+
+/**
  * Decoded-image bounds. A small compressed file must not be able to declare
  * enormous dimensions and pass publication (a "decompression / dimension
  * bomb"): the 24 MiB byte cap bounds the *compressed* input, but not the pixels

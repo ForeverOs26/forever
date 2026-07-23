@@ -277,6 +277,24 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
         },
       },
     });
+    // REGRESSION (public metadata privacy): project_media.metadata is anon-
+    // readable on any environment where the defence-in-depth column-grant
+    // migration is not (yet) applied, so the extracted `claims` — GPS, device
+    // make/model, capture time, software — MUST NOT reach the public row.
+    const publicStudio = (
+      world.executor.store.media[0].metadata as {
+        studio?: { media_truth?: Record<string, unknown> };
+      }
+    ).studio!;
+    expect(publicStudio.media_truth).not.toHaveProperty("claims");
+    const publicMetadataJson = JSON.stringify(world.executor.store.media[0].metadata);
+    expect(publicMetadataJson).not.toContain("FixturePhone 9000");
+    expect(publicMetadataJson).not.toContain("device_model");
+    expect(publicMetadataJson).not.toContain("capture_time");
+    expect(publicMetadataJson).not.toContain("gps");
+    // The full truth record, including the GPS/device claims, is retained on the
+    // PRIVATE job file record so the audit trail is never lost.
+    expect(jpegRecord.mediaTruth?.claims?.device_model).toBe("FixturePhone 9000");
     expect(job!.files.find((file) => file.name === "phone.mov")!.publicPath).toBeUndefined();
     expect(job!.files.find((file) => file.name === "phone.heic")!.publicPath).toBeUndefined();
     for (const marker of FIXTURE_PRIVATE_MARKERS) {

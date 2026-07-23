@@ -34,6 +34,7 @@ import type { StudioDeps, StudioJobRow } from "./contracts";
 import {
   createPublicDerivative,
   MAX_MEDIA_SANITIZE_BYTES,
+  publicMediaTruthProjection,
   type SanitizedImageFormat,
 } from "./media-truth";
 
@@ -1006,7 +1007,10 @@ export async function gatherMaterials(
           job_id: job.id,
           original_name: candidate.name,
           category: candidate.category,
-          media_truth: derivative.record,
+          // Public-safe projection only: the extracted `claims` (GPS, device
+          // make/model, capture time, software) stay on the private job record
+          // and must never reach the anonymously readable project_media row.
+          media_truth: publicMediaTruthProjection(derivative.record),
         },
       },
     });
