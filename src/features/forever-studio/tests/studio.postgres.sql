@@ -937,8 +937,11 @@ $$;
 -- ---------------------------------------------------------------------------
 -- 12. Public projection grants: real PostgreSQL role behavior
 -- ---------------------------------------------------------------------------
-INSERT INTO public.developers(id,name,description,website,contact_email)
-VALUES ('90000000-0000-0000-0000-000000000001','Privacy Developer','Recorded description','https://developer.example','private-developer@example.com');
+INSERT INTO public.developers(id,name,description,website,contact_name,contact_phone,contact_email)
+VALUES (
+  '90000000-0000-0000-0000-000000000001','Privacy Developer','Recorded description',
+  'https://developer.example','Private Contact','+66-private','private-developer@example.com'
+);
 INSERT INTO public.projects(
   id,developer_id,name,slug,is_active,public_status,field_provenance,start_date_display,completion_date_display
 ) VALUES (
@@ -946,18 +949,36 @@ INSERT INTO public.projects(
   'Privacy Published','privacy-published',true,'published',
   '{"source_path":"forever-data/projects/coralina/source/private.pdf"}'::jsonb,'Q1 2026','Q4 2027'
 ),(
-  '90000000-0000-0000-0000-000000000003',NULL,'Privacy Draft','privacy-draft',true,'draft',
-  '{"source_path":"private/draft.pdf"}'::jsonb,NULL,NULL
+  '90000000-0000-0000-0000-000000000003','90000000-0000-0000-0000-000000000001',
+  'Privacy Draft','privacy-draft',true,'draft','{"source_path":"private/draft.pdf"}'::jsonb,NULL,NULL
 );
 INSERT INTO public.units(id,project_id,unit_code,metadata)
-VALUES ('90000000-0000-0000-0000-000000000004','90000000-0000-0000-0000-000000000002','P-1','{"private_path":"units/P-1.pdf"}'::jsonb);
+VALUES
+  ('90000000-0000-0000-0000-000000000004','90000000-0000-0000-0000-000000000002','P-1','{"private_path":"units/P-1.pdf"}'::jsonb),
+  ('90000000-0000-0000-0000-000000000007','90000000-0000-0000-0000-000000000003','D-1','{"private_path":"units/D-1.pdf"}'::jsonb);
 INSERT INTO public.project_media(id,project_id,media_type,url,metadata)
-VALUES ('90000000-0000-0000-0000-000000000005','90000000-0000-0000-0000-000000000002','gallery','https://cdn.example/privacy.jpg','{"private_path":"media/private.jpg"}'::jsonb);
+VALUES
+  ('90000000-0000-0000-0000-000000000005','90000000-0000-0000-0000-000000000002','gallery','https://cdn.example/privacy.jpg','{"private_path":"media/private.jpg"}'::jsonb),
+  ('90000000-0000-0000-0000-000000000008','90000000-0000-0000-0000-000000000003','gallery','https://cdn.example/draft-private.jpg','{"private_path":"media/draft-private.jpg"}'::jsonb);
 INSERT INTO public.investment_data(id,project_id,notes)
-VALUES ('90000000-0000-0000-0000-000000000006','90000000-0000-0000-0000-000000000002','Recorded only');
+VALUES
+  ('90000000-0000-0000-0000-000000000006','90000000-0000-0000-0000-000000000002','Recorded only'),
+  ('90000000-0000-0000-0000-000000000009','90000000-0000-0000-0000-000000000003','Draft private');
 INSERT INTO public.unit_price_history(unit_id,price,currency,source_file,source_page,metadata)
 VALUES ('90000000-0000-0000-0000-000000000004',1000000,'THB','forever-data/projects/coralina/source/price-list/private.pdf',1,'{"private_path":"prices/private.pdf"}'::jsonb);
 
+SELECT pg_temp.assert_true(
+  has_column_privilege('anon','public.projects','developer_id','SELECT')
+  AND has_column_privilege('authenticated','public.projects','developer_id','SELECT')
+  AND has_column_privilege('anon','public.units','project_id','SELECT')
+  AND has_column_privilege('authenticated','public.units','project_id','SELECT')
+  AND has_column_privilege('anon','public.project_media','project_id','SELECT')
+  AND has_column_privilege('authenticated','public.project_media','project_id','SELECT')
+  AND has_column_privilege('anon','public.projects','public_status','SELECT')
+  AND has_column_privilege('authenticated','public.projects','public_status','SELECT')
+  AND has_column_privilege('anon','public.investment_data','project_id','SELECT')
+  AND has_column_privilege('authenticated','public.investment_data','project_id','SELECT'),
+  'anon/authenticated have every FK and cross-table RLS column required by public embeds');
 SELECT pg_temp.assert_true(
   has_column_privilege('anon','public.projects','start_date_display','SELECT')
   AND has_column_privilege('authenticated','public.projects','completion_date_display','SELECT')
@@ -967,66 +988,177 @@ SELECT pg_temp.assert_true(
   AND has_column_privilege('authenticated','public.investment_data','created_at','SELECT'),
   'anon/authenticated retain every public nested-query projection column');
 SELECT pg_temp.assert_true(
+  NOT has_table_privilege('anon','public.projects','SELECT')
+  AND NOT has_table_privilege('authenticated','public.projects','SELECT')
+  AND NOT has_table_privilege('anon','public.developers','SELECT')
+  AND NOT has_table_privilege('authenticated','public.developers','SELECT')
+  AND NOT has_table_privilege('anon','public.units','SELECT')
+  AND NOT has_table_privilege('authenticated','public.units','SELECT')
+  AND NOT has_table_privilege('anon','public.project_media','SELECT')
+  AND NOT has_table_privilege('authenticated','public.project_media','SELECT')
+  AND NOT has_table_privilege('anon','public.investment_data','SELECT')
+  AND NOT has_table_privilege('authenticated','public.investment_data','SELECT'),
+  'public projections execute without table-wide SELECT');
+SELECT pg_temp.assert_true(
   NOT has_column_privilege('anon','public.projects','field_provenance','SELECT')
+  AND NOT has_column_privilege('authenticated','public.projects','field_provenance','SELECT')
+  AND NOT has_column_privilege('anon','public.units','metadata','SELECT')
   AND NOT has_column_privilege('authenticated','public.units','metadata','SELECT')
   AND NOT has_column_privilege('anon','public.project_media','metadata','SELECT')
-  AND NOT has_column_privilege('authenticated','public.unit_price_history','source_file','SELECT')
-  AND NOT has_column_privilege('anon','public.unit_price_history','source_page','SELECT')
-  AND NOT has_column_privilege('authenticated','public.unit_price_history','metadata','SELECT')
-  AND NOT has_column_privilege('anon','public.developers','contact_email','SELECT'),
-  'public roles cannot select provenance, source paths, metadata, or private developer contact');
+  AND NOT has_column_privilege('authenticated','public.project_media','metadata','SELECT')
+  AND NOT has_column_privilege('anon','public.unit_price_history','source_file','SELECT')
+  AND NOT has_column_privilege('authenticated','public.unit_price_history','source_page','SELECT')
+  AND NOT has_column_privilege('anon','public.unit_price_history','metadata','SELECT')
+  AND NOT has_column_privilege('authenticated','public.developers','contact_name','SELECT')
+  AND NOT has_column_privilege('anon','public.developers','contact_phone','SELECT')
+  AND NOT has_column_privilege('authenticated','public.developers','contact_email','SELECT'),
+  'public roles cannot select provenance, source paths, metadata, or private developer contacts');
 SELECT pg_temp.assert_true(
   has_column_privilege('service_role','public.projects','field_provenance','SELECT')
   AND has_column_privilege('service_role','public.units','metadata','SELECT')
   AND has_column_privilege('service_role','public.project_media','metadata','SELECT')
-  AND has_column_privilege('service_role','public.unit_price_history','source_file','SELECT'),
+  AND has_column_privilege('service_role','public.unit_price_history','source_file','SELECT')
+  AND has_column_privilege('service_role','public.developers','contact_email','SELECT'),
   'service_role retains required private-column access');
 
+CREATE OR REPLACE FUNCTION pg_temp.assert_public_query_contract(expected_role text)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+  catalogue jsonb;
+  detail jsonb;
+BEGIN
+  PERFORM pg_temp.assert_true(current_user::text = expected_role, 'public query runs as ' || expected_role);
+
+  -- SQL equivalent of ProjectService's exact PostgREST projection. The FK
+  -- predicates are what PostgREST generates for the developer and media embeds.
+  SELECT to_jsonb(public_catalogue) INTO catalogue
+  FROM (
+    SELECT
+      p.id, p.slug, p.name, p.project_type, p.location_area, p.short_description,
+      p.full_description, p.construction_status, p.distance_to_beach, p.distance_to_airport,
+      p.main_image_url, p.is_featured, p.is_active, p.created_at, p.sales_status,
+      p.starting_price_thb, p.price_range, p.price_per_sqm_display, p.last_price_update,
+      p.tagline, p.highlights, p.beds_display, p.area_range, p.nearby_schools,
+      p.nearby_hospitals, p.lifestyle, p.start_date_display, p.completion_date_display,
+      (SELECT to_jsonb(public_developer) FROM (
+        SELECT d.name FROM public.developers d WHERE d.id=p.developer_id
+      ) public_developer) AS developer,
+      COALESCE((SELECT jsonb_agg(to_jsonb(public_media) ORDER BY public_media.sort_order) FROM (
+        SELECT m.media_type, m.url, m.sort_order
+        FROM public.project_media m WHERE m.project_id=p.id
+      ) public_media), '[]'::jsonb) AS media
+    FROM public.projects p
+    WHERE p.is_active=true AND p.slug='privacy-published'
+    ORDER BY p.is_featured DESC, p.created_at ASC
+  ) public_catalogue;
+
+  PERFORM pg_temp.assert_true(
+    catalogue->>'slug'='privacy-published'
+    AND catalogue#>>'{developer,name}'='Privacy Developer'
+    AND jsonb_array_length(catalogue->'media')=1,
+    expected_role || ' can execute the exact ProjectService embedded projection');
+
+  -- SQL equivalent of PROJECT_DETAIL_SELECT, including every public scalar and
+  -- all four PostgREST relationship predicates under the invoker's real role.
+  SELECT to_jsonb(public_detail) INTO detail
+  FROM (
+    SELECT
+      p.id, p.name, p.slug, p.project_type, p.location_area, p.address,
+      p.short_description, p.full_description, p.construction_status,
+      p.ownership_type, p.distance_to_beach, p.distance_to_airport, p.latitude, p.longitude,
+      p.main_image_url, p.brochure_url, p.is_featured, p.is_active, p.sales_status,
+      p.starting_price_thb, p.price_range, p.price_per_sqm_display, p.last_price_update,
+      p.tagline, p.highlights, p.beds_display, p.area_range, p.nearby_schools,
+      p.nearby_hospitals, p.lifestyle, p.developer_name_raw, p.location_name_raw,
+      (SELECT to_jsonb(public_developer) FROM (
+        SELECT d.id, d.name, d.description, d.website, d.logo_url
+        FROM public.developers d WHERE d.id=p.developer_id
+      ) public_developer) AS developer,
+      COALESCE((SELECT jsonb_agg(to_jsonb(public_media) ORDER BY public_media.sort_order) FROM (
+        SELECT m.id, m.media_type, m.title, m.url, m.sort_order
+        FROM public.project_media m WHERE m.project_id=p.id
+      ) public_media), '[]'::jsonb) AS media,
+      COALESCE((SELECT jsonb_agg(to_jsonb(public_unit) ORDER BY public_unit.unit_code) FROM (
+        SELECT u.id, u.unit_code, u.unit_type, u.bedrooms, u.bathrooms, u.size_sqm,
+          u.floor, u.view_type, u.ownership_type, u.base_price_thb, u.discounted_price_thb,
+          u.price_per_sqm, u.availability_status, u.payment_plan, u.furniture_package,
+          u.rental_guarantee, u.roi_estimate, u.notes
+        FROM public.units u WHERE u.project_id=p.id
+      ) public_unit), '[]'::jsonb) AS units,
+      COALESCE((SELECT jsonb_agg(to_jsonb(public_investment) ORDER BY public_investment.created_at) FROM (
+        SELECT i.id, i.project_id, i.unit_id, i.expected_daily_rate, i.expected_monthly_rent,
+          i.expected_yearly_rent, i.occupancy_rate, i.annual_roi_percent,
+          i.guaranteed_rental_percent, i.guarantee_years, i.management_company, i.notes, i.created_at
+        FROM public.investment_data i WHERE i.project_id=p.id
+      ) public_investment), '[]'::jsonb) AS investment
+    FROM public.projects p
+    WHERE p.is_active=true AND p.slug='privacy-published'
+  ) public_detail;
+
+  PERFORM pg_temp.assert_true(
+    detail->>'slug'='privacy-published'
+    AND detail#>>'{developer,name}'='Privacy Developer'
+    AND jsonb_array_length(detail->'media')=1
+    AND jsonb_array_length(detail->'units')=1
+    AND jsonb_array_length(detail->'investment')=1,
+    expected_role || ' can execute PROJECT_DETAIL_SELECT with all four embeds');
+
+  PERFORM pg_temp.assert_true(
+    (SELECT count(*) FROM public.projects WHERE slug='privacy-published')=1
+    AND (SELECT count(*) FROM public.projects WHERE slug='privacy-draft')=0
+    AND (SELECT count(*) FROM public.units WHERE unit_code='P-1')=1
+    AND (SELECT count(*) FROM public.units WHERE unit_code='D-1')=0
+    AND (SELECT count(*) FROM public.project_media WHERE url='https://cdn.example/privacy.jpg')=1
+    AND (SELECT count(*) FROM public.project_media WHERE url='https://cdn.example/draft-private.jpg')=0
+    AND (SELECT count(*) FROM public.investment_data WHERE notes='Recorded only')=1
+    AND (SELECT count(*) FROM public.investment_data WHERE notes='Draft private')=0,
+    expected_role || ' sees published projects and children while draft rows stay hidden by RLS');
+END;
+$$;
+
 SET ROLE anon;
-SELECT pg_temp.assert_true(
-  (SELECT count(*) FROM public.projects WHERE slug='privacy-published')=1
-  AND (SELECT count(*) FROM public.projects WHERE slug='privacy-draft')=0,
-  'projects RLS still limits anon to active published rows');
-SELECT pg_temp.assert_true(
-  (SELECT count(*) FROM public.units WHERE unit_code='P-1')=1
-  AND (SELECT count(*) FROM public.project_media WHERE url='https://cdn.example/privacy.jpg')=1
-  AND (SELECT count(*) FROM public.investment_data WHERE notes='Recorded only')=1,
-  'child RLS publication predicates remain effective');
-SELECT pg_temp.assert_true(
-  (SELECT count(*) FROM (
-    SELECT p.id, p.start_date_display, p.completion_date_display,
-      (SELECT jsonb_agg(jsonb_build_object('name',d.name,'website',d.website,'logo',d.logo_url)) FROM public.developers d WHERE d.id=p.developer_id) AS developer,
-      (SELECT jsonb_agg(jsonb_build_object('type',m.media_type,'url',m.url,'sort',m.sort_order)) FROM public.project_media m WHERE m.project_id=p.id) AS media,
-      (SELECT jsonb_agg(jsonb_build_object('code',u.unit_code,'notes',u.notes)) FROM public.units u WHERE u.project_id=p.id) AS units,
-      (SELECT jsonb_agg(jsonb_build_object('notes',i.notes)) FROM public.investment_data i WHERE i.project_id=p.id) AS investment
-    FROM public.projects p WHERE p.slug='privacy-published'
-  ) public_detail)=1,
-  'anon can execute the intended public nested detail projection after grants');
+SELECT pg_temp.assert_public_query_contract('anon');
 RESET ROLE;
 SET ROLE authenticated;
-SELECT pg_temp.assert_true(
-  (SELECT count(*) FROM public.projects WHERE slug='privacy-published')=1
-  AND (SELECT count(*) FROM public.projects WHERE slug='privacy-draft')=0,
-  'projects RLS still limits authenticated to active published rows');
+SELECT pg_temp.assert_public_query_contract('authenticated');
 RESET ROLE;
 
 DO $$
-DECLARE v_sql text;
+DECLARE
+  role_name text;
+  forbidden_sql text;
 BEGIN
-  FOREACH v_sql IN ARRAY ARRAY[
-    'SELECT field_provenance FROM public.projects',
-    'SELECT metadata FROM public.units',
-    'SELECT metadata FROM public.project_media',
-    'SELECT source_file FROM public.unit_price_history',
-    'SELECT source_page FROM public.unit_price_history',
-    'SELECT metadata FROM public.unit_price_history'
-  ] LOOP
-    BEGIN
-      SET LOCAL ROLE anon;
-      EXECUTE v_sql;
-      RAISE EXCEPTION 'expected_public_projection_denial_absent: %', v_sql;
-    EXCEPTION WHEN insufficient_privilege THEN NULL;
-    END;
+  FOREACH role_name IN ARRAY ARRAY['anon','authenticated'] LOOP
+    FOREACH forbidden_sql IN ARRAY ARRAY[
+      'SELECT field_provenance FROM public.projects',
+      'SELECT metadata FROM public.units',
+      'SELECT metadata FROM public.project_media',
+      'SELECT source_file FROM public.unit_price_history',
+      'SELECT source_page FROM public.unit_price_history',
+      'SELECT metadata FROM public.unit_price_history',
+      'SELECT contact_name,contact_phone,contact_email FROM public.developers'
+    ] LOOP
+      BEGIN
+        EXECUTE format('SET LOCAL ROLE %I', role_name);
+        EXECUTE forbidden_sql;
+        RAISE EXCEPTION 'expected_public_projection_denial_absent: %: %', role_name, forbidden_sql;
+      EXCEPTION WHEN insufficient_privilege THEN NULL;
+      END;
+    END LOOP;
   END LOOP;
-END $$;
+END;
+$$;
+
+SET ROLE service_role;
+SELECT pg_temp.assert_true(
+  (SELECT field_provenance->>'source_path' FROM public.projects WHERE slug='privacy-published')
+    ='forever-data/projects/coralina/source/private.pdf'
+  AND (SELECT metadata->>'private_path' FROM public.units WHERE unit_code='P-1')='units/P-1.pdf'
+  AND (SELECT metadata->>'private_path' FROM public.project_media WHERE url='https://cdn.example/privacy.jpg')='media/private.jpg'
+  AND (SELECT source_file FROM public.unit_price_history WHERE unit_id='90000000-0000-0000-0000-000000000004')
+    ='forever-data/projects/coralina/source/price-list/private.pdf'
+  AND (SELECT contact_email FROM public.developers WHERE id='90000000-0000-0000-0000-000000000001')
+    ='private-developer@example.com',
+  'service_role can execute private-column queries');
+RESET ROLE;
 SELECT 'ALL STUDIO POSTGRES ASSERTIONS PASSED' AS result;

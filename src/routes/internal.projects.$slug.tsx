@@ -18,11 +18,14 @@ import { ProjectKnowledgePage } from "@/features/forever-project-knowledge/compo
  */
 export const Route = createFileRoute("/internal/projects/$slug")({
   loader: async ({ params }) => {
-    const { getProjectKnowledgeInspection } =
-      await import("@/features/forever-project-knowledge/catalog");
-    const inspection = await getProjectKnowledgeInspection(params.slug);
-    if (!inspection) throw notFound();
-    return { inspection };
+    if (import.meta.env.DEV) {
+      const { getProjectKnowledgeInspection } =
+        await import("@/features/forever-project-knowledge/catalog");
+      const inspection = await getProjectKnowledgeInspection(params.slug);
+      if (!inspection) throw notFound();
+      return { inspection };
+    }
+    throw notFound();
   },
   head: ({ loaderData }) => ({
     meta: [

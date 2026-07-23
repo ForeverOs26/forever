@@ -147,7 +147,11 @@ try {
   process.stdout.write(out);
   console.log("[studio-pg] PASS");
 } catch (error) {
-  const detail = error.stdout || error.stderr || error.message || String(error);
+  const detail = [error.stdout, error.stderr, error.message]
+    .filter(Boolean)
+    .map((part) => String(part).trim())
+    .filter(Boolean)
+    .join("\n");
   console.error("[studio-pg] FAIL\n" + detail);
   process.exitCode = 1;
 } finally {

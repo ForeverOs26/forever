@@ -9,6 +9,16 @@ function read(relativePath: string): string {
   return readFileSync(resolve(root, relativePath), "utf8");
 }
 
+function grantedColumns(migration: string, table: string): string[] {
+  const match = migration.match(
+    new RegExp(
+      `GRANT SELECT \\(\\s*([\\s\\S]*?)\\s*\\) ON public\\.${table} TO anon, authenticated;`,
+    ),
+  );
+  expect(match, `column grant for public.${table}`).not.toBeNull();
+  return match?.[1].split(",").map((column) => column.trim()) ?? [];
+}
+
 describe("public query privacy contract", () => {
   it("uses explicit public project projections rather than wildcard selects", () => {
     const listSource = read("src/lib/project-service.ts");
@@ -58,5 +68,31 @@ describe("public query privacy contract", () => {
     expect(migration).not.toMatch(/GRANT SELECT \([^)]*field_provenance/s);
     expect(migration).not.toMatch(/GRANT SELECT \([^)]*metadata/s);
     expect(migration).not.toMatch(/GRANT SELECT \([^)]*contact_(name|phone|email)/s);
+  });
+
+  it("grants relationship and RLS keys without restoring table-wide SELECT", () => {
+    const migration = read("supabase/migrations/20260723130000_public_projection_privacy.sql");
+    const relationshipKeys = {
+      projects: ["id", "developer_id", "public_status"],
+      developers: ["id"],
+      units: ["id", "project_id"],
+      project_media: ["id", "project_id"],
+      investment_data: ["id", "project_id"],
+    } as const;
+
+    for (const [table, keys] of Object.entries(relationshipKeys)) {
+      const columns = grantedColumns(migration, table);
+      for (const key of keys) expect(columns).toContain(key);
+      expect(migration).not.toMatch(
+        new RegExp(`GRANT\\s+SELECT\\s+ON(?:\\s+TABLE)?\\s+public\\.${table}\\b`, "i"),
+      );
+    }
+
+    const listSource = read("src/lib/project-service.ts");
+    const detailSource = read("src/features/project-detail/project-detail-service.ts");
+    expect(listSource).not.toMatch(/\bdeveloper_id\b|\bproject_id\b/);
+    expect(detailSource).not.toContain("developer_id");
+    expect(detailSource).not.toContain("units:units(id, project_id");
+    expect(detailSource).not.toContain("media:project_media(id, project_id");
   });
 });

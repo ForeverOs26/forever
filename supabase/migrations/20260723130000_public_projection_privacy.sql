@@ -18,10 +18,10 @@ BEGIN;
 -- Existing RLS publication predicates remain the row-level enforcement layer.
 REVOKE SELECT ON TABLE public.projects FROM anon, authenticated;
 GRANT SELECT (
-  id, name, slug, project_type, location_area, address,
+  id, developer_id, name, slug, project_type, location_area, address,
   short_description, full_description, construction_status,
   ownership_type, distance_to_beach, distance_to_airport, latitude, longitude,
-  main_image_url, brochure_url, is_featured, is_active, created_at,
+  main_image_url, brochure_url, is_featured, is_active, public_status, created_at,
   sales_status, starting_price_thb, price_range, price_per_sqm_display,
   last_price_update, tagline, highlights, beds_display, area_range,
   nearby_schools, nearby_hospitals, lifestyle, developer_name_raw,
@@ -38,7 +38,7 @@ GRANT SELECT (
 
 REVOKE SELECT ON TABLE public.units FROM anon, authenticated;
 GRANT SELECT (
-  id, unit_code, unit_type, bedrooms, bathrooms,
+  id, project_id, unit_code, unit_type, bedrooms, bathrooms,
   size_sqm, floor, view_type, ownership_type, base_price_thb,
   discounted_price_thb, price_per_sqm, availability_status, payment_plan,
   furniture_package, rental_guarantee, roi_estimate, notes
@@ -46,7 +46,7 @@ GRANT SELECT (
 
 REVOKE SELECT ON TABLE public.project_media FROM anon, authenticated;
 GRANT SELECT (
-  id, media_type, title, url, sort_order
+  id, project_id, media_type, title, url, sort_order
 ) ON public.project_media TO anon, authenticated;
 
 REVOKE SELECT ON TABLE public.investment_data FROM anon, authenticated;
