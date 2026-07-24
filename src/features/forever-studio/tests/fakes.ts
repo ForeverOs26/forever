@@ -1098,6 +1098,56 @@ export class FakeData implements StudioData {
     token: string,
     entries: StudioArchiveEntryRow[],
   ) {
+    // ---- Mirrors the RPC's full payload validation BEFORE any lock or
+    // write: bounded batch, valid immutable-identity fields, and NO
+    // duplicate entry_index inside one request (identical or not — never
+    // silently collapsed).
+    if (entries.length > 500) {
+      throw new Error(`studio_archive_entries_invalid: batch_size ${entries.length}`);
+    }
+    const seenIndexes = new Set<number>();
+    for (const entry of entries) {
+      if (
+        !Number.isInteger(entry.entry_index) ||
+        entry.entry_index < 0 ||
+        entry.entry_index >= 100000
+      ) {
+        throw new Error("studio_archive_entries_invalid: entry_index");
+      }
+      if (
+        typeof entry.entry_name !== "string" ||
+        entry.entry_name.length < 1 ||
+        entry.entry_name.length > 512
+      ) {
+        throw new Error("studio_archive_entries_invalid: entry_name");
+      }
+      if (
+        typeof entry.display_label !== "string" ||
+        entry.display_label.length < 1 ||
+        entry.display_label.length > 200
+      ) {
+        throw new Error("studio_archive_entries_invalid: display_label");
+      }
+      if (
+        typeof entry.category !== "string" ||
+        entry.category.length < 1 ||
+        entry.category.length > 64
+      ) {
+        throw new Error("studio_archive_entries_invalid: category");
+      }
+      if (
+        !Number.isInteger(entry.compressed_size) ||
+        entry.compressed_size < 0 ||
+        !Number.isInteger(entry.uncompressed_size) ||
+        entry.uncompressed_size < 0
+      ) {
+        throw new Error("studio_archive_entries_invalid: size");
+      }
+      if (seenIndexes.has(entry.entry_index)) {
+        throw new Error(`studio_archive_entries_invalid: duplicate_index ${entry.entry_index}`);
+      }
+      seenIndexes.add(entry.entry_index);
+    }
     if (!this.jobClaimHeld(jobId, token)) return false;
     // Mirrors the RPC's locked ownership proof on the target archive.
     const targetArchive = entries[0] ? this.archives.get(entries[0].archive_id) : undefined;
@@ -1107,6 +1157,12 @@ export class FakeData implements StudioData {
     if (entries.length > 0 && targetArchive && targetArchive.status !== "byte_verified") {
       throw new Error(`studio_archive_entries_invalid: archive_state ${targetArchive.status}`);
     }
+    // ---- Pass 1 (mirrors the RPC's locked existing-row comparison): every
+    // existing row for a submitted index must match the immutable inventory
+    // identity EXACTLY, else the whole batch fails BEFORE any insert — a new
+    // row from a failed batch is never left behind, and an existing row
+    // (settled or pending) is never overwritten.
+    const toInsert: StudioArchiveEntryRow[] = [];
     for (const entry of entries) {
       // Mirrors the entry guard trigger (backed by the composite FK): an
       // entry can never claim an archive under a different job.
@@ -1114,6 +1170,22 @@ export class FakeData implements StudioData {
       if (!parent) throw new Error("studio_archive_entry_parent_missing");
       if (parent.job_id !== entry.job_id) {
         throw new Error("studio_archive_entry_cross_job");
+      }
+      const existing = [...this.archiveEntries.values()].find(
+        (row) => row.archive_id === entry.archive_id && row.entry_index === entry.entry_index,
+      );
+      if (existing) {
+        if (
+          existing.job_id !== entry.job_id ||
+          existing.entry_name !== entry.entry_name ||
+          existing.display_label !== entry.display_label ||
+          existing.category !== entry.category ||
+          existing.compressed_size !== entry.compressed_size ||
+          existing.uncompressed_size !== entry.uncompressed_size
+        ) {
+          throw new Error(`studio_archive_entries_conflict: ${entry.entry_index}`);
+        }
+        continue; // exact replay — accepted, byte-identically untouched
       }
       // Mirrors the trigger's INSERT shape: a new inventory row records
       // identity only — pending, with NO outcome/settlement data.
@@ -1140,10 +1212,11 @@ export class FakeData implements StudioData {
       if (parent.entry_count != null && entry.entry_index >= parent.entry_count) {
         throw new Error(`studio_archive_entry_index_out_of_range: ${entry.entry_index}`);
       }
-      const duplicate = [...this.archiveEntries.values()].some(
-        (row) => row.archive_id === entry.archive_id && row.entry_index === entry.entry_index,
-      );
-      if (duplicate) continue;
+      toInsert.push(entry);
+    }
+    // ---- Pass 2 (mirrors the RPC's insert-only-missing step): applied only
+    // after EVERY element validated and every existing row proved identical.
+    for (const entry of toInsert) {
       this.archiveEntries.set(entry.id, structuredClone(entry));
     }
     return true;

@@ -1,7 +1,50 @@
 # FOREVER-STUDIO-LARGE-ARCHIVE-001 — Implementation Report
 
 Branch: `claude/forever-studio-large-archive-001` · Base: `8d173db` (post-PR-99 main)
-Status: **implemented + four corrective passes (architect review, three independent Codex audits), fully validated locally, Draft PR, migration unapplied, no deployment**
+Status: **implemented + five corrective passes (architect review, four independent Codex audits), fully validated locally, Draft PR, migration unapplied, no deployment**
+
+> **Corrective pass 5 (2026-07-24, final entry-boundary Codex audit).** The
+> audit found one remaining P1 defect: `studio_index_archive_entries` used
+> blind `ON CONFLICT (archive_id, entry_index) DO NOTHING` and returned TRUE
+> without proving an existing row matched the submitted inventory — a
+> hostile or inconsistent retry could appear successful while the database
+> preserved DIFFERENT inventory data; the payload also tolerated duplicate
+> indexes and unknown JSON fields. Closed with **exact inventory replay**:
+>
+> 1. **Canonical immutable inventory identity** — (archive_id, job_id,
+>    entry_index, entry_name, display_label, category, compressed_size,
+>    uncompressed_size). Settlement/outcome fields are explicitly NOT part
+>    of indexing identity. A replay is idempotent only when every identity
+>    field matches exactly.
+> 2. **Complete payload validation before any lock or write**: strict key
+>    whitelist (unknown keys reject), required non-null fields (a MISSING
+>    key can no longer neutralize a `jsonb_typeof` check — the NULL-
+>    propagation hole was found by the new probes and fixed across the
+>    guard and both mutator RPCs), integral bounded numerics, non-empty
+>    bounded text (entry_name ≤ 512 aligning with the lane's ZIP path
+>    limit), batch ≤ 500, and duplicate `entry_index` inside one request
+>    ALWAYS rejected — identical or not, never silently collapsed.
+> 3. **Blind conflict success replaced by proven equivalence**: under the
+>    job-claim and archive locks, every existing row for a submitted index
+>    is locked (`FOR UPDATE`) and compared field-for-field; ANY difference
+>    raises the deterministic `studio_archive_entries_conflict` and rolls
+>    back the whole request (a new row from the same mixed batch is never
+>    left behind; an existing row is never UPDATE-"healed"). Only missing
+>    rows are inserted — plain INSERT, no ON CONFLICT, so a racing unique
+>    violation aborts loudly instead of masking divergence. Every requested
+>    index is then RE-READ and proven to hold exactly the submitted
+>    identity before TRUE is returned.
+> 4. **Concurrency proven with two live sessions** (runner-level probes,
+>    not single-session simulation): a concurrent exact replay blocked
+>    ~5 s on the job-claim lock held by the first session's open
+>    transaction, then converged to ONE identical inventory; a concurrent
+>    DIVERGENT replay was rejected with the deterministic conflict error
+>    and the winning inventory survived byte-identically. Stale tokens and
+>    cross-job claims change nothing.
+> 5. **The TypeScript fake mirrors the semantics two-phase** (validate all,
+>    compare all existing, then insert only missing — no partial mutation
+>    from a failed batch, no silent `continue` over divergent rows); all
+>    Studio suites pass against it with zero production-code changes.
 
 > **Corrective pass 4 (2026-07-24, final targeted Codex audit).** The audit
 > found one remaining P1 defect: `studio_archives` was protected by its
@@ -454,7 +497,15 @@ remain the immutable parent evidence.
   (≤ 500 rows per call, deliberately not one oversized JSON payload). Every
   batch derives from one plan — the ZIP central directory of the
   byte-verified, manifest-bound archive — so a crashed partial inventory can
-  only resume with identical rows (conflict-skip fills gaps); finalization
+  only resume with identical rows. Resumption is **EXACT REPLAY, never blind
+  conflict success**: the whole payload is validated first (strict key
+  whitelist, required non-null bounded fields, no duplicate `entry_index` in
+  one request), every existing row for a submitted index is locked and
+  compared field-for-field against the immutable inventory identity
+  (divergence raises the deterministic `studio_archive_entries_conflict`,
+  atomically — never healed by UPDATE, never leaving a new row behind), only
+  missing rows are inserted (plain INSERT — no ON CONFLICT), and every
+  requested index is re-read and proven identical before TRUE. Finalization
   is the parent's `byte_verified → processing_entries` transition, which
   re-counts the durable rows and freezes `entry_count`; after it, insertion
   is impossible at the RPC, the trigger, AND the privilege layer.
@@ -595,6 +646,49 @@ Worker figure is an explicit staging-gate measurement (§14). The in-suite
   unchanged.
 
 ## 11. Validation evidence (all local; fakes + disposable PostgreSQL)
+
+New/updated in corrective pass 5 (final entry-boundary audit — exact
+inventory replay):
+
+- `studio.postgres.sql` **LA-12 exact-replay suite** (real PostgreSQL 17,
+  full chain, the replay/conflict core under `SET ROLE service_role`
+  through the real SECURITY DEFINER function): a valid new batch; an EXACT
+  full replay proven to insert zero rows and change zero rows (ids and
+  timestamps byte-identical); replay after an interrupted partial
+  insertion; a partial exact replay carrying new rows; a single divergent
+  existing row and a MIXED batch (identical + divergent + new) both
+  rejected atomically with `studio_archive_entries_conflict` — the new row
+  never left behind, the divergent row never healed; duplicate payload
+  indexes (identical AND different) always rejected; unknown keys, missing
+  keys, NULL values, fractional/negative/textual numerics, scalar
+  elements, object-for-array, empty/oversized text, out-of-range indexes,
+  and a 501-element batch all rejected before any write; cross-job and
+  stale-token calls FALSE; an exact replay refused once the inventory is
+  finalized (`archive_state`); before/after snapshots prove archive, entry
+  rows, and unrelated jobs byte-identical after every failure.
+- **Two-live-session concurrency probes** in `run-postgres-tests.mjs`
+  (LA-12.23/24): session A holds the job-claim lock in an open
+  transaction; session B's exact replay measurably blocks (~5 s) then
+  converges to one identical inventory; session B's divergent replay is
+  rejected with the deterministic conflict error and the winning inventory
+  survives byte-identically.
+- **Missing-key NULL-propagation hole closed suite-wide**: probes proved a
+  missing required JSON key could neutralize `jsonb_typeof(...)` checks
+  (SQL NULL comparisons); the guard's part validation (`index`,
+  `declaredSha256`, verified-state `size`), the settle RPC's `state`, and
+  all six indexing identity fields now COALESCE to a failing sentinel, with
+  new adversarial fixtures (parts missing `index`/`declaredSha256`;
+  outcome missing `state`) proving the rejections.
+- `large-archive-migration-contract.test.ts` (19) — statically proves
+  `ON CONFLICT` is gone entirely, the duplicate-index / unknown-key /
+  conflict / verify-failed error classes exist, existing rows are locked
+  and compared field-for-field, and no UPDATE against the entries table
+  exists in the indexing path.
+- `fakes.ts` — two-phase mirror (validate everything, compare every
+  existing row, then insert only missing rows): a failed batch leaves
+  nothing behind, divergent rows throw the same conflict error, duplicate
+  payload indexes throw, and terminal outcomes are never overwritten. All
+  Studio suites pass with **zero production-code changes**.
 
 New/updated in corrective pass 4 (final targeted audit — child inventory
 immutability):
@@ -787,28 +881,30 @@ interruption fixture: worker killed mid-run, stale takeover after 16 min,
   settled outcomes byte-identical after resume
 ```
 
-Fresh validation, all on the corrective-pass-4 revision (exact numbers in
+Fresh validation, all on the corrective-pass-5 revision (exact numbers in
 the PR description):
 
-- **Full vitest**: 3372 passed / 6 skipped; the ONLY failures are the four
+- **Full vitest**: 3373 passed / 6 skipped; the ONLY failures are the four
   **pre-existing** ones unrelated to this change
   (`src/import/importer-preflight.test.ts` fixture drift ×3 and the
   missing-`modeva`-asset environmental failure ×1) — **re-proven to fail
-  IDENTICALLY at the exact base commit `7aed239`** by stashing this pass and
-  re-running both files on unmodified code (same 4 tests, same assertions).
-  The Studio suites (30 files, 267+ tests incl. lifecycle, migration
-  contract, large-archive indexing/settlement/processing/upload/verification/
+  IDENTICALLY at the exact base commit `e9d56d2`** by stashing this pass and
+  re-running both files on unmodified code (same 4 tests, same assertions;
+  the Modeva fixture issue remains unrelated and unmodified). The Studio
+  suites (30 files, 270+ tests incl. lifecycle, migration contract,
+  large-archive indexing/settlement/processing/upload/verification/
   evidence, manifest identity, scheduled runner, interruption/resume,
   stale-token/concurrency, private evidence, ZIP safety, and Media Truth)
   all pass against the STRICTER fake — including the legitimate full walk
-  planned → uploaded_unverified → byte_verifying → byte_verified → inventory
-  indexed → processing_entries → all-terminal → completed, the zero-entry
-  flow, and the multi-batch inventory flow.
+  planned → uploaded_unverified → byte_verifying → byte_verified → several
+  indexing batches → exact batch replay → processing_entries → settlement →
+  completed, the zero-entry flow, and the multi-batch inventory flow.
 - **Disposable PostgreSQL harness** (PostgreSQL 17, explicit PATH):
   complete migration chain including the reworked migration →
-  `ALL STUDIO POSTGRES ASSERTIONS PASSED` (LA-1…LA-10 plus the new LA-11
-  child-inventory mutation-boundary battery with SET ROLE privilege probes,
-  live cascade proofs, and unchanged-row baselines).
+  `ALL STUDIO POSTGRES ASSERTIONS PASSED` (LA-1…LA-11 plus the new LA-12
+  exact-replay battery), then the two-live-session concurrency probes:
+  `concurrency probes PASS (exact replay blocked 5131 ms then converged;
+divergent replay rejected)`.
 - **TypeScript** `tsc --noEmit`: clean.
 - **ESLint + Prettier**: clean on every file this PR touches (repo-wide
   `eslint .` carries pre-existing drift in untouched legacy files).
@@ -856,13 +952,14 @@ the PR description):
 ## 13. Migration state
 
 `supabase/migrations/20260724090000_studio_large_archive_v1.sql` was
-reworked IN PLACE by all four corrective passes (it has never been applied
+reworked IN PLACE by all five corrective passes (it has never been applied
 anywhere, so the draft is still one additive migration — now with the
 manifest identity column, the composite ownership constraints, the
 same-state-proof, evidence-freezing lifecycle trigger with cryptographic
 manifest binding, the child inventory mutation guard, the application-
-read-only entries privilege posture, and the two SECURITY DEFINER entry
-mutators). It remains **additive, ordered after
+read-only entries privilege posture, the two SECURITY DEFINER entry
+mutators, and exact-replay indexing with no ON CONFLICT anywhere). It
+remains **additive, ordered after
 current main (`20260723130000`), and UNAPPLIED** to any real environment; it
 runs in the disposable PostgreSQL chain only. The PR #99 grant migration
 remains intentionally unapplied and untouched. No staging or production

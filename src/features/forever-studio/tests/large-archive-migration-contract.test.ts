@@ -96,10 +96,40 @@ describe("large-archive migration contract", () => {
     );
   });
 
-  it("makes retries idempotent and settlement pending-only in the schema itself", () => {
+  it("makes retries idempotent by EXACT replay and settlement pending-only", () => {
     expect(ddl).toContain("UNIQUE (archive_id, entry_index)");
-    expect(ddl).toContain("ON CONFLICT (archive_id, entry_index) DO NOTHING");
+    // Blind conflict success is gone: no ON CONFLICT anywhere — an existing
+    // row must be proven identical to the submitted immutable identity, and
+    // a divergent row has a deterministic error.
+    expect(ddl).not.toContain("ON CONFLICT");
     expect(ddl).toMatch(/AND state = 'pending'/);
+  });
+
+  it("enforces exact inventory replay in studio_index_archive_entries", () => {
+    const index = ddl.slice(
+      ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_index_archive_entries"),
+      ddl.indexOf(
+        "$$;",
+        ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_index_archive_entries"),
+      ),
+    );
+    // Full payload validation before any lock or write.
+    expect(index).toContain("studio_archive_entries_invalid: batch_size");
+    expect(index).toContain("studio_archive_entries_invalid: unknown_field");
+    expect(index).toContain("studio_archive_entries_invalid: duplicate_index");
+    expect(index).toContain("studio_archive_entries_invalid: entry_index");
+    expect(index).toContain("studio_archive_entries_invalid: entry_name");
+    expect(index).toContain("studio_archive_entries_invalid: compressed_size");
+    // Existing rows are locked and compared field-for-field against the
+    // immutable inventory identity; divergence has a deterministic error.
+    expect(index).toContain("FOR UPDATE");
+    expect(index).toContain("studio_archive_entries_conflict:");
+    expect(index).toContain("v_row.entry_name <> v_entry->>'entry_name'");
+    expect(index).toContain("v_row.uncompressed_size <> (v_entry->>'uncompressed_size')::BIGINT");
+    // The durable outcome is re-read and proven before TRUE.
+    expect(index).toContain("studio_archive_entries_verify_failed");
+    // No UPDATE is ever used to make a divergent row match.
+    expect(index).not.toMatch(/UPDATE\s+public\.studio_archive_entries/i);
   });
 
   it("guards every processing-phase function by the live job claim", () => {

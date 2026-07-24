@@ -331,12 +331,12 @@ BEGIN
     END LOOP;
     -- Part indexes are integers covering exactly 0..part_count-1 in order:
     -- no duplicate, no gap, no reorder, no extra.
-    IF jsonb_typeof(v_part->'index') <> 'number'
+    IF COALESCE(jsonb_typeof(v_part->'index'),'missing') <> 'number'
        OR (v_part->'index')::text !~ '^[0-9]+$'
        OR (v_part->>'index')::INTEGER <> v_position THEN
       RAISE EXCEPTION 'studio_archive_manifest_binding_violation: part_index';
     END IF;
-    IF jsonb_typeof(v_part->'declaredSha256') <> 'string'
+    IF COALESCE(jsonb_typeof(v_part->'declaredSha256'),'missing') <> 'string'
        OR (v_part->>'declaredSha256') !~ '^[0-9a-f]{64}$' THEN
       RAISE EXCEPTION 'studio_archive_manifest_binding_violation: declared_sha256';
     END IF;
@@ -386,7 +386,7 @@ BEGIN
       -- stored size, and the server hash EQUAL to the plan-time client claim.
       IF NOT (v_part->>'verified')::BOOLEAN
          OR COALESCE(v_part->>'sha256','') !~ '^[0-9a-f]{64}$'
-         OR jsonb_typeof(v_part->'size') <> 'number' THEN
+         OR COALESCE(jsonb_typeof(v_part->'size'),'missing') <> 'number' THEN
         RAISE EXCEPTION 'studio_archive_byte_verification_evidence_missing: part';
       END IF;
       IF v_part->>'sha256' <> v_part->>'declaredSha256' THEN
@@ -894,19 +894,40 @@ $$;
 -- granted to service_role alone).
 --
 -- Indexing protocol (bounded batches, deliberately NOT one giant JSON
--- payload): entries are inserted in claim-checked batches while the archive
--- is EXACTLY byte_verified — the entry guard trigger revalidates the phase,
--- the pending starting state, and the empty-outcome shape for every row.
--- Every batch derives from the same plan: the ZIP central directory of the
--- byte-verified (manifest-bound, hash-proven) archive, so a crashed partial
--- inventory can only resume with identical rows. ON CONFLICT
--- (archive_id, entry_index) DO NOTHING makes the re-run fill only the
--- missing rows — never duplicates, never an overwrite. Finalization is the
--- parent's byte_verified → processing_entries transition, which re-counts
--- the durable rows against entry_count and freezes it; after that the phase
--- gates (RPC + trigger) make ANY further insertion impossible. The
--- composite FK independently rejects any cross-job (archive_id, job_id)
--- pair.
+-- payload): entries are inserted in claim-checked batches of at most 500
+-- rows while the archive is EXACTLY byte_verified — the entry guard trigger
+-- revalidates the phase, the pending starting state, and the empty-outcome
+-- shape for every row. Every batch derives from the same plan: the ZIP
+-- central directory of the byte-verified (manifest-bound, hash-proven)
+-- archive, so a crashed partial inventory can only resume with identical
+-- rows.
+--
+-- EXACT REPLAY, never blind conflict success. The whole payload is
+-- validated and canonicalized BEFORE any lock or write: strict per-element
+-- key whitelist (unknown keys reject), required non-null fields, integral
+-- non-negative bounded numerics, non-empty bounded text, and NO duplicate
+-- entry_index inside one request (duplicates always reject, identical or
+-- not — never silently collapsed). Then, under the job-claim and archive
+-- row locks (which serialize every writer of the job), any EXISTING row for
+-- a submitted index is locked and compared field-for-field against the
+-- immutable inventory identity — (archive_id, job_id, entry_index,
+-- entry_name, display_label, category, compressed_size,
+-- uncompressed_size) — and ANY difference raises
+-- studio_archive_entries_conflict, rolling back the entire request (a new
+-- row from the same batch is never left behind, and an existing row is
+-- NEVER updated to match). Only rows that do not exist yet are inserted
+-- (plain INSERT — no ON CONFLICT: a racing unique violation aborts loudly
+-- instead of masking divergence). Finally every requested index is re-read
+-- and proven to hold exactly the submitted identity before TRUE is
+-- returned: an exact replay succeeds inserting zero rows and changing zero
+-- rows; a partial replay inserts only the missing rows; a mixed batch with
+-- one divergent row fails atomically.
+--
+-- Finalization is the parent's byte_verified → processing_entries
+-- transition, which re-counts the durable rows against entry_count and
+-- freezes it; after that the phase gates (RPC + trigger) make ANY further
+-- insertion impossible. The composite FK independently rejects any
+-- cross-job (archive_id, job_id) pair.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.studio_index_archive_entries(
   p_job_id UUID,
@@ -923,25 +944,76 @@ DECLARE
   v_archive_job UUID;
   v_archive_status TEXT;
   v_entry JSONB;
+  v_key TEXT;
+  v_index BIGINT;
+  v_seen BIGINT[] := '{}';
+  v_missing BIGINT[] := '{}';
+  v_row public.studio_archive_entries%ROWTYPE;
 BEGIN
+  -- ---- 1. Validate and canonicalize the COMPLETE payload before any lock
+  -- or write: a malformed batch changes nothing anywhere.
   IF p_entries IS NULL OR jsonb_typeof(p_entries) <> 'array' THEN
     RAISE EXCEPTION 'studio_archive_entries_invalid: payload';
   END IF;
+  IF jsonb_array_length(p_entries) > 500 THEN
+    RAISE EXCEPTION 'studio_archive_entries_invalid: batch_size %',
+      jsonb_array_length(p_entries);
+  END IF;
   FOR v_entry IN SELECT jsonb_array_elements(p_entries) LOOP
-    IF jsonb_typeof(v_entry->'entry_index') <> 'number'
-       OR (v_entry->'entry_index')::text !~ '^[0-9]+$'
-       OR jsonb_typeof(v_entry->'entry_name') <> 'string'
-       OR jsonb_typeof(v_entry->'display_label') <> 'string'
-       OR jsonb_typeof(v_entry->'category') <> 'string'
-       OR jsonb_typeof(v_entry->'compressed_size') <> 'number'
-       OR (v_entry->'compressed_size')::text !~ '^[0-9]+$'
-       OR jsonb_typeof(v_entry->'uncompressed_size') <> 'number'
-       OR (v_entry->'uncompressed_size')::text !~ '^[0-9]+$' THEN
+    IF jsonb_typeof(v_entry) <> 'object' THEN
       RAISE EXCEPTION 'studio_archive_entries_invalid: entry';
     END IF;
+    -- Strict key whitelist: exactly the immutable inventory identity — an
+    -- unknown key is rejected, never ignored.
+    FOR v_key IN SELECT jsonb_object_keys(v_entry) LOOP
+      IF v_key NOT IN ('entry_index','entry_name','display_label','category',
+                       'compressed_size','uncompressed_size') THEN
+        RAISE EXCEPTION 'studio_archive_entries_invalid: unknown_field %', v_key;
+      END IF;
+    END LOOP;
+    -- entry_index: integral, non-negative, bounded (loose structural ceiling
+    -- far above the lane's 2 000-entry reader limit).
+    IF COALESCE(jsonb_typeof(v_entry->'entry_index'),'missing') <> 'number'
+       OR (v_entry->'entry_index')::text !~ '^[0-9]+$'
+       OR (v_entry->>'entry_index')::BIGINT >= 100000 THEN
+      RAISE EXCEPTION 'studio_archive_entries_invalid: entry_index';
+    END IF;
+    -- Texts: present, non-empty, bounded (entry_name aligns with the lane's
+    -- 512-char ZIP path limit).
+    IF COALESCE(jsonb_typeof(v_entry->'entry_name'),'missing') <> 'string'
+       OR char_length(v_entry->>'entry_name') < 1
+       OR char_length(v_entry->>'entry_name') > 512 THEN
+      RAISE EXCEPTION 'studio_archive_entries_invalid: entry_name';
+    END IF;
+    IF COALESCE(jsonb_typeof(v_entry->'display_label'),'missing') <> 'string'
+       OR char_length(v_entry->>'display_label') < 1
+       OR char_length(v_entry->>'display_label') > 200 THEN
+      RAISE EXCEPTION 'studio_archive_entries_invalid: display_label';
+    END IF;
+    IF COALESCE(jsonb_typeof(v_entry->'category'),'missing') <> 'string'
+       OR char_length(v_entry->>'category') < 1
+       OR char_length(v_entry->>'category') > 64 THEN
+      RAISE EXCEPTION 'studio_archive_entries_invalid: category';
+    END IF;
+    -- Sizes: integral, non-negative, bounded well below BIGINT overflow.
+    IF COALESCE(jsonb_typeof(v_entry->'compressed_size'),'missing') <> 'number'
+       OR (v_entry->'compressed_size')::text !~ '^[0-9]{1,15}$' THEN
+      RAISE EXCEPTION 'studio_archive_entries_invalid: compressed_size';
+    END IF;
+    IF COALESCE(jsonb_typeof(v_entry->'uncompressed_size'),'missing') <> 'number'
+       OR (v_entry->'uncompressed_size')::text !~ '^[0-9]{1,15}$' THEN
+      RAISE EXCEPTION 'studio_archive_entries_invalid: uncompressed_size';
+    END IF;
+    -- A duplicate entry_index inside ONE request always rejects — identical
+    -- or not, it is never silently collapsed.
+    v_index := (v_entry->>'entry_index')::BIGINT;
+    IF v_index = ANY(v_seen) THEN
+      RAISE EXCEPTION 'studio_archive_entries_invalid: duplicate_index %', v_index;
+    END IF;
+    v_seen := v_seen || v_index;
   END LOOP;
 
-  -- Lock the job claim.
+  -- ---- 2. Lock the job claim (serializes every writer of this job).
   PERFORM 1 FROM public.studio_upload_jobs
    WHERE id = p_job_id AND status = 'processing' AND processing_token = p_token
    FOR UPDATE;
@@ -950,8 +1022,9 @@ BEGIN
     RETURN FALSE;
   END IF;
 
-  -- Lock the target archive and PROVE it belongs to the claimed job: a valid
-  -- claim on job B can never index entries into job A's archive.
+  -- ---- 3. Lock the target archive and PROVE it belongs to the claimed
+  -- job: a valid claim on job B can never index entries into job A's
+  -- archive.
   SELECT job_id, status INTO v_archive_job, v_archive_status
     FROM public.studio_archives
    WHERE id = p_archive_id
@@ -960,28 +1033,74 @@ BEGIN
     RETURN FALSE;
   END IF;
 
-  -- Inventory rows may only be recorded during the indexing phase — never
-  -- into an archive already processing or settled, so the entry count an
-  -- archive transitioned with can never be diluted afterwards.
+  -- ---- 4. Inventory rows may only be recorded during the indexing phase —
+  -- never into an archive already processing or settled, so the entry count
+  -- an archive transitioned with can never be diluted afterwards.
   IF v_archive_status <> 'byte_verified' THEN
     RAISE EXCEPTION 'studio_archive_entries_invalid: archive_state %', v_archive_status;
   END IF;
 
-  INSERT INTO public.studio_archive_entries (
-    archive_id, job_id, entry_index, entry_name, display_label, category,
-    compressed_size, uncompressed_size
-  )
-  SELECT
-    p_archive_id,
-    p_job_id,
-    (e->>'entry_index')::INTEGER,
-    e->>'entry_name',
-    e->>'display_label',
-    e->>'category',
-    (e->>'compressed_size')::BIGINT,
-    (e->>'uncompressed_size')::BIGINT
-  FROM jsonb_array_elements(p_entries) AS e
-  ON CONFLICT (archive_id, entry_index) DO NOTHING;
+  -- ---- 5/6/7. Lock every existing row for the submitted indexes and
+  -- demand EXACT immutable-identity equivalence. Any difference fails the
+  -- whole request atomically — an existing row is never "healed" to match,
+  -- and no new row from the same batch survives.
+  FOR v_entry IN SELECT jsonb_array_elements(p_entries) LOOP
+    SELECT e.* INTO v_row FROM public.studio_archive_entries e
+     WHERE e.archive_id = p_archive_id
+       AND e.entry_index = (v_entry->>'entry_index')::INTEGER
+     FOR UPDATE;
+    IF FOUND THEN
+      IF v_row.job_id <> p_job_id
+         OR v_row.entry_name <> v_entry->>'entry_name'
+         OR v_row.display_label <> v_entry->>'display_label'
+         OR v_row.category <> v_entry->>'category'
+         OR v_row.compressed_size <> (v_entry->>'compressed_size')::BIGINT
+         OR v_row.uncompressed_size <> (v_entry->>'uncompressed_size')::BIGINT THEN
+        RAISE EXCEPTION 'studio_archive_entries_conflict: %', v_entry->>'entry_index';
+      END IF;
+    ELSE
+      v_missing := v_missing || (v_entry->>'entry_index')::BIGINT;
+    END IF;
+  END LOOP;
+
+  -- ---- 8. Insert ONLY the rows that do not exist yet. Plain INSERT — no
+  -- ON CONFLICT: under the job/archive locks a unique violation is
+  -- impossible from serialized callers, and a theoretical racer aborts
+  -- loudly instead of converting divergence into silent success.
+  FOR v_entry IN SELECT jsonb_array_elements(p_entries) LOOP
+    IF (v_entry->>'entry_index')::BIGINT = ANY(v_missing) THEN
+      INSERT INTO public.studio_archive_entries (
+        archive_id, job_id, entry_index, entry_name, display_label, category,
+        compressed_size, uncompressed_size
+      ) VALUES (
+        p_archive_id,
+        p_job_id,
+        (v_entry->>'entry_index')::INTEGER,
+        v_entry->>'entry_name',
+        v_entry->>'display_label',
+        v_entry->>'category',
+        (v_entry->>'compressed_size')::BIGINT,
+        (v_entry->>'uncompressed_size')::BIGINT
+      );
+    END IF;
+  END LOOP;
+
+  -- ---- 9/10. Prove the durable outcome: every requested index now exists
+  -- with EXACTLY the submitted immutable identity. TRUE only after proof.
+  FOR v_entry IN SELECT jsonb_array_elements(p_entries) LOOP
+    SELECT e.* INTO v_row FROM public.studio_archive_entries e
+     WHERE e.archive_id = p_archive_id
+       AND e.entry_index = (v_entry->>'entry_index')::INTEGER;
+    IF NOT FOUND
+       OR v_row.job_id <> p_job_id
+       OR v_row.entry_name <> v_entry->>'entry_name'
+       OR v_row.display_label <> v_entry->>'display_label'
+       OR v_row.category <> v_entry->>'category'
+       OR v_row.compressed_size <> (v_entry->>'compressed_size')::BIGINT
+       OR v_row.uncompressed_size <> (v_entry->>'uncompressed_size')::BIGINT THEN
+      RAISE EXCEPTION 'studio_archive_entries_verify_failed: %', v_entry->>'entry_index';
+    END IF;
+  END LOOP;
   RETURN TRUE;
 END;
 $$;
@@ -1024,7 +1143,7 @@ BEGIN
   IF p_outcome IS NULL OR jsonb_typeof(p_outcome) <> 'object' THEN
     RAISE EXCEPTION 'studio_archive_outcome_invalid: payload';
   END IF;
-  IF jsonb_typeof(p_outcome->'state') <> 'string'
+  IF COALESCE(jsonb_typeof(p_outcome->'state'),'missing') <> 'string'
      OR p_outcome->>'state' NOT IN ('published_public','retained_private',
                                     'skipped_duplicate','failed') THEN
     RAISE EXCEPTION 'studio_archive_outcome_invalid: state';
