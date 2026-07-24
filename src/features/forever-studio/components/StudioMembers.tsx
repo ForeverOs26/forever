@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 
 import { studioGetOverview, studioInviteMember, studioSetMemberActive } from "../studio.functions";
 import { STUDIO_OVERVIEW_KEY } from "./StudioDashboard";
+import { isStudioRouteDenial, StudioRouteUnavailable } from "./StudioRouteDenied";
 
 export function StudioMembers() {
   const queryClient = useQueryClient();
@@ -53,6 +54,10 @@ export function StudioMembers() {
 
   if (overview.isPending) {
     return <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>;
+  }
+  if (overview.isError && !isStudioRouteDenial(overview.error)) {
+    // A transient fetch or lookup failure must not read as a role denial.
+    return <StudioRouteUnavailable onRetry={() => void overview.refetch()} />;
   }
   if (overview.isError || overview.data.session.role !== "owner") {
     return (

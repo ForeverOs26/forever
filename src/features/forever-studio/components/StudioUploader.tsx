@@ -39,7 +39,11 @@ import {
   type ArchiveUploadProgress,
 } from "./archive-upload";
 import { STUDIO_OVERVIEW_KEY } from "./StudioDashboard";
-import { StudioRouteDenied } from "./StudioRouteDenied";
+import {
+  isStudioRouteDenial,
+  StudioRouteDenied,
+  StudioRouteUnavailable,
+} from "./StudioRouteDenied";
 
 const FILE_ACCEPT = "image/*,video/*,.pdf,.zip,.json,.csv,.xls,.xlsx,.doc,.docx,.txt,.heic,.webp";
 
@@ -60,7 +64,7 @@ type Phase =
   | { step: "archiveProcessing"; jobId: string; progress: StudioJobProgress | null }
   | { step: "ready" }
   | { step: "result"; result: StudioJobResult; failedUploads: string[] }
-  | { step: "error"; message: string; jobId: string | null };
+  | { step: "error"; message: string; jobId: string | null; stage: "upload" | "processing" };
 
 export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string }) {
   const queryClient = useQueryClient();
@@ -95,7 +99,13 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
     workflow === "construction_media_update";
 
   if (overview.isError) {
-    return <StudioRouteDenied />;
+    // Only a server-proven denial settles as denied; a transient fetch or
+    // lookup failure (offline, flaky reconnect) stays retryable.
+    return isStudioRouteDenial(overview.error) ? (
+      <StudioRouteDenied />
+    ) : (
+      <StudioRouteUnavailable onRetry={() => void overview.refetch()} />
+    );
   }
 
   const addFiles = (incoming: FileList | null) => {
@@ -105,6 +115,10 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
 
   const runJob = async (jobId?: string) => {
     let id = jobId ?? null;
+    // Which boundary a thrown failure belongs to: an upload-stage failure
+    // must offer "Resume upload" (replan + missing parts only), never a
+    // processing request against an archive with parts still missing.
+    let stage: "upload" | "processing" = "upload";
     try {
       const failedUploads: string[] = [];
       const largeArchives = files.filter(isLargeArchive);
@@ -115,6 +129,7 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
           step: "error",
           message: `${oversized.name} is larger than ${Math.round(LARGE_ARCHIVE_MAX_BYTES / (1024 * 1024))} MB. Split the archive and try again.`,
           jobId: null,
+          stage: "upload",
         });
         return;
       }
@@ -146,10 +161,15 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
           if (error) failedUploads.push(target.name);
           setPhase({ step: "uploading", done: index + 1, total: started.uploads.length });
         }
-        // Large archives: resumable chunked upload, one archive at a time.
-        // Each part retries on its own; re-running resumes the stored parts.
-        for (let index = 0; index < largeArchives.length; index += 1) {
-          const file = largeArchives[index];
+      }
+      // Large archives: resumable chunked upload, one archive at a time.
+      // Runs on EVERY attempt — fresh or retried job — because re-planning
+      // the identical manifest resumes the same archive with only its
+      // missing parts. Processing is never requested past this loop until
+      // every archive reached storage acceptance.
+      for (let index = 0; index < largeArchives.length; index += 1) {
+        const file = largeArchives[index];
+        try {
           await uploadLargeArchive(id, file, (progress) => {
             if (!alive.current) return;
             setPhase({
@@ -160,8 +180,14 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
               progress,
             });
           });
+        } catch (error) {
+          // A retried job that already published cannot re-plan; fall
+          // through to the processing call, which reports the final result.
+          if (error instanceof Error && error.name === "job_already_published") break;
+          throw error;
         }
       }
+      stage = "processing";
       setPhase({ step: "processing" });
       let result = await studioProcessJob({ data: { jobId: id } });
       void queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY });
@@ -177,7 +203,12 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
       if (!alive.current) return;
       void queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY });
       if (result.status === "failed") {
-        setPhase({ step: "error", message: result.error ?? "Processing failed.", jobId: id });
+        setPhase({
+          step: "error",
+          message: result.error ?? "Processing failed.",
+          jobId: id,
+          stage: "processing",
+        });
       } else if (result.status !== "published") {
         setPhase({ step: "ready" });
       } else {
@@ -188,6 +219,7 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
         step: "error",
         message: error instanceof Error ? error.message : String(error),
         jobId: id,
+        stage,
       });
     }
   };
@@ -231,12 +263,15 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
         <h2 className="text-lg font-semibold">Not published yet</h2>
         <p className="text-sm text-muted-foreground">{phase.message}</p>
         <p className="text-xs text-muted-foreground">
-          Uploaded files remain private. Retry to confirm processing; a job that never reaches that
-          boundary will not publish automatically.
+          {phase.stage === "upload"
+            ? "Uploaded parts are kept privately. Resume to upload only what is still missing — nothing restarts from zero, and nothing publishes until every part is safely stored."
+            : "Uploaded files remain private. Retry to confirm processing; a job that never reaches that boundary will not publish automatically."}
         </p>
         <div className="flex justify-center gap-2">
           {phase.jobId ? (
-            <Button onClick={() => void runJob(phase.jobId!)}>Retry processing</Button>
+            <Button onClick={() => void runJob(phase.jobId!)}>
+              {phase.stage === "upload" ? "Resume upload" : "Retry processing"}
+            </Button>
           ) : null}
           <Button variant="outline" onClick={() => setPhase({ step: "form" })}>
             Back to the form
@@ -389,13 +424,15 @@ function ArchiveUploadPanel(props: {
   const stateLabel =
     progress.state === "retrying"
       ? "Connection hiccup — retrying this part…"
-      : progress.state === "confirming"
-        ? "Confirming stored parts on the server…"
-        : progress.state === "stored"
-          ? "Upload safely stored. Integrity verification continues."
-          : progress.state === "preparing"
-            ? "Preparing the upload…"
-            : "Uploading…";
+      : progress.state === "paused"
+        ? "Connection lost — upload paused. It resumes automatically when you are back online; the parts already uploaded are kept."
+        : progress.state === "confirming"
+          ? "Confirming stored parts on the server…"
+          : progress.state === "stored"
+            ? "Upload safely stored. Integrity verification continues."
+            : progress.state === "preparing"
+              ? "Preparing the upload…"
+              : "Uploading…";
   return (
     <div className="mx-auto max-w-md space-y-4 py-14 text-center">
       <h2 className="text-lg font-semibold">

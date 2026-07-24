@@ -43,8 +43,10 @@ export interface ArchiveUploadProgress {
    * every part EXISTS with its exact planned size — durably stored, NOT yet
    * byte-verified: hash verification of the actual stored bytes happens in
    * the background processing slices and is reported by the job progress.
+   * "paused" means connectivity was lost: already-stored parts are kept and
+   * the upload resumes automatically once the browser is back online.
    */
-  state: "preparing" | "uploading" | "retrying" | "confirming" | "stored";
+  state: "preparing" | "uploading" | "retrying" | "paused" | "confirming" | "stored";
 }
 
 /** Blob bytes with a FileReader fallback (older WebKit, jsdom). */
@@ -90,9 +92,53 @@ export async function computeUploadPartManifest(file: File): Promise<string[]> {
 
 const PART_UPLOAD_ATTEMPTS = 4;
 const CONFIRM_ROUNDS = 3;
+/**
+ * Consecutive part-upload rounds allowed to end in failure WITHOUT storing a
+ * single new part while the browser still reports itself online. Prevents an
+ * unbounded replan spin against a persistently broken path; an offline pause
+ * never counts because it waits for connectivity instead of burning rounds.
+ */
+const MAX_STALLED_RESUME_ROUNDS = 3;
+const CONNECTIVITY_POLL_MS = 4000;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isOffline(): boolean {
+  return typeof navigator !== "undefined" && navigator.onLine === false;
+}
+
+/**
+ * Recoverable pause: resolves once the browser reports connectivity again.
+ * Listens for the `online` event and polls as a fallback (Android browsers
+ * do not always fire `online` for a backgrounded tab).
+ */
+function waitForConnectivity(): Promise<void> {
+  if (!isOffline()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const settle = () => {
+      window.removeEventListener("online", settle);
+      clearInterval(timer);
+      resolve();
+    };
+    const timer = setInterval(() => {
+      if (!isOffline()) settle();
+    }, CONNECTIVITY_POLL_MS);
+    window.addEventListener("online", settle);
+  });
+}
+
+/** A part failed all its attempts in this round — recoverable via replan. */
+class ArchivePartUploadError extends Error {
+  constructor(partIndex: number, attempts: number, cause: unknown) {
+    super(
+      `Part ${partIndex + 1} failed to upload after ${attempts} attempt${attempts === 1 ? "" : "s"}: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    );
+    this.name = "archive_part_upload_failed";
+  }
 }
 
 async function uploadOnePart(
@@ -104,6 +150,7 @@ async function uploadOnePart(
   const start = target.index * partSize;
   const blob = file.slice(start, Math.min(file.size, start + partSize));
   let lastError: unknown = null;
+  let attempts = 0;
   for (let attempt = 0; attempt < PART_UPLOAD_ATTEMPTS; attempt += 1) {
     if (attempt > 0) {
       onRetry();
@@ -114,14 +161,14 @@ async function uploadOnePart(
       .uploadToSignedUrl(target.path, target.token, blob, {
         contentType: "application/octet-stream",
       });
+    attempts += 1;
     if (!error) return;
     lastError = error;
+    // Offline is a pause, not a countdown: stop burning attempts and let the
+    // caller wait for connectivity, then resume through a fresh plan.
+    if (isOffline()) break;
   }
-  throw new Error(
-    `Part ${target.index + 1} failed to upload after ${PART_UPLOAD_ATTEMPTS} attempts: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
-  );
+  throw new ArchivePartUploadError(target.index, attempts, lastError);
 }
 
 /**
@@ -129,9 +176,12 @@ async function uploadOnePart(
  * server confirming that every part exists in private staging with exactly
  * its planned size. That means "safely stored", never "verified" — byte
  * verification of the actual stored bytes happens in the background
- * processing slices. Throws when the upload cannot complete (the caller
- * offers a retry — re-running resumes from the stored parts, keyed by the
- * exact per-part manifest rather than the filename).
+ * processing slices. Connectivity loss is a recoverable pause, not a
+ * failure: the upload waits for the browser to come back online and then
+ * resumes only the missing parts through fresh signed targets. Throws when
+ * the upload cannot complete (the caller offers a resume — re-running
+ * resumes from the stored parts, keyed by the exact per-part manifest
+ * rather than the filename).
  */
 export async function uploadLargeArchive(
   jobId: string,
@@ -146,9 +196,11 @@ export async function uploadLargeArchive(
     state: "preparing",
   });
   const partSha256 = await computeUploadPartManifest(file);
-  const plan = await studioPlanArchiveUpload({
-    data: { jobId, fileName: file.name, declaredSize: file.size, partSha256 },
-  });
+  const requestPlan = () =>
+    studioPlanArchiveUpload({
+      data: { jobId, fileName: file.name, declaredSize: file.size, partSha256 },
+    });
+  let plan = await requestPlan();
   const report = (state: ArchiveUploadProgress["state"], partsDone: number) =>
     onProgress({
       uploadedBytes: Math.min(file.size, partsDone * plan.partSize),
@@ -158,12 +210,36 @@ export async function uploadLargeArchive(
       state,
     });
 
+  // Part uploads with a recoverable pause: a failed round never abandons the
+  // archive. Connectivity loss waits for the browser to come back online,
+  // then a FRESH plan regenerates signed targets for only the still-missing
+  // parts — the identical manifest resumes the same archive id server-side,
+  // so already-stored parts are never re-uploaded and never re-keyed.
   let done = plan.presentParts.length;
+  let stalledRounds = 0;
   report(plan.parts.length ? "uploading" : "confirming", done);
-  for (const target of plan.parts) {
-    await uploadOnePart(file, plan.partSize, target, () => report("retrying", done));
-    done += 1;
-    report("uploading", done);
+  for (;;) {
+    let failure: unknown = null;
+    for (const target of plan.parts) {
+      try {
+        await uploadOnePart(file, plan.partSize, target, () => report("retrying", done));
+        done += 1;
+        stalledRounds = 0;
+        report("uploading", done);
+      } catch (error) {
+        if (!(error instanceof ArchivePartUploadError)) throw error;
+        failure = error;
+        break;
+      }
+    }
+    if (!failure) break;
+    stalledRounds += 1;
+    if (stalledRounds > MAX_STALLED_RESUME_ROUNDS && !isOffline()) throw failure;
+    report("paused", done);
+    await waitForConnectivity();
+    plan = await requestPlan();
+    done = plan.presentParts.length;
+    report(plan.parts.length ? "uploading" : "confirming", done);
   }
 
   // The manifest computed above already carries the per-part SHA-256 claims
