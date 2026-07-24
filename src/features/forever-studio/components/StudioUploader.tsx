@@ -12,32 +12,52 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 
 import { studioGetOverview, studioProcessJob, studioStartJob } from "../studio.functions";
 import {
+  LARGE_ARCHIVE_MAX_BYTES,
   STUDIO_WORKFLOW_LABELS,
   STUDIO_WORKFLOWS,
+  type StudioJobProgress,
   type StudioJobResult,
   type StudioProjectFacts,
   type StudioResaleFacts,
   type StudioWorkflow,
 } from "../studio-types";
+import {
+  archiveTooLarge,
+  isLargeArchive,
+  uploadLargeArchive,
+  type ArchiveUploadProgress,
+} from "./archive-upload";
 import { STUDIO_OVERVIEW_KEY } from "./StudioDashboard";
 import { StudioRouteDenied } from "./StudioRouteDenied";
 
 const FILE_ACCEPT = "image/*,video/*,.pdf,.zip,.json,.csv,.xls,.xlsx,.doc,.docx,.txt,.heic,.webp";
 
+/** Continuation cadence while the page stays open on a sliced job. */
+const PROCESS_POLL_MS = 3000;
+
 type Phase =
   | { step: "form" }
   | { step: "uploading"; done: number; total: number }
+  | {
+      step: "uploadingArchive";
+      archiveIndex: number;
+      archiveCount: number;
+      fileName: string;
+      progress: ArchiveUploadProgress;
+    }
   | { step: "processing" }
+  | { step: "archiveProcessing"; jobId: string; progress: StudioJobProgress | null }
   | { step: "ready" }
   | { step: "result"; result: StudioJobResult; failedUploads: string[] }
   | { step: "error"; message: string; jobId: string | null };
@@ -52,6 +72,15 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
   const [resaleFacts, setResaleFacts] = useState<StudioResaleFacts>({});
   const filePickerRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
+  // The sliced-continuation loop must stop driving the server when this
+  // page unmounts; durable resume takes over from any Studio session.
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   // Existing projects for the update workflows (same cached overview call).
   const overview = useQuery({
@@ -78,6 +107,17 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
     let id = jobId ?? null;
     try {
       const failedUploads: string[] = [];
+      const largeArchives = files.filter(isLargeArchive);
+      const ordinary = files.filter((file) => !isLargeArchive(file));
+      const oversized = largeArchives.find(archiveTooLarge);
+      if (!id && oversized) {
+        setPhase({
+          step: "error",
+          message: `${oversized.name} is larger than ${Math.round(LARGE_ARCHIVE_MAX_BYTES / (1024 * 1024))} MB. Split the archive and try again.`,
+          jobId: null,
+        });
+        return;
+      }
       if (!id) {
         const started = await studioStartJob({
           data: {
@@ -85,7 +125,7 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
             projectSlug: projectSlug.trim() || undefined,
             projectFacts: isResale ? undefined : projectFacts,
             resaleFacts: isResale ? resaleFacts : undefined,
-            files: files.map((file) => ({
+            files: ordinary.map((file) => ({
               name: file.name,
               size: file.size,
               contentType: file.type || undefined,
@@ -96,7 +136,7 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
         setPhase({ step: "uploading", done: 0, total: started.uploads.length });
         for (let index = 0; index < started.uploads.length; index += 1) {
           const target = started.uploads[index];
-          const file = files[index];
+          const file = ordinary[index];
           if (!file) continue;
           const { error } = await supabase.storage
             .from(target.bucket)
@@ -106,9 +146,35 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
           if (error) failedUploads.push(target.name);
           setPhase({ step: "uploading", done: index + 1, total: started.uploads.length });
         }
+        // Large archives: resumable chunked upload, one archive at a time.
+        // Each part retries on its own; re-running resumes the stored parts.
+        for (let index = 0; index < largeArchives.length; index += 1) {
+          const file = largeArchives[index];
+          await uploadLargeArchive(id, file, (progress) => {
+            if (!alive.current) return;
+            setPhase({
+              step: "uploadingArchive",
+              archiveIndex: index,
+              archiveCount: largeArchives.length,
+              fileName: file.name,
+              progress,
+            });
+          });
+        }
       }
       setPhase({ step: "processing" });
-      const result = await studioProcessJob({ data: { jobId: id } });
+      let result = await studioProcessJob({ data: { jobId: id } });
+      void queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY });
+      // Sliced continuation: while this page stays open it keeps driving the
+      // job; after it closes, any Studio session's dashboard poll (or a
+      // scheduled caller) resumes the durable work automatically.
+      while (result.status === "processing" && alive.current) {
+        setPhase({ step: "archiveProcessing", jobId: id, progress: result.progress ?? null });
+        await new Promise((resolve) => setTimeout(resolve, PROCESS_POLL_MS));
+        if (!alive.current) return;
+        result = await studioProcessJob({ data: { jobId: id } });
+      }
+      if (!alive.current) return;
       void queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY });
       if (result.status === "failed") {
         setPhase({ step: "error", message: result.error ?? "Processing failed.", jobId: id });
@@ -133,6 +199,12 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
         body="Keep this page open until every file finishes and the processing request reaches the server. Closing now leaves the upload private and it will not publish automatically."
       />
     );
+  }
+  if (phase.step === "uploadingArchive") {
+    return <ArchiveUploadPanel phase={phase} />;
+  }
+  if (phase.step === "archiveProcessing") {
+    return <ArchiveProcessingPanel progress={phase.progress} />;
   }
   if (phase.step === "processing") {
     return (
@@ -293,6 +365,136 @@ function StatusPanel(props: { title: string; body: string }) {
     <div className="mx-auto max-w-md space-y-3 py-16 text-center">
       <h2 className="text-lg font-semibold">{props.title}</h2>
       <p className="text-sm text-muted-foreground">{props.body}</p>
+    </div>
+  );
+}
+
+function megabytes(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function ArchiveUploadPanel(props: {
+  phase: {
+    archiveIndex: number;
+    archiveCount: number;
+    fileName: string;
+    progress: ArchiveUploadProgress;
+  };
+}) {
+  const { archiveIndex, archiveCount, fileName, progress } = props.phase;
+  const percent =
+    progress.totalBytes > 0
+      ? Math.min(100, Math.round((progress.uploadedBytes / progress.totalBytes) * 100))
+      : 0;
+  const stateLabel =
+    progress.state === "retrying"
+      ? "Connection hiccup — retrying this part…"
+      : progress.state === "confirming"
+        ? "Confirming stored parts on the server…"
+        : progress.state === "stored"
+          ? "Upload safely stored. Integrity verification continues."
+          : progress.state === "preparing"
+            ? "Preparing the upload…"
+            : "Uploading…";
+  return (
+    <div className="mx-auto max-w-md space-y-4 py-14 text-center">
+      <h2 className="text-lg font-semibold">
+        Uploading archive {archiveIndex + 1} of {archiveCount}
+      </h2>
+      <p className="truncate text-sm text-muted-foreground">{fileName}</p>
+      <Progress value={percent} />
+      <p className="text-sm text-muted-foreground">
+        {percent}% · {megabytes(progress.uploadedBytes)} of {megabytes(progress.totalBytes)} · part{" "}
+        {Math.min(progress.partsDone + 1, progress.partCount)}/{progress.partCount}
+      </p>
+      <p className="text-xs text-muted-foreground">{stateLabel}</p>
+      <p className="text-xs text-muted-foreground">
+        Keep this page open while uploading. Interrupted parts retry on their own, and a retried
+        upload resumes from the parts already stored — nothing restarts from zero.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Truthful per-archive status line. "Verified" appears ONLY at byte_verified
+ * or later — storage acceptance alone is described as stored, never verified.
+ */
+function archiveStatusLine(archive: StudioJobProgress["archives"][number]): string {
+  switch (archive.status) {
+    case "rejected":
+      return "kept private";
+    case "completed":
+      return "done — byte verification passed";
+    case "processing_entries":
+      return archive.entryCount != null
+        ? `processing ${archive.entriesProcessed}/${archive.entryCount}`
+        : "reading entries…";
+    case "byte_verified":
+      return "Archive byte verification passed.";
+    case "byte_verifying":
+    case "uploaded_unverified":
+      return `verifying stored bytes ${archive.verifiedParts}/${archive.partCount} parts`;
+    default:
+      return `uploading parts ${archive.uploadedParts}/${archive.partCount}`;
+  }
+}
+
+function ArchiveProcessingPanel(props: { progress: StudioJobProgress | null }) {
+  const { progress } = props;
+  const percent =
+    progress && progress.discovered > 0
+      ? Math.round((progress.processed / progress.discovered) * 100)
+      : null;
+  const allByteVerified =
+    !!progress &&
+    progress.archives.length > 0 &&
+    progress.archives.every(
+      (archive) =>
+        archive.status === "byte_verified" ||
+        archive.status === "processing_entries" ||
+        archive.status === "completed",
+    );
+  return (
+    <div className="mx-auto max-w-md space-y-4 py-14 text-center">
+      <h2 className="text-lg font-semibold">Processing your archives…</h2>
+      <p className="rounded-lg border border-border/40 bg-muted/30 p-3 text-sm">
+        Upload safely stored. Integrity verification continues. You may close this page — Forever
+        continues processing automatically in the background and on the Studio dashboard.
+      </p>
+      {allByteVerified ? (
+        <p className="text-sm text-muted-foreground">Archive byte verification passed.</p>
+      ) : null}
+      {progress ? (
+        <div className="space-y-3 text-left">
+          {percent !== null ? <Progress value={percent} /> : null}
+          <p className="text-center text-sm text-muted-foreground">
+            {progress.discovered > 0
+              ? `${progress.discovered} entries discovered · ${progress.processed} processed`
+              : "Verifying stored bytes and reading archives…"}
+          </p>
+          <ul className="space-y-1 text-sm">
+            {progress.archives.map((archive) => (
+              <li
+                key={archive.archiveId}
+                className="flex items-center justify-between rounded-lg border border-border/40 px-3 py-2"
+              >
+                <span>{archive.label}</span>
+                <span className="text-xs text-muted-foreground">{archiveStatusLine(archive)}</span>
+              </li>
+            ))}
+          </ul>
+          {progress.published + progress.retained + progress.skippedDuplicates > 0 ? (
+            <p className="text-center text-xs text-muted-foreground">
+              {progress.published} public · {progress.retained} kept private ·{" "}
+              {progress.skippedDuplicates} duplicates skipped
+              {progress.failed ? ` · ${progress.failed} failed` : ""}
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">Working…</p>
+      )}
     </div>
   );
 }

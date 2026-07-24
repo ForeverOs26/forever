@@ -19,7 +19,15 @@ import type { DependencyReader } from "@/features/forever-ingestion/dependency-r
 import type { FieldProvenanceMap } from "@/features/forever-ingestion/provenance";
 import type { ExtractedPriceList } from "@/import/types";
 
-import type { StudioJobFile, StudioJobStatus, StudioRole, StudioWorkflow } from "../studio-types";
+import type {
+  MediaTruthRecord,
+  StudioArchiveEntryState,
+  StudioArchiveStatus,
+  StudioJobFile,
+  StudioJobStatus,
+  StudioRole,
+  StudioWorkflow,
+} from "../studio-types";
 
 // ---------------------------------------------------------------------------
 // Actor and access errors
@@ -155,6 +163,152 @@ export interface StudioListingPublishRow {
 }
 
 // ---------------------------------------------------------------------------
+// Large-archive rows (FOREVER-STUDIO-LARGE-ARCHIVE-001)
+// ---------------------------------------------------------------------------
+
+/** One planned/stored upload part. Sizes and hashes are server-observed. */
+export interface StudioArchivePartRecord {
+  index: number;
+  /** Server-observed stored size (authoritative); null until observed. */
+  size: number | null;
+  /** Client-declared SHA-256 manifest digest (recorded at PLAN; never trusted). */
+  declaredSha256: string | null;
+  /** Server-computed streamed SHA-256 of the stored part bytes. */
+  sha256: string | null;
+  verified: boolean;
+}
+
+/**
+ * Durable artifacts adopted from an archive's structured entries (sanitized
+ * price list, source-backed fact fields). Persisted so a later slice or a
+ * different worker finalizes from durable state, never an in-memory loop.
+ */
+export interface StudioArchiveExtracted {
+  priceList?: unknown;
+  priceListSource?: string;
+  factFields?: unknown;
+  derivedName?: string;
+}
+
+export interface StudioArchiveRow {
+  id: string;
+  job_id: string;
+  /** Plan-order sequence within the job: the deterministic processing order. */
+  ordinal: number;
+  /** Original client filename — PRIVATE (service-role only); never projected. */
+  file_name: string;
+  /**
+   * Server-derived manifest identity: SHA-256 over the manifest domain, the
+   * exact size, the fixed part size, the part count, and the ordered raw
+   * per-part digests (see deriveManifestSha256). Resume identity ONLY — an
+   * upload resumes an existing archive only when the COMPLETE per-part
+   * manifest (stored on parts[].declaredSha256) matches digest-for-digest.
+   * Never a substitute for server verification of the actual stored bytes.
+   * PRIVATE.
+   */
+  manifest_sha256: string;
+  declared_size: number;
+  part_size: number;
+  part_count: number;
+  parts: StudioArchivePartRecord[];
+  observed_size: number | null;
+  /**
+   * SHA-256 over the ordered per-part SHA-256 hex digests. NOT the file's
+   * SHA-256 — the exact one is archive_sha256 below.
+   */
+  composite_sha256: string | null;
+  /**
+   * Exact SHA-256 of the WHOLE archive, streamed across the ordered verified
+   * parts after byte verification (never buffered); null until computed.
+   */
+  archive_sha256: string | null;
+  status: StudioArchiveStatus;
+  entry_count: number | null;
+  total_uncompressed: number | null;
+  extracted: StudioArchiveExtracted | null;
+  error_code: string | null;
+  created_at: string;
+}
+
+/** One fixed-size stored piece of an entry's private evidence. */
+export interface StudioEntryEvidencePart {
+  index: number;
+  /** Exact stored byte count, re-observed from storage after the write. */
+  size: number;
+  /** SHA-256 of this part's bytes, re-hashed from the ACTUAL stored object. */
+  sha256: string;
+}
+
+/**
+ * Durable manifest of one entry's independently addressable PRIVATE evidence:
+ * the entry's uncompressed bytes, extracted/streamed out of the archive into
+ * fixed-size private objects so the entry is retrievable and hash-verifiable
+ * on its own (video, HEIC, large PDFs, unknown documents) without touching
+ * the parent archive. The source archive parts remain the immutable parent.
+ */
+export interface StudioEntryEvidence {
+  bucket: string;
+  /** Folder holding the fixed-size evidence parts (00000, 00001, …). */
+  prefix: string;
+  partSize: number;
+  partCount: number;
+  parts: StudioEntryEvidencePart[];
+  /** Exact uncompressed byte count of the whole reconstructed entry. */
+  totalSize: number;
+  /** True: the full extracted stream matched the entry's declared CRC-32. */
+  crc32Verified: boolean;
+}
+
+export interface StudioArchiveEntryRow {
+  id: string;
+  archive_id: string;
+  job_id: string;
+  entry_index: number;
+  /** Raw entry path — PRIVATE (service-role only); never projected. */
+  entry_name: string;
+  /** Neutral public-safe label used in warnings and progress UI. */
+  display_label: string;
+  category: string;
+  compressed_size: number;
+  uncompressed_size: number;
+  observed_size: number | null;
+  sha256: string | null;
+  media_class: string | null;
+  state: StudioArchiveEntryState;
+  outcome_code: string | null;
+  public_bucket: string | null;
+  public_path: string | null;
+  public_url: string | null;
+  media_type: string | null;
+  media_title: string | null;
+  /** Full private evidence record (claims allowed — table is service-role only). */
+  media_truth: MediaTruthRecord | null;
+  /** Independently addressable private evidence manifest (retained entries). */
+  evidence: StudioEntryEvidence | null;
+  /** Attempt discriminator of the claim that settled this entry. */
+  attempt: string | null;
+  processed_at: string | null;
+}
+
+/** Outcome payload for one settled entry (claim-checked, pending-only). */
+export interface StudioArchiveEntryOutcome {
+  state: Exclude<StudioArchiveEntryState, "pending">;
+  outcomeCode: string | null;
+  observedSize?: number | null;
+  sha256?: string | null;
+  mediaClass?: string | null;
+  publicBucket?: string | null;
+  publicPath?: string | null;
+  publicUrl?: string | null;
+  mediaType?: string | null;
+  mediaTitle?: string | null;
+  mediaTruth?: MediaTruthRecord | null;
+  evidence?: StudioEntryEvidence | null;
+  attempt: string;
+  processedAt: string;
+}
+
+// ---------------------------------------------------------------------------
 // Capabilities
 // ---------------------------------------------------------------------------
 
@@ -258,6 +412,69 @@ export interface StudioData {
   }): Promise<{ warnings: ProgressiveWarning[]; appliedFields: string[] }>;
 
   recordAudit(entry: StudioAuditEntry): Promise<void>;
+
+  // --- Large-archive durable inventory -------------------------------------
+
+  createArchive(row: StudioArchiveRow): Promise<void>;
+  getArchive(id: string): Promise<StudioArchiveRow | null>;
+  /** Every archive of one job, ordered by (created_at, id) for determinism. */
+  listJobArchives(jobId: string): Promise<StudioArchiveRow[]>;
+  /**
+   * Creator-phase compare-and-set (plan/confirm, before any processing
+   * claim): applies only while the archive is in one of `fromStatuses`.
+   */
+  updateArchivePreProcessing(
+    id: string,
+    fromStatuses: StudioArchiveStatus[],
+    patch: Partial<StudioArchiveRow>,
+  ): Promise<boolean>;
+  /**
+   * Claim-checked archive patch: applies only while the caller holds the
+   * job's processing claim, so a stale worker can never move archive state.
+   */
+  updateArchiveIfClaimed(
+    jobId: string,
+    token: string,
+    archiveId: string,
+    patch: Partial<StudioArchiveRow>,
+  ): Promise<boolean>;
+  /**
+   * Claim-checked idempotent inventory insert: entries conflict-skip on
+   * (archive_id, entry_index) so a crashed indexing slice resumes without
+   * duplicate rows. Returns false when the claim was lost.
+   */
+  insertArchiveEntriesIfClaimed(
+    jobId: string,
+    token: string,
+    entries: StudioArchiveEntryRow[],
+  ): Promise<boolean>;
+  /** Entries of one archive ordered by entry_index; optional state filter. */
+  listArchiveEntries(
+    archiveId: string,
+    states?: StudioArchiveEntryState[],
+  ): Promise<StudioArchiveEntryRow[]>;
+  /** Every entry of a job ordered by (archive created order, entry_index). */
+  listJobArchiveEntries(
+    jobId: string,
+    states?: StudioArchiveEntryState[],
+  ): Promise<StudioArchiveEntryRow[]>;
+  /**
+   * Claim-checked, pending-only settle: the ONLY way an entry leaves
+   * `pending`. False when the claim was lost or the entry already settled —
+   * the caller must then treat its own side-effect objects as orphans.
+   */
+  settleArchiveEntryIfClaimed(
+    jobId: string,
+    token: string,
+    entryId: string,
+    outcome: StudioArchiveEntryOutcome,
+  ): Promise<boolean>;
+  /**
+   * End-of-slice release: processing → received (readiness marker kept) so
+   * the next poll claims and continues promptly instead of waiting for the
+   * stale-claim window. Claim-checked; false when the claim was lost.
+   */
+  releaseJobIfClaimed(jobId: string, token: string): Promise<boolean>;
 }
 
 export interface StudioObjectStat {
@@ -278,6 +495,8 @@ export interface StudioStorage {
   createSignedUpload(bucket: string, path: string): Promise<{ token: string }>;
   /** Object names directly under `prefix`. */
   listNames(bucket: string, prefix: string): Promise<Set<string>>;
+  /** Direct child objects under `prefix` with their stored sizes. */
+  listObjects(bucket: string, prefix: string): Promise<Array<{ name: string; size: number }>>;
   /** Actual stored byte size and metadata, or null when the object is absent. */
   statObject(bucket: string, path: string): Promise<StudioObjectStat | null>;
   /**
@@ -286,6 +505,18 @@ export interface StudioStorage {
    * object is absent or cannot be read.
    */
   hashObject(bucket: string, path: string, headBytes: number): Promise<StudioObjectDigest | null>;
+  /**
+   * Stream the object's bytes through `onChunk` in bounded chunks WITHOUT
+   * materializing the object (peak memory ≈ one transport chunk). Returns the
+   * exact byte count, or null when the object is absent or cannot be read.
+   * Used by whole-archive hashing so a 300 MiB pass never allocates per-part
+   * buffers.
+   */
+  readObjectStream(
+    bucket: string,
+    path: string,
+    onChunk: (chunk: Buffer) => void | Promise<void>,
+  ): Promise<number | null>;
   /** Download only when within `maxBytes`; null when absent or over the cap. */
   downloadWithin(bucket: string, path: string, maxBytes: number): Promise<Buffer | null>;
 
