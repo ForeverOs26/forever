@@ -1108,11 +1108,37 @@ export class FakeData implements StudioData {
       throw new Error(`studio_archive_entries_invalid: archive_state ${targetArchive.status}`);
     }
     for (const entry of entries) {
-      // Mirrors the composite FK (archive_id, job_id) → studio_archives:
-      // an entry can never claim an archive under a different job.
+      // Mirrors the entry guard trigger (backed by the composite FK): an
+      // entry can never claim an archive under a different job.
       const parent = this.archives.get(entry.archive_id);
-      if (!parent || parent.job_id !== entry.job_id) {
-        throw new Error("studio_archive_entries_fk_violation");
+      if (!parent) throw new Error("studio_archive_entry_parent_missing");
+      if (parent.job_id !== entry.job_id) {
+        throw new Error("studio_archive_entry_cross_job");
+      }
+      // Mirrors the trigger's INSERT shape: a new inventory row records
+      // identity only — pending, with NO outcome/settlement data.
+      if (entry.state !== "pending") {
+        throw new Error(`studio_archive_entry_insert_not_pending: ${entry.state}`);
+      }
+      if (
+        entry.outcome_code != null ||
+        entry.observed_size != null ||
+        entry.sha256 != null ||
+        entry.media_class != null ||
+        entry.public_bucket != null ||
+        entry.public_path != null ||
+        entry.public_url != null ||
+        entry.media_type != null ||
+        entry.media_title != null ||
+        entry.media_truth != null ||
+        entry.evidence != null ||
+        entry.attempt != null ||
+        entry.processed_at != null
+      ) {
+        throw new Error("studio_archive_entry_insert_carries_outcome");
+      }
+      if (parent.entry_count != null && entry.entry_index >= parent.entry_count) {
+        throw new Error(`studio_archive_entry_index_out_of_range: ${entry.entry_index}`);
       }
       const duplicate = [...this.archiveEntries.values()].some(
         (row) => row.archive_id === entry.archive_id && row.entry_index === entry.entry_index,
@@ -1148,6 +1174,26 @@ export class FakeData implements StudioData {
     const parent = this.archives.get(entry.archive_id);
     if (!parent || parent.job_id !== jobId) return false;
     if (parent.status !== "processing_entries") return false;
+    // Mirrors the entry guard's settlement-consistency rules: the transition
+    // is complete (processed_at), only a published entry references a public
+    // object (completely), and published entries carry no private evidence.
+    if (!outcome.processedAt) {
+      throw new Error("studio_archive_entry_settlement_incomplete: processed_at");
+    }
+    if (outcome.state === "published_public") {
+      if (!outcome.publicBucket || !outcome.publicPath || !outcome.publicUrl) {
+        throw new Error("studio_archive_entry_settlement_incomplete: public_object");
+      }
+      if (outcome.evidence != null) {
+        throw new Error("studio_archive_entry_settlement_inconsistent: evidence");
+      }
+    } else if (
+      outcome.publicBucket != null ||
+      outcome.publicPath != null ||
+      outcome.publicUrl != null
+    ) {
+      throw new Error("studio_archive_entry_settlement_inconsistent: public_object");
+    }
     Object.assign(entry, {
       state: outcome.state,
       outcome_code: outcome.outcomeCode,

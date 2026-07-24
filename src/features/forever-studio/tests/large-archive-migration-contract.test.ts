@@ -33,11 +33,58 @@ describe("large-archive migration contract", () => {
     for (const table of ["studio_archives", "studio_archive_entries"]) {
       expect(ddl).toContain(`CREATE TABLE IF NOT EXISTS public.${table}`);
       expect(ddl).toContain(`ALTER TABLE public.${table} ENABLE ROW LEVEL SECURITY`);
-      expect(ddl).toContain(`GRANT ALL ON public.${table} TO service_role`);
       expect(ddl).toContain(`REVOKE ALL ON public.${table} FROM anon`);
       expect(ddl).toContain(`REVOKE ALL ON public.${table} FROM authenticated`);
     }
+    // The parent table stays fully writable by the application; the child
+    // inventory is READ-ONLY for the application — every mutation flows
+    // through the SECURITY DEFINER RPCs (the revoke is explicit because
+    // Supabase default privileges would otherwise re-grant ALL).
+    expect(ddl).toContain("GRANT ALL ON public.studio_archives TO service_role");
+    expect(ddl).toContain("REVOKE ALL ON public.studio_archive_entries FROM service_role");
+    expect(ddl).toContain("GRANT SELECT ON public.studio_archive_entries TO service_role");
+    expect(ddl).not.toContain("GRANT ALL ON public.studio_archive_entries");
     expect(ddl).not.toContain("CREATE POLICY");
+  });
+
+  it("gives the child inventory its own mutation guard and definer-only write path", () => {
+    // The entry guard runs on every child mutation — the parent trigger
+    // cannot observe child-only statements.
+    expect(ddl).toContain("CREATE OR REPLACE FUNCTION public.studio_archive_entry_guard()");
+    expect(ddl).toContain("BEFORE INSERT OR UPDATE OR DELETE ON public.studio_archive_entries");
+    const guard = ddl.slice(
+      ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_archive_entry_guard"),
+      ddl.indexOf(
+        "$$;",
+        ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_archive_entry_guard"),
+      ),
+    );
+    expect(guard).toContain("studio_archive_entry_delete_forbidden");
+    expect(guard).toContain("studio_archive_entry_parent_missing");
+    expect(guard).toContain("studio_archive_entry_cross_job");
+    expect(guard).toContain("studio_archive_entry_insert_phase");
+    expect(guard).toContain("studio_archive_entry_insert_not_pending");
+    expect(guard).toContain("studio_archive_entry_insert_carries_outcome");
+    expect(guard).toContain("studio_archive_entry_index_out_of_range");
+    expect(guard).toContain("studio_archive_entry_identity_immutable");
+    expect(guard).toContain("studio_archive_entry_update_phase");
+    expect(guard).toContain("studio_archive_entry_terminal_immutable");
+    expect(guard).toContain("studio_archive_entry_settlement_incomplete: public_object");
+    expect(guard).toContain("studio_archive_entry_settlement_inconsistent: public_object");
+    // The parent is re-read UNDER LOCK for inserts and updates.
+    expect(guard).toContain("FOR UPDATE");
+    // Only the two entry-mutating RPCs are SECURITY DEFINER; both keep the
+    // pinned empty search_path.
+    const definerCount = (ddl.match(/SECURITY DEFINER/g) ?? []).length;
+    expect(definerCount).toBe(2);
+    for (const fn of ["studio_index_archive_entries", "studio_settle_archive_entry"]) {
+      const header = ddl.slice(
+        ddl.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}`),
+        ddl.indexOf("AS $$", ddl.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}`)),
+      );
+      expect(header, fn).toContain("SECURITY DEFINER");
+      expect(header, fn).toContain("SET search_path = ''");
+    }
   });
 
   it("keeps job/audit history semantics: cascades from the job row only", () => {

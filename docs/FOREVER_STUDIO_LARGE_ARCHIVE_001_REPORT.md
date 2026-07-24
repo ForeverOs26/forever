@@ -1,7 +1,45 @@
 # FOREVER-STUDIO-LARGE-ARCHIVE-001 — Implementation Report
 
 Branch: `claude/forever-studio-large-archive-001` · Base: `8d173db` (post-PR-99 main)
-Status: **implemented + three corrective passes (architect review, two independent Codex audits), fully validated locally, Draft PR, migration unapplied, no deployment**
+Status: **implemented + four corrective passes (architect review, three independent Codex audits), fully validated locally, Draft PR, migration unapplied, no deployment**
+
+> **Corrective pass 4 (2026-07-24, final targeted Codex audit).** The audit
+> found one remaining P1 defect: `studio_archives` was protected by its
+> lifecycle guard, but `studio_archive_entries` had **no equivalent mutation
+> boundary** — a completed archive's durable inventory could be changed
+> directly (insert another entry, delete an originally counted one, rewrite a
+> terminal outcome) without touching the parent, whose trigger never runs on
+> child-only statements. Closed with two independent layers:
+>
+> 1. **The application physically cannot mutate the inventory.**
+>    `service_role` keeps SELECT on `studio_archive_entries` but its
+>    INSERT/UPDATE/DELETE/TRUNCATE are explicitly revoked (explicit because
+>    Supabase default privileges would otherwise re-grant ALL); anon /
+>    authenticated / PUBLIC keep nothing. The only application write path is
+>    the two claim-checked RPCs, now **SECURITY DEFINER** (trusted owner,
+>    `SET search_path = ''`, fully schema-qualified, no dynamic SQL, EXECUTE
+>    revoked from PUBLIC/anon/authenticated, granted only to service_role).
+>    Verified in PostgreSQL with `has_table_privilege` /
+>    `has_function_privilege` / `prosecdef` assertions AND live
+>    `SET ROLE service_role` DML probes (insufficient_privilege).
+> 2. **A dedicated child trigger (`studio_archive_entry_guard`, BEFORE
+>    INSERT/UPDATE/DELETE) enforces the inventory contract for EVERY caller**,
+>    re-reading the parent archive under lock: inserts only while the parent
+>    is exactly `byte_verified` (the indexing phase) — starting `pending`,
+>    carrying no outcome/public/evidence/settlement data, job-matched, and
+>    index-in-range when the planned inventory size is known; updates only
+>    while the parent is exactly `processing_entries` — identity and
+>    inventory fields immutable, `pending` leaves pending exactly once into
+>    a terminal state with `processed_at`, terminal outcomes immutable
+>    (byte-identical no-op tolerated), and outcome/evidence consistency
+>    (only published entries reference a complete public object; private
+>    outcomes never do; published entries carry no private evidence);
+>    deletes forbidden while the parent archive AND its job still exist —
+>    `ON DELETE CASCADE` cleanup keeps working because the deleted parent
+>    row is no longer visible when either cascade path reaches the entries
+>    (proven for both archive-level and job-level deletion, not assumed).
+>    After completion or rejection the inventory is therefore fully frozen
+>    with no parent UPDATE ever needed.
 
 > **Corrective pass 3 (2026-07-24, second independent Codex audit).** The
 > audit found one remaining HIGH-severity defect: the lifecycle trigger
@@ -368,6 +406,27 @@ remain the immutable parent evidence.
   addressable private evidence manifest) and the **composite FK
   `(archive_id, job_id) REFERENCES studio_archives (id, job_id)`**: an entry
   claiming archive A under job B is unrepresentable at the constraint layer.
+  **Application-read-only**: service_role keeps SELECT but has no direct
+  INSERT/UPDATE/DELETE/TRUNCATE (explicitly revoked — Supabase default
+  privileges would otherwise re-grant ALL); mutations flow only through the
+  SECURITY DEFINER RPCs.
+- **`studio_archive_entry_guard`** (trigger, BEFORE INSERT OR UPDATE OR
+  DELETE) — the child inventory's own mutation boundary, because the parent
+  trigger cannot observe child-only statements. With the parent re-read
+  UNDER LOCK: inserts only while the parent is exactly `byte_verified`
+  (pending, outcome-free, job-matched, index-in-range when the planned size
+  is known); updates only while the parent is exactly `processing_entries`
+  (identity/inventory fields immutable, one `pending` → terminal transition
+  with `processed_at`, terminal outcomes immutable modulo a byte-identical
+  no-op, only published entries reference a complete public object and never
+  carry private evidence, private outcomes never reference a public
+  location); deletes forbidden while the parent archive AND its job still
+  exist, which keeps `ON DELETE CASCADE` cleanup working (the deleted parent
+  row is already invisible when either cascade path reaches the entries —
+  proven in the harness for archive-level and job-level deletion). A
+  completed archive's inventory is therefore immutable without any parent
+  UPDATE: no insert, no delete, no outcome rewrite, row count pinned to
+  `entry_count`.
 - **Functions** — every processing RPC now (a) locks the job claim,
   (b) **locks the target archive/entry and proves it belongs to the claimed
   job** (FALSE otherwise — a valid claim on job B can never write into job
@@ -385,8 +444,20 @@ remain the immutable parent evidence.
   patchable). `studio_index_archive_entries` is phase-gated to
   `byte_verified` archives (the transitioned entry count can never be
   diluted afterwards) and `studio_settle_archive_entry` remains pending-only
-  AND phase-gated to `processing_entries`. All remain claim-guarded,
-  service-role-only, `SET search_path = ''`.
+  AND phase-gated to `processing_entries`. These two — the only entry
+  mutators — are **SECURITY DEFINER** (trusted owner, pinned empty
+  search_path, fully qualified objects, no dynamic SQL) because the
+  application role holds no direct DML on the inventory table; everything
+  else stays invoker-rights. All remain claim-guarded, service-role-only,
+  `SET search_path = ''`.
+  **Indexing protocol (documented choice)**: bounded claim-checked batches
+  (≤ 500 rows per call, deliberately not one oversized JSON payload). Every
+  batch derives from one plan — the ZIP central directory of the
+  byte-verified, manifest-bound archive — so a crashed partial inventory can
+  only resume with identical rows (conflict-skip fills gaps); finalization
+  is the parent's `byte_verified → processing_entries` transition, which
+  re-counts the durable rows and freezes `entry_count`; after it, insertion
+  is impossible at the RPC, the trigger, AND the privilege layer.
 - Both tables: RLS enabled, zero policies, service-role-only grants,
   cascade from the job row only. The migration remains **additive and
   UNAPPLIED**; it runs in the disposable PostgreSQL chain only.
@@ -524,6 +595,52 @@ Worker figure is an explicit staging-gate measurement (§14). The in-suite
   unchanged.
 
 ## 11. Validation evidence (all local; fakes + disposable PostgreSQL)
+
+New/updated in corrective pass 4 (final targeted audit — child inventory
+immutability):
+
+- `studio.postgres.sql` **LA-11 child-inventory mutation-boundary suite**
+  (real PostgreSQL 17, full migration chain) — the 30 enumerated scenarios,
+  with before/after snapshots proving every rejected operation changed no
+  parent archive, no target entry, no sibling entry, and no unrelated job:
+  the legitimate multi-batch inventory flow (two batches + an idempotent
+  interrupted-batch re-run) executed **under `SET ROLE service_role`**
+  through the SECURITY DEFINER RPCs; inserts refused at `planned`,
+  `byte_verifying`, `processing_entries`, `completed`, AND `rejected`
+  (pending-shaped and pre-terminalized rows alike); direct service_role
+  INSERT/UPDATE/DELETE denied with `insufficient_privilege`; all four
+  legitimate settlements (`published_public` with a complete public object,
+  `retained_private` with its evidence manifest, `skipped_duplicate`,
+  `failed`) under the application role; terminal-outcome rewrite, terminal →
+  pending regression, identity-field update, and public-location/evidence
+  rewrite all refused; cross-job and stale-token settlement/indexing refused
+  (FALSE, zero writes); settlement refused outside `processing_entries` at
+  both the RPC and trigger layers; direct entry deletes refused under all
+  four live parent states; the replace-one-completed-row-in-one-transaction
+  attack dies atomically; `ON DELETE CASCADE` proven live for BOTH teardown
+  paths (archive delete cascades entries; job delete cascades archives and
+  entries — whichever cascade order PostgreSQL chooses, the guard sees the
+  deleted parent as gone); a truthful zero-entry archive still walks to
+  completed; privilege posture asserted exactly (SELECT-only table access,
+  service-role-only EXECUTE, exactly the two mutator RPCs `prosecdef` with
+  pinned search_path).
+- LA-4/LA-10 direct-DML probes re-anchored on the new boundary: forged
+  cross-job entry rows now die on the trigger's `cross_job` raise (the
+  composite FK remains as the constraint-layer backup), late direct inserts
+  die on the phase gate, and the parent completion-count gate is re-proven
+  through a deliberately disabled-trigger window (simulated sub-trigger
+  corruption — superuser-only, impossible for the application).
+- `large-archive-migration-contract.test.ts` (18) — static proof of the
+  SELECT-only entries grant, the entry guard's full error-class set, and
+  exactly two SECURITY DEFINER functions, each with the pinned empty
+  search_path.
+- `fakes.ts` — the in-memory layer mirrors the child boundary: insert shape
+  (pending, outcome-free, job-matched, index-in-range), settlement
+  consistency (processed_at required; only published entries carry a
+  complete public object and never private evidence; private outcomes carry
+  no public location), phase gates, and stale/cross-job semantics. All
+  Studio suites pass against the stricter fake with **zero production-code
+  changes** — the engine's legitimate orchestration never needed a bypass.
 
 New/updated in corrective pass 3 (second independent audit — lifecycle
 evidence hardening):
@@ -670,23 +787,28 @@ interruption fixture: worker killed mid-run, stale takeover after 16 min,
   settled outcomes byte-identical after resume
 ```
 
-Fresh validation, all on the corrective-pass-3 revision (exact numbers in
+Fresh validation, all on the corrective-pass-4 revision (exact numbers in
 the PR description):
 
-- **Full vitest**: 3371 passed / 6 skipped; the ONLY failures are the four
+- **Full vitest**: 3372 passed / 6 skipped; the ONLY failures are the four
   **pre-existing** ones unrelated to this change
   (`src/import/importer-preflight.test.ts` fixture drift ×3 and the
   missing-`modeva`-asset environmental failure ×1) — **re-proven to fail
-  IDENTICALLY at the exact base commit `5025c63`** by stashing this pass and
+  IDENTICALLY at the exact base commit `7aed239`** by stashing this pass and
   re-running both files on unmodified code (same 4 tests, same assertions).
-  The Studio suites (30 files, 266+ tests incl. lifecycle, migration
-  contract, large-archive processing/upload/verification/evidence, manifest
-  identity, scheduled runner, stale-token/concurrency, private evidence,
-  ZIP safety, and Media Truth) all pass against the STRICTER fake.
+  The Studio suites (30 files, 267+ tests incl. lifecycle, migration
+  contract, large-archive indexing/settlement/processing/upload/verification/
+  evidence, manifest identity, scheduled runner, interruption/resume,
+  stale-token/concurrency, private evidence, ZIP safety, and Media Truth)
+  all pass against the STRICTER fake — including the legitimate full walk
+  planned → uploaded_unverified → byte_verifying → byte_verified → inventory
+  indexed → processing_entries → all-terminal → completed, the zero-entry
+  flow, and the multi-batch inventory flow.
 - **Disposable PostgreSQL harness** (PostgreSQL 17, explicit PATH):
   complete migration chain including the reworked migration →
-  `ALL STUDIO POSTGRES ASSERTIONS PASSED` (LA-1…LA-9 plus the new LA-10
-  adversarial lifecycle-evidence battery with unchanged-row proofs).
+  `ALL STUDIO POSTGRES ASSERTIONS PASSED` (LA-1…LA-10 plus the new LA-11
+  child-inventory mutation-boundary battery with SET ROLE privilege probes,
+  live cascade proofs, and unchanged-row baselines).
 - **TypeScript** `tsc --noEmit`: clean.
 - **ESLint + Prettier**: clean on every file this PR touches (repo-wide
   `eslint .` carries pre-existing drift in untouched legacy files).
@@ -734,11 +856,13 @@ the PR description):
 ## 13. Migration state
 
 `supabase/migrations/20260724090000_studio_large_archive_v1.sql` was
-reworked IN PLACE by all three corrective passes (it has never been applied
+reworked IN PLACE by all four corrective passes (it has never been applied
 anywhere, so the draft is still one additive migration — now with the
-manifest identity column, the composite ownership constraints, and the
+manifest identity column, the composite ownership constraints, the
 same-state-proof, evidence-freezing lifecycle trigger with cryptographic
-manifest binding). It remains **additive, ordered after
+manifest binding, the child inventory mutation guard, the application-
+read-only entries privilege posture, and the two SECURITY DEFINER entry
+mutators). It remains **additive, ordered after
 current main (`20260723130000`), and UNAPPLIED** to any real environment; it
 runs in the disposable PostgreSQL chain only. The PR #99 grant migration
 remains intentionally unapplied and untouched. No staging or production

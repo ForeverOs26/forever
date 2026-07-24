@@ -71,9 +71,32 @@
 --   completed) on every write. Terminal states accept only strict no-op
 --   updates. INSERTs must start at 'planned' with no verification evidence.
 --
+-- Child inventory boundary (studio_archive_entries): the durable inventory
+-- has its OWN mutation guard (studio_archive_entry_guard, BEFORE
+-- INSERT/UPDATE/DELETE) because the parent trigger cannot observe child-only
+-- statements. Inserts happen only while the locked parent is byte_verified
+-- (the indexing phase), start pending with NO outcome data, and match the
+-- parent's job; updates happen only while the parent is processing_entries,
+-- with immutable identity/inventory fields, a single pending → terminal
+-- transition, immutable terminal outcomes, and outcome/evidence consistency
+-- (only published entries reference a complete public object; private
+-- outcomes never do); direct deletes are forbidden while the parent archive
+-- AND its job still exist — ON DELETE CASCADE cleanup (whichever of the two
+-- job→entries cascade paths fires first) still works because the deleted
+-- parent row is no longer visible when the cascade reaches the entry rows.
+-- Application privilege posture: service_role can SELECT the inventory but
+-- has NO direct INSERT/UPDATE/DELETE/TRUNCATE on it (revoked explicitly —
+-- Supabase default privileges would otherwise re-grant ALL); the ONLY
+-- application write path is the two claim-checked SECURITY DEFINER RPCs
+-- (studio_index_archive_entries, studio_settle_archive_entry) — trusted
+-- owner, SET search_path = '', fully schema-qualified, no dynamic SQL,
+-- EXECUTE revoked from PUBLIC/anon/authenticated and granted only to
+-- service_role.
+--
 -- Privacy: both tables carry ORIGINAL client filenames / raw entry paths and
 -- full media-truth evidence (including extracted claims). They are internal
--- only: RLS enabled with NO policies, all grants revoked except service_role.
+-- only: RLS enabled with NO policies; service_role holds ALL on
+-- studio_archives but SELECT-only on studio_archive_entries (see above).
 -- Public projections use neutral labels; these rows never reach the browser.
 --
 -- DOWN (manual, destructive — NOT a complete automatic rollback):
@@ -84,6 +107,7 @@
 --   DROP FUNCTION IF EXISTS public.studio_job_archive_entry_counts(UUID);
 --   DROP TABLE IF EXISTS public.studio_archive_entries;
 --   DROP TABLE IF EXISTS public.studio_archives;
+--   DROP FUNCTION IF EXISTS public.studio_archive_entry_guard();
 --   DROP FUNCTION IF EXISTS public.studio_archive_lifecycle_guard();
 -- ============================================================================
 
@@ -509,7 +533,183 @@ ALTER TABLE public.studio_archive_entries ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.studio_archive_entries FROM PUBLIC;
 REVOKE ALL ON public.studio_archive_entries FROM anon;
 REVOKE ALL ON public.studio_archive_entries FROM authenticated;
-GRANT ALL ON public.studio_archive_entries TO service_role;
+-- The application READS the durable inventory but can never mutate it
+-- directly: every INSERT/UPDATE flows through the claim-checked SECURITY
+-- DEFINER RPCs below, and rows leave only via ON DELETE CASCADE cleanup.
+-- The revoke is explicit because Supabase default privileges grant
+-- service_role ALL on newly created tables.
+REVOKE ALL ON public.studio_archive_entries FROM service_role;
+GRANT SELECT ON public.studio_archive_entries TO service_role;
+
+-- ----------------------------------------------------------------------------
+-- 3b. studio_archive_entry_guard — the child inventory's OWN mutation boundary
+--
+-- The parent lifecycle guard cannot observe statements that touch ONLY
+-- studio_archive_entries, so the completed state's evidence (inventory rows =
+-- entry_count, all terminal, outcomes frozen) would otherwise be mutable
+-- without any parent UPDATE. This trigger closes that hole for EVERY caller
+-- (RPC, PostgREST, direct SQL): inventory rows are born only during the
+-- indexing phase, settle exactly once while the parent is processing, and
+-- can never be deleted while their parent archive and job still exist.
+-- Cross-job and missing-parent operations fail safely; the parent row is
+-- re-read UNDER LOCK for every insert/update.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.studio_archive_entry_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+DECLARE
+  v_parent_job UUID;
+  v_parent_status TEXT;
+  v_parent_entry_count INTEGER;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    -- Entry rows leave the inventory ONLY when their parent is being torn
+    -- down. During ON DELETE CASCADE the deleting statement has already
+    -- removed the parent archive row — or, for a job deletion (whose two
+    -- cascade paths, job→entries and job→archives→entries, may reach the
+    -- entries in either order), the job row — from this statement's
+    -- snapshot, so the corresponding lookup below finds nothing and the
+    -- cascade proceeds. While BOTH parents are still alive this is a direct
+    -- delete, and a completed inventory can never be shrunk.
+    IF EXISTS (SELECT 1 FROM public.studio_archives a WHERE a.id = OLD.archive_id)
+       AND EXISTS (SELECT 1 FROM public.studio_upload_jobs j WHERE j.id = OLD.job_id) THEN
+      RAISE EXCEPTION 'studio_archive_entry_delete_forbidden';
+    END IF;
+    RETURN OLD;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    SELECT a.job_id, a.status, a.entry_count
+      INTO v_parent_job, v_parent_status, v_parent_entry_count
+      FROM public.studio_archives a
+     WHERE a.id = NEW.archive_id
+     FOR UPDATE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'studio_archive_entry_parent_missing';
+    END IF;
+    IF v_parent_job <> NEW.job_id THEN
+      RAISE EXCEPTION 'studio_archive_entry_cross_job';
+    END IF;
+    -- Inventory rows exist ONLY from the indexing phase: never before byte
+    -- verification, and never once the archive is processing, completed, or
+    -- rejected — a settled inventory can never be diluted by a late row.
+    IF v_parent_status <> 'byte_verified' THEN
+      RAISE EXCEPTION 'studio_archive_entry_insert_phase: %', v_parent_status;
+    END IF;
+    -- A new inventory row records identity only: it starts pending and
+    -- carries NO terminal outcome, public object, evidence, or settlement
+    -- bookkeeping.
+    IF NEW.state <> 'pending' THEN
+      RAISE EXCEPTION 'studio_archive_entry_insert_not_pending: %', NEW.state;
+    END IF;
+    IF NEW.outcome_code IS NOT NULL
+       OR NEW.observed_size IS NOT NULL
+       OR NEW.sha256 IS NOT NULL
+       OR NEW.media_class IS NOT NULL
+       OR NEW.public_bucket IS NOT NULL
+       OR NEW.public_path IS NOT NULL
+       OR NEW.public_url IS NOT NULL
+       OR NEW.media_type IS NOT NULL
+       OR NEW.media_title IS NOT NULL
+       OR NEW.media_truth IS NOT NULL
+       OR NEW.evidence IS NOT NULL
+       OR NEW.attempt IS NOT NULL
+       OR NEW.processed_at IS NOT NULL THEN
+      RAISE EXCEPTION 'studio_archive_entry_insert_carries_outcome';
+    END IF;
+    -- When the planned inventory size is already recorded, no index may
+    -- fall outside it.
+    IF v_parent_entry_count IS NOT NULL AND NEW.entry_index >= v_parent_entry_count THEN
+      RAISE EXCEPTION 'studio_archive_entry_index_out_of_range: %', NEW.entry_index;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- UPDATE: identity and inventory fields are immutable, whatever the phase.
+  IF NEW.id <> OLD.id
+     OR NEW.archive_id <> OLD.archive_id
+     OR NEW.job_id <> OLD.job_id
+     OR NEW.entry_index <> OLD.entry_index
+     OR NEW.entry_name <> OLD.entry_name
+     OR NEW.display_label <> OLD.display_label
+     OR NEW.category <> OLD.category
+     OR NEW.compressed_size <> OLD.compressed_size
+     OR NEW.uncompressed_size <> OLD.uncompressed_size
+     OR NEW.created_at <> OLD.created_at THEN
+    RAISE EXCEPTION 'studio_archive_entry_identity_immutable';
+  END IF;
+  SELECT a.job_id, a.status
+    INTO v_parent_job, v_parent_status
+    FROM public.studio_archives a
+   WHERE a.id = OLD.archive_id
+   FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'studio_archive_entry_parent_missing';
+  END IF;
+  IF v_parent_job <> OLD.job_id THEN
+    RAISE EXCEPTION 'studio_archive_entry_cross_job';
+  END IF;
+  -- Settlement happens ONLY while the parent is actually processing. Once
+  -- the parent is completed or rejected (or still pre-processing), every
+  -- entry row is frozen — the parent's completed evidence stays trustworthy
+  -- without any parent UPDATE ever running.
+  IF v_parent_status <> 'processing_entries' THEN
+    RAISE EXCEPTION 'studio_archive_entry_update_phase: %', v_parent_status;
+  END IF;
+  IF OLD.state <> 'pending' THEN
+    -- pending leaves pending exactly once; a terminal outcome is immutable
+    -- (a byte-identical no-op re-write is tolerated, anything else raises).
+    IF NEW.state IS DISTINCT FROM OLD.state
+       OR NEW.outcome_code IS DISTINCT FROM OLD.outcome_code
+       OR NEW.observed_size IS DISTINCT FROM OLD.observed_size
+       OR NEW.sha256 IS DISTINCT FROM OLD.sha256
+       OR NEW.media_class IS DISTINCT FROM OLD.media_class
+       OR NEW.public_bucket IS DISTINCT FROM OLD.public_bucket
+       OR NEW.public_path IS DISTINCT FROM OLD.public_path
+       OR NEW.public_url IS DISTINCT FROM OLD.public_url
+       OR NEW.media_type IS DISTINCT FROM OLD.media_type
+       OR NEW.media_title IS DISTINCT FROM OLD.media_title
+       OR NEW.media_truth IS DISTINCT FROM OLD.media_truth
+       OR NEW.evidence IS DISTINCT FROM OLD.evidence
+       OR NEW.attempt IS DISTINCT FROM OLD.attempt
+       OR NEW.processed_at IS DISTINCT FROM OLD.processed_at THEN
+      RAISE EXCEPTION 'studio_archive_entry_terminal_immutable: %', OLD.state;
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.state NOT IN ('published_public','retained_private','skipped_duplicate','failed') THEN
+    RAISE EXCEPTION 'studio_archive_entry_invalid_transition: pending -> %', NEW.state;
+  END IF;
+  IF NEW.processed_at IS NULL THEN
+    RAISE EXCEPTION 'studio_archive_entry_settlement_incomplete: processed_at';
+  END IF;
+  -- Outcome/evidence consistency: ONLY a published entry references a public
+  -- object, and it must reference one completely; a published entry carries
+  -- no private evidence manifest, and private outcomes carry no public
+  -- location — the public/private boundary is part of the settled evidence.
+  IF NEW.state = 'published_public' THEN
+    IF NEW.public_bucket IS NULL OR NEW.public_path IS NULL OR NEW.public_url IS NULL THEN
+      RAISE EXCEPTION 'studio_archive_entry_settlement_incomplete: public_object';
+    END IF;
+    IF NEW.evidence IS NOT NULL THEN
+      RAISE EXCEPTION 'studio_archive_entry_settlement_inconsistent: evidence';
+    END IF;
+  ELSE
+    IF NEW.public_bucket IS NOT NULL
+       OR NEW.public_path IS NOT NULL
+       OR NEW.public_url IS NOT NULL THEN
+      RAISE EXCEPTION 'studio_archive_entry_settlement_inconsistent: public_object';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER studio_archive_entries_guard
+  BEFORE INSERT OR UPDATE OR DELETE ON public.studio_archive_entries
+  FOR EACH ROW EXECUTE FUNCTION public.studio_archive_entry_guard();
 
 -- ----------------------------------------------------------------------------
 -- 4. studio_release_job: end one bounded slice, keep the job promptly due
@@ -688,12 +888,25 @@ $$;
 -- ----------------------------------------------------------------------------
 -- 6. studio_index_archive_entries: claim-checked, ownership-proved insert
 --
--- Inserts the durable entry inventory in one transaction with the claim
--- check AND a locked proof that the target archive belongs to the claimed
--- job. ON CONFLICT (archive_id, entry_index) DO NOTHING makes a re-run after
--- a crashed indexing slice fill only the missing rows — never duplicates,
--- never an overwrite of settled outcomes. The composite FK independently
--- rejects any cross-job (archive_id, job_id) pair.
+-- The ONLY application path that creates inventory rows (service_role has no
+-- direct DML on the table — hence SECURITY DEFINER, trusted owner, pinned
+-- empty search_path, fully qualified objects, no dynamic SQL, EXECUTE
+-- granted to service_role alone).
+--
+-- Indexing protocol (bounded batches, deliberately NOT one giant JSON
+-- payload): entries are inserted in claim-checked batches while the archive
+-- is EXACTLY byte_verified — the entry guard trigger revalidates the phase,
+-- the pending starting state, and the empty-outcome shape for every row.
+-- Every batch derives from the same plan: the ZIP central directory of the
+-- byte-verified (manifest-bound, hash-proven) archive, so a crashed partial
+-- inventory can only resume with identical rows. ON CONFLICT
+-- (archive_id, entry_index) DO NOTHING makes the re-run fill only the
+-- missing rows — never duplicates, never an overwrite. Finalization is the
+-- parent's byte_verified → processing_entries transition, which re-counts
+-- the durable rows against entry_count and freezes it; after that the phase
+-- gates (RPC + trigger) make ANY further insertion impossible. The
+-- composite FK independently rejects any cross-job (archive_id, job_id)
+-- pair.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.studio_index_archive_entries(
   p_job_id UUID,
@@ -702,6 +915,7 @@ CREATE OR REPLACE FUNCTION public.studio_index_archive_entries(
   p_entries JSONB
 ) RETURNS BOOLEAN
 LANGUAGE plpgsql
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
@@ -776,12 +990,18 @@ $$;
 -- 7. studio_settle_archive_entry: claim-checked, ownership-proved,
 --    pending-only settlement
 --
--- The ONLY transition out of 'pending'. Guarded by the job claim, a locked
--- proof that the entry AND its parent archive belong to the claimed job, the
--- parent archive actually being in processing_entries, and the pending state
--- in one statement: a stale worker (or a duplicate slice) matches zero rows,
--- learns it lost, and must treat its own uploaded objects as orphans. Settled
--- outcomes are immutable. Malformed outcome payloads raise before any write.
+-- The ONLY transition out of 'pending', and the ONLY application path that
+-- updates inventory rows (service_role has no direct DML on the table —
+-- hence SECURITY DEFINER, trusted owner, pinned empty search_path, fully
+-- qualified objects, no dynamic SQL, EXECUTE granted to service_role alone).
+-- Guarded by the job claim, a locked proof that the entry AND its parent
+-- archive belong to the claimed job, the parent archive actually being in
+-- processing_entries, and the pending state in one statement: a stale worker
+-- (or a duplicate slice) matches zero rows, learns it lost, and must treat
+-- its own uploaded objects as orphans. The entry guard trigger additionally
+-- re-locks the parent, revalidates the phase, freezes identity fields, and
+-- enforces outcome/evidence consistency — settled outcomes are immutable.
+-- Malformed outcome payloads raise before any write.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.studio_settle_archive_entry(
   p_job_id UUID,
@@ -790,6 +1010,7 @@ CREATE OR REPLACE FUNCTION public.studio_settle_archive_entry(
   p_outcome JSONB
 ) RETURNS BOOLEAN
 LANGUAGE plpgsql
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
