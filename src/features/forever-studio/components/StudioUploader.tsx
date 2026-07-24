@@ -50,6 +50,32 @@ const FILE_ACCEPT = "image/*,video/*,.pdf,.zip,.json,.csv,.xls,.xlsx,.doc,.docx,
 /** Continuation cadence while the page stays open on a sliced job. */
 const PROCESS_POLL_MS = 3000;
 
+/**
+ * Consecutive status polls allowed to resolve WITHOUT a readable job result
+ * before the page stops polling and explains itself. Seen on Android during
+ * network handover: a poll's transport can resolve with no deserialized body
+ * (no thrown error, no result). One unreadable poll must never crash the
+ * page or masquerade as a processing failure — the job itself continues
+ * server-side regardless of this page's polling.
+ */
+const MAX_UNREADABLE_STATUS_POLLS = 5;
+
+/**
+ * Shape guard for a processing-status poll. The server function always
+ * returns a StudioJobResult, but the TRANSPORT can resolve with something
+ * else on flaky mobile networks (undefined, or a raw non-JSON response) —
+ * exactly what produced "Cannot read properties of undefined (reading
+ * 'status')" during the Android staging retest. Never dereference `.status`
+ * without this proof.
+ */
+function isJobResult(value: unknown): value is StudioJobResult {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { status?: unknown }).status === "string"
+  );
+}
+
 type Phase =
   | { step: "form" }
   | { step: "uploading"; done: number; total: number }
@@ -189,18 +215,38 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
       }
       stage = "processing";
       setPhase({ step: "processing" });
-      let result = await studioProcessJob({ data: { jobId: id } });
+      // Every poll result passes the shape guard before ANY dereference: a
+      // transport hiccup that resolves without a readable result is an
+      // unreadable poll — the page keeps its current processing view and
+      // polls again — never a crash and never a fake failure.
+      const pollProcessing = async (): Promise<StudioJobResult | null> => {
+        const polled: unknown = await studioProcessJob({ data: { jobId: id! } });
+        return isJobResult(polled) ? polled : null;
+      };
+      let result = await pollProcessing();
       void queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY });
       // Sliced continuation: while this page stays open it keeps driving the
       // job; after it closes, any Studio session's dashboard poll (or a
       // scheduled caller) resumes the durable work automatically.
-      while (result.status === "processing" && alive.current) {
-        setPhase({ step: "archiveProcessing", jobId: id, progress: result.progress ?? null });
+      let unreadablePolls = result === null ? 1 : 0;
+      while ((result === null || result.status === "processing") && alive.current) {
+        if (unreadablePolls > MAX_UNREADABLE_STATUS_POLLS) {
+          // The processing request itself was accepted (this stage begins
+          // only after storage acceptance), so the job continues durably —
+          // only this page's view of it is unreadable.
+          throw new Error(
+            "Processing continues on the server, but its status could not be read from this page. You can close this page safely — Forever resumes the job automatically.",
+          );
+        }
+        if (result !== null) {
+          setPhase({ step: "archiveProcessing", jobId: id, progress: result.progress ?? null });
+        }
         await new Promise((resolve) => setTimeout(resolve, PROCESS_POLL_MS));
         if (!alive.current) return;
-        result = await studioProcessJob({ data: { jobId: id } });
+        result = await pollProcessing();
+        unreadablePolls = result === null ? unreadablePolls + 1 : 0;
       }
-      if (!alive.current) return;
+      if (!alive.current || result === null) return;
       void queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY });
       if (result.status === "failed") {
         setPhase({

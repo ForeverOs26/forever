@@ -162,6 +162,62 @@ describe("StudioUploader incident recovery", () => {
     expect(endpoints.processJob).toHaveBeenCalledTimes(1);
   });
 
+  it(
+    "survives an unreadable status poll (transport resolved undefined) and still completes",
+    { timeout: 15000 },
+    async () => {
+      endpoints.startJob.mockResolvedValue({ jobId: "job-9", uploads: [] });
+      uploader.uploadLargeArchive.mockResolvedValue({ archiveId: "arch-9" });
+      // The Android incident shape: one poll resolves with NO deserialized
+      // body (undefined) right around the safe-storage transition, the next
+      // poll reads normally.
+      endpoints.processJob.mockResolvedValueOnce(undefined).mockResolvedValue({
+        status: "published",
+        pagePath: null,
+        warnings: [],
+        counts: null,
+        projectSlug: null,
+        listingId: null,
+      });
+
+      await submitZip();
+
+      // The unreadable poll must NOT crash into the error panel: no
+      // TypeError text, no "Retry processing" while the status is unknown —
+      // the page keeps a safe intermediate state and polls again.
+      expect(screen.queryByText(/Cannot read properties/)).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Retry processing" })).not.toBeInTheDocument();
+
+      await screen.findByRole("heading", { name: "Published" }, { timeout: 10000 });
+      expect(endpoints.processJob).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it(
+    "explains itself truthfully when the status stays unreadable, without a TypeError or fake failure",
+    { timeout: 40000 },
+    async () => {
+      endpoints.startJob.mockResolvedValue({ jobId: "job-9", uploads: [] });
+      uploader.uploadLargeArchive.mockResolvedValue({ archiveId: "arch-9" });
+      endpoints.processJob.mockResolvedValue(undefined);
+
+      await submitZip();
+
+      const notice = await screen.findByText(
+        /Processing continues on the server, but its status could not be read/,
+        undefined,
+        { timeout: 30000 },
+      );
+      expect(notice).toBeVisible();
+      // Never the raw TypeError of the incident, and the retry affordance is
+      // the processing-stage one (safe and idempotent: the upload was
+      // already accepted before this stage began).
+      expect(screen.queryByText(/Cannot read properties/)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Retry processing" })).toBeVisible();
+      expect(screen.queryByRole("button", { name: "Resume upload" })).not.toBeInTheDocument();
+    },
+  );
+
   it("renders a retryable unreachable panel (not access denied) for a transient overview failure, and recovers", async () => {
     endpoints.getOverview
       .mockReset()
