@@ -385,41 +385,36 @@ export interface StudioArchivePlanInput {
   fileName: string;
   declaredSize: number;
   /**
-   * Stable client upload fingerprint (SHA-256 hex over bounded content
-   * samples + exact size — see computeUploadFingerprint). Resume identity:
-   * two different archives with the same filename and byte size never attach
-   * to each other's stored parts. Never a substitute for server verification
-   * of the actual stored bytes; stored privately, never projected.
+   * The exact ordered per-part SHA-256 manifest (one lowercase hex digest per
+   * fixed-size upload part, computed sequentially over EVERY byte of the
+   * file — see computeUploadPartManifest). Resume identity: re-planning
+   * resumes an existing archive ONLY when the complete manifest matches
+   * digest-for-digest, so two different archives can never attach to each
+   * other's stored parts regardless of filename, byte size, or where the
+   * bytes differ. Never a substitute for server verification of the actual
+   * stored bytes; stored privately, never projected.
    */
-  uploadFingerprint: string;
+  partSha256: string[];
 }
 
-// --- Upload fingerprint (resume identity) ----------------------------------
-
-/** Bytes per content sample hashed into the upload fingerprint. */
-export const UPLOAD_FINGERPRINT_SAMPLE_BYTES = 256 * 1024;
-/** Domain separator so the digest can never collide with a plain file hash. */
-export const UPLOAD_FINGERPRINT_DOMAIN = "forever-upload-fingerprint-v1";
+// --- Upload part manifest (resume identity) ---------------------------------
 
 /**
- * Deterministic sampled byte ranges for the upload fingerprint: head, two
- * interior windows, and tail (whole file when small). Bounded — at most
- * 4 × 256 KiB is ever read/hashed, cheap even for a 300 MiB phone upload.
- * Interior samples make archives that share a common prefix/suffix (e.g.
- * re-exports of the same dossier) fingerprint differently.
+ * Domain/version separator folded into the server-derived manifest identity
+ * digest so it can never collide with a plain file hash or the RETIRED v1
+ * sampled fingerprint (which hashed only four bounded windows and therefore
+ * could not distinguish same-size files differing outside the samples — that
+ * contract is removed; every part is now fully hashed).
  */
-export function uploadFingerprintSampleRanges(size: number): Array<{ start: number; end: number }> {
-  const sample = UPLOAD_FINGERPRINT_SAMPLE_BYTES;
-  if (size <= 4 * sample) return [{ start: 0, end: size }];
-  const third = Math.floor(size / 3);
-  const twoThirds = Math.floor((2 * size) / 3);
-  return [
-    { start: 0, end: sample },
-    { start: third, end: third + sample },
-    { start: twoThirds, end: twoThirds + sample },
-    { start: size - sample, end: size },
-  ];
+export const UPLOAD_MANIFEST_DOMAIN = "forever-upload-part-manifest-v2";
+
+/** Fixed part count implied by a declared size (last part may be short). */
+export function archivePartCountForSize(declaredSize: number): number {
+  return Math.max(1, Math.ceil(declaredSize / ARCHIVE_PART_BYTES));
 }
+
+/** Upper bound on parts per archive (300 MiB ceiling / 8 MiB parts). */
+export const MAX_ARCHIVE_PARTS = Math.ceil(LARGE_ARCHIVE_MAX_BYTES / ARCHIVE_PART_BYTES);
 
 /**
  * Plan response. `presentParts` lists indexes already stored with the planned

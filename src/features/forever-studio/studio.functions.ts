@@ -104,11 +104,15 @@ const archivePlanSchema = z
     jobId: z.string().uuid(),
     fileName: z.string().min(1).max(300),
     declaredSize: z.number().int().positive(),
-    // Client upload fingerprint (bounded-sample SHA-256): resume identity so
-    // different archives sharing a name and size never attach to each other's
-    // stored parts. Recorded privately; never a substitute for server
-    // verification of the actual stored bytes.
-    uploadFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    // The exact ordered per-part SHA-256 manifest (every byte of the file
+    // hashed part-by-part): the resume identity, so different archives can
+    // never attach to each other's stored parts no matter where they differ.
+    // Recorded privately; never a substitute for server verification of the
+    // actual stored bytes.
+    partSha256: z
+      .array(z.string().regex(/^[a-f0-9]{64}$/))
+      .min(1)
+      .max(64),
   })
   .strip();
 

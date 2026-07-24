@@ -14,11 +14,7 @@ import { zipCrc32 } from "@/intake/zip";
 
 import { confirmJobArchiveUpload, planJobArchiveUpload, startUploadJob } from "../server/service";
 import type { StudioActor } from "../server/contracts";
-import {
-  UPLOAD_FINGERPRINT_DOMAIN,
-  uploadFingerprintSampleRanges,
-  type StartJobInput,
-} from "../studio-types";
+import { type StartJobInput } from "../studio-types";
 import { PRIVATE_SOURCE_BUCKET } from "../server/extraction";
 import type { FakeWorld } from "./fakes";
 
@@ -136,6 +132,88 @@ export function buildZipParts(
   return { parts: emitter.finish(), totalSize: emitter.totalBytes };
 }
 
+/**
+ * Streaming variant of buildZipParts: completed fixed-size parts are handed
+ * to `onPart` and DROPPED instead of accumulated, so a near-300 MiB fixture
+ * can be generated while only one entry payload plus one part boundary is
+ * ever resident (used by the disk-backed memory benchmark).
+ */
+export function buildZipPartsStreaming(
+  entries: StreamedZipEntry[],
+  partSize: number,
+  onPart: (index: number, part: Buffer) => void,
+): { partCount: number; totalSize: number; partSha256: string[] } {
+  const partSha256: string[] = [];
+  let emitted = 0;
+  const sink = (part: Buffer) => {
+    partSha256.push(sha256HexSync(part));
+    onPart(emitted, part);
+    emitted += 1;
+  };
+  const emitter = new (class extends PartEmitter {
+    override append(chunk: Buffer): void {
+      super.append(chunk);
+      // Flush every completed part immediately instead of retaining it.
+      while (this.parts.length > 0) sink(this.parts.shift()!);
+    }
+  })(partSize);
+
+  const central: Buffer[] = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const nameBuf = Buffer.from(entry.name, "utf8");
+    const raw = entry.data();
+    const method = entry.method ?? 0;
+    const stored = method === 8 ? deflateRawSync(raw) : raw;
+    const crc = entry.corruptCrc ? (zipCrc32(raw) ^ 0xffffffff) >>> 0 : zipCrc32(raw);
+
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0, 6);
+    local.writeUInt16LE(method, 8);
+    local.writeUInt16LE(0, 10);
+    local.writeUInt16LE(0x21, 12);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(stored.length, 18);
+    local.writeUInt32LE(raw.length, 22);
+    local.writeUInt16LE(nameBuf.length, 26);
+    local.writeUInt16LE(0, 28);
+    emitter.append(local);
+    emitter.append(nameBuf);
+    emitter.append(stored);
+
+    const record = Buffer.alloc(46);
+    record.writeUInt32LE(0x02014b50, 0);
+    record.writeUInt16LE(20, 4);
+    record.writeUInt16LE(20, 6);
+    record.writeUInt16LE(0, 8);
+    record.writeUInt16LE(method, 10);
+    record.writeUInt16LE(0, 12);
+    record.writeUInt16LE(0x21, 14);
+    record.writeUInt32LE(crc, 16);
+    record.writeUInt32LE(stored.length, 20);
+    record.writeUInt32LE(raw.length, 24);
+    record.writeUInt16LE(nameBuf.length, 28);
+    record.writeUInt32LE(0, 38);
+    record.writeUInt32LE(offset, 42);
+    central.push(record, nameBuf);
+    offset += 30 + nameBuf.length + stored.length;
+  }
+
+  const centralDir = Buffer.concat(central);
+  emitter.append(centralDir);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(entries.length, 8);
+  eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(centralDir.length, 12);
+  eocd.writeUInt32LE(offset, 16);
+  emitter.append(eocd);
+  for (const part of emitter.finish()) sink(part);
+  return { partCount: emitted, totalSize: emitter.totalBytes, partSha256 };
+}
+
 export function splitBuffer(buffer: Buffer, partSize: number): Buffer[] {
   const parts: Buffer[] = [];
   for (let start = 0; start < buffer.length; start += partSize) {
@@ -156,33 +234,13 @@ export function patternBytes(size: number, seed: number): Buffer {
 }
 
 /**
- * Node mirror of the browser's computeUploadFingerprint over pre-built parts:
- * identical domain prefix, sample ranges, and trailing 8-byte length, reading
- * the sampled ranges across part boundaries without concatenating the whole
- * archive.
+ * Node mirror of the browser's computeUploadPartManifest over pre-built parts:
+ * the exact ordered per-part SHA-256 manifest, one digest per fixed-size part,
+ * covering every byte. Parts built by buildZipParts/PartEmitter already carry
+ * the fixed part geometry, so the manifest is simply one digest per part.
  */
-export function fingerprintForParts(parts: Buffer[], totalSize: number): string {
-  const partSize = parts[0]?.length ?? 1;
-  const readRange = (start: number, end: number): Buffer => {
-    const out: Buffer[] = [];
-    let cursor = start;
-    while (cursor < end) {
-      const index = Math.floor(cursor / partSize);
-      const within = cursor - index * partSize;
-      const take = Math.min(end - cursor, parts[index].length - within);
-      out.push(parts[index].subarray(within, within + take));
-      cursor += take;
-    }
-    return Buffer.concat(out);
-  };
-  const pieces: Buffer[] = [Buffer.from(UPLOAD_FINGERPRINT_DOMAIN, "utf8")];
-  for (const range of uploadFingerprintSampleRanges(totalSize)) {
-    pieces.push(readRange(range.start, Math.min(range.end, totalSize)));
-  }
-  const size = Buffer.alloc(8);
-  size.writeBigUInt64BE(BigInt(totalSize), 0);
-  pieces.push(size);
-  return createHash("sha256").update(Buffer.concat(pieces)).digest("hex");
+export function manifestForParts(parts: Buffer[]): string[] {
+  return parts.map((part) => sha256HexSync(part));
 }
 
 // ---------------------------------------------------------------------------
@@ -223,15 +281,16 @@ export async function uploadArchiveParts(
     skipParts?: number[];
     tamperPart?: number;
     skipConfirm?: boolean;
-    /** Override the content-derived fingerprint (collision regressions). */
-    uploadFingerprint?: string;
+    /** Override the content-derived per-part manifest (identity regressions). */
+    partSha256?: string[];
   } = {},
 ): Promise<UploadedArchive> {
+  const manifest = options.partSha256 ?? manifestForParts(parts);
   const plan = await planJobArchiveUpload(world.deps, actor, {
     jobId,
     fileName,
     declaredSize: totalSize,
-    uploadFingerprint: options.uploadFingerprint ?? fingerprintForParts(parts, totalSize),
+    partSha256: manifest,
   });
   for (const target of plan.parts) {
     if (options.skipParts?.includes(target.index)) continue;
@@ -250,7 +309,7 @@ export async function uploadArchiveParts(
     await confirmJobArchiveUpload(world.deps, actor, {
       jobId,
       archiveId: plan.archiveId,
-      partSha256: parts.map((part) => sha256HexSync(part)),
+      partSha256: manifest,
     });
   }
   return { archiveId: plan.archiveId, parts, totalSize };

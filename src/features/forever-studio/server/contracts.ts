@@ -171,7 +171,7 @@ export interface StudioArchivePartRecord {
   index: number;
   /** Server-observed stored size (authoritative); null until observed. */
   size: number | null;
-  /** Client-declared SHA-256 claim (recorded at confirm; never trusted). */
+  /** Client-declared SHA-256 manifest digest (recorded at PLAN; never trusted). */
   declaredSha256: string | null;
   /** Server-computed streamed SHA-256 of the stored part bytes. */
   sha256: string | null;
@@ -198,12 +198,15 @@ export interface StudioArchiveRow {
   /** Original client filename — PRIVATE (service-role only); never projected. */
   file_name: string;
   /**
-   * Client upload fingerprint (SHA-256 hex over bounded content samples +
-   * size). Resume identity ONLY — two different archives with the same name
-   * and size never attach to each other's parts. Never a substitute for
-   * server verification of the actual stored bytes. PRIVATE.
+   * Server-derived manifest identity: SHA-256 over the manifest domain, the
+   * exact size, the fixed part size, the part count, and the ordered raw
+   * per-part digests (see deriveManifestSha256). Resume identity ONLY — an
+   * upload resumes an existing archive only when the COMPLETE per-part
+   * manifest (stored on parts[].declaredSha256) matches digest-for-digest.
+   * Never a substitute for server verification of the actual stored bytes.
+   * PRIVATE.
    */
-  upload_fingerprint: string;
+  manifest_sha256: string;
   declared_size: number;
   part_size: number;
   part_count: number;
@@ -502,6 +505,18 @@ export interface StudioStorage {
    * object is absent or cannot be read.
    */
   hashObject(bucket: string, path: string, headBytes: number): Promise<StudioObjectDigest | null>;
+  /**
+   * Stream the object's bytes through `onChunk` in bounded chunks WITHOUT
+   * materializing the object (peak memory ≈ one transport chunk). Returns the
+   * exact byte count, or null when the object is absent or cannot be read.
+   * Used by whole-archive hashing so a 300 MiB pass never allocates per-part
+   * buffers.
+   */
+  readObjectStream(
+    bucket: string,
+    path: string,
+    onChunk: (chunk: Buffer) => void | Promise<void>,
+  ): Promise<number | null>;
   /** Download only when within `maxBytes`; null when absent or over the cap. */
   downloadWithin(bucket: string, path: string, maxBytes: number): Promise<Buffer | null>;
 

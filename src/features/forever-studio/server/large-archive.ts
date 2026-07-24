@@ -8,8 +8,9 @@
  *             through its own short-lived signed URL into the PRIVATE staging
  *             bucket — resumable at part granularity over unstable internet,
  *             and never proxied through the application server. Resume
- *             identity is a client upload fingerprint + exact size, never the
- *             filename. Storage acceptance proves existence + exact size of
+ *             identity is the EXACT ordered per-part SHA-256 manifest (every
+ *             byte hashed), never the filename and never a sampled digest.
+ *             Storage acceptance proves existence + exact size of
  *             every part (uploaded_unverified); the stored bytes of every
  *             part are then streamed through SHA-256 by the first processing
  *             slices, and ONLY after all of them match does the archive
@@ -60,9 +61,11 @@ import type { ExtractedPriceList } from "@/import/types";
 
 import {
   ARCHIVE_PART_BYTES,
+  archivePartCountForSize,
   JOB_SOURCE_BUDGET_BYTES,
   LARGE_ARCHIVE_MAX_BYTES,
   MAX_ARCHIVES_PER_JOB,
+  UPLOAD_MANIFEST_DOMAIN,
   type StudioArchiveConfirmInput,
   type StudioArchiveConfirmResult,
   type StudioArchivePartTarget,
@@ -195,6 +198,40 @@ function expectedPartSize(archive: StudioArchiveRow, index: number): number {
 
 const SHA256_HEX = /^[a-f0-9]{64}$/;
 
+/**
+ * Cryptographically complete resume identity over the exact ordered per-part
+ * manifest: SHA-256 of domain/version, exact file size, fixed part size, part
+ * count, and the ordered RAW per-part digests. Derived by the SERVER from the
+ * submitted manifest — the client never supplies this value. Used only to
+ * find resume candidates; the actual resume decision additionally requires
+ * the full stored manifest to match digest-for-digest.
+ */
+export async function deriveManifestSha256(
+  declaredSize: number,
+  partSize: number,
+  partSha256: string[],
+): Promise<string> {
+  const { createHash } = await import("node:crypto");
+  const hash = createHash("sha256");
+  hash.update(Buffer.from(UPLOAD_MANIFEST_DOMAIN, "utf8"));
+  const geometry = Buffer.alloc(16);
+  geometry.writeBigUInt64BE(BigInt(declaredSize), 0);
+  geometry.writeUInt32BE(partSize, 8);
+  geometry.writeUInt32BE(partSha256.length, 12);
+  hash.update(geometry);
+  for (const digest of partSha256) hash.update(Buffer.from(digest, "hex"));
+  return hash.digest("hex");
+}
+
+/** True when the archive's recorded manifest equals the submitted one exactly. */
+function manifestMatchesArchive(archive: StudioArchiveRow, partSha256: string[]): boolean {
+  if (archive.part_count !== partSha256.length) return false;
+  if (archive.parts.length !== partSha256.length) return false;
+  return archive.parts.every(
+    (part, index) => part.index === index && part.declaredSha256 === partSha256[index],
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Random-access source over the verified part objects
 // ---------------------------------------------------------------------------
@@ -247,7 +284,11 @@ export class PartedArchiveSource implements ZipByteSource {
       const to = Math.min(data.length, endExclusive - partStart);
       chunks.push(data.subarray(from, to));
     }
-    return chunks.length === 1 ? Buffer.from(chunks[0]) : Buffer.concat(chunks);
+    // Single-part reads return a READ-ONLY view of the cached part instead of
+    // an up-to-8-MiB copy per read: every consumer treats source bytes as
+    // immutable, and a retained view pins at most one part-sized buffer —
+    // the same bound as the cache itself. Cross-part reads still concatenate.
+    return chunks.length === 1 ? chunks[0] : Buffer.concat(chunks);
   }
 }
 
@@ -296,11 +337,13 @@ async function storedPartSizes(
 
 /**
  * Register (or resume) one large-archive upload for a job the actor owns.
- * Resume identity is the client upload fingerprint + exact declared size —
- * NEVER the filename: re-planning the same content resumes the SAME archive
- * with the parts already stored, while a DIFFERENT archive that merely shares
- * a name and byte size gets a fresh archive id and fresh part paths, so stale
- * parts can never attach to it. The job must not be published yet.
+ * Resume identity is the EXACT ordered per-part SHA-256 manifest — NEVER the
+ * filename, and never a sampled digest: re-planning resumes an existing
+ * archive only when the complete manifest matches digest-for-digest (plus the
+ * exact size and part geometry), while ANY difference — even a single byte
+ * anywhere in the file — produces a fresh archive id and fresh part paths, so
+ * stale parts can never attach to different bytes. The job must not be
+ * published yet.
  */
 export async function planArchiveUpload(
   deps: StudioDeps,
@@ -327,17 +370,29 @@ export async function planArchiveUpload(
       `Archives up to ${Math.round(LARGE_ARCHIVE_MAX_BYTES / (1024 * 1024))} MB are supported.`,
     );
   }
-  const fingerprint = input.uploadFingerprint?.toLowerCase();
-  if (!fingerprint || !SHA256_HEX.test(fingerprint)) {
-    throw new StudioAccessError("archive_fingerprint_invalid");
+  const partSha256 = (input.partSha256 ?? []).map((digest) => digest?.toLowerCase());
+  if (
+    partSha256.length !== archivePartCountForSize(input.declaredSize) ||
+    partSha256.some((digest) => !digest || !SHA256_HEX.test(digest))
+  ) {
+    throw new StudioAccessError("archive_manifest_invalid");
   }
+  const manifestSha256 = await deriveManifestSha256(
+    input.declaredSize,
+    ARCHIVE_PART_BYTES,
+    partSha256,
+  );
 
   const archives = await deps.data.listJobArchives(job.id);
   const existing = archives.find(
     (archive) =>
-      archive.upload_fingerprint === fingerprint &&
+      archive.manifest_sha256 === manifestSha256 &&
       archive.declared_size === input.declaredSize &&
-      archive.status !== "rejected",
+      archive.part_size === ARCHIVE_PART_BYTES &&
+      archive.status !== "rejected" &&
+      // The identity digest narrows the candidate; the RESUME decision itself
+      // requires the entire stored manifest to match, digest for digest.
+      manifestMatchesArchive(archive, partSha256),
   );
   if (existing) {
     const sizes = await storedPartSizes(deps, job.id, existing.id);
@@ -370,7 +425,7 @@ export async function planArchiveUpload(
     );
   }
 
-  const partCount = Math.ceil(input.declaredSize / ARCHIVE_PART_BYTES);
+  const partCount = partSha256.length;
   const row: StudioArchiveRow = {
     id: crypto.randomUUID(),
     job_id: job.id,
@@ -378,14 +433,17 @@ export async function planArchiveUpload(
     // artifacts adopt first-archive-wins, independent of clock resolution.
     ordinal: archives.length,
     file_name: fileName,
-    upload_fingerprint: fingerprint,
+    manifest_sha256: manifestSha256,
     declared_size: input.declaredSize,
     part_size: ARCHIVE_PART_BYTES,
     part_count: partCount,
-    parts: Array.from({ length: partCount }, (_, index) => ({
+    // The complete per-part manifest is bound to the archive AT PLAN TIME:
+    // every later confirm must present exactly this manifest, and byte
+    // verification hashes the actual stored bytes against these claims.
+    parts: partSha256.map((declaredSha256, index) => ({
       index,
       size: null,
-      declaredSha256: null,
+      declaredSha256,
       sha256: null,
       verified: false,
     })),
@@ -436,15 +494,21 @@ export async function confirmArchiveUpload(
   if (!archive || archive.job_id !== job.id) {
     throw new StudioAccessError("archive_not_found");
   }
-  if (archive.status !== "planned") {
-    // Idempotent re-confirm of an already accepted archive.
-    return { archiveId: archive.id, accepted: true, missingParts: [] };
-  }
-  if (
-    input.partSha256.length !== archive.part_count ||
-    input.partSha256.some((sha) => !SHA256_HEX.test(sha))
-  ) {
+  // The confirming client must present EXACTLY the manifest this archive was
+  // planned with. An accepted archive can therefore never be "confirmed" by a
+  // caller holding different bytes — a mismatch is a hard refusal, never an
+  // idempotent success, and never mutates the archive.
+  const partSha256 = (input.partSha256 ?? []).map((digest) => digest?.toLowerCase());
+  if (partSha256.some((sha) => !sha || !SHA256_HEX.test(sha))) {
     throw new StudioAccessError("archive_part_manifest_invalid");
+  }
+  if (!manifestMatchesArchive(archive, partSha256)) {
+    throw new StudioAccessError("archive_manifest_mismatch");
+  }
+  if (archive.status !== "planned") {
+    // Idempotent re-confirm of an already accepted archive — reached only
+    // with the SAME complete manifest (proven above).
+    return { archiveId: archive.id, accepted: true, missingParts: [] };
   }
 
   const sizes = await storedPartSizes(deps, job.id, archive.id);
@@ -469,10 +533,12 @@ export async function confirmArchiveUpload(
     };
   }
 
-  const parts: StudioArchivePartRecord[] = Array.from({ length: archive.part_count }, (_, i) => ({
+  // Record server-observed sizes; the declared per-part manifest was bound at
+  // plan time and is preserved verbatim (confirm can never rewrite claims).
+  const parts: StudioArchivePartRecord[] = archive.parts.map((part, i) => ({
     index: i,
     size: sizes.get(i) ?? null,
-    declaredSha256: input.partSha256[i],
+    declaredSha256: part.declaredSha256,
     sha256: null,
     verified: false,
   }));
@@ -581,24 +647,32 @@ async function verifyArchiveParts(
     await updateArchiveClaimedOrThrow(deps, job.id, token, archive.id, { parts });
   }
   const composite = await sha256Hex(Buffer.from(parts.map((part) => part.sha256).join(""), "utf8"));
+  // The EXACT whole-archive SHA-256 is streamed across the ordered verified
+  // parts BEFORE the archive may durably become byte_verified: the database
+  // lifecycle guard requires complete part evidence AND the exact archive
+  // hash to enter that state, so the transition is one atomic patch.
+  const exact = await computeExactArchiveSha(deps, job, archive, heartbeat);
   await updateArchiveClaimedOrThrow(deps, job.id, token, archive.id, {
     parts,
     composite_sha256: composite,
+    archive_sha256: exact,
     status: "byte_verified",
   });
   archive.parts = parts;
   archive.composite_sha256 = composite;
+  archive.archive_sha256 = exact;
   archive.status = "byte_verified";
   return true;
 }
 
 /**
- * Exact SHA-256 of the WHOLE archive, streamed across the ordered verified
- * parts — one bounded 8 MiB read at a time, never a whole-archive buffer.
- * Runs once after byte verification (idempotent: interrupted passes simply
- * restart; there is no partial state to corrupt). This is the archive's true
- * file digest; composite_sha256 remains the digest-of-part-digests and is
- * never labelled as the file hash.
+ * Exact SHA-256 of the WHOLE archive, STREAMED across the ordered verified
+ * parts in transport-sized chunks — never a whole-archive buffer and never
+ * even a whole-part buffer (peak memory ≈ one transport chunk, so a 300 MiB
+ * pass allocates no per-part 8 MiB buffers). Runs before the byte_verified
+ * transition (which requires it as state evidence). This is the archive's
+ * true file digest; composite_sha256 remains the digest-of-part-digests and
+ * is never labelled as the file hash.
  */
 async function computeExactArchiveSha(
   deps: StudioDeps,
@@ -610,15 +684,16 @@ async function computeExactArchiveSha(
   const hash = createHash("sha256");
   for (let index = 0; index < archive.part_count; index += 1) {
     await heartbeat();
-    const data = await deps.storage.downloadWithin(
+    const size = await deps.storage.readObjectStream(
       PRIVATE_SOURCE_BUCKET,
       archivePartPath(job.id, archive.id, index),
-      archive.part_size,
+      (chunk) => {
+        hash.update(chunk);
+      },
     );
-    if (!data || data.length !== expectedPartSize(archive, index)) {
+    if (size !== expectedPartSize(archive, index)) {
       throw new StudioError("storage_unavailable", safeMessageFor("storage_unavailable"), true);
     }
-    hash.update(data);
   }
   return hash.digest("hex");
 }
@@ -803,12 +878,10 @@ class EvidenceWriter {
     const index = this.parts.length;
     const path = entryEvidencePartPath(this.prefix, index);
     const expectedSha = await sha256Hex(data);
-    await this.deps.storage.upload(
-      PRIVATE_SOURCE_BUCKET,
-      path,
-      Buffer.from(data),
-      "application/octet-stream",
-    );
+    // `data` may be a view of a larger pending buffer; the storage boundary
+    // serializes it (production: network write; fakes copy defensively), so
+    // no extra part-sized copy is made here.
+    await this.deps.storage.upload(PRIVATE_SOURCE_BUCKET, path, data, "application/octet-stream");
     // The manifest records only server-observed stored bytes: re-hash the
     // object we just wrote (bounded read) before trusting it.
     const check = await this.deps.storage.hashObject(PRIVATE_SOURCE_BUCKET, path, 4);
@@ -1310,17 +1383,9 @@ export async function runArchiveSlice(
 
     let directory: RangedZipDirectory | null = null;
     if (archive.status === "byte_verified") {
-      // Record the EXACT whole-archive SHA-256: the ordered verified parts
-      // streamed through one hash, 8 MiB at a time — never a whole-archive
-      // buffer. Idempotent: an interrupted pass has no partial state and
-      // simply restarts on the next slice.
-      if (!archive.archive_sha256) {
-        const exact = await computeExactArchiveSha(deps, job, archive, heartbeat);
-        await updateArchiveClaimedOrThrow(deps, job.id, token, archive.id, {
-          archive_sha256: exact,
-        });
-        archive.archive_sha256 = exact;
-      }
+      // The exact whole-archive SHA-256 was recorded atomically WITH the
+      // byte_verified transition (the database lifecycle guard enforces it);
+      // this slice only has to persist the entry inventory.
       directory = await indexArchive(deps, job, token, archive, source);
       if (!directory) continue; // rejected fail-closed
     }

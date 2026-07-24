@@ -17,10 +17,9 @@ import { supabase } from "@/integrations/supabase/client";
 
 import { studioConfirmArchiveUpload, studioPlanArchiveUpload } from "../studio.functions";
 import {
+  ARCHIVE_PART_BYTES,
   LARGE_ARCHIVE_MAX_BYTES,
   LARGE_ARCHIVE_MIN_BYTES,
-  UPLOAD_FINGERPRINT_DOMAIN,
-  uploadFingerprintSampleRanges,
   type StudioArchivePartTarget,
 } from "../studio-types";
 
@@ -49,7 +48,7 @@ export interface ArchiveUploadProgress {
 }
 
 /** Blob bytes with a FileReader fallback (older WebKit, jsdom). */
-async function blobBytes(blob: Blob): Promise<Uint8Array> {
+async function blobBytes(blob: Blob): Promise<Uint8Array<ArrayBuffer>> {
   if (typeof blob.arrayBuffer === "function") return new Uint8Array(await blob.arrayBuffer());
   return await new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -59,31 +58,34 @@ async function blobBytes(blob: Blob): Promise<Uint8Array> {
   });
 }
 
-/**
- * Stable client upload fingerprint: SHA-256 over a domain prefix, bounded
- * content samples (head, two interior windows, tail — at most 4 × 256 KiB),
- * and the exact byte length. Distinguishes different archives that share a
- * filename and size, resumes the same archive deterministically, and costs
- * about one part's worth of hashing even for a 300 MiB phone upload. It is a
- * resume identity only — the server still verifies every stored byte.
- */
-export async function computeUploadFingerprint(file: File): Promise<string> {
-  const pieces: Uint8Array[] = [new TextEncoder().encode(UPLOAD_FINGERPRINT_DOMAIN)];
-  for (const range of uploadFingerprintSampleRanges(file.size)) {
-    pieces.push(await blobBytes(file.slice(range.start, range.end)));
-  }
-  const sizeBytes = new Uint8Array(8);
-  new DataView(sizeBytes.buffer).setBigUint64(0, BigInt(file.size), false);
-  pieces.push(sizeBytes);
-  const total = pieces.reduce((sum, piece) => sum + piece.byteLength, 0);
-  const joined = new Uint8Array(total);
-  let offset = 0;
-  for (const piece of pieces) {
-    joined.set(piece, offset);
-    offset += piece.byteLength;
-  }
-  const digest = await crypto.subtle.digest("SHA-256", joined);
+function hexOf(digest: ArrayBuffer): string {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * The exact ordered per-part SHA-256 manifest: one digest per fixed-size
+ * upload part, covering EVERY byte of the file. Parts are read and hashed
+ * strictly one at a time (never the whole file in one ArrayBuffer), so peak
+ * memory stays ≈ one part even for a 300 MiB phone upload. This manifest is
+ * the resume identity — the server resumes an upload only when the complete
+ * manifest matches digest-for-digest — and doubles as the per-part claims the
+ * server later verifies against the ACTUAL stored bytes. It replaces the
+ * retired v1 sampled fingerprint, which hashed only four bounded windows and
+ * could not distinguish same-size files differing outside those samples.
+ * It is a resume identity only — the server still verifies every stored byte.
+ */
+export async function computeUploadPartManifest(file: File): Promise<string[]> {
+  const manifest: string[] = [];
+  for (let start = 0; start < file.size; start += ARCHIVE_PART_BYTES) {
+    const part = await blobBytes(
+      file.slice(start, Math.min(file.size, start + ARCHIVE_PART_BYTES)),
+    );
+    manifest.push(hexOf(await crypto.subtle.digest("SHA-256", part)));
+  }
+  if (manifest.length === 0) {
+    manifest.push(hexOf(await crypto.subtle.digest("SHA-256", new Uint8Array(0))));
+  }
+  return manifest;
 }
 
 const PART_UPLOAD_ATTEMPTS = 4;
@@ -91,11 +93,6 @@ const CONFIRM_ROUNDS = 3;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function sha256HexOf(blob: Blob): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function uploadOnePart(
@@ -134,7 +131,7 @@ async function uploadOnePart(
  * verification of the actual stored bytes happens in the background
  * processing slices. Throws when the upload cannot complete (the caller
  * offers a retry — re-running resumes from the stored parts, keyed by the
- * upload fingerprint rather than the filename).
+ * exact per-part manifest rather than the filename).
  */
 export async function uploadLargeArchive(
   jobId: string,
@@ -148,9 +145,9 @@ export async function uploadLargeArchive(
     partCount: 0,
     state: "preparing",
   });
-  const uploadFingerprint = await computeUploadFingerprint(file);
+  const partSha256 = await computeUploadPartManifest(file);
   const plan = await studioPlanArchiveUpload({
-    data: { jobId, fileName: file.name, declaredSize: file.size, uploadFingerprint },
+    data: { jobId, fileName: file.name, declaredSize: file.size, partSha256 },
   });
   const report = (state: ArchiveUploadProgress["state"], partsDone: number) =>
     onProgress({
@@ -169,17 +166,11 @@ export async function uploadLargeArchive(
     report("uploading", done);
   }
 
-  // Per-part SHA-256 claims for every part; the server later hash-verifies
-  // the ACTUAL stored bytes against these before anything expands.
+  // The manifest computed above already carries the per-part SHA-256 claims
+  // the server recorded at plan time and later hash-verifies against the
+  // ACTUAL stored bytes before anything expands; confirm resubmits it so the
+  // server can prove the confirming client still holds the SAME archive.
   report("confirming", done);
-  const partSha256: string[] = [];
-  for (let index = 0; index < plan.partCount; index += 1) {
-    const start = index * plan.partSize;
-    partSha256.push(
-      await sha256HexOf(file.slice(start, Math.min(file.size, start + plan.partSize))),
-    );
-  }
-
   for (let round = 0; round < CONFIRM_ROUNDS; round += 1) {
     const confirm = await studioConfirmArchiveUpload({
       data: { jobId, archiveId: plan.archiveId, partSha256 },

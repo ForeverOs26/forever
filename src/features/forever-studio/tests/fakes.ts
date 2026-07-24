@@ -118,12 +118,28 @@ export class FakeStorage implements StudioStorage {
     return buf;
   }
 
+  async readObjectStream(
+    bucket: string,
+    path: string,
+    onChunk: (chunk: Buffer) => void | Promise<void>,
+  ): Promise<number | null> {
+    const buf = this.objects.get(this.key(bucket, path));
+    if (!buf) return null;
+    // Bounded 64 KiB views, mirroring the production transport stream.
+    for (let start = 0; start < buf.length; start += 64 * 1024) {
+      await onChunk(buf.subarray(start, Math.min(buf.length, start + 64 * 1024)));
+    }
+    return buf.length;
+  }
+
   async upload(bucket: string, path: string, data: Buffer, contentType?: string): Promise<void> {
     if (this.failCopyOnce && bucket !== "studio-uploads") {
       this.failCopyOnce = false;
       throw new Error("storage derivative upload failed (injected)");
     }
-    this.objects.set(this.key(bucket, path), data);
+    // Defensive copy: production serializes to the network, so the caller may
+    // hand over a view of a larger internal buffer without retaining it.
+    this.objects.set(this.key(bucket, path), Buffer.from(data));
     if (contentType) this.contentTypes.set(this.key(bucket, path), contentType);
   }
 
@@ -746,7 +762,66 @@ export class FakeData implements StudioData {
     return !!job && job.status === "processing" && job.processing_token === token;
   }
 
+  /**
+   * Mirrors public.studio_archive_lifecycle_guard: the DB-enforced status
+   * transition matrix plus the state evidence each transition requires.
+   * Same-state updates are idempotent; violations throw exactly like the
+   * trigger raises, leaving the stored row unchanged.
+   */
+  private assertArchiveLifecycle(previous: StudioArchiveRow, next: StudioArchiveRow): void {
+    if (next.status === previous.status) return;
+    const allowed: Record<StudioArchiveStatus, StudioArchiveStatus[]> = {
+      planned: ["uploaded_unverified", "rejected"],
+      uploaded_unverified: ["byte_verifying", "rejected"],
+      byte_verifying: ["byte_verified", "rejected"],
+      byte_verified: ["processing_entries", "rejected"],
+      processing_entries: ["completed", "rejected"],
+      completed: [],
+      rejected: [],
+    };
+    if (!allowed[previous.status]?.includes(next.status)) {
+      throw new Error(`studio_archive_invalid_transition: ${previous.status} -> ${next.status}`);
+    }
+    if (next.status === "byte_verified" || next.status === "completed") {
+      const parts = next.parts ?? [];
+      const byteVerified =
+        parts.length === next.part_count &&
+        parts.every((part) => part.verified && /^[0-9a-f]{64}$/.test(part.sha256 ?? "")) &&
+        next.observed_size === next.declared_size &&
+        /^[0-9a-f]{64}$/.test(next.archive_sha256 ?? "");
+      if (!byteVerified) {
+        throw new Error(`studio_archive_byte_verification_evidence_missing: ${next.status}`);
+      }
+    }
+    if (next.status === "processing_entries") {
+      if (
+        next.entry_count == null ||
+        next.entry_count < 0 ||
+        next.total_uncompressed == null ||
+        next.total_uncompressed < 0
+      ) {
+        throw new Error("studio_archive_inventory_evidence_missing");
+      }
+      const rows = [...this.archiveEntries.values()].filter(
+        (row) => row.archive_id === next.id,
+      ).length;
+      if (rows !== next.entry_count) {
+        throw new Error("studio_archive_inventory_incomplete");
+      }
+    }
+    if (next.status === "completed") {
+      const pending = [...this.archiveEntries.values()].some(
+        (row) => row.archive_id === next.id && row.state === "pending",
+      );
+      if (pending) throw new Error("studio_archive_completed_with_pending_entries");
+    }
+  }
+
   async createArchive(row: StudioArchiveRow) {
+    // Mirrors the trigger's INSERT rule: every archive starts at 'planned'.
+    if (row.status !== "planned") {
+      throw new Error(`studio_archive_invalid_initial_status: ${row.status}`);
+    }
     this.archives.set(row.id, structuredClone(row));
   }
   async getArchive(id: string) {
@@ -771,7 +846,11 @@ export class FakeData implements StudioData {
   ) {
     const row = this.archives.get(id);
     if (!row || !fromStatuses.includes(row.status)) return false;
-    this.archives.set(id, { ...row, ...structuredClone(patch) });
+    const next = { ...row, ...structuredClone(patch) };
+    // The production write is a direct table UPDATE — the lifecycle trigger
+    // still fires there, so the fake enforces the identical matrix.
+    this.assertArchiveLifecycle(row, next);
+    this.archives.set(id, next);
     return true;
   }
   async updateArchiveIfClaimed(
@@ -781,9 +860,13 @@ export class FakeData implements StudioData {
     patch: Partial<StudioArchiveRow>,
   ) {
     if (!this.jobClaimHeld(jobId, token)) return false;
+    // Mirrors the RPC's locked ownership proof: the target archive must
+    // exist AND belong to the claimed job, else FALSE (never a write).
     const row = this.archives.get(archiveId);
     if (!row || row.job_id !== jobId) return false;
-    this.archives.set(archiveId, { ...row, ...structuredClone(patch) });
+    const next = { ...row, ...structuredClone(patch) };
+    this.assertArchiveLifecycle(row, next);
+    this.archives.set(archiveId, next);
     return true;
   }
   async insertArchiveEntriesIfClaimed(
@@ -792,7 +875,16 @@ export class FakeData implements StudioData {
     entries: StudioArchiveEntryRow[],
   ) {
     if (!this.jobClaimHeld(jobId, token)) return false;
+    // Mirrors the RPC's locked ownership proof on the target archive.
+    const targetArchive = entries[0] ? this.archives.get(entries[0].archive_id) : undefined;
+    if (entries.length > 0 && (!targetArchive || targetArchive.job_id !== jobId)) return false;
     for (const entry of entries) {
+      // Mirrors the composite FK (archive_id, job_id) → studio_archives:
+      // an entry can never claim an archive under a different job.
+      const parent = this.archives.get(entry.archive_id);
+      if (!parent || parent.job_id !== entry.job_id) {
+        throw new Error("studio_archive_entries_fk_violation");
+      }
       const duplicate = [...this.archiveEntries.values()].some(
         (row) => row.archive_id === entry.archive_id && row.entry_index === entry.entry_index,
       );
@@ -822,6 +914,10 @@ export class FakeData implements StudioData {
     if (!this.jobClaimHeld(jobId, token)) return false;
     const entry = this.archiveEntries.get(entryId);
     if (!entry || entry.job_id !== jobId || entry.state !== "pending") return false;
+    // Mirrors the RPC's archive-ownership proof: the entry's parent archive
+    // must belong to the claimed job.
+    const parent = this.archives.get(entry.archive_id);
+    if (!parent || parent.job_id !== jobId) return false;
     Object.assign(entry, {
       state: outcome.state,
       outcome_code: outcome.outcomeCode,

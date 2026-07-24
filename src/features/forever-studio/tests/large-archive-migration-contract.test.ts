@@ -124,19 +124,89 @@ describe("large-archive migration contract", () => {
     expect(ddl).not.toMatch(/'indexed'/);
   });
 
-  it("carries the resume fingerprint, the exact archive hash, and the evidence manifest", () => {
-    expect(ddl).toMatch(/upload_fingerprint TEXT NOT NULL CHECK/);
+  it("carries the manifest resume identity, the exact archive hash, and the evidence manifest", () => {
+    expect(ddl).toMatch(/manifest_sha256 TEXT NOT NULL CHECK/);
     expect(ddl).toMatch(/archive_sha256 TEXT CHECK/);
-    expect(ddl).toContain("idx_studio_archives_job_fingerprint");
+    expect(ddl).toContain("idx_studio_archives_job_manifest");
     expect(ddl).toMatch(/evidence JSONB/);
+    // The retired v1 sampled-fingerprint contract is gone from the schema.
+    expect(ddl).not.toContain("upload_fingerprint");
     // Both new mutable fields are writable ONLY through the claim-checked
-    // whitelists (fingerprint is insert-time and deliberately NOT patchable).
+    // whitelists (the manifest identity is insert-time and NOT patchable).
     const patch = ddl.slice(ddl.indexOf("studio_update_archive_claimed"));
     expect(patch).toContain("archive_sha256 = COALESCE(p_patch->>'archive_sha256'");
-    expect(patch).not.toContain("upload_fingerprint = COALESCE");
+    expect(patch).not.toContain("manifest_sha256 = COALESCE");
     const settle = ddl.slice(ddl.indexOf("studio_settle_archive_entry"));
     expect(settle).toContain("evidence = p_outcome->'evidence'");
     // The digest-of-part-digests is never labelled as the file hash.
     expect(sql).toContain("NOT the file's SHA-256");
+  });
+
+  it("makes cross-job archive/entry pairs unrepresentable at the constraint layer", () => {
+    // Composite identity target + composite FK from the entries table.
+    expect(ddl).toContain("UNIQUE (id, job_id)");
+    expect(ddl).toMatch(
+      /FOREIGN KEY \(archive_id, job_id\)\s*\n?\s*REFERENCES public\.studio_archives \(id, job_id\) ON DELETE CASCADE/,
+    );
+    // Every processing RPC locks the target archive and proves ownership.
+    for (const fn of ["studio_update_archive_claimed", "studio_index_archive_entries"]) {
+      const body = ddl.slice(
+        ddl.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}`),
+        ddl.indexOf("$$;", ddl.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}`)),
+      );
+      expect(body, fn).toContain("SELECT job_id INTO v_archive_job");
+      expect(body, fn).toContain("v_archive_job <> p_job_id");
+      expect(body, fn).toContain("FOR UPDATE");
+    }
+    const settle = ddl.slice(
+      ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_settle_archive_entry"),
+      ddl.indexOf(
+        "$$;",
+        ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_settle_archive_entry"),
+      ),
+    );
+    expect(settle).toContain("v_entry_job <> p_job_id");
+    expect(settle).toContain("v_archive_job <> p_job_id");
+  });
+
+  it("enforces the lifecycle transition matrix and state evidence in the database", () => {
+    expect(ddl).toContain("CREATE OR REPLACE FUNCTION public.studio_archive_lifecycle_guard()");
+    expect(ddl).toContain("CREATE OR REPLACE TRIGGER studio_archives_lifecycle_guard");
+    expect(ddl).toContain("BEFORE INSERT OR UPDATE ON public.studio_archives");
+    const guard = ddl.slice(
+      ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_archive_lifecycle_guard"),
+      ddl.indexOf(
+        "$$;",
+        ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_archive_lifecycle_guard"),
+      ),
+    );
+    expect(guard).toContain("studio_archive_invalid_transition");
+    expect(guard).toContain("studio_archive_invalid_initial_status");
+    expect(guard).toContain("studio_archive_identity_immutable");
+    expect(guard).toContain("studio_archive_byte_verification_evidence_missing");
+    expect(guard).toContain("studio_archive_inventory_incomplete");
+    expect(guard).toContain("studio_archive_completed_with_pending_entries");
+    // Terminal states have no outgoing edges in the matrix.
+    expect(guard).not.toContain("OLD.status = 'completed'");
+    expect(guard).not.toContain("OLD.status = 'rejected'");
+  });
+
+  it("validates JSON patch and outcome fields before casting (malformed input raises)", () => {
+    const patch = ddl.slice(
+      ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_update_archive_claimed"),
+    );
+    expect(patch).toContain("studio_archive_patch_invalid: status");
+    expect(patch).toContain("studio_archive_patch_invalid: observed_size");
+    expect(patch).toContain("studio_archive_patch_invalid: parts");
+    expect(patch).toContain("studio_archive_patch_invalid: archive_sha256");
+    const settle = ddl.slice(
+      ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_settle_archive_entry"),
+    );
+    expect(settle).toContain("studio_archive_outcome_invalid: state");
+    expect(settle).toContain("studio_archive_outcome_invalid: sha256");
+    const index = ddl.slice(
+      ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_index_archive_entries"),
+    );
+    expect(index).toContain("studio_archive_entries_invalid: entry");
   });
 });

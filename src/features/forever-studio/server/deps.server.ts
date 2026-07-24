@@ -566,6 +566,28 @@ function createStudioStorage(): StudioStorage {
     },
     statObject: statObjectImpl,
     hashObject: hashObjectImpl,
+    async readObjectStream(bucket, path, onChunk) {
+      // Same raw-response stream as hashObjectImpl: chunk-bounded, the object
+      // is never materialized in one buffer.
+      const { data, error } = await admin.storage.from(bucket).download(path).asStream();
+      if (error || !data) return null;
+      let size = 0;
+      try {
+        const reader = data.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            const chunk = Buffer.from(value);
+            size += chunk.length;
+            await onChunk(chunk);
+          }
+        }
+      } catch {
+        return null;
+      }
+      return size;
+    },
     async downloadWithin(bucket, path, maxBytes) {
       const stat = await statObjectImpl(bucket, path);
       if (!stat) return null;

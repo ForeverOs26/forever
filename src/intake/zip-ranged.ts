@@ -6,13 +6,19 @@
  * module reads the SAME untrusted-ZIP structure through a narrow random-access
  * byte source instead, so a 300 MiB archive is processed with bounded memory:
  *
- *   1. one bounded tail read locates the end-of-central-directory record;
- *   2. one bounded read materializes the central directory (size-capped);
+ *   1. one bounded tail read locates the ONE structurally valid
+ *      end-of-central-directory record (exact-EOF comment rule, single-disk,
+ *      ambiguity rejected);
+ *   2. one bounded read materializes the central directory (size-capped,
+ *      flush against the EOCD, consumed exactly);
  *   3. the complete entry set passes the IDENTICAL safety contract
- *      (`validateZipEntrySet`) before any entry is decompressed;
- *   4. each entry is then read individually — local header + compressed bytes
- *      only — inflated with an explicit output cap, and CRC-32 / declared-size
- *      verified, exactly like the buffer-based reader.
+ *      (`validateZipEntrySet`, incl. pairwise-disjoint local spans) before
+ *      any entry is decompressed;
+ *   4. each entry is then read individually — its LOCAL header bound to the
+ *      central record (exact name bytes, method, flags, encryption,
+ *      data-descriptor semantics) before the payload, inflated with an
+ *      explicit output cap, and CRC-32 / declared-size verified, exactly
+ *      like the buffer-based reader.
  *
  * ZIP64 is rejected: by the sentinel checks on every central-directory record
  * and the EOCD entry count, and by scanning the full EOCD tail window (the
@@ -27,8 +33,11 @@
 import { inflateRawSync } from "node:zlib";
 
 import {
+  assertDataDescriptor,
+  assertLocalHeaderBinding,
   validateZipEntrySet,
   ZIP_CRC32_SEED,
+  ZIP_FLAG_DATA_DESCRIPTOR,
   zipCrc32,
   zipCrc32Finish,
   zipCrc32Update,
@@ -73,6 +82,12 @@ export interface RangedZipDirectory {
   entries: ZipEntry[];
   /** Absolute offset where the central directory starts (entry data ends). */
   centralDirectoryOffset: number;
+  /**
+   * Every entry's local header offset in ascending order: the containment
+   * fence for per-entry reads — an entry's payload (+ descriptor) must end
+   * before the NEXT local header (or the central directory).
+   */
+  sortedLocalOffsets: number[];
 }
 
 async function readExact(source: ZipByteSource, start: number, endExclusive: number) {
@@ -103,14 +118,28 @@ export async function readZipDirectoryRanged(
   const tailStart = Math.max(0, archiveSize - EOCD_TAIL_WINDOW);
   const tail = await readExact(source, tailStart, archiveSize);
 
-  let eocdInTail = -1;
+  // A candidate EOCD is valid ONLY when its declared comment consumes exactly
+  // the rest of the archive (offset + 22 + commentLength == EOF): fake
+  // signatures inside comments or arbitrary trailing bytes fail this rule.
+  // Genuine records must be single-disk, and more than one exact-EOF
+  // candidate makes the archive structurally ambiguous — rejected outright.
+  const eocdCandidates: number[] = [];
   for (let offset = tail.length - EOCD_MIN; offset >= 0; offset -= 1) {
-    if (tail.readUInt32LE(offset) === EOCD_SIGNATURE) {
-      eocdInTail = offset;
-      break;
+    if (tail.readUInt32LE(offset) !== EOCD_SIGNATURE) continue;
+    const commentLength = tail.readUInt16LE(offset + 20);
+    if (tailStart + offset + EOCD_MIN + commentLength !== archiveSize) continue;
+    if (tail.readUInt16LE(offset + 4) !== 0 || tail.readUInt16LE(offset + 6) !== 0) {
+      throw new ZipUnsupportedError("zip_multi_disk_unsupported");
     }
+    eocdCandidates.push(offset);
   }
-  if (eocdInTail < 0) throw new ZipIntegrityError("zip_end_of_central_directory_not_found");
+  if (eocdCandidates.length === 0) {
+    throw new ZipIntegrityError("zip_end_of_central_directory_not_found");
+  }
+  if (eocdCandidates.length > 1) {
+    throw new ZipIntegrityError("zip_ambiguous_end_of_central_directory");
+  }
+  const eocdInTail = eocdCandidates[0];
 
   // A ZIP64 EOCD locator lives immediately before the EOCD; scanning the whole
   // tail window is the conservative superset of that position.
@@ -138,8 +167,10 @@ export async function readZipDirectoryRanged(
     );
   }
   const eocdAbsolute = tailStart + eocdInTail;
-  if (cdOffset + cdSize > eocdAbsolute) {
-    throw new ZipIntegrityError("zip_central_directory_truncated");
+  // The central directory must sit flush against the EOCD and consume
+  // exactly its declared byte size — no gaps, no trailing structure.
+  if (cdOffset + cdSize !== eocdAbsolute) {
+    throw new ZipIntegrityError("zip_central_directory_bounds_invalid");
   }
 
   const cd = await readExact(source, cdOffset, cdOffset + cdSize);
@@ -158,9 +189,13 @@ export async function readZipDirectoryRanged(
     const nameLength = cd.readUInt16LE(offset + 28);
     const extraLength = cd.readUInt16LE(offset + 30);
     const commentLength = cd.readUInt16LE(offset + 32);
+    const diskNumberStart = cd.readUInt16LE(offset + 34);
     const externalAttributes = cd.readUInt32LE(offset + 38);
     const localHeaderOffset = cd.readUInt32LE(offset + 42);
 
+    if (diskNumberStart !== 0) {
+      throw new ZipUnsupportedError("zip_multi_disk_unsupported");
+    }
     if (
       compressedSize === ZIP64_SENTINEL_32 ||
       uncompressedSize === ZIP64_SENTINEL_32 ||
@@ -176,10 +211,12 @@ export async function readZipDirectoryRanged(
       throw new ZipIntegrityError("zip_central_directory_corrupt");
     }
 
-    const rawName = cd.subarray(offset + 46, offset + 46 + nameLength).toString("utf8");
-    const name = rawName.split("\\").join("/");
+    const rawNameBytes = cd.subarray(offset + 46, offset + 46 + nameLength);
+    const rawName = rawNameBytes.toString("latin1");
+    const name = rawNameBytes.toString("utf8").split("\\").join("/");
     entries.push({
       name,
+      rawName,
       isDirectory: name.endsWith("/"),
       method,
       flags,
@@ -190,6 +227,13 @@ export async function readZipDirectoryRanged(
       externalAttributes,
     });
     offset += 46 + nameLength + extraLength + commentLength;
+    if (offset > cd.length) {
+      throw new ZipIntegrityError("zip_central_directory_truncated");
+    }
+  }
+  // Exactly the declared central-directory bytes must have been consumed.
+  if (offset !== cd.length) {
+    throw new ZipIntegrityError("zip_central_directory_size_mismatch");
   }
 
   // The complete shared safety contract — identical to the buffer reader —
@@ -206,14 +250,23 @@ export async function readZipDirectoryRanged(
     { ...limits, maxFileBytes: Number.MAX_SAFE_INTEGER, maxTotalBytes: Number.MAX_SAFE_INTEGER },
     virtualDest,
   );
-  return { entries, centralDirectoryOffset: cdOffset };
+  return {
+    entries,
+    centralDirectoryOffset: cdOffset,
+    sortedLocalOffsets: entries.map((entry) => entry.localHeaderOffset).sort((a, b) => a - b),
+  };
 }
 
 /**
- * Validate ONE entry's local header (bounded 30-byte read) and locate its
- * compressed payload span. Shared by the buffered reader and the streaming
- * reader; performs the same containment check (entry data must live strictly
- * before the central directory) and no payload read.
+ * Validate ONE entry's local header and locate its compressed payload span —
+ * without reading the payload. The local record is BOUND to the central
+ * entry before anything else: exact name bytes (a second bounded read),
+ * method, relevant flags, encryption state, and CRC/sizes (or their
+ * data-descriptor form when bit 3 is set, in which case the descriptor after
+ * the data is verified against the central values). The entry's occupied
+ * region must end before the NEXT entry's local header (or the central
+ * directory) — central metadata is never trusted to describe bytes that
+ * belong to a different local record.
  */
 export async function locateZipEntryData(
   source: ZipByteSource,
@@ -227,10 +280,39 @@ export async function locateZipEntryData(
   }
   const nameLength = header.readUInt16LE(26);
   const extraLength = header.readUInt16LE(28);
+  const nameBytes =
+    nameLength > 0
+      ? await readExact(source, headerStart + 30, headerStart + 30 + nameLength)
+      : Buffer.alloc(0);
+  assertLocalHeaderBinding(entry, {
+    flags: header.readUInt16LE(6),
+    method: header.readUInt16LE(8),
+    crc32: header.readUInt32LE(14),
+    compressedSize: header.readUInt32LE(18),
+    uncompressedSize: header.readUInt32LE(22),
+    rawName: nameBytes.toString("latin1"),
+  });
+
   const dataStart = headerStart + 30 + nameLength + extraLength;
   const dataEnd = dataStart + entry.compressedSize;
-  if (dataEnd > directory.centralDirectoryOffset) {
-    throw new ZipIntegrityError("zip_local_header_corrupt");
+  // Containment fence: this entry may not reach into the next entry's local
+  // record or the central directory.
+  let upperBound = directory.centralDirectoryOffset;
+  for (const offset of directory.sortedLocalOffsets) {
+    if (offset > headerStart) {
+      upperBound = Math.min(upperBound, offset);
+      break;
+    }
+  }
+  if (dataEnd > upperBound) {
+    throw new ZipIntegrityError(`zip_entry_overlaps_neighbor: ${entry.name}`);
+  }
+  if ((entry.flags & ZIP_FLAG_DATA_DESCRIPTOR) !== 0) {
+    if (upperBound - dataEnd < 12) {
+      throw new ZipIntegrityError(`zip_data_descriptor_mismatch: ${entry.name}`);
+    }
+    const descriptor = await readExact(source, dataEnd, Math.min(upperBound, dataEnd + 16));
+    assertDataDescriptor(entry, descriptor);
   }
   return { dataStart, dataEnd };
 }

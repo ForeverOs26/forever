@@ -1,21 +1,59 @@
 # FOREVER-STUDIO-LARGE-ARCHIVE-001 — Implementation Report
 
 Branch: `claude/forever-studio-large-archive-001` · Base: `8d173db` (post-PR-99 main)
-Status: **implemented + architect-review corrective pass, fully validated locally, Draft PR, migration unapplied, no deployment**
+Status: **implemented + two corrective passes (architect review, independent Codex audit), fully validated locally, Draft PR, migration unapplied, no deployment**
 
-> **Corrective pass (2026-07-24).** The first revision of this report
+> **Corrective pass 2 (2026-07-24, independent Codex audit).** The audit
+> found five defects; all five are corrected in this revision:
+>
+> 1. **Sampled resume identity replaced by the exact per-part manifest.**
+>    The v1 upload fingerprint hashed only four bounded windows, so two
+>    same-size files differing outside the samples could collide and the
+>    second could attach to the first's stored parts (or idempotently
+>    "confirm" an accepted archive it did not upload). The resume identity is
+>    now the **complete ordered per-part SHA-256 manifest** — every byte
+>    hashed, sequentially, one 8 MiB part at a time (bounded memory) — bound
+>    to the archive at PLAN time; resume happens only on a digest-for-digest
+>    match, and confirm refuses any manifest that differs from the planned
+>    one. The sampled-fingerprint contract is removed.
+> 2. **Cross-job archive ownership enforced in SQL.** A valid processing
+>    claim on job B could previously call the archive RPCs against job A's
+>    archive. Every RPC now locks the target archive and proves
+>    `archive.job_id = p_job_id` (returning FALSE otherwise), and a
+>    **composite foreign key** `(archive_id, job_id) →
+studio_archives(id, job_id)` makes cross-job entry rows unrepresentable
+>    at the constraint layer.
+> 3. **ZIP structural binding hardened in BOTH readers.** EOCD candidates
+>    must consume the file exactly (offset + 22 + comment = EOF; ambiguous
+>    duplicates reject); disk fields must be zero; the central directory must
+>    sit flush against the EOCD and be consumed exactly; and every entry's
+>    LOCAL header is bound to its central record (exact name bytes, method,
+>    relevant flags, encryption, CRC/sizes or verified data-descriptor
+>    semantics, disjoint local spans) before any payload byte is read.
+> 4. **The archive lifecycle is DB-enforced.** A trigger implements the full
+>    transition matrix plus state evidence (byte_verified requires every part
+>    verified with a server hash, observed = declared size, and the exact
+>    archive SHA-256; processing_entries requires the durable inventory;
+>    completed requires zero pending entries) — TypeScript callers can no
+>    longer skip or regress states, and malformed JSON patches fail safely
+>    before any cast.
+> 5. **The memory claim is re-measured honestly.** A processing-only,
+>    disk-backed, forced-GC child-process benchmark replaces the fake-storage
+>    RSS reading and explains the 64–81 vs 119.9 MiB discrepancy (§8, §11).
+
+> **Corrective pass 1 (2026-07-24, architect review).** The first revision of this report
 > overstated three things; this revision corrects the system and the words:
 >
-> 1. *"The browser may close and processing continues"* was only true while
+> 1. _"The browser may close and processing continues"_ was only true while
 >    an authenticated Studio session kept polling. It is now true without any
 >    session: a **real scheduled runner** (Cloudflare Cron Trigger → the
 >    Worker's `scheduled()` export → the `cloudflare:scheduled` Nitro hook)
 >    is implemented and its deploy configuration is committed.
-> 2. *"Accepted/verified"* conflated storage acceptance with verification.
+> 2. _"Accepted/verified"_ conflated storage acceptance with verification.
 >    The lifecycle now says exactly what has been proven: stored is never
 >    called verified, and "byte verification passed" appears only after every
 >    stored part has been hash-verified.
-> 3. *"All unsupported entries retained privately"* previously meant "still
+> 3. _"All unsupported entries retained privately"_ previously meant "still
 >    inside the original archive". Retained entries are now **independently
 >    extracted into private, hash-verified evidence objects**, including
 >    entries far above the in-memory cap (streamed, never buffered).
@@ -38,9 +76,10 @@ The lane's operating contract, as now implemented and locally proven:
 - ZIP archives up to **300 MiB each**, several per upload job, up to **1 GiB
   of declared source material per job**;
 - **resumable chunked upload** (8 MiB parts, each with its own short-lived
-  signed URL); resume identity is a **client upload fingerprint + exact
-  size** — never the filename — so two different archives sharing a name and
-  byte size can never attach to each other's stored parts;
+  signed URL); resume identity is the **exact ordered per-part SHA-256
+  manifest** (every byte hashed, bounded memory) — never the filename, never
+  a sampled digest — so two different archives can never attach to each
+  other's stored parts no matter where their bytes differ;
 - a **truthful verification lifecycle**: storage acceptance
   (`uploaded_unverified`) proves only existence + exact size of every part;
   the actual stored bytes are then streamed through SHA-256
@@ -83,15 +122,19 @@ uploads also gave phones on unstable connections no resume path.
 ```
 browser                       Worker (server functions)          Supabase
 ───────                       ─────────────────────────          ────────
-fingerprint file (4×256KiB) ─▶ plan: resume by (fp, size) ─────▶  studio_archives row
+hash EVERY 8 MiB part ──────▶ plan: resume ONLY on exact ─────▶  studio_archives row
+  (sequential, bounded)        manifest match (all digests)       (manifest bound at plan)
 upload part k ──────────────────────────────────────────────▶   private studio-uploads
   (retry per part; re-plan resumes missing parts)                jobs/{job}/parts/{archive}/{k}
-confirm (per-part sha256) ─▶ existence + exact size ─────────▶   status uploaded_unverified
+confirm (same manifest) ───▶ manifest must equal the plan's ─▶   status uploaded_unverified
+                              + existence + exact size
 processJob (explicit req.) ─▶ SLICE loop under job claim:         ("stored", NOT "verified")
                                • hash stored parts (12/slice) ▶  status byte_verifying
-                               • all parts match ─────────────▶  status byte_verified
-                               • exact archive SHA-256 (ordered
-                                 8 MiB part reads, one hash)  ▶  archive_sha256
+                               • all parts match + exact
+                                 archive SHA-256 (streamed
+                                 chunks, no part buffers) ────▶  status byte_verified
+                                 (one atomic patch; the DB        + archive_sha256
+                                  trigger demands the evidence)
                                • range-read EOCD+central dir,
                                  FULL safety contract, then   ▶  studio_archive_entries
                                  durable inventory insert         status processing_entries
@@ -142,50 +185,75 @@ staging/production access occurred.**
 
 ### Rejected alternatives
 
-| Alternative | Why rejected |
-|---|---|
+| Alternative                                             | Why rejected                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Supabase TUS resumable upload** (`/upload/resumable`) | Requires user-JWT writes to `storage.objects` via new RLS policies, relaxing the repo's invariant that every storage write is server-issued-signed-URL or service-role; needs the `tus-js-client` dependency; not integration-testable in the disposable harness. Chunked signed-URL parts deliver the same resume granularity with the existing authorization boundary and zero new dependencies. |
-| **Cloudflare Workflows / Queues** | New infrastructure + billing surface this repo cannot validate locally; the claim/heartbeat/stale-resume machinery already models durable claimable work, and the Worker's existing `scheduled()` export needed only a cron expression + a runtime hook. |
-| **Supabase Edge Function for processing** | A second runtime and credential surface; same memory problem unless the same range-read engine is built there. |
-| **One long request with `waitUntil` chaining** | Worker CPU/time limits make a single 300 MiB pass unreliable; self-invoking fetch chains need an internal auth token and are fragile. Slices + durable checkpoints + a cron tick are strictly safer. |
-| **Storage HTTP `Range` reads against one big object** | Would require a new authenticated raw-fetch path beside storage-js. Since the original always arrives as verified 8 MiB parts, mapping range reads onto part objects (`PartedArchiveSource`) gives bounded memory with the existing `downloadWithin` primitive. |
-| **Raising the 16 MiB constant** | The buffer-based reader + Worker envelope make it impossible; explicitly out of scope per the task. |
+| **Cloudflare Workflows / Queues**                       | New infrastructure + billing surface this repo cannot validate locally; the claim/heartbeat/stale-resume machinery already models durable claimable work, and the Worker's existing `scheduled()` export needed only a cron expression + a runtime hook.                                                                                                                                           |
+| **Supabase Edge Function for processing**               | A second runtime and credential surface; same memory problem unless the same range-read engine is built there.                                                                                                                                                                                                                                                                                     |
+| **One long request with `waitUntil` chaining**          | Worker CPU/time limits make a single 300 MiB pass unreliable; self-invoking fetch chains need an internal auth token and are fragile. Slices + durable checkpoints + a cron tick are strictly safer.                                                                                                                                                                                               |
+| **Storage HTTP `Range` reads against one big object**   | Would require a new authenticated raw-fetch path beside storage-js. Since the original always arrives as verified 8 MiB parts, mapping range reads onto part objects (`PartedArchiveSource`) gives bounded memory with the existing `downloadWithin` primitive.                                                                                                                                    |
+| **Raising the 16 MiB constant**                         | The buffer-based reader + Worker envelope make it impossible; explicitly out of scope per the task.                                                                                                                                                                                                                                                                                                |
 
-## 4. Upload contract (truthful states)
+## 4. Upload contract (truthful states, exact manifest identity)
 
-- The browser first computes an **upload fingerprint**: SHA-256 over a domain
-  prefix, four bounded content samples (head, two interior windows, tail —
-  at most 4 × 256 KiB read), and the exact byte length. Cheap on a phone,
-  deterministic, private (service-role column only). It is a **resume
-  identity, never a verification**: the server still verifies every stored
-  byte. A fingerprint collision cannot corrupt data — mixed parts fail the
-  per-part hash verification and reject the archive fail-closed.
-- `studioPlanArchiveUpload({jobId, fileName, declaredSize, uploadFingerprint})`
-  → validates and creates/resumes a `studio_archives` row. Resume lookup is
-  `(upload_fingerprint, declared_size)` — a renamed identical file resumes;
-  a different file with the same name and size gets a fresh archive id and
-  fresh part paths (regression-tested).
-- `studioConfirmArchiveUpload({jobId, archiveId, partSha256[]})` → the server
-  lists stored part objects and accepts **only** when every part exists with
-  exactly the planned size. That makes the archive **`uploaded_unverified`**:
-  durably stored, zero bytes hash-verified. The UI says *"Upload safely
-  stored. Integrity verification continues."* — never "verified".
+- The browser first computes the **upload part manifest**: the ordered
+  SHA-256 of EVERY fixed-size part, read and hashed strictly one 8 MiB slice
+  at a time (proven: one slice per part, ≤ one part in flight — never a
+  whole-file ArrayBuffer). Covering every byte, it replaces the retired v1
+  sampled fingerprint, which could not distinguish same-size files differing
+  outside its four windows. It is a **resume identity, never a
+  verification**: the server still verifies every stored byte.
+- `studioPlanArchiveUpload({jobId, fileName, declaredSize, partSha256[]})` →
+  validates the manifest against the declared geometry (count =
+  ⌈size/8 MiB⌉, all lowercase hex), derives the server-side **manifest
+  identity** (SHA-256 over domain/version ‖ exact size ‖ part size ‖ part
+  count ‖ ordered raw digests), and creates/resumes a `studio_archives` row.
+  Resume happens **only when the complete stored manifest matches
+  digest-for-digest** (the identity digest merely narrows candidates); ANY
+  difference — a single byte anywhere — yields a fresh archive id and fresh
+  part paths, and stale parts are never reported present for different bytes
+  (regression-tested, including a difference placed exactly where the old
+  sampled windows never looked). The manifest digests are bound to
+  `parts[].declaredSha256` at plan time.
+- `studioConfirmArchiveUpload({jobId, archiveId, partSha256[]})` → the
+  submitted manifest must equal the archive's planned manifest exactly
+  (`archive_manifest_mismatch` otherwise — **an accepted archive can never
+  be idempotently confirmed by a different manifest**, and confirm can never
+  rewrite claims). The server then lists stored part objects and accepts
+  **only** when every part exists with exactly the planned size. That makes
+  the archive **`uploaded_unverified`**: durably stored, zero bytes
+  hash-verified. The UI says _"Upload safely stored. Integrity verification
+  continues."_ — never "verified".
 - The first processing slices stream-hash every stored part against the
-  recorded claims (`byte_verifying`, 12 parts per slice, checkpointed).
+  plan-time claims (`byte_verifying`, 12 parts per slice, checkpointed).
   Any mismatch rejects the whole archive (`archive_part_integrity_failed`,
-  retained privately, nothing expanded). Only 38-of-38 matches produce
+  retained privately, nothing expanded). When the last part matches, the
+  **exact whole-archive SHA-256** is streamed across the ordered parts in
+  transport-sized chunks (readObjectStream — no per-part buffers) and ONE
+  atomic patch records parts + `composite_sha256` + `archive_sha256` +
   **`byte_verified`** — the single point after which the UI may show
-  *"Archive byte verification passed."* The verified per-part hashes are
-  preserved on the row afterwards.
-- After byte verification, the **exact whole-archive SHA-256**
-  (`archive_sha256`) is computed by streaming the ordered parts through one
-  hash (8 MiB bounded reads, idempotent restart). `composite_sha256` remains
-  the digest-of-part-digests and is never labelled as the file hash.
+  _"Archive byte verification passed."_ The DB lifecycle trigger refuses the
+  transition without this complete evidence. `composite_sha256` remains the
+  digest-of-part-digests and is never labelled as the file hash.
 
-Archive lifecycle: `planned → uploaded_unverified → byte_verifying →
-byte_verified → processing_entries → completed | rejected` — DB-enforced
-(the retired ambiguous values `uploaded`/`verifying`/`indexed` are rejected
-by the CHECK constraint).
+Archive lifecycle — **enforced by the database trigger
+`studio_archive_lifecycle_guard`, not by callers** (inserts start at
+`planned`; same-state updates are idempotent; identity fields are
+immutable):
+
+```
+planned             → uploaded_unverified | rejected
+uploaded_unverified → byte_verifying      | rejected
+byte_verifying      → byte_verified       | rejected   (requires: all parts
+                                                        verified + server sha,
+                                                        observed = declared,
+                                                        archive_sha256 present)
+byte_verified       → processing_entries  | rejected   (requires: inventory rows
+                                                        = entry_count, totals set)
+processing_entries  → completed           | rejected   (requires: zero pending
+                                                        entries, evidence intact)
+completed / rejected → terminal (no outgoing edges)
+```
 
 ## 5. Processing / checkpoint model
 
@@ -230,17 +298,34 @@ remain the immutable parent evidence.
 
 ## 6. Data model (additive migration `20260724090000_studio_large_archive_v1.sql`)
 
-- **`studio_archives`** — adds to the first revision:
-  `upload_fingerprint` (NOT NULL, hex-checked, resume identity, private),
-  `archive_sha256` (exact file hash, hex-checked), the truthful `status`
-  CHECK set, and the `(job_id, upload_fingerprint, declared_size)` resume
-  index. `composite_sha256` is explicitly documented as NOT the file hash.
-- **`studio_archive_entries`** — adds `evidence JSONB`: `{bucket, prefix,
-  partSize, partCount, parts:[{index,size,sha256}], totalSize,
-  crc32Verified}` — the independently addressable private evidence manifest.
-- **Functions** — `studio_update_archive_claimed` whitelists
-  `archive_sha256` (fingerprint is insert-only, deliberately not patchable);
-  `studio_settle_archive_entry` persists `evidence`. All remain
+- **`studio_archives`** —
+  `manifest_sha256` (NOT NULL, hex-checked: the server-derived manifest
+  identity; the retired `upload_fingerprint` column is gone),
+  `archive_sha256` (exact file hash, hex-checked, REQUIRED to enter
+  `byte_verified`), the truthful `status` CHECK set, the
+  `(job_id, manifest_sha256, declared_size)` resume-candidate index, and
+  **`UNIQUE (id, job_id)`** — the composite identity target for the entries'
+  cross-job constraint. `composite_sha256` is explicitly documented as NOT
+  the file hash.
+- **`studio_archive_lifecycle_guard`** (trigger, BEFORE INSERT OR UPDATE) —
+  the transition matrix and state evidence of §4, enforced for EVERY caller
+  (RPC, PostgREST, direct SQL): inserts must start `planned`, identity
+  fields are immutable, forbidden transitions and missing evidence raise and
+  roll back — TypeScript can neither skip nor regress a state.
+- **`studio_archive_entries`** — `evidence JSONB` (the independently
+  addressable private evidence manifest) and the **composite FK
+  `(archive_id, job_id) REFERENCES studio_archives (id, job_id)`**: an entry
+  claiming archive A under job B is unrepresentable at the constraint layer.
+- **Functions** — every processing RPC now (a) locks the job claim,
+  (b) **locks the target archive/entry and proves it belongs to the claimed
+  job** (FALSE otherwise — a valid claim on job B can never write into job
+  A's archive), and (c) validates every supplied JSON field's type/shape
+  BEFORE casting (`studio_archive_patch_invalid`,
+  `studio_archive_outcome_invalid`, `studio_archive_entries_invalid` — a
+  malformed patch fails safely, changing nothing).
+  `studio_update_archive_claimed` whitelists `archive_sha256`
+  (`manifest_sha256` is insert-only, deliberately not patchable);
+  `studio_settle_archive_entry` remains pending-only. All remain
   claim-guarded, service-role-only, `SET search_path = ''`.
 - Both tables: RLS enabled, zero policies, service-role-only grants,
   cascade from the job row only. The migration remains **additive and
@@ -248,53 +333,119 @@ remain the immutable parent evidence.
 
 ## 7. Archive and project limits (explicit budgets)
 
-| Limit | Value | Rationale |
-|---|---|---|
-| Archive size | 300 MiB | product ceiling; also `maxArchiveBytes` of the ranged reader |
-| Part size | 8 MiB fixed | resume granularity ≈ loss on interruption; bounded reads |
-| Evidence part size | 8 MiB fixed | bounded writes; mirrors upload parts |
-| Archives per job | 8 | keeps one job reviewable |
-| Declared source per job | 1 GiB | initial product budget (files + archives) |
-| Entries per archive | 2 000 | central directory stays ≤ 4 MiB cap |
-| Central directory | 4 MiB | one bounded read |
-| Per-entry in-memory cap | 24 MiB (= media sanitize cap) | larger entries take the STREAMING evidence lane (never buffered whole) |
-| Total expansion per archive | 1 GiB | includes streamed evidence; beyond-budget entries stay inside the parent archive |
-| Compression ratio | 200× (>1 MiB entries) | zip-bomb indicator — archive-fatal |
-| Slice budgets | 24 entries / 64 MiB expanded / 12 part hashes | checkpoint cadence ≪ stale window |
-| Scheduled tick budget | 12 slice advancements | bounded work per cron invocation |
-| Public media per job | 500 | page sanity; excess retained privately with warning |
+| Limit                       | Value                                         | Rationale                                                                        |
+| --------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------- |
+| Archive size                | 300 MiB                                       | product ceiling; also `maxArchiveBytes` of the ranged reader                     |
+| Part size                   | 8 MiB fixed                                   | resume granularity ≈ loss on interruption; bounded reads                         |
+| Evidence part size          | 8 MiB fixed                                   | bounded writes; mirrors upload parts                                             |
+| Archives per job            | 8                                             | keeps one job reviewable                                                         |
+| Declared source per job     | 1 GiB                                         | initial product budget (files + archives)                                        |
+| Entries per archive         | 2 000                                         | central directory stays ≤ 4 MiB cap                                              |
+| Central directory           | 4 MiB                                         | one bounded read                                                                 |
+| Per-entry in-memory cap     | 24 MiB (= media sanitize cap)                 | larger entries take the STREAMING evidence lane (never buffered whole)           |
+| Total expansion per archive | 1 GiB                                         | includes streamed evidence; beyond-budget entries stay inside the parent archive |
+| Compression ratio           | 200× (>1 MiB entries)                         | zip-bomb indicator — archive-fatal                                               |
+| Slice budgets               | 24 entries / 64 MiB expanded / 12 part hashes | checkpoint cadence ≪ stale window                                                |
+| Scheduled tick budget       | 12 slice advancements                         | bounded work per cron invocation                                                 |
+| Public media per job        | 500                                           | page sanity; excess retained privately with warning                              |
 
 Hostile indicators (traversal, collisions, encryption, symlinks, bad method,
 ratio abuse, ZIP64) still reject the **whole archive** fail-closed; a benign
 oversized entry is a per-entry streaming-extraction outcome, never
 archive-fatal.
 
-## 8. Memory model
+**Structural binding (audit corrective, both readers).** Beyond the entry-set
+contract, the readers now bind the ZIP's physical structure:
 
-Peak processing memory per slice ≈ size-capped central directory (≤ 4 MiB) +
-one cached part (8 MiB) + one compressed chunk (≤ 8 MiB streaming / ≤ 24 MiB
-buffered lane) + one inflated entry (≤ 24 MiB buffered lane) or one evidence
-part (8 MiB streaming lane) + one derivative (≤ 24 MiB) — comfortably inside
-the ~128 MiB Worker envelope, independent of archive and entry size.
-Measured (§11): a genuine 288 MiB archive processed with the largest single
-storage read = **8 MiB** and peak RSS growth **≈ 128 MiB** (fake-storage
-residency excluded — see the suite comment); the 120 MiB evidence archive
-(64 MiB single entry) processed with largest read **and** largest written
-object = **8 MiB**.
+- an EOCD candidate is accepted **only** when
+  `offset + 22 + declaredCommentLength == EOF` — fake EOCD signatures inside
+  comments or trailing garbage are not candidates, a lying comment length or
+  undeclared trailing bytes mean no candidate at all, and TWO exact-EOF
+  candidates (a crafted comment embedding a plausible EOCD) reject as
+  structurally ambiguous;
+- this-disk, central-directory-disk, and every per-entry disk-start field
+  must be 0, and entries-on-this-disk must equal total entries (multi-disk
+  rejected consistently);
+- the central directory must sit **flush against the EOCD** and parsing must
+  consume **exactly** its declared byte size;
+- before ANY payload byte is read, each entry's LOCAL header must agree with
+  its central record: exact filename **bytes**, compression method, the
+  relevant general-purpose flags (encryption, data-descriptor, UTF-8), zero
+  encryption bits, and CRC-32/compressed/uncompressed sizes — or, with flag
+  bit 3, zeroed local fields plus a **data descriptor after the payload that
+  matches the central values** (valid signed and unsigned forms accepted;
+  wrong or missing descriptors reject);
+- entries occupy pairwise-disjoint spans: duplicate local offsets, a central
+  record pointing into another entry's local record, or one entry's claimed
+  bytes overlapping another's are rejected at the entry-set level, and each
+  entry's payload (+ descriptor) must end before the NEXT entry's local
+  header (or the central directory) — central metadata is never trusted to
+  describe bytes that belong to a different local record.
+
+## 8. Memory model (re-measured after the independent audit)
+
+Working-set bound by construction, per slice: size-capped central directory
+(≤ 4 MiB) + one cached part (8 MiB, single-part reads now return read-only
+views instead of copies) + one compressed chunk (≤ 8 MiB streaming /
+≤ 24 MiB buffered lane) + one inflated entry (≤ 24 MiB buffered lane) or one
+pending evidence part (8 MiB streaming lane) + one derivative (≤ 24 MiB) —
+independent of archive and entry size. Part verification and the exact
+whole-archive SHA-256 now stream in **transport-sized chunks**
+(`readObjectStream`) and allocate no per-part buffers at all.
+
+**Why the two earlier numbers disagreed (64–81 vs 119.9 MiB).** Both prior
+figures measured the WRONG thing: a vitest worker whose in-memory fake
+Storage retained every uploaded part and extracted evidence object as
+resident JS Buffers (≈ 288 MiB of fake payloads, partially masked by a
+mid-test eviction hack), with the baseline taken before GC had settled the
+fixture-generation garbage. The result was dominated by fake-storage
+residency and GC timing — machine- and run-dependent — which is exactly why
+two runs produced 64–81 and 119.9 MiB. Neither measured the engine.
+
+**The measurement of record** is now a processing-only, child-process
+benchmark (`node scripts/studio/run-memory-benchmark.mjs` →
+`large-archive-memory-benchmark.test.ts`, vitest forks pool +
+`--expose-gc`): the ~286 MiB fixture is streamed to DISK before the
+baseline, storage is DISK-backed (objects are files, hashing streams 64 KiB
+chunks — the shape of remote object storage), GC is forced at the baseline
+and between slices, and RSS is sampled at every storage operation and entry
+settlement with per-phase attribution. Result on this machine (286 MiB
+archive, 36 parts, 29 entries incl. a 64 MiB STORE video and a 30 MiB
+DEFLATE document, 8 slices):
+
+| Figure                                                                | Value                                        |
+| --------------------------------------------------------------------- | -------------------------------------------- |
+| Peak RSS growth over post-setup baseline (unconstrained GC watermark) | **96.2 MiB**                                 |
+| — verify_parts / exact_archive_sha / central_directory phase peaks    | ≤ baseline (streaming; no allocation growth) |
+| Max LIVE set between slices (after forced GC)                         | **30.0 MiB**                                 |
+| Final RSS growth after completion + GC                                | **−9.7 MiB** (nothing retained)              |
+| Largest single storage read / write                                   | **8 MiB / 8 MiB**                            |
+| Largest single buffered entry (largest engine-allocated buffer)       | 8 MiB (cap: 24 MiB)                          |
+
+Interpretation, stated carefully: the 96 MiB figure is an
+**unconstrained-Node GC watermark** — collectible churn from the bounded
+8 MiB lanes accumulating between garbage collections, NOT live memory (the
+post-GC live set is 30 MiB and the final growth is negative). A
+memory-pressured runtime such as the Workers isolate collects that churn
+instead of growing; only the live set can cause a hard OOM. We therefore
+claim: bounded live working set ≈ 30 MiB + bounded single allocations
+≤ 24 MiB — and we do NOT claim a specific deployed peak-RSS number; the real
+Worker figure is an explicit staging-gate measurement (§14). The in-suite
+288 MiB memory test remains as a fast regression guard for bounded reads.
 
 ## 9. Supported / unsupported entry behavior
 
-| Entry | Outcome |
-|---|---|
-| Project-facts JSON | fields adopted source-backed, `project_facts_extracted`, retained privately **with evidence** |
-| Price-list JSON / PDF | first-archive-wins adoption (unchanged); retained privately **with evidence** |
-| JPEG / PNG / WebP media | PR #99 sanitize → verify → public derivative; claims-stripped public projection |
-| Video, HEIC/HEIF, ICC-profiled, GIF/AVIF, PDFs-as-media ≤ 24 MiB | retained privately **with independently addressable evidence** (`media_format_private`, …) |
-| Any entry > 24 MiB (video, PDF, unknown) | **streaming evidence lane**: extracted to hashed private evidence parts, `entry_over_size_limit`, exact size + SHA-256 + byte class recorded |
-| Duplicates (by verified SHA-256) | deterministic `skipped_duplicate`; a streamed duplicate's redundant evidence is removed |
-| Corrupt entry (CRC/inflate, buffered or streamed) | that entry `failed` (`entry_integrity_failed`), partial evidence removed; everything else continues |
-| Beyond 1 GiB expansion budget | retained inside the parent archive only (`archive_expansion_budget_reached`) — truthfully NOT independently extracted |
-| Unknown documents | retained privately **with evidence** as source evidence |
+| Entry                                                            | Outcome                                                                                                                                      |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Project-facts JSON                                               | fields adopted source-backed, `project_facts_extracted`, retained privately **with evidence**                                                |
+| Price-list JSON / PDF                                            | first-archive-wins adoption (unchanged); retained privately **with evidence**                                                                |
+| JPEG / PNG / WebP media                                          | PR #99 sanitize → verify → public derivative; claims-stripped public projection                                                              |
+| Video, HEIC/HEIF, ICC-profiled, GIF/AVIF, PDFs-as-media ≤ 24 MiB | retained privately **with independently addressable evidence** (`media_format_private`, …)                                                   |
+| Any entry > 24 MiB (video, PDF, unknown)                         | **streaming evidence lane**: extracted to hashed private evidence parts, `entry_over_size_limit`, exact size + SHA-256 + byte class recorded |
+| Duplicates (by verified SHA-256)                                 | deterministic `skipped_duplicate`; a streamed duplicate's redundant evidence is removed                                                      |
+| Corrupt entry (CRC/inflate, buffered or streamed)                | that entry `failed` (`entry_integrity_failed`), partial evidence removed; everything else continues                                          |
+| Beyond 1 GiB expansion budget                                    | retained inside the parent archive only (`archive_expansion_budget_reached`) — truthfully NOT independently extracted                        |
+| Unknown documents                                                | retained privately **with evidence** as source evidence                                                                                      |
 
 ## 10. Studio UX (truthful copy)
 
@@ -305,16 +456,60 @@ object = **8 MiB**.
   total** separately, discovered/processed entry counts, and per-archive
   truthful status lines (`verifying stored bytes 12/38 parts` →
   **"Archive byte verification passed."** at `byte_verified` →
-  `processing n/m` → `done`). The close-the-page affordance reads: *"You may
+  `processing n/m` → `done`). The close-the-page affordance reads: _"You may
   close this page — Forever continues processing automatically in the
-  background"* — now backed by the scheduled runner, not by hoping another
+  background"_ — now backed by the scheduled runner, not by hoping another
   session polls.
 - Publication and failure panels unchanged; small-ZIP and ordinary uploads
   unchanged.
 
 ## 11. Validation evidence (all local; fakes + disposable PostgreSQL)
 
-New/updated suites in the corrective pass:
+New/updated suites in corrective pass 2 (independent audit):
+
+- `large-archive-upload.test.ts` (13) — the exact-manifest contract: the
+  complete manifest is bound at plan; resume only on digest-for-digest
+  match; **same name + same size differing ONLY in a region the retired
+  sampled fingerprint never read → different upload records, zero stale
+  parts reported present**; an accepted archive refuses a different manifest
+  at confirm (wrong digest AND wrong length), byte-identically unchanged
+  after the refusals; malformed manifests (non-hex, wrong count) rejected;
+  the server-derived identity changes with any digest, the size, the part
+  size, and digest ORDER.
+- `archive-upload-manifest.test.ts` (4) — the REAL browser implementation
+  (Web Crypto over a File) equals the node mirror digest-for-digest incl. a
+  short tail part; a single flipped interior byte (outside the old sample
+  windows) changes exactly one digest; **memory-bounded by construction:
+  one slice per part, max slice = one part, at most ONE part in flight**.
+- `zip-structural.test.ts` (22, both readers) — fake EOCD inside a comment
+  (exact-EOF-crafted → ambiguous reject; non-exact → real record wins);
+  wrong comment length both directions; trailing bytes; nonzero
+  this-disk/cd-disk/entry-disk-start; entries-on-disk ≠ total; CD not flush
+  against EOCD (three variants); CD not consuming its declared size; local
+  name/method/flags/encryption/CRC/size mismatches; local extra-field
+  boundary escape; central record pointing into another entry; overlapping
+  claimed ranges; data descriptor valid (signed + unsigned), corrupt,
+  missing, and non-zeroed local fields.
+- `studio.postgres.sql` (LA-1…LA-9, real PostgreSQL 17) — the full lifecycle
+  walk under the live claim with the trigger demanding evidence at every
+  gate; **cross-job proofs: job B's VALID claim cannot index into, patch, or
+  settle job A's archive (FALSE, zero rows), the composite FK rejects a
+  forged (archive A, job B) entry row, and the true pair stays
+  representable**; skipping straight to byte_verified; byte_verified with
+  one unverified part or without archive_sha256; processing_entries with a
+  wrong entry_count; completed with a pending entry; completed and rejected
+  as terminal (every regression target); identity immutability under direct
+  service-role SQL; 11 malformed patches + 6 malformed outcomes + malformed
+  inventory payloads all raise `*_invalid` and change nothing; stale-token
+  behavior unchanged throughout.
+- `large-archive-migration-contract.test.ts` (15) — static contract: the
+  manifest identity column (retired fingerprint gone), UNIQUE (id, job_id),
+  the composite FK, ownership locks in every RPC, the lifecycle trigger with
+  every violation class, and pre-cast patch/outcome validation.
+- `large-archive-memory-benchmark.test.ts` + `run-memory-benchmark.mjs` —
+  the processing-only measurement of record (§8).
+
+From corrective pass 1 (all re-proven on this revision):
 
 - `scheduled-runner.test.ts` (7) — **A. autonomous continuation**: upload +
   single explicit processing request, browser terminated, ZERO dashboard
@@ -337,16 +532,7 @@ New/updated suites in the corrective pass:
   (exactly one public object exists); a corrupt oversized entry fails in
   isolation leaving zero evidence objects; instrumented largest read AND
   largest write = 8 MiB.
-- `large-archive-upload.test.ts` (10) — **D. resume collision**: two ZIPs
-  with identical filename and byte size create different archive ids and
-  fresh part paths (stale parts never reused); a renamed identical file
-  resumes; fingerprint validation; storage acceptance truthfully
-  `uploaded_unverified` with zero verified parts.
-- `archive-upload-fingerprint.test.ts` (4) — the REAL browser fingerprint
-  (Web Crypto) equals the node fixture mirror on both the full-content and
-  sampled paths; different content behind identical name+size differs;
-  sampled bytes bounded at 4 × 256 KiB.
-- `zip-ranged.test.ts` (17, +5) — streaming reader ≡ buffered reader for
+- `zip-ranged.test.ts` (17) — streaming reader ≡ buffered reader for
   STORE and DEFLATE at 64 KiB chunk granularity; full-stream CRC/size
   verification fail-closed; output capped at the declared size; consumer
   (storage) errors propagate verbatim, never mislabelled as ZIP corruption;
@@ -355,21 +541,19 @@ New/updated suites in the corrective pass:
   extraction INTO evidence (exact size, SHA-256, per-part storage checks);
   all prior end-to-end, dedup, fail-closed, stale-token, sweep, and
   progress-privacy behavior re-proven.
-- `large-archive-memory.test.ts` (2) + `large-archive-migration-contract.test.ts`
-  (12, +2: truthful-status CHECK, fingerprint/exact-hash/evidence whitelists).
-- `studio.postgres.sql` — real-database: truthful status CHECK rejects the
-  retired `uploaded` value and malformed fingerprints; `archive_sha256`
-  patches through the claim-checked whitelist; the evidence manifest
-  persists structured on a retained settlement; all prior LA-1…LA-5
-  assertions re-proven.
+- `large-archive-memory.test.ts` (2) — retained as the fast in-suite
+  bounded-read regression guard (the measurement of record is the §8
+  benchmark).
 
-**Recorded measurements** (committed suites, this machine):
+**Recorded measurements** (committed suites, this machine, this revision):
 
 ```
-288 MiB memory proof: archive=288.0MiB parts=37 entries=39
-  totalExpanded=288.0MiB slices=8 downloadCalls=88 largestRead=8.0MiB
-  peakRssGrowth≈128MiB (fake-storage evidence payloads evicted between
-  slices — they are remote objects in production; see suite comment)
+processing-only benchmark (disk-backed, forced GC, child process):
+  archive=286.0MiB parts=36 entries=29 slices=8
+  peakGrowth=96.2MiB (unconstrained-GC watermark)
+  liveSetBetweenSlices(max, post-GC)=30.0MiB finalGrowth=-9.7MiB
+  verify/exact-sha/central-directory phase peaks ≤ baseline
+  largestRead=8MiB largestWrite=8MiB largestBufferedEntry=8MiB
 38-part verification proof: 12/38 after slice 1 (byte_verifying),
   byte_verified only at 38/38; archive_sha256 == independent full hash
 evidence proof: archive=120.0MiB slices=4 largestRead=8.0MiB
@@ -378,25 +562,29 @@ interruption fixture: worker killed mid-run, stale takeover after 16 min,
   settled outcomes byte-identical after resume
 ```
 
-Proportional runs, all on this branch (exact numbers in the PR description):
+Fresh validation, all on this revision (exact numbers in the PR
+description):
 
-- **Full vitest**: every Studio, ZIP, upload/resume/concurrency, Media
-  Truth, and public-boundary suite passes; the only failures are the
+- **Full vitest**: 3370 passed / 6 skipped; the ONLY failures are the four
   **pre-existing** ones unrelated to this change
-  (`src/import/importer-preflight.test.ts` fixture drift and the
-  missing-`modeva`-asset environmental failures), which fail identically on
-  unmodified code.
-- **Disposable PostgreSQL harness** (`npm run studio:pg-test`,
-  PostgreSQL 17): complete migration chain including the extended migration
-  → `ALL STUDIO POSTGRES ASSERTIONS PASSED`.
+  (`src/import/importer-preflight.test.ts` fixture drift ×3 and the
+  missing-`modeva`-asset environmental failure ×1) — **re-proven to fail
+  IDENTICALLY at the exact base commit `0163b50`** by stashing this pass and
+  re-running both files on unmodified code (same 4 tests, same assertions).
+- **Disposable PostgreSQL harness** (PostgreSQL 17, explicit PATH):
+  complete migration chain including the reworked migration →
+  `ALL STUDIO POSTGRES ASSERTIONS PASSED` (now incl. LA-1…LA-9 with the
+  cross-job, lifecycle, and malformed-input adversaries).
 - **TypeScript** `tsc --noEmit`: clean.
 - **ESLint + Prettier**: clean on every file this PR touches (repo-wide
   `eslint .` carries pre-existing drift in untouched legacy files).
 - **Build** (`npm run build`, Nitro → Cloudflare Workers): succeeds;
   `.output/server/wrangler.json` contains the merged
   `triggers.crons=["*/5 * * * *"]` and the server bundle contains the
-  `cloudflare:scheduled` registration; the client bundle contains no
-  service-role symbols.
+  `scheduled` registration; the client bundle contains no service-role
+  symbols, no private paths, and no retired-fingerprint contract (the single
+  `sb_secret_` string match in the client bundle is supabase-js's own
+  key-format check, present on unmodified code as well).
 - `git diff --check`: clean. Secret/private-path scan of the diff: no
   credentials, keys, JWTs, or local paths.
 
@@ -409,13 +597,18 @@ Proportional runs, all on this branch (exact numbers in the PR description):
   continuation in the deployed environment still relies on Studio sessions.
   Verifying the first real cron invocation is the explicit staging gate.
 - **Page-reload upload resume needs the same job.** Within a session, parts
-  retry and re-planning resumes (now fingerprint-keyed). After a full page
-  reload the client starts a new job; stored parts of the abandoned job stay
+  retry and re-planning resumes (manifest-keyed). After a full page reload
+  the client starts a new job; stored parts of the abandoned job stay
   privately retained. A localStorage draft-job ledger is a small follow-up.
-- **The upload fingerprint samples content**; files differing only outside
-  the sampled windows fingerprint identically. This can only affect resume
-  routing, never data integrity: per-part hash verification rejects mixed
-  parts fail-closed.
+- **Manifest computation reads the whole file once client-side** (one 8 MiB
+  part at a time). On a phone this costs one sequential read + hash pass of
+  the archive before the upload begins — the price of an identity that
+  covers every byte; the pass is bounded-memory and the same digests double
+  as the verification claims.
+- **The deployed Worker's real peak memory is not claimed from local
+  benchmarks.** The engine's live working set is measured at ≈ 30 MiB with
+  ≤ 8 MiB single I/O lanes (§8), but the actual isolate figure under
+  Workers' GC is an explicit staging-gate measurement.
 - **Entries beyond the 1 GiB expansion budget** are not independently
   extracted (truthfully recorded); they remain inside the verified parent
   archive.
@@ -428,9 +621,11 @@ Proportional runs, all on this branch (exact numbers in the PR description):
 
 ## 13. Migration state
 
-`supabase/migrations/20260724090000_studio_large_archive_v1.sql` was extended
-IN PLACE by this corrective pass (it has never been applied anywhere, so the
-draft is still one additive migration). It remains **additive, ordered after
+`supabase/migrations/20260724090000_studio_large_archive_v1.sql` was
+reworked IN PLACE by both corrective passes (it has never been applied
+anywhere, so the draft is still one additive migration — now with the
+manifest identity column, the composite ownership constraints, and the
+lifecycle trigger). It remains **additive, ordered after
 current main (`20260723130000`), and UNAPPLIED** to any real environment; it
 runs in the disposable PostgreSQL chain only. The PR #99 grant migration
 remains intentionally unapplied and untouched. No staging or production
