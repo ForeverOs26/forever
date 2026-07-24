@@ -154,7 +154,7 @@ describe("large-archive migration contract", () => {
         ddl.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}`),
         ddl.indexOf("$$;", ddl.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}`)),
       );
-      expect(body, fn).toContain("SELECT job_id INTO v_archive_job");
+      expect(body, fn).toContain("SELECT job_id, status INTO v_archive_job, v_archive_status");
       expect(body, fn).toContain("v_archive_job <> p_job_id");
       expect(body, fn).toContain("FOR UPDATE");
     }
@@ -189,6 +189,67 @@ describe("large-archive migration contract", () => {
     // Terminal states have no outgoing edges in the matrix.
     expect(guard).not.toContain("OLD.status = 'completed'");
     expect(guard).not.toContain("OLD.status = 'rejected'");
+  });
+
+  it("enforces same-state validation, evidence immutability, and manifest binding", () => {
+    const guard = ddl.slice(
+      ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_archive_lifecycle_guard"),
+      ddl.indexOf(
+        "$$;",
+        ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_archive_lifecycle_guard"),
+      ),
+    );
+    // The same-state validation bypass is gone: no unconditional early return
+    // on an unchanged status.
+    expect(guard).not.toMatch(/IF NEW\.status = OLD\.status THEN\s*\n\s*RETURN NEW/);
+    // Post-verification evidence and inventory numbers are frozen (OLD vs
+    // NEW), terminal states are strict no-ops, and the client part manifest
+    // is cryptographically bound to the immutable identity on every version.
+    expect(guard).toContain("studio_archive_verified_evidence_immutable: parts");
+    expect(guard).toContain("studio_archive_verified_evidence_immutable: observed_size");
+    expect(guard).toContain("studio_archive_verified_evidence_immutable: composite_sha256");
+    expect(guard).toContain("studio_archive_verified_evidence_immutable: archive_sha256");
+    expect(guard).toContain("studio_archive_verified_evidence_immutable: inventory");
+    expect(guard).toContain("studio_archive_terminal_immutable");
+    expect(guard).toContain("studio_archive_planned_carries_evidence");
+    expect(guard).toContain("studio_archive_manifest_binding_violation: identity_digest");
+    expect(guard).toContain("int8send(NEW.declared_size)");
+    expect(guard).toContain("sha256(v_preimage)");
+    // Full evidence: client/server digest equality, exact sizes + sums, the
+    // recomputed composite, and the inventory revalidated on every write.
+    expect(guard).toContain("v_part->>'sha256' <> v_part->>'declaredSha256'");
+    expect(guard).toContain("studio_archive_byte_verification_evidence_missing: part_sizes");
+    expect(guard).toContain("studio_archive_byte_verification_evidence_missing: composite_sha256");
+    expect(guard).toContain("studio_archive_inventory_foreign_rows");
+    // The RPC whitelist shrinks after verification and rejects unknown keys.
+    const patch = ddl.slice(
+      ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_update_archive_claimed"),
+      ddl.indexOf(
+        "$$;",
+        ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_update_archive_claimed"),
+      ),
+    );
+    expect(patch).toContain("studio_archive_patch_invalid: unknown_field");
+    expect(patch).toContain("studio_archive_patch_forbidden: verified_evidence");
+    expect(patch).toContain("studio_archive_patch_forbidden: inventory");
+    expect(patch).toContain("studio_archive_patch_forbidden: terminal");
+    // Indexing is phase-gated; settlement requires the processing phase.
+    const index = ddl.slice(
+      ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_index_archive_entries"),
+      ddl.indexOf(
+        "$$;",
+        ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_index_archive_entries"),
+      ),
+    );
+    expect(index).toContain("studio_archive_entries_invalid: archive_state");
+    const settle = ddl.slice(
+      ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_settle_archive_entry"),
+      ddl.indexOf(
+        "$$;",
+        ddl.indexOf("CREATE OR REPLACE FUNCTION public.studio_settle_archive_entry"),
+      ),
+    );
+    expect(settle).toContain("v_archive_status <> 'processing_entries'");
   });
 
   it("validates JSON patch and outcome fields before casting (malformed input raises)", () => {

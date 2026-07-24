@@ -9,6 +9,8 @@
  * PostgreSQL suite (studio.postgres.sql).
  */
 
+import { createHash } from "node:crypto";
+
 import type { ProgressiveWarning } from "@/features/forever-ingestion/batch-types";
 import type { ExistingProjectState } from "@/features/forever-ingestion/build-batch";
 import { mediaStateKey, priceStateKey } from "@/features/forever-ingestion/build-batch";
@@ -25,7 +27,11 @@ import { FakeIngestExecutor } from "@/features/forever-ingestion/tests/fake-inge
 
 import { syntheticJpeg, syntheticPng, syntheticWebp } from "./media-truth-fixtures";
 
-import type { StudioArchiveEntryState, StudioArchiveStatus } from "../studio-types";
+import {
+  UPLOAD_MANIFEST_DOMAIN,
+  type StudioArchiveEntryState,
+  type StudioArchiveStatus,
+} from "../studio-types";
 
 import type {
   PriceListPdfExtraction,
@@ -763,37 +769,122 @@ export class FakeData implements StudioData {
   }
 
   /**
-   * Mirrors public.studio_archive_lifecycle_guard: the DB-enforced status
-   * transition matrix plus the state evidence each transition requires.
-   * Same-state updates are idempotent; violations throw exactly like the
-   * trigger raises, leaving the stored row unchanged.
+   * Mirrors the manifest identity preimage the server derives at plan time
+   * (deriveManifestSha256) and the SQL trigger recomputes on every row
+   * version: sha256 over the domain prefix, the 8-byte BE declared size, the
+   * 4-byte BE part size and part count, and the ordered raw declared digests.
    */
-  private assertArchiveLifecycle(previous: StudioArchiveRow, next: StudioArchiveRow): void {
-    if (next.status === previous.status) return;
-    const allowed: Record<StudioArchiveStatus, StudioArchiveStatus[]> = {
-      planned: ["uploaded_unverified", "rejected"],
-      uploaded_unverified: ["byte_verifying", "rejected"],
-      byte_verifying: ["byte_verified", "rejected"],
-      byte_verified: ["processing_entries", "rejected"],
-      processing_entries: ["completed", "rejected"],
-      completed: [],
-      rejected: [],
-    };
-    if (!allowed[previous.status]?.includes(next.status)) {
-      throw new Error(`studio_archive_invalid_transition: ${previous.status} -> ${next.status}`);
+  private archiveManifestSha256(row: StudioArchiveRow): string {
+    const hash = createHash("sha256");
+    hash.update(Buffer.from(UPLOAD_MANIFEST_DOMAIN, "utf8"));
+    const geometry = Buffer.alloc(16);
+    geometry.writeBigUInt64BE(BigInt(row.declared_size), 0);
+    geometry.writeUInt32BE(row.part_size, 8);
+    geometry.writeUInt32BE(row.part_count, 12);
+    hash.update(geometry);
+    for (const part of row.parts) hash.update(Buffer.from(part.declaredSha256 ?? "", "hex"));
+    return hash.digest("hex");
+  }
+
+  /**
+   * Mirrors the trigger's manifest-binding + per-state evidence section,
+   * which runs on EVERY row version (insert, transition, same-state): the
+   * parts array must always be the plan-bound declared manifest —
+   * cryptographically bound to the immutable manifest identity — and any row
+   * in byte_verified/processing_entries/completed must carry the complete
+   * byte-verification and inventory evidence.
+   */
+  private assertArchiveState(next: StudioArchiveRow, isInsert: boolean): void {
+    const HEX64 = /^[0-9a-f]{64}$/;
+    const verifiedState = ["byte_verified", "processing_entries", "completed"].includes(
+      next.status,
+    );
+    if (!Array.isArray(next.parts)) {
+      throw new Error("studio_archive_manifest_binding_violation: parts_not_array");
     }
-    if (next.status === "byte_verified" || next.status === "completed") {
-      const parts = next.parts ?? [];
-      const byteVerified =
-        parts.length === next.part_count &&
-        parts.every((part) => part.verified && /^[0-9a-f]{64}$/.test(part.sha256 ?? "")) &&
-        next.observed_size === next.declared_size &&
-        /^[0-9a-f]{64}$/.test(next.archive_sha256 ?? "");
-      if (!byteVerified) {
-        throw new Error(`studio_archive_byte_verification_evidence_missing: ${next.status}`);
+    if (next.parts.length !== next.part_count) {
+      throw new Error("studio_archive_manifest_binding_violation: part_count");
+    }
+    if (next.part_count !== Math.ceil(next.declared_size / next.part_size)) {
+      throw new Error("studio_archive_manifest_binding_violation: geometry");
+    }
+    let sizeSum = 0;
+    let sizesMissing = false;
+    next.parts.forEach((part, position) => {
+      if (typeof part !== "object" || part === null || Array.isArray(part)) {
+        throw new Error("studio_archive_manifest_binding_violation: part_shape");
+      }
+      for (const key of Object.keys(part)) {
+        if (!["index", "size", "declaredSha256", "sha256", "verified"].includes(key)) {
+          throw new Error(`studio_archive_manifest_binding_violation: part_field ${key}`);
+        }
+      }
+      if (!Number.isInteger(part.index) || part.index !== position) {
+        throw new Error("studio_archive_manifest_binding_violation: part_index");
+      }
+      if (typeof part.declaredSha256 !== "string" || !HEX64.test(part.declaredSha256)) {
+        throw new Error("studio_archive_manifest_binding_violation: declared_sha256");
+      }
+      const expectedSize =
+        position < next.part_count - 1
+          ? next.part_size
+          : next.declared_size - next.part_size * (next.part_count - 1);
+      if (part.size != null) {
+        if (!Number.isInteger(part.size) || part.size !== expectedSize) {
+          throw new Error("studio_archive_manifest_binding_violation: part_size");
+        }
+        sizeSum += part.size;
+      } else {
+        sizesMissing = true;
+      }
+      if (part.sha256 != null && (typeof part.sha256 !== "string" || !HEX64.test(part.sha256))) {
+        throw new Error("studio_archive_manifest_binding_violation: server_sha256");
+      }
+      if (typeof part.verified !== "boolean") {
+        throw new Error("studio_archive_manifest_binding_violation: verified_flag");
+      }
+      if (part.verified && part.sha256 == null) {
+        throw new Error("studio_archive_manifest_binding_violation: verified_without_hash");
+      }
+      if (isInsert && (part.sha256 != null || part.verified)) {
+        throw new Error("studio_archive_planned_carries_evidence");
+      }
+      if (verifiedState) {
+        if (!part.verified || !HEX64.test(part.sha256 ?? "") || part.size == null) {
+          throw new Error("studio_archive_byte_verification_evidence_missing: part");
+        }
+        if (part.sha256 !== part.declaredSha256) {
+          throw new Error("studio_archive_byte_verification_evidence_missing: part");
+        }
+      }
+    });
+    if (
+      HEX64.test(next.manifest_sha256 ?? "") &&
+      this.archiveManifestSha256(next) !== next.manifest_sha256
+    ) {
+      throw new Error("studio_archive_manifest_binding_violation: identity_digest");
+    }
+    if (next.observed_size != null && next.observed_size !== next.declared_size) {
+      throw new Error("studio_archive_manifest_binding_violation: observed_size");
+    }
+    if (verifiedState) {
+      if (sizesMissing || sizeSum !== next.declared_size) {
+        throw new Error("studio_archive_byte_verification_evidence_missing: part_sizes");
+      }
+      if (next.observed_size == null) {
+        throw new Error("studio_archive_byte_verification_evidence_missing: observed_size");
+      }
+      if (!HEX64.test(next.archive_sha256 ?? "")) {
+        throw new Error("studio_archive_byte_verification_evidence_missing: archive_sha256");
+      }
+      const composite = createHash("sha256")
+        .update(Buffer.from(next.parts.map((part) => part.sha256).join(""), "utf8"))
+        .digest("hex");
+      if (next.composite_sha256 !== composite) {
+        throw new Error("studio_archive_byte_verification_evidence_missing: composite_sha256");
       }
     }
-    if (next.status === "processing_entries") {
+    if (next.status === "processing_entries" || next.status === "completed") {
       if (
         next.entry_count == null ||
         next.entry_count < 0 ||
@@ -802,11 +893,12 @@ export class FakeData implements StudioData {
       ) {
         throw new Error("studio_archive_inventory_evidence_missing");
       }
-      const rows = [...this.archiveEntries.values()].filter(
-        (row) => row.archive_id === next.id,
-      ).length;
-      if (rows !== next.entry_count) {
+      const rows = [...this.archiveEntries.values()].filter((row) => row.archive_id === next.id);
+      if (rows.length !== next.entry_count) {
         throw new Error("studio_archive_inventory_incomplete");
+      }
+      if (rows.some((row) => row.job_id !== next.job_id)) {
+        throw new Error("studio_archive_inventory_foreign_rows");
       }
     }
     if (next.status === "completed") {
@@ -817,11 +909,100 @@ export class FakeData implements StudioData {
     }
   }
 
+  /**
+   * Mirrors public.studio_archive_lifecycle_guard for UPDATEs: identity
+   * immutability, the DB-enforced status transition matrix, post-verification
+   * evidence immutability, terminal strict no-ops — and, with NO same-state
+   * bypass, the complete landing-state validation of assertArchiveState.
+   * Violations throw exactly like the trigger raises, leaving the stored row
+   * unchanged.
+   */
+  private assertArchiveLifecycle(previous: StudioArchiveRow, next: StudioArchiveRow): void {
+    if (
+      next.id !== previous.id ||
+      next.job_id !== previous.job_id ||
+      next.manifest_sha256 !== previous.manifest_sha256 ||
+      next.declared_size !== previous.declared_size ||
+      next.part_size !== previous.part_size ||
+      next.part_count !== previous.part_count ||
+      next.ordinal !== previous.ordinal ||
+      next.file_name !== previous.file_name ||
+      next.created_at !== previous.created_at
+    ) {
+      throw new Error("studio_archive_identity_immutable");
+    }
+    const allowed: Record<StudioArchiveStatus, StudioArchiveStatus[]> = {
+      planned: ["uploaded_unverified", "rejected"],
+      uploaded_unverified: ["byte_verifying", "rejected"],
+      byte_verifying: ["byte_verified", "rejected"],
+      byte_verified: ["processing_entries", "rejected"],
+      processing_entries: ["completed", "rejected"],
+      completed: [],
+      rejected: [],
+    };
+    if (next.status !== previous.status && !allowed[previous.status]?.includes(next.status)) {
+      throw new Error(`studio_archive_invalid_transition: ${previous.status} -> ${next.status}`);
+    }
+    const changed = (left: unknown, right: unknown) =>
+      JSON.stringify(left ?? null) !== JSON.stringify(right ?? null);
+    // Terminal states accept only a strict no-op re-write.
+    if (previous.status === "completed" || previous.status === "rejected") {
+      if (
+        changed(next.parts, previous.parts) ||
+        changed(next.observed_size, previous.observed_size) ||
+        changed(next.composite_sha256, previous.composite_sha256) ||
+        changed(next.archive_sha256, previous.archive_sha256) ||
+        changed(next.entry_count, previous.entry_count) ||
+        changed(next.total_uncompressed, previous.total_uncompressed) ||
+        changed(next.extracted, previous.extracted) ||
+        changed(next.error_code, previous.error_code)
+      ) {
+        throw new Error(`studio_archive_terminal_immutable: ${previous.status}`);
+      }
+    }
+    // Once byte-verified, the verification evidence is frozen in every later
+    // state — same-state updates included.
+    if (["byte_verified", "processing_entries", "completed"].includes(previous.status)) {
+      if (changed(next.parts, previous.parts)) {
+        throw new Error("studio_archive_verified_evidence_immutable: parts");
+      }
+      if (changed(next.observed_size, previous.observed_size)) {
+        throw new Error("studio_archive_verified_evidence_immutable: observed_size");
+      }
+      if (changed(next.composite_sha256, previous.composite_sha256)) {
+        throw new Error("studio_archive_verified_evidence_immutable: composite_sha256");
+      }
+      if (changed(next.archive_sha256, previous.archive_sha256)) {
+        throw new Error("studio_archive_verified_evidence_immutable: archive_sha256");
+      }
+    }
+    if (["processing_entries", "completed"].includes(previous.status)) {
+      if (
+        changed(next.entry_count, previous.entry_count) ||
+        changed(next.total_uncompressed, previous.total_uncompressed)
+      ) {
+        throw new Error("studio_archive_verified_evidence_immutable: inventory");
+      }
+    }
+    this.assertArchiveState(next, false);
+  }
+
   async createArchive(row: StudioArchiveRow) {
-    // Mirrors the trigger's INSERT rule: every archive starts at 'planned'.
+    // Mirrors the trigger's INSERT rules: every archive starts at 'planned',
+    // carries its plan-bound declared manifest, and NO verification evidence.
     if (row.status !== "planned") {
       throw new Error(`studio_archive_invalid_initial_status: ${row.status}`);
     }
+    if (
+      row.observed_size != null ||
+      row.composite_sha256 != null ||
+      row.archive_sha256 != null ||
+      row.entry_count != null ||
+      row.total_uncompressed != null
+    ) {
+      throw new Error("studio_archive_planned_carries_evidence");
+    }
+    this.assertArchiveState(row, true);
     this.archives.set(row.id, structuredClone(row));
   }
   async getArchive(id: string) {
@@ -859,12 +1040,55 @@ export class FakeData implements StudioData {
     archiveId: string,
     patch: Partial<StudioArchiveRow>,
   ) {
+    // Mirrors the RPC's explicit patch whitelist: unknown fields raise, never
+    // silently apply or drop.
+    const record = patch as Record<string, unknown>;
+    const keys = Object.keys(patch).filter((key) => record[key] !== undefined);
+    const whitelist = [
+      "status",
+      "parts",
+      "observed_size",
+      "composite_sha256",
+      "archive_sha256",
+      "entry_count",
+      "total_uncompressed",
+      "extracted",
+      "error_code",
+    ];
+    if (keys.some((key) => !whitelist.includes(key))) {
+      throw new Error("studio_archive_patch_invalid: unknown_field");
+    }
     if (!this.jobClaimHeld(jobId, token)) return false;
     // Mirrors the RPC's locked ownership proof: the target archive must
     // exist AND belong to the claimed job, else FALSE (never a write).
     const row = this.archives.get(archiveId);
     if (!row || row.job_id !== jobId) return false;
-    const next = { ...row, ...structuredClone(patch) };
+    // Mirrors the RPC's post-verification whitelist reduction: evidence
+    // fields cannot even be presented once the archive passed verification.
+    if (
+      ["byte_verified", "processing_entries", "completed", "rejected"].includes(row.status) &&
+      keys.some((key) =>
+        ["parts", "observed_size", "composite_sha256", "archive_sha256"].includes(key),
+      )
+    ) {
+      throw new Error("studio_archive_patch_forbidden: verified_evidence");
+    }
+    if (
+      ["processing_entries", "completed", "rejected"].includes(row.status) &&
+      keys.some((key) => ["entry_count", "total_uncompressed"].includes(key))
+    ) {
+      throw new Error("studio_archive_patch_forbidden: inventory");
+    }
+    if (
+      ["completed", "rejected"].includes(row.status) &&
+      keys.some((key) => ["extracted", "error_code"].includes(key))
+    ) {
+      throw new Error("studio_archive_patch_forbidden: terminal");
+    }
+    const next = { ...row } as StudioArchiveRow;
+    for (const key of keys) {
+      (next as unknown as Record<string, unknown>)[key] = structuredClone(record[key]);
+    }
     this.assertArchiveLifecycle(row, next);
     this.archives.set(archiveId, next);
     return true;
@@ -878,6 +1102,11 @@ export class FakeData implements StudioData {
     // Mirrors the RPC's locked ownership proof on the target archive.
     const targetArchive = entries[0] ? this.archives.get(entries[0].archive_id) : undefined;
     if (entries.length > 0 && (!targetArchive || targetArchive.job_id !== jobId)) return false;
+    // Mirrors the RPC's phase gate: inventory rows may only be recorded while
+    // the archive is byte_verified — never diluted into a later state.
+    if (entries.length > 0 && targetArchive && targetArchive.status !== "byte_verified") {
+      throw new Error(`studio_archive_entries_invalid: archive_state ${targetArchive.status}`);
+    }
     for (const entry of entries) {
       // Mirrors the composite FK (archive_id, job_id) → studio_archives:
       // an entry can never claim an archive under a different job.
@@ -915,9 +1144,10 @@ export class FakeData implements StudioData {
     const entry = this.archiveEntries.get(entryId);
     if (!entry || entry.job_id !== jobId || entry.state !== "pending") return false;
     // Mirrors the RPC's archive-ownership proof: the entry's parent archive
-    // must belong to the claimed job.
+    // must belong to the claimed job AND still be in its processing phase.
     const parent = this.archives.get(entry.archive_id);
     if (!parent || parent.job_id !== jobId) return false;
+    if (parent.status !== "processing_entries") return false;
     Object.assign(entry, {
       state: outcome.state,
       outcome_code: outcome.outcomeCode,

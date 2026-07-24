@@ -1,12 +1,50 @@
 # FOREVER-STUDIO-LARGE-ARCHIVE-001 — Implementation Report
 
 Branch: `claude/forever-studio-large-archive-001` · Base: `8d173db` (post-PR-99 main)
-Status: **implemented + two corrective passes (architect review, independent Codex audit), fully validated locally, Draft PR, migration unapplied, no deployment**
+Status: **implemented + three corrective passes (architect review, two independent Codex audits), fully validated locally, Draft PR, migration unapplied, no deployment**
 
-> **Corrective pass 2 (2026-07-24, independent Codex audit).** The audit
-> found five defects; all five are corrected in this revision:
+> **Corrective pass 3 (2026-07-24, second independent Codex audit).** The
+> audit found one remaining HIGH-severity defect: the lifecycle trigger
+> returned early on same-state updates, so a worker holding a valid
+> processing claim could stay in `processing_entries` and rewrite
+> `parts`, `observed_size`, `composite_sha256`, `archive_sha256`,
+> `entry_count`, `total_uncompressed` — replacing verified evidence without
+> ever changing state — and a fabricated manifest could satisfy the
+> completion checks. Corrected at the database layer:
 >
-> 1. **Sampled resume identity replaced by the exact per-part manifest.**
+> 1. **The same-state validation bypass is removed.** Every INSERT/UPDATE —
+>    transition or idempotent re-write — must satisfy the complete invariants
+>    of the state the row lands in; the transition matrix applies only to
+>    state changes, but validation always runs.
+> 2. **Verified archive evidence is now one coherent, database-recomputed
+>    definition.** For any row in `byte_verified`, `processing_entries`, or
+>    `completed`: exactly `part_count` ordered part objects (integer indexes
+>    covering 0..n−1 — no duplicate, gap, reorder, or extra), geometry
+>    `part_count = ceil(declared_size / part_size)`, each part at its exact
+>    expected size (final part = exact remainder) with sizes summing to
+>    `declared_size`, every part `verified=true` with a valid server SHA-256
+>    EQUAL to the plan-time client claim, `observed_size = declared_size`,
+>    `archive_sha256` present, and `composite_sha256` equal to the digest the
+>    DATABASE recomputes over the ordered server hashes. The parts manifest
+>    is additionally **cryptographically bound to the immutable
+>    `manifest_sha256` identity on every row version** — PostgreSQL re-derives
+>    `sha256(domain ‖ declared_size ‖ part_size ‖ part_count ‖ ordered raw
+declared digests)` (the exact server preimage) — so a fabricated or
+>    rewritten manifest can never satisfy ANY state, planned included.
+> 3. **Verification evidence is immutable after `byte_verified`** (OLD vs NEW
+>    in the trigger): `parts`, `observed_size`, `composite_sha256`,
+>    `archive_sha256` are frozen through `processing_entries` and `completed`;
+>    `entry_count`/`total_uncompressed` freeze once recorded; terminal states
+>    accept only strict no-op re-writes. The RPC whitelist shrinks in step:
+>    evidence fields cannot even be PRESENTED in a patch after verification,
+>    unknown patch fields are rejected outright, indexing is phase-gated to
+>    `byte_verified`, and settlement to `processing_entries`.
+> 4. **The TypeScript fake mirrors the full contract** (no weaker test
+>    database), and the PostgreSQL suite gained an adversarial battery
+>    (LA-10) that proves — with before/after row snapshots — that every
+>    rejected tamper attempt changed nothing. The audit
+>    found five defects; all five are corrected in this revision:
+> 5. **Sampled resume identity replaced by the exact per-part manifest.**
 >    The v1 upload fingerprint hashed only four bounded windows, so two
 >    same-size files differing outside the samples could collide and the
 >    second could attach to the first's stored parts (or idempotently
@@ -16,28 +54,28 @@ Status: **implemented + two corrective passes (architect review, independent Cod
 >    to the archive at PLAN time; resume happens only on a digest-for-digest
 >    match, and confirm refuses any manifest that differs from the planned
 >    one. The sampled-fingerprint contract is removed.
-> 2. **Cross-job archive ownership enforced in SQL.** A valid processing
+> 6. **Cross-job archive ownership enforced in SQL.** A valid processing
 >    claim on job B could previously call the archive RPCs against job A's
 >    archive. Every RPC now locks the target archive and proves
 >    `archive.job_id = p_job_id` (returning FALSE otherwise), and a
 >    **composite foreign key** `(archive_id, job_id) →
 studio_archives(id, job_id)` makes cross-job entry rows unrepresentable
 >    at the constraint layer.
-> 3. **ZIP structural binding hardened in BOTH readers.** EOCD candidates
+> 7. **ZIP structural binding hardened in BOTH readers.** EOCD candidates
 >    must consume the file exactly (offset + 22 + comment = EOF; ambiguous
 >    duplicates reject); disk fields must be zero; the central directory must
 >    sit flush against the EOCD and be consumed exactly; and every entry's
 >    LOCAL header is bound to its central record (exact name bytes, method,
 >    relevant flags, encryption, CRC/sizes or verified data-descriptor
 >    semantics, disjoint local spans) before any payload byte is read.
-> 4. **The archive lifecycle is DB-enforced.** A trigger implements the full
+> 8. **The archive lifecycle is DB-enforced.** A trigger implements the full
 >    transition matrix plus state evidence (byte_verified requires every part
 >    verified with a server hash, observed = declared size, and the exact
 >    archive SHA-256; processing_entries requires the durable inventory;
 >    completed requires zero pending entries) — TypeScript callers can no
 >    longer skip or regress states, and malformed JSON patches fail safely
 >    before any cast.
-> 5. **The memory claim is re-measured honestly.** A processing-only,
+> 9. **The memory claim is re-measured honestly.** A processing-only,
 >    disk-backed, forced-GC child-process benchmark replaces the fake-storage
 >    RSS reading and explains the 64–81 vs 119.9 MiB discrepancy (§8, §11).
 
@@ -238,8 +276,10 @@ staging/production access occurred.**
 
 Archive lifecycle — **enforced by the database trigger
 `studio_archive_lifecycle_guard`, not by callers** (inserts start at
-`planned`; same-state updates are idempotent; identity fields are
-immutable):
+`planned` carrying the plan-bound manifest and NO verification evidence;
+EVERY row version — same-state updates included — must satisfy the complete
+invariants of the state it lands in; identity fields are immutable from
+birth and verification evidence is immutable after `byte_verified`):
 
 ```
 planned             → uploaded_unverified | rejected
@@ -309,9 +349,21 @@ remain the immutable parent evidence.
   the file hash.
 - **`studio_archive_lifecycle_guard`** (trigger, BEFORE INSERT OR UPDATE) —
   the transition matrix and state evidence of §4, enforced for EVERY caller
-  (RPC, PostgREST, direct SQL): inserts must start `planned`, identity
-  fields are immutable, forbidden transitions and missing evidence raise and
-  roll back — TypeScript can neither skip nor regress a state.
+  (RPC, PostgREST, direct SQL) on EVERY row version — there is **no
+  same-state bypass**. Inserts must start `planned` with no verification
+  evidence; identity fields (id, job, manifest identity, size, geometry,
+  ordinal, filename, created_at) are immutable; the parts manifest is
+  **cryptographically bound to `manifest_sha256`** (the trigger re-derives
+  the server's identity preimage with PostgreSQL's own `sha256()`); rows in
+  `byte_verified`/`processing_entries`/`completed` must carry the complete
+  recomputed evidence (ordered indexes, exact sizes + sum, server hash =
+  plan-time claim per part, observed = declared, exact archive hash,
+  recomputed composite, inventory count + job ownership, zero pending for
+  completed); after `byte_verified` the evidence columns are frozen (OLD vs
+  NEW), after `processing_entries` the inventory numbers are too, and
+  terminal states accept only strict no-op re-writes. Violations raise and
+  roll back — TypeScript can neither skip, regress, nor silently rewrite a
+  state.
 - **`studio_archive_entries`** — `evidence JSONB` (the independently
   addressable private evidence manifest) and the **composite FK
   `(archive_id, job_id) REFERENCES studio_archives (id, job_id)`**: an entry
@@ -323,10 +375,18 @@ remain the immutable parent evidence.
   BEFORE casting (`studio_archive_patch_invalid`,
   `studio_archive_outcome_invalid`, `studio_archive_entries_invalid` — a
   malformed patch fails safely, changing nothing).
-  `studio_update_archive_claimed` whitelists `archive_sha256`
-  (`manifest_sha256` is insert-only, deliberately not patchable);
-  `studio_settle_archive_entry` remains pending-only. All remain
-  claim-guarded, service-role-only, `SET search_path = ''`.
+  `studio_update_archive_claimed` additionally rejects unknown patch fields
+  outright and **shrinks its whitelist by lifecycle position**
+  (`studio_archive_patch_forbidden`): after `byte_verified`, the evidence
+  fields (`parts`, `observed_size`, `composite_sha256`, `archive_sha256`)
+  cannot even be presented; after `processing_entries`, neither can
+  `entry_count`/`total_uncompressed`; terminal rows accept status-only
+  no-op patches (`manifest_sha256` remains insert-only, deliberately not
+  patchable). `studio_index_archive_entries` is phase-gated to
+  `byte_verified` archives (the transitioned entry count can never be
+  diluted afterwards) and `studio_settle_archive_entry` remains pending-only
+  AND phase-gated to `processing_entries`. All remain claim-guarded,
+  service-role-only, `SET search_path = ''`.
 - Both tables: RLS enabled, zero policies, service-role-only grants,
   cascade from the job row only. The migration remains **additive and
   UNAPPLIED**; it runs in the disposable PostgreSQL chain only.
@@ -465,6 +525,52 @@ Worker figure is an explicit staging-gate measurement (§14). The in-suite
 
 ## 11. Validation evidence (all local; fakes + disposable PostgreSQL)
 
+New/updated in corrective pass 3 (second independent audit — lifecycle
+evidence hardening):
+
+- `studio.postgres.sql` **LA-10 adversarial lifecycle-evidence suite** (real
+  PostgreSQL 17, full migration chain) — all 27 enumerated adversarial
+  scenarios, each rejected operation proven with before/after row snapshots
+  (`to_jsonb` modulo `updated_at`) to have changed **no archive field, no
+  entry field, and no unrelated row**: valid `byte_verified` creation; the
+  accepted same-state no-op; same-state tampering with parts / archive hash
+  / observed size / composite / manifest identity at `byte_verified` AND at
+  `processing_entries` (refused by BOTH the RPC whitelist reduction and the
+  trigger's OLD-vs-NEW freeze, including direct service-role SQL); the
+  byte_verified evidence gate refusing an unverified part, reordered
+  indexes, a duplicate index, a missing part, and a wrong final-part size;
+  the same five shapes refused again as single-statement FABRICATED
+  `byte_verified → processing_entries` transitions; entry-count freezing and
+  the re-counted completion gate (a directly inserted extra inventory row
+  blocks completion; the composite FK keeps foreign-job inventory
+  unrepresentable); completion with a pending entry refused; valid
+  completion; completed/rejected as strict no-op terminals (evidence,
+  extracted artifacts, and error codes all frozen; every earlier state
+  unreachable by RPC or SQL); malformed parts JSON (object-for-array, scalar
+  elements, fractional index/size, malformed digests, unknown part fields,
+  identity-digest mismatch) failing atomically at any state; stale tokens
+  and cross-job claims refused for patch, index, and settle; and the new
+  phase gates (no indexing after `byte_verified`, no settlement outside
+  `processing_entries`).
+- `studio.postgres.sql` LA-2/LA-3/LA-6 fixtures now carry **real manifest
+  identities** (a suite mirror of the server's digest derivation feeds the
+  trigger's cryptographic binding), server hashes EQUAL to plan-time claims,
+  and database-recomputed composites; new negatives prove a WELL-FORMED but
+  WRONG manifest identity cannot even be planned, a claim/server hash
+  MISMATCH cannot byte-verify, and a wrong composite is refused.
+- `large-archive-migration-contract.test.ts` (16) — static proof the
+  same-state bypass is gone, every immutability/binding/forbidden-field
+  error class exists, and the phase gates are present in the SQL text.
+- `fakes.ts` — the in-memory database now mirrors the ENTIRE hardened
+  contract (identity immutability, manifest binding via the same preimage,
+  full verified-state evidence incl. claim/server equality and the
+  recomputed composite, post-verification freezes, terminal no-ops,
+  inventory/job-ownership checks, RPC whitelist reduction, phase gates), so
+  TypeScript tests can no longer pass against a weaker database than
+  PostgreSQL enforces. All 266 Studio-suite tests pass against the stricter
+  fake with **zero production-code changes** — proof the legitimate engine
+  flows never relied on the removed bypass.
+
 New/updated suites in corrective pass 2 (independent audit):
 
 - `large-archive-upload.test.ts` (13) — the exact-manifest contract: the
@@ -490,7 +596,8 @@ New/updated suites in corrective pass 2 (independent audit):
   boundary escape; central record pointing into another entry; overlapping
   claimed ranges; data descriptor valid (signed + unsigned), corrupt,
   missing, and non-zeroed local fields.
-- `studio.postgres.sql` (LA-1…LA-9, real PostgreSQL 17) — the full lifecycle
+- `studio.postgres.sql` (LA-1…LA-9, real PostgreSQL 17; LA-10 added by pass
+  3 above) — the full lifecycle
   walk under the live claim with the trigger demanding evidence at every
   gate; **cross-job proofs: job B's VALID claim cannot index into, patch, or
   settle job A's archive (FALSE, zero rows), the composite FK rejects a
@@ -502,10 +609,11 @@ New/updated suites in corrective pass 2 (independent audit):
   service-role SQL; 11 malformed patches + 6 malformed outcomes + malformed
   inventory payloads all raise `*_invalid` and change nothing; stale-token
   behavior unchanged throughout.
-- `large-archive-migration-contract.test.ts` (15) — static contract: the
-  manifest identity column (retired fingerprint gone), UNIQUE (id, job_id),
-  the composite FK, ownership locks in every RPC, the lifecycle trigger with
-  every violation class, and pre-cast patch/outcome validation.
+- `large-archive-migration-contract.test.ts` (15 at pass 2; 16 after pass 3)
+  — static contract: the manifest identity column (retired fingerprint
+  gone), UNIQUE (id, job_id), the composite FK, ownership locks in every
+  RPC, the lifecycle trigger with every violation class, and pre-cast
+  patch/outcome validation.
 - `large-archive-memory-benchmark.test.ts` + `run-memory-benchmark.mjs` —
   the processing-only measurement of record (§8).
 
@@ -562,19 +670,23 @@ interruption fixture: worker killed mid-run, stale takeover after 16 min,
   settled outcomes byte-identical after resume
 ```
 
-Fresh validation, all on this revision (exact numbers in the PR
-description):
+Fresh validation, all on the corrective-pass-3 revision (exact numbers in
+the PR description):
 
-- **Full vitest**: 3370 passed / 6 skipped; the ONLY failures are the four
+- **Full vitest**: 3371 passed / 6 skipped; the ONLY failures are the four
   **pre-existing** ones unrelated to this change
   (`src/import/importer-preflight.test.ts` fixture drift ×3 and the
   missing-`modeva`-asset environmental failure ×1) — **re-proven to fail
-  IDENTICALLY at the exact base commit `0163b50`** by stashing this pass and
+  IDENTICALLY at the exact base commit `5025c63`** by stashing this pass and
   re-running both files on unmodified code (same 4 tests, same assertions).
+  The Studio suites (30 files, 266+ tests incl. lifecycle, migration
+  contract, large-archive processing/upload/verification/evidence, manifest
+  identity, scheduled runner, stale-token/concurrency, private evidence,
+  ZIP safety, and Media Truth) all pass against the STRICTER fake.
 - **Disposable PostgreSQL harness** (PostgreSQL 17, explicit PATH):
   complete migration chain including the reworked migration →
-  `ALL STUDIO POSTGRES ASSERTIONS PASSED` (now incl. LA-1…LA-9 with the
-  cross-job, lifecycle, and malformed-input adversaries).
+  `ALL STUDIO POSTGRES ASSERTIONS PASSED` (LA-1…LA-9 plus the new LA-10
+  adversarial lifecycle-evidence battery with unchanged-row proofs).
 - **TypeScript** `tsc --noEmit`: clean.
 - **ESLint + Prettier**: clean on every file this PR touches (repo-wide
   `eslint .` carries pre-existing drift in untouched legacy files).
@@ -622,10 +734,11 @@ description):
 ## 13. Migration state
 
 `supabase/migrations/20260724090000_studio_large_archive_v1.sql` was
-reworked IN PLACE by both corrective passes (it has never been applied
+reworked IN PLACE by all three corrective passes (it has never been applied
 anywhere, so the draft is still one additive migration — now with the
 manifest identity column, the composite ownership constraints, and the
-lifecycle trigger). It remains **additive, ordered after
+same-state-proof, evidence-freezing lifecycle trigger with cryptographic
+manifest binding). It remains **additive, ordered after
 current main (`20260723130000`), and UNAPPLIED** to any real environment; it
 runs in the disposable PostgreSQL chain only. The PR #99 grant migration
 remains intentionally unapplied and untouched. No staging or production

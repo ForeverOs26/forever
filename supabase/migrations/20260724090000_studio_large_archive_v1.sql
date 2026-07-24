@@ -52,13 +52,24 @@
 --     processing_entries  -> completed           | rejected
 --     completed           -> (terminal)
 --     rejected            -> (terminal)
---   Same-state updates are idempotent. Entering byte_verified requires every
---   planned part present with verified=true and a server SHA-256, the
---   observed size equal to the declared size, and the exact archive SHA-256.
---   Entering processing_entries requires the durable inventory to exist and
---   entry_count/total_uncompressed recorded (a truthful zero-entry result is
---   entry_count = 0). Entering completed requires zero pending entries and
---   intact byte-verification evidence. INSERTs must start at 'planned'.
+--   EVERY insert and update — including a same-state update — must satisfy
+--   the complete invariants of the state the row lands in; there is no
+--   idempotency bypass. The client part manifest is cryptographically bound
+--   to the immutable manifest identity on every row version (sha256 over the
+--   domain prefix, the declared size, the part geometry, and the ordered
+--   declared digests), so a fabricated or rewritten manifest can never
+--   satisfy any state. Entering — or remaining in — byte_verified,
+--   processing_entries, or completed requires every part present in order
+--   with verified=true, a server SHA-256 equal to the plan-time claim, exact
+--   per-part sizes (final part = exact remainder) summing to the declared
+--   size, observed_size equal to declared_size, the exact archive SHA-256,
+--   and the recomputed composite digest. Once a row has been byte_verified
+--   its verification evidence (parts, observed_size, composite_sha256,
+--   archive_sha256) is immutable; once processing_entries, entry_count and
+--   total_uncompressed are too. processing_entries and completed revalidate
+--   the durable inventory (row count, job ownership, zero pending for
+--   completed) on every write. Terminal states accept only strict no-op
+--   updates. INSERTs must start at 'planned' with no verification evidence.
 --
 -- Privacy: both tables carry ORIGINAL client filenames / raw entry paths and
 -- full media-truth evidence (including extracted claims). They are internal
@@ -152,8 +163,14 @@ GRANT ALL ON public.studio_archives TO service_role;
 --
 -- Runs on EVERY insert/update regardless of caller (RPC, PostgREST, SQL), so
 -- the truthful lifecycle can never be skipped, regressed, or asserted without
--- its evidence by any TypeScript caller. Violations raise and roll back the
--- offending statement — state is never partially changed.
+-- its evidence by any TypeScript caller. There is NO same-state bypass: every
+-- row version — insert, transition, or idempotent re-write — must satisfy the
+-- complete invariants of the state it lands in, and once a row has been
+-- byte_verified its verification evidence is immutable (OLD vs NEW). The
+-- client part manifest is cryptographically bound to the immutable
+-- manifest_sha256 identity on every version, so a fabricated manifest can
+-- never satisfy any state. Violations raise and roll back the offending
+-- statement — state is never partially changed.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.studio_archive_lifecycle_guard()
 RETURNS TRIGGER
@@ -162,69 +179,244 @@ SET search_path = ''
 AS $$
 DECLARE
   v_part JSONB;
+  v_key TEXT;
+  v_position INTEGER := 0;
+  v_expected_size BIGINT;
+  v_size_sum BIGINT := 0;
+  v_sizes_missing BOOLEAN := FALSE;
+  v_preimage BYTEA;
+  v_server_concat TEXT := '';
+  v_verified_state BOOLEAN;
   v_rows BIGINT;
 BEGIN
+  v_verified_state := NEW.status IN ('byte_verified','processing_entries','completed');
+
   IF TG_OP = 'INSERT' THEN
     IF NEW.status <> 'planned' THEN
       RAISE EXCEPTION 'studio_archive_invalid_initial_status: %', NEW.status;
     END IF;
-    RETURN NEW;
-  END IF;
-
-  -- The archive's identity is immutable once planned.
-  IF NEW.id <> OLD.id
-     OR NEW.job_id <> OLD.job_id
-     OR NEW.manifest_sha256 <> OLD.manifest_sha256
-     OR NEW.declared_size <> OLD.declared_size
-     OR NEW.part_size <> OLD.part_size
-     OR NEW.part_count <> OLD.part_count THEN
-    RAISE EXCEPTION 'studio_archive_identity_immutable';
-  END IF;
-
-  -- Idempotent same-state updates are allowed (e.g. per-part verification
-  -- progress inside byte_verifying, extracted-artifact adoption inside
-  -- processing_entries).
-  IF NEW.status = OLD.status THEN
-    RETURN NEW;
-  END IF;
-
-  IF NOT (
-       (OLD.status = 'planned'             AND NEW.status IN ('uploaded_unverified','rejected'))
-    OR (OLD.status = 'uploaded_unverified' AND NEW.status IN ('byte_verifying','rejected'))
-    OR (OLD.status = 'byte_verifying'      AND NEW.status IN ('byte_verified','rejected'))
-    OR (OLD.status = 'byte_verified'       AND NEW.status IN ('processing_entries','rejected'))
-    OR (OLD.status = 'processing_entries'  AND NEW.status IN ('completed','rejected'))
-  ) THEN
-    RAISE EXCEPTION 'studio_archive_invalid_transition: % -> %', OLD.status, NEW.status;
-  END IF;
-
-  -- State evidence: byte_verified (and completed, which must preserve it)
-  -- requires every planned part present, verified, and server-hashed; the
-  -- observed size equal to the declared size; and the exact archive SHA-256.
-  IF NEW.status IN ('byte_verified','completed') THEN
-    IF NEW.parts IS NULL
-       OR jsonb_typeof(NEW.parts) <> 'array'
-       OR jsonb_array_length(NEW.parts) <> NEW.part_count THEN
-      RAISE EXCEPTION 'studio_archive_byte_verification_evidence_missing: parts';
+    -- A planned row carries the client's declared manifest and NO unproven
+    -- verification evidence.
+    IF NEW.observed_size IS NOT NULL
+       OR NEW.composite_sha256 IS NOT NULL
+       OR NEW.archive_sha256 IS NOT NULL
+       OR NEW.entry_count IS NOT NULL
+       OR NEW.total_uncompressed IS NOT NULL THEN
+      RAISE EXCEPTION 'studio_archive_planned_carries_evidence';
     END IF;
-    FOR v_part IN SELECT jsonb_array_elements(NEW.parts) LOOP
-      IF COALESCE(v_part->>'verified','') <> 'true'
-         OR COALESCE(v_part->>'sha256','') !~ '^[0-9a-f]{64}$' THEN
-        RAISE EXCEPTION 'studio_archive_byte_verification_evidence_missing: part';
+  ELSE
+    -- The archive's identity is immutable once planned.
+    IF NEW.id <> OLD.id
+       OR NEW.job_id <> OLD.job_id
+       OR NEW.manifest_sha256 <> OLD.manifest_sha256
+       OR NEW.declared_size <> OLD.declared_size
+       OR NEW.part_size <> OLD.part_size
+       OR NEW.part_count <> OLD.part_count
+       OR NEW.ordinal <> OLD.ordinal
+       OR NEW.file_name <> OLD.file_name
+       OR NEW.created_at <> OLD.created_at THEN
+      RAISE EXCEPTION 'studio_archive_identity_immutable';
+    END IF;
+
+    -- Transition matrix applies to state CHANGES; a same-state update is
+    -- permitted but still runs every landing-state validation below.
+    IF NEW.status <> OLD.status AND NOT (
+         (OLD.status = 'planned'             AND NEW.status IN ('uploaded_unverified','rejected'))
+      OR (OLD.status = 'uploaded_unverified' AND NEW.status IN ('byte_verifying','rejected'))
+      OR (OLD.status = 'byte_verifying'      AND NEW.status IN ('byte_verified','rejected'))
+      OR (OLD.status = 'byte_verified'       AND NEW.status IN ('processing_entries','rejected'))
+      OR (OLD.status = 'processing_entries'  AND NEW.status IN ('completed','rejected'))
+    ) THEN
+      RAISE EXCEPTION 'studio_archive_invalid_transition: % -> %', OLD.status, NEW.status;
+    END IF;
+
+    -- Terminal states accept only a strict no-op re-write: the matrix above
+    -- already forbids leaving them, and no column may change.
+    IF OLD.status IN ('completed','rejected') THEN
+      IF NEW.parts IS DISTINCT FROM OLD.parts
+         OR NEW.observed_size IS DISTINCT FROM OLD.observed_size
+         OR NEW.composite_sha256 IS DISTINCT FROM OLD.composite_sha256
+         OR NEW.archive_sha256 IS DISTINCT FROM OLD.archive_sha256
+         OR NEW.entry_count IS DISTINCT FROM OLD.entry_count
+         OR NEW.total_uncompressed IS DISTINCT FROM OLD.total_uncompressed
+         OR NEW.extracted IS DISTINCT FROM OLD.extracted
+         OR NEW.error_code IS DISTINCT FROM OLD.error_code THEN
+        RAISE EXCEPTION 'studio_archive_terminal_immutable: %', OLD.status;
+      END IF;
+    END IF;
+
+    -- Once byte-verified, the verification evidence is frozen — a worker
+    -- holding a live processing claim may advance the lifecycle but can never
+    -- rewrite what was proven, in ANY later state (same-state included).
+    IF OLD.status IN ('byte_verified','processing_entries','completed') THEN
+      IF NEW.parts IS DISTINCT FROM OLD.parts THEN
+        RAISE EXCEPTION 'studio_archive_verified_evidence_immutable: parts';
+      END IF;
+      IF NEW.observed_size IS DISTINCT FROM OLD.observed_size THEN
+        RAISE EXCEPTION 'studio_archive_verified_evidence_immutable: observed_size';
+      END IF;
+      IF NEW.composite_sha256 IS DISTINCT FROM OLD.composite_sha256 THEN
+        RAISE EXCEPTION 'studio_archive_verified_evidence_immutable: composite_sha256';
+      END IF;
+      IF NEW.archive_sha256 IS DISTINCT FROM OLD.archive_sha256 THEN
+        RAISE EXCEPTION 'studio_archive_verified_evidence_immutable: archive_sha256';
+      END IF;
+    END IF;
+
+    -- Once the durable inventory is recorded, its numbers are frozen too.
+    IF OLD.status IN ('processing_entries','completed') THEN
+      IF NEW.entry_count IS DISTINCT FROM OLD.entry_count
+         OR NEW.total_uncompressed IS DISTINCT FROM OLD.total_uncompressed THEN
+        RAISE EXCEPTION 'studio_archive_verified_evidence_immutable: inventory';
+      END IF;
+    END IF;
+  END IF;
+
+  -- --------------------------------------------------------------------------
+  -- Manifest binding + structural part validation (EVERY row version).
+  -- The parts array must always be the plan-bound declared manifest: exactly
+  -- part_count ordered part objects whose declared digests hash — together
+  -- with the declared size and part geometry — to the immutable
+  -- manifest_sha256 identity. Server-observed fields (size, sha256, verified)
+  -- may only ever be absent/null or exactly correct.
+  -- --------------------------------------------------------------------------
+  IF NEW.parts IS NULL OR jsonb_typeof(NEW.parts) <> 'array' THEN
+    RAISE EXCEPTION 'studio_archive_manifest_binding_violation: parts_not_array';
+  END IF;
+  IF jsonb_array_length(NEW.parts) <> NEW.part_count THEN
+    RAISE EXCEPTION 'studio_archive_manifest_binding_violation: part_count';
+  END IF;
+  -- The declared size implies the exact part count (last part may be short).
+  IF NEW.part_count <> (NEW.declared_size + NEW.part_size - 1) / NEW.part_size THEN
+    RAISE EXCEPTION 'studio_archive_manifest_binding_violation: geometry';
+  END IF;
+
+  v_preimage := convert_to('forever-upload-part-manifest-v2', 'UTF8')
+                || int8send(NEW.declared_size)
+                || int4send(NEW.part_size)
+                || int4send(NEW.part_count);
+
+  FOR v_part IN SELECT jsonb_array_elements(NEW.parts) LOOP
+    IF jsonb_typeof(v_part) <> 'object' THEN
+      RAISE EXCEPTION 'studio_archive_manifest_binding_violation: part_shape';
+    END IF;
+    FOR v_key IN SELECT jsonb_object_keys(v_part) LOOP
+      IF v_key NOT IN ('index','size','declaredSha256','sha256','verified') THEN
+        RAISE EXCEPTION 'studio_archive_manifest_binding_violation: part_field %', v_key;
       END IF;
     END LOOP;
-    IF NEW.observed_size IS NULL OR NEW.observed_size <> NEW.declared_size THEN
+    -- Part indexes are integers covering exactly 0..part_count-1 in order:
+    -- no duplicate, no gap, no reorder, no extra.
+    IF jsonb_typeof(v_part->'index') <> 'number'
+       OR (v_part->'index')::text !~ '^[0-9]+$'
+       OR (v_part->>'index')::INTEGER <> v_position THEN
+      RAISE EXCEPTION 'studio_archive_manifest_binding_violation: part_index';
+    END IF;
+    IF jsonb_typeof(v_part->'declaredSha256') <> 'string'
+       OR (v_part->>'declaredSha256') !~ '^[0-9a-f]{64}$' THEN
+      RAISE EXCEPTION 'studio_archive_manifest_binding_violation: declared_sha256';
+    END IF;
+    v_preimage := v_preimage || decode(v_part->>'declaredSha256', 'hex');
+
+    -- Server-observed size: absent until stored, and EXACT when present —
+    -- part_size for every part but the last, the exact remainder for the
+    -- last (so sizes always sum to declared_size).
+    v_expected_size := CASE
+      WHEN v_position < NEW.part_count - 1 THEN NEW.part_size::BIGINT
+      ELSE NEW.declared_size - NEW.part_size::BIGINT * (NEW.part_count - 1)
+    END;
+    IF v_part ? 'size' AND jsonb_typeof(v_part->'size') <> 'null' THEN
+      IF jsonb_typeof(v_part->'size') <> 'number'
+         OR (v_part->'size')::text !~ '^[0-9]+$'
+         OR (v_part->>'size')::BIGINT <> v_expected_size THEN
+        RAISE EXCEPTION 'studio_archive_manifest_binding_violation: part_size';
+      END IF;
+      v_size_sum := v_size_sum + (v_part->>'size')::BIGINT;
+    ELSE
+      v_sizes_missing := TRUE;
+    END IF;
+
+    -- Server hash: null until verified, well-formed hex when present.
+    IF v_part ? 'sha256' AND jsonb_typeof(v_part->'sha256') <> 'null' THEN
+      IF jsonb_typeof(v_part->'sha256') <> 'string'
+         OR (v_part->>'sha256') !~ '^[0-9a-f]{64}$' THEN
+        RAISE EXCEPTION 'studio_archive_manifest_binding_violation: server_sha256';
+      END IF;
+    END IF;
+    IF NOT (v_part ? 'verified') OR jsonb_typeof(v_part->'verified') <> 'boolean' THEN
+      RAISE EXCEPTION 'studio_archive_manifest_binding_violation: verified_flag';
+    END IF;
+    IF (v_part->>'verified')::BOOLEAN
+       AND (NOT (v_part ? 'sha256') OR jsonb_typeof(v_part->'sha256') = 'null') THEN
+      RAISE EXCEPTION 'studio_archive_manifest_binding_violation: verified_without_hash';
+    END IF;
+    -- A freshly planned row records claims only — nothing server-verified.
+    IF TG_OP = 'INSERT'
+       AND ((v_part ? 'sha256' AND jsonb_typeof(v_part->'sha256') <> 'null')
+            OR (v_part->>'verified')::BOOLEAN) THEN
+      RAISE EXCEPTION 'studio_archive_planned_carries_evidence';
+    END IF;
+
+    IF v_verified_state THEN
+      -- Full byte-verification evidence: every part server-verified with a
+      -- stored size, and the server hash EQUAL to the plan-time client claim.
+      IF NOT (v_part->>'verified')::BOOLEAN
+         OR COALESCE(v_part->>'sha256','') !~ '^[0-9a-f]{64}$'
+         OR jsonb_typeof(v_part->'size') <> 'number' THEN
+        RAISE EXCEPTION 'studio_archive_byte_verification_evidence_missing: part';
+      END IF;
+      IF v_part->>'sha256' <> v_part->>'declaredSha256' THEN
+        RAISE EXCEPTION 'studio_archive_byte_verification_evidence_missing: part';
+      END IF;
+      v_server_concat := v_server_concat || (v_part->>'sha256');
+    END IF;
+
+    v_position := v_position + 1;
+  END LOOP;
+
+  -- The ordered declared digests + declared size + part geometry must hash to
+  -- the immutable manifest identity (malformed identity values are left to
+  -- the column CHECK, which also aborts the statement).
+  IF NEW.manifest_sha256 ~ '^[0-9a-f]{64}$'
+     AND encode(sha256(v_preimage), 'hex') <> NEW.manifest_sha256 THEN
+    RAISE EXCEPTION 'studio_archive_manifest_binding_violation: identity_digest';
+  END IF;
+
+  -- observed_size can only ever be the declared size (acceptance requires
+  -- every part stored at its exact planned size).
+  IF NEW.observed_size IS NOT NULL AND NEW.observed_size <> NEW.declared_size THEN
+    RAISE EXCEPTION 'studio_archive_manifest_binding_violation: observed_size';
+  END IF;
+
+  -- --------------------------------------------------------------------------
+  -- Byte-verification state evidence (byte_verified, processing_entries,
+  -- completed — transition AND same-state).
+  -- --------------------------------------------------------------------------
+  IF v_verified_state THEN
+    IF v_sizes_missing OR v_size_sum <> NEW.declared_size THEN
+      RAISE EXCEPTION 'studio_archive_byte_verification_evidence_missing: part_sizes';
+    END IF;
+    IF NEW.observed_size IS NULL THEN
       RAISE EXCEPTION 'studio_archive_byte_verification_evidence_missing: observed_size';
     END IF;
-    IF NEW.archive_sha256 IS NULL THEN
+    IF NEW.archive_sha256 IS NULL OR NEW.archive_sha256 !~ '^[0-9a-f]{64}$' THEN
       RAISE EXCEPTION 'studio_archive_byte_verification_evidence_missing: archive_sha256';
+    END IF;
+    -- The digest-of-part-digests must be exactly the recomputation over the
+    -- ordered server hashes (never conflated with the file hash above).
+    IF NEW.composite_sha256 IS NULL
+       OR NEW.composite_sha256 <> encode(sha256(convert_to(v_server_concat, 'UTF8')), 'hex') THEN
+      RAISE EXCEPTION 'studio_archive_byte_verification_evidence_missing: composite_sha256';
     END IF;
   END IF;
 
-  -- processing_entries requires the durable inventory: entry_count and
-  -- total_uncompressed recorded, and exactly entry_count inventory rows
-  -- present (a truthful zero-entry result is entry_count = 0 with no rows).
-  IF NEW.status = 'processing_entries' THEN
+  -- --------------------------------------------------------------------------
+  -- Durable inventory evidence (processing_entries AND completed — transition
+  -- AND same-state): entry_count/total_uncompressed recorded, exactly
+  -- entry_count inventory rows present (a truthful zero-entry result is
+  -- entry_count = 0 with no rows), and every row owned by this archive's job.
+  -- --------------------------------------------------------------------------
+  IF NEW.status IN ('processing_entries','completed') THEN
     IF NEW.entry_count IS NULL OR NEW.entry_count < 0
        OR NEW.total_uncompressed IS NULL OR NEW.total_uncompressed < 0 THEN
       RAISE EXCEPTION 'studio_archive_inventory_evidence_missing';
@@ -234,9 +426,16 @@ BEGIN
     IF v_rows <> NEW.entry_count THEN
       RAISE EXCEPTION 'studio_archive_inventory_incomplete: % of %', v_rows, NEW.entry_count;
     END IF;
+    -- Composite-FK-guaranteed; revalidated so the state evidence is
+    -- self-contained even if constraints are ever weakened.
+    SELECT count(*) INTO v_rows FROM public.studio_archive_entries e
+     WHERE e.archive_id = NEW.id AND e.job_id <> NEW.job_id;
+    IF v_rows > 0 THEN
+      RAISE EXCEPTION 'studio_archive_inventory_foreign_rows: %', v_rows;
+    END IF;
   END IF;
 
-  -- completed requires every entry settled (no pending rows remain).
+  -- completed additionally requires every entry settled (no pending rows).
   IF NEW.status = 'completed' THEN
     SELECT count(*) INTO v_rows FROM public.studio_archive_entries e
      WHERE e.archive_id = NEW.id AND e.state = 'pending';
@@ -344,14 +543,20 @@ $$;
 -- ----------------------------------------------------------------------------
 -- 5. studio_update_archive_claimed: claim-checked, ownership-proved patch
 --
--- Whitelisted fields only. Inside one transaction the function (a) locks the
--- job row and proves the caller still holds the live processing claim,
--- (b) locks the target archive and proves it belongs to that job, and
--- (c) validates every supplied patch field's JSON type/shape BEFORE casting,
--- so a malformed patch fails safely without partially changing state. The
--- lifecycle trigger then enforces the transition matrix and state evidence.
--- Claim loss and foreign ownership return FALSE (no write); malformed input
--- and forbidden transitions raise.
+-- Whitelisted fields only — an unknown field is rejected outright. Inside one
+-- transaction the function (a) validates every supplied patch field's JSON
+-- type/shape BEFORE casting, so a malformed patch fails safely without
+-- partially changing state, (b) locks the job row and proves the caller still
+-- holds the live processing claim, (c) locks the target archive and proves it
+-- belongs to that job, and (d) shrinks the writable whitelist by lifecycle
+-- position: once an archive is byte_verified its verification evidence
+-- (parts, observed_size, composite_sha256, archive_sha256) cannot even be
+-- presented in a patch; once processing_entries, neither can the inventory
+-- numbers; terminal rows accept status-only (no-op) patches. The lifecycle
+-- trigger independently enforces the transition matrix, per-state evidence,
+-- and value-level immutability. Claim loss and foreign ownership return FALSE
+-- (no write); malformed input, forbidden fields, and forbidden transitions
+-- raise.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.studio_update_archive_claimed(
   p_job_id UUID,
@@ -365,10 +570,20 @@ AS $$
 DECLARE
   v_claimed INTEGER;
   v_archive_job UUID;
+  v_archive_status TEXT;
   v_updated INTEGER;
 BEGIN
   IF p_patch IS NULL OR jsonb_typeof(p_patch) <> 'object' THEN
     RAISE EXCEPTION 'studio_archive_patch_invalid: patch';
+  END IF;
+  -- Explicit whitelist: any field outside it is rejected, never ignored.
+  IF EXISTS (
+    SELECT 1 FROM jsonb_object_keys(p_patch) AS k(key)
+    WHERE k.key NOT IN ('status','parts','observed_size','composite_sha256',
+                        'archive_sha256','entry_count','total_uncompressed',
+                        'extracted','error_code')
+  ) THEN
+    RAISE EXCEPTION 'studio_archive_patch_invalid: unknown_field';
   END IF;
   -- Validate every supplied field BEFORE any cast or write.
   IF p_patch ? 'status' AND (
@@ -428,11 +643,29 @@ BEGIN
   END IF;
 
   -- Lock the target archive and PROVE it belongs to the claimed job.
-  SELECT job_id INTO v_archive_job FROM public.studio_archives
+  SELECT job_id, status INTO v_archive_job, v_archive_status
+    FROM public.studio_archives
    WHERE id = p_archive_id
    FOR UPDATE;
   IF v_archive_job IS NULL OR v_archive_job <> p_job_id THEN
     RETURN FALSE;
+  END IF;
+
+  -- Post-verification whitelist reduction: fields that can no longer need
+  -- mutation cannot even be presented, whatever their value — a scheduled
+  -- worker with a live claim may advance the lifecycle but can never patch
+  -- proven evidence (the trigger additionally freezes the stored values).
+  IF v_archive_status IN ('byte_verified','processing_entries','completed','rejected')
+     AND p_patch ?| ARRAY['parts','observed_size','composite_sha256','archive_sha256'] THEN
+    RAISE EXCEPTION 'studio_archive_patch_forbidden: verified_evidence';
+  END IF;
+  IF v_archive_status IN ('processing_entries','completed','rejected')
+     AND p_patch ?| ARRAY['entry_count','total_uncompressed'] THEN
+    RAISE EXCEPTION 'studio_archive_patch_forbidden: inventory';
+  END IF;
+  IF v_archive_status IN ('completed','rejected')
+     AND p_patch ?| ARRAY['extracted','error_code'] THEN
+    RAISE EXCEPTION 'studio_archive_patch_forbidden: terminal';
   END IF;
 
   UPDATE public.studio_archives
@@ -474,6 +707,7 @@ AS $$
 DECLARE
   v_claimed INTEGER;
   v_archive_job UUID;
+  v_archive_status TEXT;
   v_entry JSONB;
 BEGIN
   IF p_entries IS NULL OR jsonb_typeof(p_entries) <> 'array' THEN
@@ -504,11 +738,19 @@ BEGIN
 
   -- Lock the target archive and PROVE it belongs to the claimed job: a valid
   -- claim on job B can never index entries into job A's archive.
-  SELECT job_id INTO v_archive_job FROM public.studio_archives
+  SELECT job_id, status INTO v_archive_job, v_archive_status
+    FROM public.studio_archives
    WHERE id = p_archive_id
    FOR UPDATE;
   IF v_archive_job IS NULL OR v_archive_job <> p_job_id THEN
     RETURN FALSE;
+  END IF;
+
+  -- Inventory rows may only be recorded during the indexing phase — never
+  -- into an archive already processing or settled, so the entry count an
+  -- archive transitioned with can never be diluted afterwards.
+  IF v_archive_status <> 'byte_verified' THEN
+    RAISE EXCEPTION 'studio_archive_entries_invalid: archive_state %', v_archive_status;
   END IF;
 
   INSERT INTO public.studio_archive_entries (
@@ -535,11 +777,11 @@ $$;
 --    pending-only settlement
 --
 -- The ONLY transition out of 'pending'. Guarded by the job claim, a locked
--- proof that the entry AND its parent archive belong to the claimed job, and
--- the pending state in one statement: a stale worker (or a duplicate slice)
--- matches zero rows, learns it lost, and must treat its own uploaded objects
--- as orphans. Settled outcomes are immutable. Malformed outcome payloads
--- raise before any write.
+-- proof that the entry AND its parent archive belong to the claimed job, the
+-- parent archive actually being in processing_entries, and the pending state
+-- in one statement: a stale worker (or a duplicate slice) matches zero rows,
+-- learns it lost, and must treat its own uploaded objects as orphans. Settled
+-- outcomes are immutable. Malformed outcome payloads raise before any write.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.studio_settle_archive_entry(
   p_job_id UUID,
@@ -555,6 +797,7 @@ DECLARE
   v_entry_job UUID;
   v_archive_id UUID;
   v_archive_job UUID;
+  v_archive_status TEXT;
   v_updated INTEGER;
 BEGIN
   IF p_outcome IS NULL OR jsonb_typeof(p_outcome) <> 'object' THEN
@@ -608,9 +851,16 @@ BEGIN
   IF v_entry_job IS NULL OR v_entry_job <> p_job_id THEN
     RETURN FALSE;
   END IF;
-  SELECT job_id INTO v_archive_job FROM public.studio_archives
+  SELECT job_id, status INTO v_archive_job, v_archive_status
+    FROM public.studio_archives
    WHERE id = v_archive_id;
   IF v_archive_job IS NULL OR v_archive_job <> p_job_id THEN
+    RETURN FALSE;
+  END IF;
+  -- An entry settles only while its parent archive is actually processing —
+  -- a late worker (or one holding a completed/rejected archive) learns it
+  -- lost instead of writing.
+  IF v_archive_status <> 'processing_entries' THEN
     RETURN FALSE;
   END IF;
 
