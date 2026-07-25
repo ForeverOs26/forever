@@ -1,28 +1,31 @@
 /**
  * Booth Mode 2.0 — trusted server boundary (pilot).
  *
- * Every booth_sessions / booth_guides / booth_funnel_events write happens
- * here, through the service-role client. The three booth tables have RLS
- * enabled with NO anonymous policies or grants, so a browser client can never
- * spoof Host/Guide identities, fabricate a verification, or read another
- * guest's session — the only path is these functions, which validate every
- * transition, and the database CHECK constraints back them up.
+ * Every function here runs ONLY after requireBoothStaff has proven, on the
+ * server, that the pilot is enabled and the caller is an active Forever staff
+ * member (see server/access.ts). The booth tables carry no anonymous or
+ * authenticated privileges at all, so this boundary is the only path to them.
  *
- * Idempotency: all writes key on the client-generated random `client_ref`
- * (UNIQUE) and funnel events on UNIQUE (session_id, event), so retries never
- * duplicate a session, lead, or event.
+ * State transitions go through the atomic SECURITY DEFINER RPCs added by
+ * 20260725150000_booth_v2_pilot.sql: each one locks the session row and
+ * performs the whole transition — including its funnel event — in a single
+ * transaction. A retry can therefore never create a second lead, a duplicate
+ * event, or a partially applied handoff, and the key transition events are
+ * emitted by the same operation that establishes the fact rather than by a
+ * best-effort client call.
  *
  * Fail-closed configuration: the official WhatsApp destination and the dated
- * FX rates are operator-provided env config. When absent, WhatsApp
+ * FX rates are operator-provided server env. When absent, WhatsApp
  * verification reports unavailable (never "verified") and budget comparison
  * stays disabled. Nothing is hard-coded or invented here.
  */
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import type { Database, Json } from "@/integrations/supabase/types";
+import type { Json } from "@/integrations/supabase/types";
 import {
   buildBoothV2Summary,
   buildWaMeHref,
+  hasBoothContactErrors,
   isBoothFunnelEvent,
   MAX_SHORTLIST,
   parseFxRateConfig,
@@ -30,16 +33,17 @@ import {
   parseWhatsappConfig,
   sessionCodeFromClientRef,
   validateBoothContact,
-  hasBoothContactErrors,
+  validateShortlist,
   type BoothContactV2,
-  type BoothFunnelEvent,
   type BoothGuide,
   type DecisionProfileV2,
   type FxRateConfig,
+  type HandoffAttributionMethod,
   type ShortlistV2,
   type WhatsappVerificationMethod,
 } from "../../core/v2";
 import { BOOTH_V2_LEAD_SOURCE } from "../../core/v2/contact";
+import { BoothAccessError, type BoothActor } from "./access";
 
 /** A failure with a safe, user-facing surface (name crosses the boundary). */
 export class BoothError extends Error {
@@ -59,11 +63,37 @@ function redactForLog(text: string): string {
     .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+/g, "[jwt]");
 }
 
+/** Stable safe codes the RPCs raise; anything else collapses to a generic. */
+const RPC_ERROR_MESSAGES: Record<string, string> = {
+  booth_session_not_found: "This booth session no longer exists.",
+  booth_session_not_active: "This booth session has already been closed.",
+  booth_profile_required: "Confirm the Decision Profile before saving contact details.",
+  booth_contact_required: "Save the guest's contact details first.",
+  booth_guide_required: "Assign a Guide before recording this.",
+  booth_guide_not_found: "That Guide is not available for assignment.",
+  booth_ack_actor_mismatch:
+    "Only the assigned Guide's own account can confirm their acknowledgement.",
+  booth_completion_blocked: "This session is not complete yet — check the remaining steps.",
+  booth_outcome_invalid: "Unsupported completion outcome.",
+};
+
+function mapRpcError(error: { message?: string } | null): never {
+  const raw = error?.message ?? "";
+  for (const [code, message] of Object.entries(RPC_ERROR_MESSAGES)) {
+    if (raw.includes(code)) throw new BoothError(code, message);
+  }
+  console.error(`[booth-v2] rpc failed: ${redactForLog(raw)}`);
+  throw new BoothError(
+    "booth_request_failed",
+    "The booth hit a temporary problem completing this step. Please try again.",
+  );
+}
+
 export async function runBoothEndpoint<T>(context: string, run: () => Promise<T>): Promise<T> {
   try {
     return await run();
   } catch (error) {
-    if (error instanceof BoothError) throw error;
+    if (error instanceof BoothError || error instanceof BoothAccessError) throw error;
     const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
     console.error(`[booth-v2] ${context}: ${redactForLog(detail)}`);
     throw new BoothError(
@@ -87,6 +117,8 @@ export interface BoothPublicConfig {
   boothId: string;
   whatsappConfigured: boolean;
   fx: FxRateConfig | null;
+  /** The signed-in Host, so the shell can show who is operating the booth. */
+  hostName: string | null;
 }
 
 function readFxConfig(): FxRateConfig | null {
@@ -99,89 +131,98 @@ function readFxConfig(): FxRateConfig | null {
   }
 }
 
-export async function getBoothConfig(): Promise<BoothPublicConfig> {
+export async function getBoothConfig(actor: BoothActor): Promise<BoothPublicConfig> {
   return {
     boothId: process.env.BOOTH_ID?.trim() || "unconfigured",
     whatsappConfigured: parseWhatsappConfig(process.env.BOOTH_WHATSAPP_NUMBER) !== null,
     fx: readFxConfig(),
+    hostName: actor.displayName ?? actor.email,
   };
 }
 
 /* ---------- Session lifecycle ---------- */
 
-async function requireSession(clientRef: string) {
+// The generated Database types predate the Booth pilot RPCs (the migration is
+// unapplied), so RPC calls go through an untyped client and narrow their own
+// results — the same pattern the Studio data layer uses.
+const rpcClient = supabaseAdmin as unknown as {
+  rpc(
+    fn: string,
+    args: Record<string, unknown>,
+  ): Promise<{ data: unknown; error: { message?: string } | null }>;
+};
+
+async function callRpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
+  const { data, error } = await rpcClient.rpc(fn, args);
+  if (error) mapRpcError(error);
+  return data as T;
+}
+
+async function readSession(clientRef: string) {
   const { data, error } = await supabaseAdmin
     .from("booth_sessions")
     .select("*")
     .eq("client_ref", clientRef)
     .maybeSingle();
-  if (error) throw error;
+  if (error) mapRpcError(error);
   if (!data)
     throw new BoothError("booth_session_not_found", "This booth session no longer exists.");
   return data;
 }
 
-export async function ensureSession(input: {
-  clientRef: string;
-  hostLabel?: string | null;
-}): Promise<{ ok: true }> {
+/**
+ * Create (or return) the session for this client reference. The Host identity
+ * is taken from the authenticated actor — there is no client-supplied host
+ * label anywhere in the contract.
+ */
+export async function ensureSession(
+  actor: BoothActor,
+  input: { clientRef: string },
+): Promise<{ ok: true }> {
   if (isBoothDemoNoWriteMode()) return { ok: true };
-  const config = await getBoothConfig();
-  const { error } = await supabaseAdmin.from("booth_sessions").upsert(
-    {
-      client_ref: input.clientRef,
-      booth_id: config.boothId,
-      host_label: input.hostLabel ?? null,
-    },
-    { onConflict: "client_ref", ignoreDuplicates: true },
-  );
-  if (error) throw error;
+  const config = await getBoothConfig(actor);
+  await callRpc("booth_ensure_session", {
+    p_client_ref: input.clientRef,
+    p_host_user_id: actor.userId,
+    p_host_email: actor.email,
+    p_booth_id: config.boothId,
+  });
   return { ok: true };
 }
 
-export async function recordFunnelEvent(input: {
-  clientRef: string;
-  event: string;
-  step?: string | null;
-  reason?: string | null;
-}): Promise<{ ok: true }> {
+/**
+ * Client-observed funnel events only (conversation started, profile started,
+ * abandonment, QR continuation). Every transition event — profile confirmed,
+ * WhatsApp verified, Guide assigned/acknowledged, first contact, consultation
+ * booked, no-contact continuation — is emitted server-side by the RPC that
+ * establishes the fact, so a lost client call cannot lose those metrics.
+ */
+export async function recordFunnelEvent(
+  actor: BoothActor,
+  input: { clientRef: string; event: string; step?: string | null; reason?: string | null },
+): Promise<{ ok: true }> {
   if (!isBoothFunnelEvent(input.event)) {
     throw new BoothError("booth_invalid_event", "Unknown funnel event.");
   }
   if (isBoothDemoNoWriteMode()) return { ok: true };
-  await ensureSession({ clientRef: input.clientRef });
-  const session = await requireSession(input.clientRef);
-  const { error } = await supabaseAdmin.from("booth_funnel_events").upsert(
-    {
-      session_id: session.id,
-      event: input.event,
-      step: input.step ?? null,
-      reason: input.reason ?? null,
-    },
-    { onConflict: "session_id,event", ignoreDuplicates: true },
-  );
-  if (error) throw error;
-  if (input.event === "session_abandoned" && session.outcome === "active") {
-    const { error: updateError } = await supabaseAdmin
-      .from("booth_sessions")
-      .update({
-        outcome: "abandoned",
-        abandonment_step: input.step ?? null,
-        abandonment_reason: input.reason ?? null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", session.id);
-    if (updateError) throw updateError;
-  }
+  await ensureSession(actor, { clientRef: input.clientRef });
+  await callRpc("booth_record_event", {
+    p_client_ref: input.clientRef,
+    p_event: input.event,
+    p_step: input.step ?? null,
+    p_reason: input.reason ?? null,
+  });
   return { ok: true };
 }
 
 /* ---------- Profile + shortlist ---------- */
 
-export async function confirmProfile(input: {
-  clientRef: string;
-  profile: unknown;
-}): Promise<{ ok: true }> {
+export async function confirmProfile(
+  actor: BoothActor,
+  input: { clientRef: string; profile: unknown },
+): Promise<{ ok: true }> {
+  // The canonical strict schema runs again HERE: a payload the browser built
+  // is never trusted, and an obsolete or tampered one is refused outright.
   const profile = parseStoredProfileV2(input.profile);
   if (profile === null || profile.confirmedAt === null) {
     throw new BoothError(
@@ -190,53 +231,64 @@ export async function confirmProfile(input: {
     );
   }
   if (isBoothDemoNoWriteMode()) return { ok: true };
-  await ensureSession({ clientRef: input.clientRef });
-  const { error } = await supabaseAdmin
-    .from("booth_sessions")
-    .update({
-      flow_mode: profile.flowMode,
-      profile: profile as unknown as Json,
-      profile_version: profile.profileVersion,
-      profile_confirmed_at: profile.confirmedAt,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("client_ref", input.clientRef);
-  if (error) throw error;
+  await ensureSession(actor, { clientRef: input.clientRef });
+  await callRpc("booth_confirm_profile", {
+    p_client_ref: input.clientRef,
+    p_flow_mode: profile.flowMode,
+    p_profile: profile as unknown as Json,
+    p_profile_version: profile.profileVersion,
+    p_confirmed_at: profile.confirmedAt,
+    p_preferred_language: profile.preferredLanguage,
+  });
   return { ok: true };
 }
 
-export async function setShortlist(input: {
-  clientRef: string;
-  entries: { slug: string; mentionedByGuest: boolean }[];
-  guidePrepares: boolean;
-}): Promise<{ ok: true }> {
-  if (input.entries.length > MAX_SHORTLIST) {
-    throw new BoothError("booth_shortlist_too_long", "A shortlist holds at most four directions.");
+export async function setShortlist(
+  actor: BoothActor,
+  input: { clientRef: string; entries: ShortlistV2["entries"]; guidePrepares: boolean },
+): Promise<{ ok: true }> {
+  const shortlist: ShortlistV2 = { entries: input.entries, guidePrepares: input.guidePrepares };
+  const invalid = validateShortlist(shortlist);
+  if (invalid) {
+    // A malformed shortlist is rejected whole — never silently truncated.
+    throw new BoothError("booth_shortlist_invalid", `The shortlist is not valid (${invalid}).`);
   }
   if (isBoothDemoNoWriteMode()) return { ok: true };
-  await ensureSession({ clientRef: input.clientRef });
-  const { error } = await supabaseAdmin
-    .from("booth_sessions")
-    .update({
-      shortlist: input.entries as unknown as Json,
-      shortlist_mode: input.guidePrepares
-        ? "guide_prepares"
-        : input.entries.length > 0
-          ? "guest_selected"
-          : "none",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("client_ref", input.clientRef);
-  if (error) throw error;
+
+  // Every selected slug must be a real project; an unknown slug is refused
+  // rather than stored as a dangling direction.
+  if (shortlist.entries.length > 0) {
+    const slugs = shortlist.entries.map((entry) => entry.slug);
+    const { data, error } = await supabaseAdmin.from("projects").select("slug").in("slug", slugs);
+    if (error) mapRpcError(error);
+    const known = new Set((data ?? []).map((row) => row.slug));
+    if (slugs.some((slug) => !known.has(slug))) {
+      throw new BoothError(
+        "booth_shortlist_unknown_project",
+        "A selected project no longer exists.",
+      );
+    }
+  }
+
+  await ensureSession(actor, { clientRef: input.clientRef });
+  await callRpc("booth_set_shortlist", {
+    p_client_ref: input.clientRef,
+    p_shortlist: shortlist.entries.slice(0, MAX_SHORTLIST) as unknown as Json,
+    p_shortlist_mode: shortlist.guidePrepares
+      ? "guide_prepares"
+      : shortlist.entries.length > 0
+        ? "guest_selected"
+        : "none",
+  });
   return { ok: true };
 }
 
-/* ---------- Contact + consent + human-readable lead mirror ---------- */
+/* ---------- Contact + consent + the atomic lead mirror ---------- */
 
-export async function saveContact(input: {
-  clientRef: string;
-  contact: BoothContactV2;
-}): Promise<{ ok: true }> {
+export async function saveContact(
+  actor: BoothActor,
+  input: { clientRef: string; contact: BoothContactV2 },
+): Promise<{ ok: true }> {
   const errors = validateBoothContact(input.contact);
   if (hasBoothContactErrors(errors)) {
     throw new BoothError(
@@ -245,14 +297,35 @@ export async function saveContact(input: {
     );
   }
   if (isBoothDemoNoWriteMode()) return { ok: true };
-  await ensureSession({ clientRef: input.clientRef });
-  const session = await requireSession(input.clientRef);
-  const contact = input.contact;
-  const now = new Date().toISOString();
 
-  const { error } = await supabaseAdmin
-    .from("booth_sessions")
-    .update({
+  await ensureSession(actor, { clientRef: input.clientRef });
+  const session = await readSession(input.clientRef);
+  const profile = parseStoredProfileV2(session.profile);
+  if (!profile) {
+    throw new BoothError(
+      "booth_profile_required",
+      "Confirm the Decision Profile before saving contact details.",
+    );
+  }
+  // The contact form may not introduce a language the confirmed profile
+  // disagrees with: the persisted profile and the session column are one fact.
+  if ((profile.preferredLanguage ?? "") !== input.contact.preferredLanguage.trim()) {
+    throw new BoothError(
+      "booth_language_mismatch",
+      "The preferred language does not match the confirmed Decision Profile.",
+    );
+  }
+
+  const contact = input.contact;
+  const shortlist = readStoredShortlist(session.shortlist, session.shortlist_mode);
+  const summary = buildBoothV2Summary({ profile, shortlist, hostNote: contact.hostNote });
+  const projectSlug = shortlist.entries[0]?.slug ?? null;
+
+  // ONE transaction: the locked session row, the contact bundle, and
+  // create-or-return exactly one lead. A retry returns the same lead id.
+  await callRpc("booth_save_contact_and_lead", {
+    p_client_ref: input.clientRef,
+    p_contact: {
       first_name: contact.firstName.trim(),
       whatsapp: contact.whatsapp.trim(),
       preferred_language: contact.preferredLanguage.trim(),
@@ -261,61 +334,29 @@ export async function saveContact(input: {
       country: contact.country.trim() || null,
       preferred_contact_time: contact.preferredContactTime.trim() || null,
       host_note: contact.hostNote.trim() || null,
-      consultation_consent: true,
-      consent_recorded_at: session.consent_recorded_at ?? now,
       marketing_opt_in: contact.marketingOptIn === true,
-      updated_at: now,
-    })
-    .eq("id", session.id);
-  if (error) throw error;
-
-  // Human-readable mirror in the leads list — written once per session.
-  if (session.lead_id === null) {
-    const profile = parseStoredProfileV2(session.profile);
-    const shortlist = readStoredShortlist(session.shortlist, session.shortlist_mode);
-    const summary = profile
-      ? buildBoothV2Summary({ profile, shortlist, hostNote: contact.hostNote })
-      : "— Forever Booth 2.0 — contact saved before a confirmed Decision Profile.";
-    const projectSlug = await firstValidProjectSlug(shortlist);
-    const { data: lead, error: leadError } = await supabaseAdmin
-      .from("leads")
-      .insert({
-        name: [contact.firstName.trim(), contact.lastName.trim()].filter(Boolean).join(" "),
-        email: contact.email.trim().toLowerCase() || null,
-        phone: contact.whatsapp.trim(),
-        country: contact.country.trim() || null,
-        budget: profile ? budgetDisplay(profile) : null,
-        interest: profile ? `Booth 2.0 · ${profile.purchasePurpose}` : "Booth 2.0",
-        project_slug: projectSlug,
-        message: summary,
-        status: "new",
-        source: BOOTH_V2_LEAD_SOURCE,
-      })
-      .select("id")
-      .single();
-    if (leadError) throw leadError;
-    const { error: linkError } = await supabaseAdmin
-      .from("booth_sessions")
-      .update({ lead_id: lead.id, updated_at: new Date().toISOString() })
-      .eq("id", session.id);
-    if (linkError) throw linkError;
-  }
+    } as unknown as Json,
+    p_lead: {
+      name: [contact.firstName.trim(), contact.lastName.trim()].filter(Boolean).join(" "),
+      email: contact.email.trim().toLowerCase() || null,
+      phone: contact.whatsapp.trim(),
+      country: contact.country.trim() || null,
+      budget: budgetDisplay(profile),
+      interest: `Booth 2.0 · ${profile.purchasePurpose}`,
+      project_slug: projectSlug,
+      message: summary,
+      source: BOOTH_V2_LEAD_SOURCE,
+    } as unknown as Json,
+  });
   return { ok: true };
 }
 
 function budgetDisplay(profile: DecisionProfileV2): string | null {
   const { budget } = profile;
   if (budget.state !== "stated" || budget.originalCurrency === null) return null;
-  const parts = [
-    budget.minimum !== null ? budget.minimum.toLocaleString("en-US") : null,
-    budget.maximum !== null ? budget.maximum.toLocaleString("en-US") : null,
-  ];
-  const range =
-    parts[0] && parts[1]
-      ? `${parts[0]}–${parts[1]}`
-      : parts[1]
-        ? `up to ${parts[1]}`
-        : `from ${parts[0]}`;
+  const min = budget.minimum === null ? null : budget.minimum.toLocaleString("en-US");
+  const max = budget.maximum === null ? null : budget.maximum.toLocaleString("en-US");
+  const range = min && max ? `${min}–${max}` : max ? `up to ${max}` : `from ${min}`;
   return `${range} ${budget.originalCurrency}`;
 }
 
@@ -334,17 +375,6 @@ function readStoredShortlist(raw: unknown, mode: string): ShortlistV2 {
   return { entries, guidePrepares: mode === "guide_prepares" };
 }
 
-async function firstValidProjectSlug(shortlist: ShortlistV2): Promise<string | null> {
-  const slug = shortlist.entries[0]?.slug;
-  if (!slug) return null;
-  const { data } = await supabaseAdmin
-    .from("projects")
-    .select("slug")
-    .eq("slug", slug)
-    .maybeSingle();
-  return data?.slug ?? null;
-}
-
 /* ---------- WhatsApp manual verification (fail-closed) ---------- */
 
 export interface WhatsappStartResult {
@@ -353,235 +383,223 @@ export interface WhatsappStartResult {
   sessionCode: string | null;
 }
 
-export async function startWhatsappVerification(input: {
-  clientRef: string;
-}): Promise<WhatsappStartResult> {
+export async function startWhatsappVerification(
+  actor: BoothActor,
+  input: { clientRef: string },
+): Promise<WhatsappStartResult> {
   const config = parseWhatsappConfig(process.env.BOOTH_WHATSAPP_NUMBER);
   if (config === null) {
     // Fail closed: verification is unavailable and is never claimed to have
     // happened. The session records 'unavailable', not 'verified'.
     if (!isBoothDemoNoWriteMode()) {
-      await ensureSession({ clientRef: input.clientRef });
-      const { error } = await supabaseAdmin
-        .from("booth_sessions")
-        .update({
-          whatsapp_verification_state: "unavailable",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("client_ref", input.clientRef);
-      if (error) throw error;
+      await ensureSession(actor, { clientRef: input.clientRef });
+      await callRpc("booth_set_whatsapp_state", {
+        p_client_ref: input.clientRef,
+        p_state: "unavailable",
+        p_method: null,
+      });
     }
     return { configured: false, waHref: null, sessionCode: null };
   }
 
   const sessionCode = sessionCodeFromClientRef(input.clientRef);
   if (!isBoothDemoNoWriteMode()) {
-    await ensureSession({ clientRef: input.clientRef });
-    const session = await requireSession(input.clientRef);
+    await ensureSession(actor, { clientRef: input.clientRef });
+    const session = await readSession(input.clientRef);
     if (session.whatsapp === null) {
       throw new BoothError(
-        "booth_contact_missing",
+        "booth_contact_required",
         "Save the guest's contact details before starting WhatsApp verification.",
       );
     }
-    if (session.whatsapp_verification_state !== "verified") {
-      const { error } = await supabaseAdmin
-        .from("booth_sessions")
-        .update({
-          whatsapp_verification_state: "pending",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", session.id);
-      if (error) throw error;
-    }
+    await callRpc("booth_set_whatsapp_state", {
+      p_client_ref: input.clientRef,
+      p_state: "pending",
+      p_method: null,
+    });
   }
   return { configured: true, waHref: buildWaMeHref(config, sessionCode), sessionCode };
 }
 
-export async function confirmWhatsappVerification(input: {
-  clientRef: string;
-  method: WhatsappVerificationMethod;
-}): Promise<{ ok: true; verifiedAt: string }> {
+export async function confirmWhatsappVerification(
+  actor: BoothActor,
+  input: { clientRef: string; method: WhatsappVerificationMethod },
+): Promise<{ ok: true; verifiedAt: string }> {
   const now = new Date().toISOString();
   if (isBoothDemoNoWriteMode()) return { ok: true, verifiedAt: now };
-  const config = parseWhatsappConfig(process.env.BOOTH_WHATSAPP_NUMBER);
-  if (config === null) {
+  if (parseWhatsappConfig(process.env.BOOTH_WHATSAPP_NUMBER) === null) {
     throw new BoothError(
       "booth_whatsapp_unconfigured",
       "WhatsApp verification is unavailable — no official company number is configured.",
     );
   }
-  const session = await requireSession(input.clientRef);
-  if (session.whatsapp === null) {
-    throw new BoothError(
-      "booth_contact_missing",
-      "Save the guest's contact details before confirming WhatsApp verification.",
-    );
-  }
-  const { error } = await supabaseAdmin
-    .from("booth_sessions")
-    .update({
-      whatsapp_verification_state: "verified",
-      whatsapp_verified_at: session.whatsapp_verified_at ?? now,
-      whatsapp_verification_method: input.method,
-      updated_at: now,
-    })
-    .eq("id", session.id);
-  if (error) throw error;
-  return { ok: true, verifiedAt: session.whatsapp_verified_at ?? now };
+  await ensureSession(actor, { clientRef: input.clientRef });
+  const verifiedAt = await callRpc<string>("booth_set_whatsapp_state", {
+    p_client_ref: input.clientRef,
+    p_state: "verified",
+    p_method: input.method,
+  });
+  return { ok: true, verifiedAt: verifiedAt ?? now };
 }
 
 /* ---------- Guides + warm handoff ---------- */
 
-export async function listGuides(): Promise<BoothGuide[]> {
+export async function listGuides(_actor: BoothActor): Promise<BoothGuide[]> {
   if (isBoothDemoNoWriteMode()) return [];
   const { data, error } = await supabaseAdmin
     .from("booth_guides")
-    .select("id, display_name, languages, specializations, on_duty")
+    .select("id, display_name, languages, specializations, on_duty, staff_user_id")
     .eq("is_active", true)
     .order("created_at", { ascending: true });
-  if (error) throw error;
+  if (error) mapRpcError(error);
   return (data ?? []).map((row) => ({
     id: row.id,
     displayName: row.display_name,
     languages: row.languages ?? [],
     specializations: row.specializations ?? [],
     onDuty: row.on_duty,
+    /** True when this Guide can confirm their OWN acknowledgement. */
+    hasStaffAccount: row.staff_user_id !== null,
   }));
 }
 
-export async function assignGuide(input: {
-  clientRef: string;
-  guideId: string;
-  reserveGuideId: string | null;
-  fallbackReason: string | null;
-}): Promise<{ ok: true; assignedAt: string }> {
+export async function assignGuide(
+  actor: BoothActor,
+  input: {
+    clientRef: string;
+    guideId: string;
+    reserveGuideId: string | null;
+    fallbackReason: string | null;
+  },
+): Promise<{ ok: true; assignedAt: string }> {
   const now = new Date().toISOString();
   if (isBoothDemoNoWriteMode()) return { ok: true, assignedAt: now };
-  const session = await requireSession(input.clientRef);
-  const { data: guide, error: guideError } = await supabaseAdmin
-    .from("booth_guides")
-    .select("id, is_active")
-    .eq("id", input.guideId)
-    .maybeSingle();
-  if (guideError) throw guideError;
-  if (!guide || !guide.is_active) {
-    throw new BoothError("booth_guide_not_found", "That Guide is not available for assignment.");
-  }
-  const { error } = await supabaseAdmin
-    .from("booth_sessions")
-    .update({
-      assigned_guide_id: input.guideId,
-      reserve_guide_id: input.reserveGuideId,
-      guide_assigned_at: now,
-      guide_acknowledged_at: null,
-      guide_fallback_reason: input.fallbackReason,
-      updated_at: now,
-    })
-    .eq("id", session.id);
-  if (error) throw error;
-  return { ok: true, assignedAt: now };
+  await ensureSession(actor, { clientRef: input.clientRef });
+  const assignedAt = await callRpc<string>("booth_assign_guide", {
+    p_client_ref: input.clientRef,
+    p_guide_id: input.guideId,
+    p_reserve_guide_id: input.reserveGuideId,
+    p_fallback_reason: input.fallbackReason,
+  });
+  return { ok: true, assignedAt: assignedAt ?? now };
 }
 
-export async function acknowledgeGuide(input: {
-  clientRef: string;
-}): Promise<{ ok: true; acknowledgedAt: string }> {
+/**
+ * Record the acknowledgement TRUTHFULLY. The method is derived server-side
+ * from who is actually acting: only the assigned Guide's own staff account
+ * produces "guide_self_confirmed"; anyone else — including the Host on the
+ * tablet — is recorded as a disclosed observation. The RPC re-checks this.
+ */
+export async function acknowledgeGuide(
+  actor: BoothActor,
+  input: { clientRef: string },
+): Promise<{ ok: true; acknowledgedAt: string; method: HandoffAttributionMethod }> {
   const now = new Date().toISOString();
-  if (isBoothDemoNoWriteMode()) return { ok: true, acknowledgedAt: now };
-  const session = await requireSession(input.clientRef);
+  if (isBoothDemoNoWriteMode()) {
+    return { ok: true, acknowledgedAt: now, method: "host_observed" };
+  }
+  const session = await readSession(input.clientRef);
   if (session.assigned_guide_id === null) {
-    throw new BoothError("booth_no_guide", "Assign a Guide before recording an acknowledgement.");
+    throw new BoothError("booth_guide_required", "Assign a Guide before recording this.");
   }
-  const { error } = await supabaseAdmin
-    .from("booth_sessions")
-    .update({
-      guide_acknowledged_at: session.guide_acknowledged_at ?? now,
-      updated_at: now,
-    })
-    .eq("id", session.id);
-  if (error) throw error;
-  return { ok: true, acknowledgedAt: session.guide_acknowledged_at ?? now };
+  const method = await resolveAttributionMethod(actor, session.assigned_guide_id);
+  const acknowledgedAt = await callRpc<string>("booth_acknowledge_guide", {
+    p_client_ref: input.clientRef,
+    p_actor_user_id: actor.userId,
+    p_method: method,
+  });
+  return { ok: true, acknowledgedAt: acknowledgedAt ?? now, method };
 }
 
-export async function recordHandoff(input: {
-  clientRef: string;
-  firstContactConfirmed?: boolean;
-  consultationScheduledFor?: string | null;
-  nextStep?: string;
-}): Promise<{ ok: true }> {
-  if (isBoothDemoNoWriteMode()) return { ok: true };
-  const session = await requireSession(input.clientRef);
-  const now = new Date().toISOString();
-  const patch: Database["public"]["Tables"]["booth_sessions"]["Update"] = { updated_at: now };
-  if (input.firstContactConfirmed === true && session.guide_first_contact_at === null) {
-    patch.guide_first_contact_at = now;
-  }
-  if (input.consultationScheduledFor !== undefined) {
-    patch.consultation_scheduled_for = input.consultationScheduledFor;
-  }
-  if (input.nextStep !== undefined) {
-    const nextStep = input.nextStep.trim();
-    if (nextStep.length === 0) {
-      throw new BoothError("booth_next_step_empty", "Record an actual next step.");
+async function resolveAttributionMethod(
+  actor: BoothActor,
+  assignedGuideId: string,
+): Promise<HandoffAttributionMethod> {
+  const { data, error } = await supabaseAdmin
+    .from("booth_guides")
+    .select("staff_user_id")
+    .eq("id", assignedGuideId)
+    .maybeSingle();
+  if (error) mapRpcError(error);
+  return data?.staff_user_id === actor.userId ? "guide_self_confirmed" : "host_observed";
+}
+
+export async function recordHandoff(
+  actor: BoothActor,
+  input: {
+    clientRef: string;
+    firstContactConfirmed?: boolean;
+    consultationScheduledAt?: string | null;
+    consultationTimezone?: string | null;
+    nextStep?: string;
+  },
+): Promise<{ ok: true; firstContactMethod: HandoffAttributionMethod | null }> {
+  if (isBoothDemoNoWriteMode()) return { ok: true, firstContactMethod: null };
+  const session = await readSession(input.clientRef);
+
+  let method: HandoffAttributionMethod | null = null;
+  if (input.firstContactConfirmed === true) {
+    if (session.assigned_guide_id === null) {
+      throw new BoothError("booth_guide_required", "Assign a Guide before recording this.");
     }
-    patch.next_step = nextStep;
+    method = await resolveAttributionMethod(actor, session.assigned_guide_id);
   }
-  const { error } = await supabaseAdmin.from("booth_sessions").update(patch).eq("id", session.id);
-  if (error) throw error;
-  return { ok: true };
+
+  // An exact instant is STRUCTURED and must be a real, plausible future time —
+  // free text such as "tomorrow" can never complete a handoff.
+  let scheduledAt: string | null = null;
+  if (input.consultationScheduledAt) {
+    const parsed = Date.parse(input.consultationScheduledAt);
+    if (!Number.isFinite(parsed)) {
+      throw new BoothError(
+        "booth_consultation_time_invalid",
+        "Enter the consultation time as an exact date and time.",
+      );
+    }
+    const now = Date.now();
+    if (parsed < now - 5 * 60_000) {
+      throw new BoothError(
+        "booth_consultation_time_past",
+        "The consultation time must be in the future.",
+      );
+    }
+    if (parsed > now + 365 * 24 * 60 * 60_000) {
+      throw new BoothError(
+        "booth_consultation_time_implausible",
+        "The consultation time is too far in the future.",
+      );
+    }
+    scheduledAt = new Date(parsed).toISOString();
+  }
+
+  if (input.nextStep !== undefined && input.nextStep.trim().length === 0) {
+    throw new BoothError("booth_next_step_empty", "Record an actual next step.");
+  }
+
+  await callRpc("booth_record_handoff", {
+    p_client_ref: input.clientRef,
+    p_actor_user_id: actor.userId,
+    p_first_contact_method: method,
+    p_consultation_scheduled_at: scheduledAt,
+    p_consultation_timezone: scheduledAt ? input.consultationTimezone?.trim() || "UTC" : null,
+    p_next_step: input.nextStep ?? null,
+  });
+  return { ok: true, firstContactMethod: method };
 }
 
 /* ---------- Truthful completion ---------- */
 
-export async function completeSession(input: {
-  clientRef: string;
-  outcome: "contacted_complete" | "no_contact_qr";
-}): Promise<{ ok: true }> {
+export async function completeSession(
+  actor: BoothActor,
+  input: { clientRef: string; outcome: "contacted_complete" | "no_contact_qr" },
+): Promise<{ ok: true }> {
   if (isBoothDemoNoWriteMode()) return { ok: true };
-  const session = await requireSession(input.clientRef);
-  const now = new Date().toISOString();
-
-  if (input.outcome === "contacted_complete") {
-    const blockers: string[] = [];
-    if (session.profile_confirmed_at === null) blockers.push("profile not confirmed");
-    if (session.whatsapp_verification_state !== "verified") blockers.push("WhatsApp not verified");
-    if (session.assigned_guide_id === null) blockers.push("no named Guide assigned");
-    if (session.next_step === null) blockers.push("next step not recorded");
-    if (session.consultation_scheduled_for === null && session.guide_first_contact_at === null) {
-      blockers.push("no exact time recorded and no live Guide contact confirmed");
-    }
-    if (blockers.length > 0) {
-      throw new BoothError(
-        "booth_completion_blocked",
-        `This session is not complete yet: ${blockers.join("; ")}.`,
-      );
-    }
-  } else {
-    // A no-contact continuation must not retain contact data.
-    const { error: clearError } = await supabaseAdmin
-      .from("booth_sessions")
-      .update({
-        first_name: null,
-        whatsapp: null,
-        preferred_language: null,
-        last_name: null,
-        email: null,
-        country: null,
-        preferred_contact_time: null,
-        host_note: null,
-        whatsapp_verification_state: "unverified",
-        whatsapp_verified_at: null,
-        whatsapp_verification_method: null,
-        updated_at: now,
-      })
-      .eq("id", session.id);
-    if (clearError) throw clearError;
-  }
-
-  const { error } = await supabaseAdmin
-    .from("booth_sessions")
-    .update({ outcome: input.outcome, updated_at: now })
-    .eq("id", session.id);
-  if (error) throw error;
+  await ensureSession(actor, { clientRef: input.clientRef });
+  // One transaction: the gate check (contacted) or the full clear + lead
+  // deletion (no-contact) plus the outcome, never two separate updates.
+  await callRpc("booth_complete_session", {
+    p_client_ref: input.clientRef,
+    p_outcome: input.outcome,
+  });
   return { ok: true };
 }
