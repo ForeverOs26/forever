@@ -7,11 +7,15 @@ FROM public.booth_funnel_events
 GROUP BY event
 ORDER BY n DESC;
 
--- 2. Quick vs Full among confirmed profiles
-SELECT flow_mode, count(*) AS n
-FROM public.booth_sessions
-WHERE profile_confirmed_at IS NOT NULL
-GROUP BY flow_mode;
+-- 2. Quick vs Full among confirmed profiles.
+-- Read from the funnel event's step, not booth_sessions.flow_mode: the profile
+-- itself is not persisted before the guest consents, and flow_mode is cleared
+-- entirely on a no-contact outcome. The event carries the mode without
+-- retaining anything about the guest.
+SELECT step AS flow_mode, count(*) AS n
+FROM public.booth_funnel_events
+WHERE event = 'profile_confirmed'
+GROUP BY step;
 
 -- 3. Outcomes
 SELECT outcome, count(*) AS n
@@ -38,9 +42,10 @@ WHERE outcome = 'abandoned'
 GROUP BY abandonment_step, abandonment_reason
 ORDER BY n DESC;
 
--- 7. Shortlist behaviour
+-- 7. Shortlist behaviour (consented sessions only — a shortlist exists nowhere
+-- else, by design).
 SELECT shortlist_mode, jsonb_array_length(shortlist) AS size, count(*) AS n
 FROM public.booth_sessions
-WHERE profile_confirmed_at IS NOT NULL
+WHERE consultation_consent
 GROUP BY shortlist_mode, size
 ORDER BY shortlist_mode, size;

@@ -36,12 +36,39 @@ architect re-review passes.**
 | Client marked funnel events before the server confirmed                 | Transition events are emitted SERVER-SIDE inside the RPC that establishes the fact; the few client-observed events use acknowledgement-before-dedupe and stay retryable, with the DB uniqueness keeping them exactly-once.                                                                       |
 | A Host click recorded as the Guide's acknowledgement                    | Acknowledgement and first contact record WHO and BY WHAT METHOD. `guide_self_confirmed` is only possible from the assigned Guide's own linked staff account (enforced in the RPC); anything else is stored and displayed as `host_observed` — "Observed by the Host — not a Guide confirmation". |
 
+> Two claims made in corrective pass 1 did not survive verification and are
+> corrected in pass 2 below: `booth_save_contact_and_lead` returned an existing
+> lead **without updating it**, and the "single opaque denial" was defeated by
+> the upstream Supabase-auth middleware, which throws its own descriptive errors
+> before any Booth code runs.
+
+---
+
+## 0b. Corrective pass 2 (PR #102 architect re-review)
+
+Pass 1's accepted corrections stand unchanged. This pass closes the remaining
+consent, ownership, replay and terminal-state defects.
+
+| Defect                                                                         | Correction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Decision Profile and shortlist were written **before** the guest consented | The consent boundary is now real. Before consent the server stores only the operational shell (client reference, authorized Host, booth id, flow mode, non-personal funnel events). The profile and shortlist stay in the tablet's versioned local session. `booth_commit_consent` is the ONE locked transaction that persists profile + shortlist + contact + consent + exactly one lead + funnel facts. Enforced by `booth_sessions_pre_consent_minimal`, so an application bug cannot write guest data early.                                                                   |
+| `no_contact_qr` still left a detailed profile behind                           | **Strategy: clear-in-place** — the row is kept as an anonymous funnel shell and every guest-specific value is cleared atomically (profile, version, confirmation instant, flow mode, shortlist + mode, all contact fields, language, both consents, WhatsApp state and evidence, Guide assignment + reserve, every acknowledgement/first-contact actor and method, fallback reason, scheduled instant + timezone, next step) and any lead is DELETED and unlinked. What may remain: session identity, Host/booth attribution, timestamps, the outcome, non-personal funnel events. |
+| Any active Studio member could operate the booth                               | New least-privilege capability `studio_members.can_access_booth` (NOT NULL DEFAULT FALSE) on the EXISTING roster — no second identity table, no seeds. Booth requires active membership **AND** the capability; activation for a real operator is a separate controlled staging action.                                                                                                                                                                                                                                                                                            |
+| A valid staff account could mutate another Host's session via its `client_ref` | Every session RPC takes the acting account and refuses unless `booth_sessions.host_user_id` matches, inside the locked `SECURITY DEFINER` function (`booth_lock_owned_session`) — not only in TypeScript. `booth_ensure_session` is idempotent for the same Host and refuses a different Host deterministically; ownership is never transferred. The session's assigned Guide may perform **only** their own acknowledgement and their own first contact.                                                                                                                          |
+| Contact corrections did not reach the linked lead                              | `booth_commit_consent` UPDATEs the linked lead on every accepted replay (name, email, phone, country, budget, interest, project mirror, summary), so session and lead can never drift. Exact replay returns the same lead with zero duplication; a vanished link is re-created rather than reported stale; partial failure rolls back both.                                                                                                                                                                                                                                        |
+| A replaced WhatsApp number kept its old verification                           | A changed number resets the verification state/timestamp/method, clears the first-contact evidence and attribution tied to the old number, and deletes the `whatsapp_verified` / `guide_contacted` funnel events. `verified` is never carried over, so **completion is blocked until the replacement number is verified**. Truthful decision: the Guide assignment and an already-agreed consultation instant survive — they are facts about people and an appointment, not about the number.                                                                                      |
+| Terminal sessions were still mutable                                           | `booth_sessions_freeze_terminal` (BEFORE UPDATE trigger) refuses ANY update to a session whose stored outcome is terminal — including a direct `service_role` statement. Every transition RPC also requires `outcome = 'active'`; the only accepted terminal calls are an exact idempotent replay of the established outcome (which writes nothing) and the documented read-mostly `booth_ensure_session`.                                                                                                                                                                         |
+| Old-Guide evidence could complete a new assignment                             | A **genuine** reassignment (a different primary Guide) clears the acknowledgement, the first contact, the scheduled consultation and its timezone, the next step, and the corresponding funnel events, so they must be re-earned. Profile, contact, consent and a verified WhatsApp number are kept — they are still true. Changing only the reserve Guide is not a reassignment and resets nothing.                                                                                                                                                                               |
+| The strict profile was not bound to derived truth                              | A confirmed profile must state a non-blank bounded `preferredLanguage`; `confirmedAt` must be strict RFC3339 with an explicit offset and a real calendar date (not merely `Date.parse`-able); a confirmed **Full** profile's `purchasePurpose` must equal `derivePurchasePurpose({motivations, goals})` and a divergent client value is rejected; **Quick** preserves the explicitly answered purpose. FX effective dates must be real days. One schema for hydration, transport, server validation and DB payload preparation.                                                    |
+| `/booth-v2` showed a login form while the pilot was disabled                   | The gate asks the server for deployment enablement FIRST. While disabled, `/booth-v2` renders the ordinary not-found boundary for every visitor, signed out included — no Forever Booth login form. When enabled: signed-out sees sign-in, authenticated-without-capability sees not-found, authorized sees Booth V2. Every operational endpoint remains independently gated.                                                                                                                                                                                                      |
+| Auth refusals were **not** actually opaque                                     | Verified against the real middleware order: chaining `requireSupabaseAuth` let its distinct messages (missing header, unsupported scheme, invalid token, missing Supabase configuration) escape before Booth code ran, and a downstream middleware cannot catch an upstream throw. Booth now verifies the request identity itself (`server/auth.ts`), performing the same checks inside one try/catch that normalizes **every** failure to `booth_access_denied`. The reason goes to the server log only.                                                                          |
+
 **Remaining pilot limitations (documented, not defects):** the tablet is
 operated by an authenticated Host on behalf of the guest, so guest-facing
 screens carry no separate guest identity; Guide acknowledgement is truthful but
-manual (no WhatsApp API); `studio_members` grants booth access to any active
-staff member (a booth-specific role is a post-pilot decision); and the
-migration remains unapplied everywhere except the disposable local harness.
+manual (no WhatsApp API); the flow mode is the one operational fact recorded
+before consent (it is non-personal and is cleared on a no-contact outcome); and
+the migration remains unapplied everywhere except the disposable local harness.
 
 ---
 
@@ -199,11 +226,27 @@ Migration `supabase/migrations/20260725150000_booth_v2_pilot.sql` (pending; NOT 
   (jsonb + `profile_version` + `profile_confirmed_at`), flow mode, shortlist + mode,
   light contact fields, both consents (+ `consent_recorded_at`), WhatsApp verification
   state/timestamp/method, assigned + reserve Guide, `guide_assigned_at`,
-  `guide_acknowledged_at`, `guide_first_contact_at`, `consultation_scheduled_for`,
-  `next_step`, fallback reason, outcome, abandonment step/reason, `booth_id`,
-  `host_label`, `lead_id` (human-readable mirror), and a UNIQUE client_ref idempotency
-  key. CHECKs enforce contact-requires-consent, verified-has-timestamp, the
-  contacted-completion gate, and no-contact-stores-no-contact.
+  `guide_acknowledged_at/_by/_method`, `guide_first_contact_at/_by/_method`,
+  `consultation_scheduled_at` (TIMESTAMPTZ) + `consultation_timezone`, `next_step`,
+  fallback reason, outcome, abandonment step/reason, `booth_id`, server-derived
+  `host_user_id` (FK to `auth.users`, NOT NULL — the ownership anchor) + `host_email`,
+  `lead_id` (human-readable mirror, UNIQUE), and a UNIQUE `client_ref` idempotency key.
+  CHECKs enforce the **consent boundary** (`booth_sessions_pre_consent_minimal` —
+  without the consultation consent the row may hold no profile, shortlist, language,
+  contact data or lead), the all-or-nothing contact bundle, verified-has-evidence,
+  acknowledgement/first-contact attribution, structured consultation instants, the
+  contacted-completion gate, and total no-contact minimization.
+- **Terminal immutability**: the `booth_sessions_freeze_terminal` BEFORE UPDATE trigger
+  refuses any update to a session whose stored outcome is `contacted_complete`,
+  `no_contact_qr` or `abandoned` — including a direct `service_role` statement.
+- **Session ownership**: `booth_lock_owned_session(client_ref, actor, allow_assigned_guide)`
+  locks the row and proves the caller owns it before any write, and every transition RPC
+  goes through it. The assigned Guide's opt-in applies to exactly two functions
+  (`booth_acknowledge_guide`, `booth_record_handoff`) and only for their own
+  acknowledgement and their own first contact.
+- `public.studio_members.can_access_booth` (NOT NULL DEFAULT FALSE) — the explicit
+  least-privilege Booth capability added to the existing staff roster. Additive only;
+  Studio never reads it and no row is granted it by this migration.
 - `booth_funnel_events` — `UNIQUE (session_id, event)`, event vocabulary CHECK in
   lockstep with the TypeScript contract.
 - **RLS**: all three tables enabled with **no policies and no anon/authenticated
@@ -220,18 +263,37 @@ Migration `supabase/migrations/20260725150000_booth_v2_pilot.sql` (pending; NOT 
 
 `booth-v2/booth-v2.functions.ts` (wiring + zod) → `booth-v2/server/service.ts`
 (service-role writes, transition validation, safe error envelope with redacted logs).
-Endpoints: config, ensureSession, recordEvent, confirmProfile (re-runs the fail-closed
-parser server-side), setShortlist, saveContact (+ lead mirror, once per session),
-start/confirm WhatsApp verification, listGuides, assignGuide, acknowledgeGuide,
-recordHandoff, completeSession (server-side gate + DB CHECK backstop). Retries are
-idempotent via `client_ref` upserts and the funnel uniqueness constraint. The dev/demo
+
+Endpoints, grouped by what they may persist:
+
+- **Ungated, and the only one** — `getRouteAvailability`: a single boolean saying
+  whether this deployment enabled the pilot. No session, no database read, no actor.
+  It exists so a disabled deployment can render the ordinary not-found boundary to a
+  signed-out visitor rather than a Forever Booth login form (§0b, item 9).
+- **Gated, non-persisting** — `getAccess`, `getConfig`, `listGuides`,
+  `markProfileConfirmed` (re-runs the canonical strict parser server-side and records
+  only the flow mode + the non-personal `profile_confirmed` funnel fact),
+  `validateShortlist` (bounds + real-project check, stores nothing).
+- **Gated, the consent transaction** — `commitConsent`: the FIRST and ONLY write of
+  anything about the guest. Profile + shortlist + contact bundle + consent + exactly
+  one lead, in one locked transaction; every accepted replay refreshes the linked lead.
+- **Gated, post-consent operations** — `ensureSession`, `recordEvent`, start/confirm
+  WhatsApp verification, `assignGuide`, `acknowledgeGuide`, `recordHandoff`,
+  `completeSession` (server-side gate + DB CHECK + terminal-freeze trigger backstop).
+
+Retries are idempotent via `client_ref` upserts and the funnel uniqueness constraint,
+and every session RPC additionally proves the caller owns the session. The dev/demo
 no-write mode (`VITE_PARTNER_DEMO` / `VITE_DEMO_LEAD_MODE`) short-circuits before any
 database access, mirroring the lead-service rule.
 
-The booth tablet is an unauthenticated kiosk; the pilot's trust model is
-"no anonymous database path + server-validated transitions + auditable manual Host
-actions". Host identity is an operational label, not an authenticated credential — an
-accepted, documented pilot boundary (see §14).
+The booth tablet is operated by an AUTHENTICATED Host: `booth-auth.ts` verifies the
+request identity itself (`server/auth.ts`) rather than chaining the shared
+Supabase-auth middleware, whose distinct errors could not be normalized, and then
+requires an active `studio_members` row plus the explicit `can_access_booth`
+capability. Every refusal — missing header, malformed or expired token, non-member,
+inactive member, missing capability, disabled pilot — collapses to the single
+`booth_access_denied`; the reason is logged server-side only. Host identity is a real
+authenticated credential and is the ownership anchor for every session transition.
 
 ## 11. WhatsApp verification (manual pilot)
 

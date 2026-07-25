@@ -12,18 +12,18 @@ Two weeks **or** 100 `meaningful_conversation` events, whichever comes first.
 
 ## What we measure
 
-| Metric                   | Definition (event/field)                                 |
-| ------------------------ | -------------------------------------------------------- |
-| Meaningful conversations | `meaningful_conversation` events                         |
-| Quick vs Full share      | `booth_sessions.flow_mode` of profile-confirmed sessions |
-| Profile completion       | `profile_confirmed` / `profile_started`                  |
-| Valid WhatsApp rate      | `whatsapp_verified` / sessions with contact saved        |
-| Guide contact ≤ 5 min    | `guide_first_contact_at - guide_assigned_at <= 5 min`    |
-| Acknowledgement ≤ 2 min  | `guide_acknowledged_at - guide_assigned_at <= 2 min`     |
-| Consultation bookings    | `consultation_booked` events                             |
-| QR continuations         | `qr_continuation` events                                 |
-| Abandonment step/reason  | `session_abandoned` events + `abandonment_step/reason`   |
-| Viewings (later)         | `viewing_booked` events, when recorded                   |
+| Metric                   | Definition (event/field)                               |
+| ------------------------ | ------------------------------------------------------ |
+| Meaningful conversations | `meaningful_conversation` events                       |
+| Quick vs Full share      | `step` of the `profile_confirmed` funnel event         |
+| Profile completion       | `profile_confirmed` / `profile_started`                |
+| Valid WhatsApp rate      | `whatsapp_verified` / sessions with contact saved      |
+| Guide contact ≤ 5 min    | `guide_first_contact_at - guide_assigned_at <= 5 min`  |
+| Acknowledgement ≤ 2 min  | `guide_acknowledged_at - guide_assigned_at <= 2 min`   |
+| Consultation bookings    | `consultation_booked` events                           |
+| QR continuations         | `qr_continuation` events                               |
+| Abandonment step/reason  | `session_abandoned` events + `abandonment_step/reason` |
+| Viewings (later)         | `viewing_booked` events, when recorded                 |
 
 ## Queries (service-role only; run internally, never from a browser)
 
@@ -31,9 +31,11 @@ Two weeks **or** 100 `meaningful_conversation` events, whichever comes first.
 -- Funnel counts
 SELECT event, count(*) FROM public.booth_funnel_events GROUP BY event ORDER BY count(*) DESC;
 
--- Quick vs Full among confirmed profiles
-SELECT flow_mode, count(*) FROM public.booth_sessions
-WHERE profile_confirmed_at IS NOT NULL GROUP BY flow_mode;
+-- Quick vs Full among confirmed profiles. Read from the funnel event step:
+-- the profile is not persisted before the guest consents, and flow_mode is
+-- cleared entirely on a no-contact outcome.
+SELECT step AS flow_mode, count(*) FROM public.booth_funnel_events
+WHERE event = 'profile_confirmed' GROUP BY step;
 
 -- Outcomes
 SELECT outcome, count(*) FROM public.booth_sessions GROUP BY outcome;
@@ -56,11 +58,27 @@ SELECT abandonment_step, abandonment_reason, count(*)
 FROM public.booth_sessions WHERE outcome = 'abandoned'
 GROUP BY abandonment_step, abandonment_reason ORDER BY count(*) DESC;
 
--- Shortlist behaviour
+-- Shortlist behaviour (consented sessions only — a shortlist exists nowhere else)
 SELECT shortlist_mode, jsonb_array_length(shortlist) AS size, count(*)
-FROM public.booth_sessions WHERE profile_confirmed_at IS NOT NULL
+FROM public.booth_sessions WHERE consultation_consent
 GROUP BY shortlist_mode, size ORDER BY shortlist_mode, size;
 ```
+
+## What these numbers can and cannot tell us
+
+The consent boundary deliberately limits this scorecard, and that limit is the point:
+
+- Sessions where the guest did **not** consent contribute funnel counts, outcomes and
+  abandonment step/reason — and nothing else. No profile, no shortlist, no answers, no
+  language, no contact data was ever stored for them.
+- A `no_contact_qr` session is reduced to an anonymous shell, so it can be counted but
+  never profiled retrospectively.
+- Quick-vs-Full share therefore comes from the `profile_confirmed` event's `step`, not
+  from a stored profile.
+
+Any question that would need pre-consent guest data cannot be answered from this
+pilot, and should not be — answering it would mean storing what the guest did not
+agree to.
 
 ## Daily one-page summary (manual, pilot)
 
