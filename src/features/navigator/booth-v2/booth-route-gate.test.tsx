@@ -1,27 +1,37 @@
 /**
- * Booth Mode 2.0 route-gate tests (PR #102 corrective item 9).
+ * Booth Mode 2.0 access-gate tests — AUTHENTICATION AND AUTHORIZATION.
  *
- * Proves the default-disabled route is TRUTHFUL: while the deployment has not
- * enabled the pilot, /booth-v2 renders the application's ordinary not-found
- * boundary for EVERY visitor — including a signed-out one — and never shows a
- * Forever Booth sign-in form. Only once the server has confirmed enablement
- * does the sign-in surface exist at all, and only an authorized staff account
- * reaches Booth V2.
+ * Deployment enablement is no longer this component's job and is no longer
+ * tested here: it moved to the route's `beforeLoad` boundary so that a disabled
+ * deployment produces a server-rendered not-found response rather than a page
+ * that hides itself after announcing it exists. That behaviour is proven in
+ * booth-route-ssr.test.tsx against a REAL server render.
+ *
+ * What this suite proves is what remains once the route has already confirmed,
+ * on the server, that the pilot is enabled:
+ *   • a signed-out visitor sees the staff sign-in form, and there is no sign-up
+ *     path;
+ *   • a signed-in account is decided by the same gated endpoint every other
+ *     Booth call uses, and ANY refusal renders the ordinary not-found boundary,
+ *     so an account without the Booth capability cannot tell the pilot exists;
+ *   • the Gate asks the browser for a session but never asks for enablement —
+ *     a client-side enablement check would be exactly the defect that was
+ *     corrected.
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getRouteAvailability: vi.fn(async () => ({ available: false })),
   getAccess: vi.fn(async () => ({ granted: true as const, hostName: "Host Tester" })),
+  getRouteAvailability: vi.fn(async () => ({ available: true })),
   getSession: vi.fn(async () => ({ data: { session: null as unknown } })),
   onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: () => {} } } })),
 }));
 
 vi.mock("./booth-v2.functions", () => ({
-  boothV2GetRouteAvailability: mocks.getRouteAvailability,
   boothV2GetAccess: mocks.getAccess,
+  boothV2GetRouteAvailability: mocks.getRouteAvailability,
 }));
 
 vi.mock("@/integrations/supabase/client", () => ({
@@ -50,10 +60,10 @@ const notFound = () => screen.findByText(/404 · Page not found/);
 const signInForm = () => screen.queryByText("Forever Booth");
 
 beforeEach(() => {
-  mocks.getRouteAvailability.mockReset().mockResolvedValue({ available: false });
   mocks.getAccess
     .mockReset()
     .mockResolvedValue({ granted: true as const, hostName: "Host Tester" });
+  mocks.getRouteAvailability.mockReset().mockResolvedValue({ available: true });
   mocks.getSession.mockReset().mockResolvedValue({ data: { session: null } });
   mocks.onAuthStateChange
     .mockReset()
@@ -64,66 +74,8 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("while the pilot is NOT enabled on this deployment", () => {
-  it("renders the ordinary not-found boundary to a SIGNED-OUT visitor", async () => {
-    mocks.getRouteAvailability.mockResolvedValue({ available: false });
-    mocks.getSession.mockResolvedValue({ data: { session: null } });
-
-    render(<BoothV2Gate />);
-
-    await notFound();
-    // The decisive assertion: no Forever Booth login form is ever rendered.
-    expect(signInForm()).toBeNull();
-    expect(screen.queryByLabelText(/Password/)).toBeNull();
-  });
-
-  it("never asks the browser for a session before the server has spoken", async () => {
-    mocks.getRouteAvailability.mockResolvedValue({ available: false });
-
-    render(<BoothV2Gate />);
-
-    await notFound();
-    expect(mocks.getRouteAvailability).toHaveBeenCalled();
-    // Enablement is decided first; nothing else is even attempted.
-    expect(mocks.getSession).not.toHaveBeenCalled();
-    expect(mocks.getAccess).not.toHaveBeenCalled();
-  });
-
-  it("renders the same boundary to a SIGNED-IN visitor", async () => {
-    mocks.getRouteAvailability.mockResolvedValue({ available: false });
-    mocks.getSession.mockResolvedValue({ data: { session: { user: { id: "u" } } } });
-
-    render(<BoothV2Gate />);
-
-    await notFound();
-    expect(mocks.getAccess).not.toHaveBeenCalled();
-  });
-
-  it("fails closed when the availability probe itself fails", async () => {
-    mocks.getRouteAvailability.mockRejectedValue(new Error("network"));
-
-    render(<BoothV2Gate />);
-
-    await notFound();
-    expect(signInForm()).toBeNull();
-  });
-
-  it("fails closed on an unexpected probe shape", async () => {
-    mocks.getRouteAvailability.mockResolvedValue({} as { available: boolean });
-
-    render(<BoothV2Gate />);
-
-    await notFound();
-    expect(signInForm()).toBeNull();
-  });
-});
-
-describe("once the pilot IS enabled on this deployment", () => {
-  beforeEach(() => {
-    mocks.getRouteAvailability.mockResolvedValue({ available: true });
-  });
-
-  it("offers the staff sign-in form to a signed-out visitor", async () => {
+describe("a signed-out visitor", () => {
+  it("is offered the staff sign-in form", async () => {
     mocks.getSession.mockResolvedValue({ data: { session: null } });
 
     render(<BoothV2Gate />);
@@ -134,8 +86,38 @@ describe("once the pilot IS enabled on this deployment", () => {
     expect(screen.queryByText(/Create an account|Sign up|Register/i)).toBeNull();
   });
 
-  it("gives an authenticated account WITHOUT Booth access the not-found boundary", async () => {
+  it("is never sent to a gated endpoint", async () => {
+    render(<BoothV2Gate />);
+
+    await screen.findByText("Forever Booth");
+    expect(mocks.getAccess).not.toHaveBeenCalled();
+  });
+
+  it("is treated as signed out when the session read itself fails", async () => {
+    mocks.getSession.mockRejectedValue(new Error("storage unavailable"));
+
+    render(<BoothV2Gate />);
+
+    await screen.findByText("Forever Booth");
+    expect(mocks.getAccess).not.toHaveBeenCalled();
+  });
+});
+
+describe("a signed-in visitor", () => {
+  beforeEach(() => {
     mocks.getSession.mockResolvedValue({ data: { session: { user: { id: "u" } } } });
+  });
+
+  it("reaches Booth V2 when the server grants access", async () => {
+    mocks.getAccess.mockResolvedValue({ granted: true as const, hostName: "Host Tester" });
+
+    render(<BoothV2Gate />);
+
+    await waitFor(() => expect(screen.getByText(/Booth V2 shell for/)).toBeInTheDocument());
+    expect(screen.getByText(/Host Tester/)).toBeInTheDocument();
+  });
+
+  it("gets the ordinary not-found boundary when the server refuses", async () => {
     mocks.getAccess.mockRejectedValue(new Error("booth_access_denied"));
 
     render(<BoothV2Gate />);
@@ -144,13 +126,45 @@ describe("once the pilot IS enabled on this deployment", () => {
     expect(signInForm()).toBeNull();
   });
 
-  it("renders Booth V2 for an authorized staff account", async () => {
+  it("fails closed on any refusal, whatever its shape", async () => {
+    for (const refusal of [
+      new Error("booth_access_denied"),
+      new Error("network"),
+      { code: "booth_access_denied" },
+      undefined,
+    ]) {
+      mocks.getAccess.mockReset().mockRejectedValue(refusal);
+      const view = render(<BoothV2Gate />);
+      await notFound();
+      expect(signInForm()).toBeNull();
+      view.unmount();
+    }
+  });
+});
+
+describe("the Gate never decides enablement itself", () => {
+  it("does not call the availability boundary at all", async () => {
     mocks.getSession.mockResolvedValue({ data: { session: { user: { id: "u" } } } });
-    mocks.getAccess.mockResolvedValue({ granted: true as const, hostName: "Host Tester" });
 
     render(<BoothV2Gate />);
 
     await waitFor(() => expect(screen.getByText(/Booth V2 shell for/)).toBeInTheDocument());
-    expect(screen.getByText(/Host Tester/)).toBeInTheDocument();
+    // Enablement is a routing decision taken on the server before this
+    // component exists; re-asking here would reintroduce the client-only gate.
+    expect(mocks.getRouteAvailability).not.toHaveBeenCalled();
+  });
+
+  it("re-decides from scratch when the auth state changes", async () => {
+    mocks.getSession.mockResolvedValue({ data: { session: null } });
+    render(<BoothV2Gate />);
+    await screen.findByText("Forever Booth");
+
+    const [handler] = mocks.onAuthStateChange.mock.calls[0] as unknown as [() => void];
+    mocks.getSession.mockResolvedValue({ data: { session: { user: { id: "u" } } } });
+    await act(async () => {
+      handler();
+    });
+
+    await waitFor(() => expect(screen.getByText(/Booth V2 shell for/)).toBeInTheDocument());
   });
 });

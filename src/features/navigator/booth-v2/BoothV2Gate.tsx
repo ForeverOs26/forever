@@ -1,25 +1,29 @@
 /**
- * Booth Mode 2.0 access gate.
+ * Booth Mode 2.0 access gate — AUTHENTICATION AND AUTHORIZATION ONLY.
  *
- * `noindex` is not access control, so nothing about the pilot renders until the
- * SERVER has spoken. The order is deliberate and is what makes the
- * default-disabled route TRUTHFUL (PR #102 corrective item 9):
+ * Deployment enablement is no longer this component's concern. It moved to the
+ * route's `beforeLoad` boundary (src/routes/booth-v2.tsx, PR #102 corrective
+ * pass 3 item 2), because a React effect cannot produce a server-rendered
+ * not-found response: while the pilot is disabled the route never matches past
+ * the root not-found boundary, so this component is never rendered, never
+ * mounted, and never asks the browser anything. That is what makes the disabled
+ * route genuinely equivalent to a missing one instead of a page that hides
+ * itself after announcing it exists.
  *
- *   1. ask the server whether this deployment has enabled the pilot at all.
- *      While it has not, /booth-v2 renders the application's ordinary
- *      not-found boundary for EVERY visitor — including a signed-out one. A
- *      disabled deployment therefore never shows a Forever Booth login form,
- *      and the page is indistinguishable from a URL that does not exist;
- *   2. only once the pilot is known to be enabled does a visitor without a
- *      Supabase session see the staff sign-in form;
- *   3. a signed-in caller is then checked against the same gated endpoint every
+ * What remains here, once the server has already confirmed the pilot is
+ * enabled:
+ *
+ *   1. a visitor without a Supabase session sees the staff sign-in form;
+ *   2. a signed-in caller is checked against the same gated endpoint every
  *      other Booth call uses — active staff membership AND the explicit Booth
- *      capability. Any refusal renders the same not-found boundary, so a
- *      signed-in account without the capability cannot tell the pilot exists.
+ *      capability, with enablement re-checked there too. Any refusal renders
+ *      the same not-found boundary, so a signed-in account without the
+ *      capability cannot tell the pilot exists.
  *
  * Every step fails closed: a network error, a thrown probe or an unexpected
  * shape all land on the not-found boundary. This gate is presentation only —
- * every operational endpoint is independently gated on the server.
+ * every operational endpoint is independently gated on the server, and the
+ * browser's own credential is attached and re-verified per call.
  */
 
 import { useEffect, useState } from "react";
@@ -30,7 +34,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { NotFoundComponent } from "@/routes/__root";
 
-import { boothV2GetAccess, boothV2GetRouteAvailability } from "./booth-v2.functions";
+import { boothV2GetAccess } from "./booth-v2.functions";
 import { BoothV2Navigator } from "./BoothV2Navigator";
 
 type GateState =
@@ -45,37 +49,32 @@ export function BoothV2Gate() {
   useEffect(() => {
     let active = true;
     async function check() {
-      // 1. Deployment enablement FIRST — before any sign-in surface exists.
+      // 1. A signed-out visitor may sign in. (The route already proved, on the
+      //    server, that this deployment enabled the pilot at all.)
+      let signedIn = false;
       try {
-        const availability = await boothV2GetRouteAvailability();
-        if (!active) return;
-        if (availability?.available !== true) {
-          setState({ status: "denied" });
-          return;
-        }
+        const { data } = await supabase.auth.getSession();
+        signedIn = Boolean(data.session);
       } catch {
-        if (!active) return;
-        setState({ status: "denied" });
-        return;
+        signedIn = false;
       }
-
-      // 2. The pilot is enabled: a signed-out visitor may sign in.
-      const { data } = await supabase.auth.getSession();
       if (!active) return;
-      if (!data.session) {
+      if (!signedIn) {
         setState({ status: "signed_out" });
         return;
       }
 
-      // 3. Signed in: the server decides, opaquely.
+      // 2. Signed in: the server decides, opaquely. The gated call carries the
+      //    Host's own access token and the server re-verifies it.
       try {
         const access = await boothV2GetAccess();
         if (!active) return;
         setState({ status: "granted", hostName: access.hostName });
       } catch {
         if (!active) return;
-        // Non-member, disabled membership, missing Booth capability, or any
-        // other refusal — all indistinguishable, all fail closed.
+        // Non-member, disabled membership, missing Booth capability, a pilot
+        // switched off since the route loaded, or any other refusal — all
+        // indistinguishable, all fail closed.
         setState({ status: "denied" });
       }
     }
