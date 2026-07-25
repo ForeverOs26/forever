@@ -25,11 +25,23 @@ staging boundary. Nothing here permits a publish.
 > - **Rainpalm is no longer blocked on the price ruling.** It ships as a
 >   structural draft with 21 units and zero prices, carrying
 >   `authoritative_price_list_unresolved`. The Owner ruling is now required
->   before Rainpalm gets *prices*, not before it gets a record.
+>   before Rainpalm gets _prices_, not before it gets a record.
 >
-> The gate table below still applies to Waves 2 and 3 unchanged. G1 is the gate
-> Rainpalm previously failed; the structural draft passes it by citing the
-> presentation document, which resolves, and by carrying no price rows at all.
+> The gate table below still applies to Waves 2 and 3 unchanged.
+>
+> **G1 correction (FOREVER-CATALOG-10-003).** An earlier revision of this note
+> claimed the Rainpalm structural draft passes G1 by citing the presentation
+> document. That is true only of project _identity_. The 21 unit rows come from
+> an intake inventory whose every field cites an absent document, so the
+> structural layer does **not** pass G1 on its own evidence. It ships as an
+> explicitly downgraded `extracted` layer with that defect recorded per field,
+> not as a G1 pass. G1 remains open for Rainpalm units until the cited price
+> list is supplied.
+>
+> The builder now resolves and digest-verifies all eleven pinned Wave 1 source
+> documents on every run, and negative tests prove it fails closed on a missing,
+> edited or substituted source, and on the reappearance of a cited-but-absent
+> document.
 
 ## Wave 0 — Coralina prerequisites (blocking, ahead of everything else)
 
@@ -37,12 +49,12 @@ Wave 0 is not in the original three-wave shape. It exists because the Coralina
 record the brief assumes is already present does not exist, and its blockers sit
 in the database rather than in source material.
 
-| Item | State |
-| --- | --- |
-| Canonical developer row for Rhom Bho Property PCL | absent, fresh exact count `0` |
-| `kamala` location row | absent, fresh exact count `0` |
-| Coralina project row | absent, 0 of 405 expected writes |
-| V15 approval | unconsumed; single-use locks must remain untouched |
+| Item                                              | State                                              |
+| ------------------------------------------------- | -------------------------------------------------- |
+| Canonical developer row for Rhom Bho Property PCL | absent, fresh exact count `0`                      |
+| `kamala` location row                             | absent, fresh exact count `0`                      |
+| Coralina project row                              | absent, 0 of 405 expected writes                   |
+| V15 approval                                      | unconsumed; single-use locks must remain untouched |
 
 Sequence:
 
@@ -86,15 +98,15 @@ Coralina, so its developer resolution work is reusable.
 
 ### Validation gates
 
-| Gate | Requirement |
-| --- | --- |
-| G1 Source integrity | Every cited source file resolves to a real file whose SHA-256 matches the manifest. This is the gate Rainpalm currently fails. |
-| G2 Determinism | Two consecutive intake runs produce byte-identical payload, classification and extracted facts, and the same batch fingerprint. |
-| G3 Draft-only | `payload.project.publish === false` and `Import-ForeverProjectDraft.ps1 -ValidateOnly` returns `DRAFT_PAYLOAD_VALID`. |
-| G4 No invention | Every populated field traces to a source reference. Every absent field is a warning, never a default. |
-| G5 Privacy | No client, contract, financial or personal file in the package. For Rainpalm this specifically excludes the A8 land lease, the A7 quotation and `tsetup-x64.7.0.2.exe`. |
-| G6 Archive limits | Package respects the PR #100 intake limits (300 MiB ZIP, resumable). The 598 MB Rainpalm video exceeds this and must be split or deferred. |
-| G7 Count parity | Post-commit unit, price and warning counts equal the payload counts. |
+| Gate                | Requirement                                                                                                                                                             |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G1 Source integrity | Every cited source file resolves to a real file whose SHA-256 matches the manifest. This is the gate Rainpalm currently fails.                                          |
+| G2 Determinism      | Two consecutive intake runs produce byte-identical payload, classification and extracted facts, and the same batch fingerprint.                                         |
+| G3 Draft-only       | `payload.project.publish === false` and `Import-ForeverProjectDraft.ps1 -ValidateOnly` returns `DRAFT_PAYLOAD_VALID`.                                                   |
+| G4 No invention     | Every populated field traces to a source reference. Every absent field is a warning, never a default.                                                                   |
+| G5 Privacy          | No client, contract, financial or personal file in the package. For Rainpalm this specifically excludes the A8 land lease, the A7 quotation and `tsetup-x64.7.0.2.exe`. |
+| G6 Archive limits   | Package respects the PR #100 intake limits (300 MiB ZIP, resumable). The 598 MB Rainpalm video exceeds this and must be split or deferred.                              |
+| G7 Count parity     | Post-commit unit, price and warning counts equal the payload counts.                                                                                                    |
 
 ### Production-draft eligibility
 
@@ -105,11 +117,11 @@ Coralina, so its developer resolution work is reusable.
 
 ### Expected warnings
 
-| Project | Warnings |
-| --- | --- |
-| Garden of Eden | `developer_unresolved`, `price_list_missing`, `unit_types_missing`, `coordinates_missing`, `country_missing` |
+| Project          | Warnings                                                                                                             |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Garden of Eden   | `developer_unresolved`, `price_list_missing`, `unit_types_missing`, `coordinates_missing`, `country_missing`         |
 | The Title Sierra | `location_missing`, `developer_unresolved`, `construction_status_missing`, `brochure_missing`, `coordinates_missing` |
-| Rainpalm | the existing 12, plus `price_source_unresolved` until §7.4 is answered |
+| Rainpalm         | the existing 12, plus `price_source_unresolved` until §7.4 is answered                                               |
 
 ### Publication prerequisites
 
@@ -141,11 +153,11 @@ it follows Sierra rather than accompanying it.
 
 G1–G7 as in Wave 1, plus:
 
-| Gate | Requirement |
-| --- | --- |
+| Gate                    | Requirement                                                                                                                                                                                                                      |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | G8 Promotion separation | For Casa de Monte, the headline `Selling Price` is the price of record. The `Early Bird` discount and `Net Price` are stored as a separate, dated promotional attribute. A promotional price must never be written as the price. |
-| G9 Superseded readiness | Layan Green Park states completion `Q1-2026`, already in the past as of 2026-07-25. The draft must carry `construction_status_stale` rather than presenting a lapsed quarter as current. |
-| G10 Snapshot honesty | The "45% sold" figure is a January 2026 snapshot. It is recorded with its date or not at all. |
+| G9 Superseded readiness | Layan Green Park states completion `Q1-2026`, already in the past as of 2026-07-25. The draft must carry `construction_status_stale` rather than presenting a lapsed quarter as current.                                         |
+| G10 Snapshot honesty    | The "45% sold" figure is a January 2026 snapshot. It is recorded with its date or not at all.                                                                                                                                    |
 
 ### Production-draft eligibility
 
@@ -153,10 +165,10 @@ All three eligible after G1–G10, as unpublished drafts with warnings.
 
 ### Expected warnings
 
-| Project | Warnings |
-| --- | --- |
-| Layan Green Park | `developer_unresolved`, `price_list_missing`, `unit_types_missing`, `construction_status_stale`, `coordinates_missing` |
-| AYANA Heights | `developer_unresolved`, `price_list_missing`, `unit_types_missing`, `coordinates_missing` |
+| Project             | Warnings                                                                                                                    |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Layan Green Park    | `developer_unresolved`, `price_list_missing`, `unit_types_missing`, `construction_status_stale`, `coordinates_missing`      |
+| AYANA Heights       | `developer_unresolved`, `price_list_missing`, `unit_types_missing`, `coordinates_missing`                                   |
 | Casa de Monte Villa | `location_missing`, `developer_unresolved`, `construction_status_missing`, `brochure_missing`, `promotion_validity_unknown` |
 
 ### Publication prerequisites
@@ -184,11 +196,11 @@ established by the earlier waves.
 
 G1–G7, plus:
 
-| Gate | Requirement |
-| --- | --- |
-| G11 No inferred date | Neither record may carry a source date derived from a file timestamp. Absent an in-document date, `source_date_unknown` is the correct value. |
-| G12 Ambiguous completion | The Olive's deck mentions Q3 2028, Q4 2028 and Q1 2029. The draft records `construction_status_ambiguous`; it does not pick one. |
-| G13 Unverified figures | Sudara's five price-shaped figures are not ingested as prices. `price_list_missing` stands. |
+| Gate                     | Requirement                                                                                                                                   |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| G11 No inferred date     | Neither record may carry a source date derived from a file timestamp. Absent an in-document date, `source_date_unknown` is the correct value. |
+| G12 Ambiguous completion | The Olive's deck mentions Q3 2028, Q4 2028 and Q1 2029. The draft records `construction_status_ambiguous`; it does not pick one.              |
+| G13 Unverified figures   | Sudara's five price-shaped figures are not ingested as prices. `price_list_missing` stands.                                                   |
 
 ### Production-draft eligibility
 
@@ -196,10 +208,10 @@ Both eligible after G1–G13.
 
 ### Expected warnings
 
-| Project | Warnings |
-| --- | --- |
+| Project         | Warnings                                                                                                                    |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | The Title Olive | `developer_unresolved`, `price_list_missing`, `construction_status_ambiguous`, `source_date_unknown`, `coordinates_missing` |
-| Sudara Phuket | `developer_unresolved`, `price_list_missing`, `unit_types_missing`, `source_date_unknown`, `coordinates_missing` |
+| Sudara Phuket   | `developer_unresolved`, `price_list_missing`, `unit_types_missing`, `source_date_unknown`, `coordinates_missing`            |
 
 ### Publication prerequisites
 
@@ -243,12 +255,12 @@ that leaves identity, slug and publication state untouched.
 
 Superseded for Wave 1 by the 2026-07-26 update above; retained for Waves 2–3.
 
-| Wave | Members | Blocking dependency |
-| --- | --- | --- |
-| 0 | ~~Coralina~~ | **dissolved** — not a real blocker; folded into Wave 1 |
-| 1 | Coralina, Rainpalm, Gardens of Eden, The Title Sierra | **staging database credential** (all four prepared, none loaded) |
-| 2 | Layan Green Park, AYANA Heights, Casa de Monte Villa | none |
-| 3 | The Title Olive, Sudara Phuket | none |
+| Wave | Members                                               | Blocking dependency                                              |
+| ---- | ----------------------------------------------------- | ---------------------------------------------------------------- |
+| 0    | ~~Coralina~~                                          | **dissolved** — not a real blocker; folded into Wave 1           |
+| 1    | Coralina, Rainpalm, Gardens of Eden, The Title Sierra | **staging database credential** (all four prepared, none loaded) |
+| 2    | Layan Green Park, AYANA Heights, Casa de Monte Villa  | none                                                             |
+| 3    | The Title Olive, Sudara Phuket                        | none                                                             |
 
 Plus Modeva, already present, on a separate update track.
 

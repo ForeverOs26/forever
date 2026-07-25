@@ -20,15 +20,22 @@ normalised or edited.
 > Two findings below are superseded by that report and are marked inline: §1's
 > Coralina reasoning, and §6.5's assumption that Sierra needs SIP qualification
 > before a draft can be built.
+>
+> **Corrective pass (FOREVER-CATALOG-10-003).** A source-integrity review
+> corrected two provenance claims made in this register. §6.3's reading of the
+> Rainpalm structural layer as "sound" was too generous — see the note there.
+> §6.4's Garden of Eden entry is unchanged in substance but its material is now
+> classified as an agency presentation rather than developer material. Payload
+> hashes in the Wave 1 report were reissued; the counts are unchanged.
 
 ## 1. Correction to the assumed starting state
 
 The task brief assumes the Forever Database already holds two records, Modeva
 and Coralina. Repository evidence does not support that for Coralina.
 
-| Record | Assumed | Evidence-backed state |
-| --- | --- | --- |
-| Modeva | in database | **Confirmed present.** Seeded by `supabase/migrations/20260707103000_fdb001_seed_title_bang_tao_modeva.sql`, project status `'published'`. |
+| Record   | Assumed                       | Evidence-backed state                                                                                                                                                                       |
+| -------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Modeva   | in database                   | **Confirmed present.** Seeded by `supabase/migrations/20260707103000_fdb001_seed_title_bang_tao_modeva.sql`, project status `'published'`.                                                  |
 | Coralina | unpublished draft in database | **Not present.** `RC5_6_CONTROLLED_IMPORT_REPORT_FINAL.md` §14: Coralina is not present in the Forever Database; none of the 405 expected writes exists; V15 failed safely and rolled back. |
 
 `RC5_6P_CORALINA_PREREQUISITE_IMPORT_REPORT_FINAL.md` §11 further records that
@@ -66,18 +73,18 @@ publication prerequisite, not an import one.
 
 All inspection was read-only.
 
-| Root | Nature | Outcome |
-| --- | --- | --- |
-| `C:\forever\forever-data\projects\` | tracked | `coralina`, `modeva`, `rainpalm-villas` |
-| `C:\forever\forever-data\incoming\` | tracked | `Coralina`, `Modeva` archives |
-| `C:\forever-incoming\` | untracked intake root | `Coralina\updates\2026-07-17`, `Rainpalm\{facts,price-list,raw}`, `TelegramExports\coralinakamala` |
-| `C:\Users\konst\Downloads\Rainpalm\` | Owner source | 111 files, 908 MB — full Rainpalm dossier |
-| `C:\Users\konst\Downloads\Telegram Desktop\` | Owner source | developer decks and price lists for several projects |
-| `C:\Users\konst\Documents\Forever\Investment presentation\` | Owner source | three Layan-area decks, English + Russian |
-| `C:\Users\konst\Documents\Title\` | Owner source | `Carolina` (Coralina duplicates), `Legendary`, `The Balcony` |
-| `C:\Users\konst\Documents\Forever\Иследование\Rainpalm\` | Owner source | Rainpalm price-list variants and presentation |
-| `C:\Users\konst\Documents\проекты\` | Owner source | 2023-era material, unrelated projects, stale |
-| `C:\Projects Phuket\` | Owner source | **exists but contains 0 items** |
+| Root                                                        | Nature                | Outcome                                                                                            |
+| ----------------------------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------- |
+| `C:\forever\forever-data\projects\`                         | tracked               | `coralina`, `modeva`, `rainpalm-villas`                                                            |
+| `C:\forever\forever-data\incoming\`                         | tracked               | `Coralina`, `Modeva` archives                                                                      |
+| `C:\forever-incoming\`                                      | untracked intake root | `Coralina\updates\2026-07-17`, `Rainpalm\{facts,price-list,raw}`, `TelegramExports\coralinakamala` |
+| `C:\Users\konst\Downloads\Rainpalm\`                        | Owner source          | 111 files, 908 MB — full Rainpalm dossier                                                          |
+| `C:\Users\konst\Downloads\Telegram Desktop\`                | Owner source          | developer decks and price lists for several projects                                               |
+| `C:\Users\konst\Documents\Forever\Investment presentation\` | Owner source          | three Layan-area decks, English + Russian                                                          |
+| `C:\Users\konst\Documents\Title\`                           | Owner source          | `Carolina` (Coralina duplicates), `Legendary`, `The Balcony`                                       |
+| `C:\Users\konst\Documents\Forever\Иследование\Rainpalm\`    | Owner source          | Rainpalm price-list variants and presentation                                                      |
+| `C:\Users\konst\Documents\проекты\`                         | Owner source          | 2023-era material, unrelated projects, stale                                                       |
+| `C:\Projects Phuket\`                                       | Owner source          | **exists but contains 0 items**                                                                    |
 
 ### 2.1 Excluded private zones
 
@@ -107,13 +114,13 @@ the 2026-07-19 pilot avoided it only because the CLI classified by extension.
 Every developer price list located during this inventory carries an explicit
 internal-distribution marking on page 1:
 
-| Price list | Page-1 marking |
-| --- | --- |
-| `CORALINA Price List` 03.07.26 and 17.07.26 | `(Internal Use Only)` |
-| `THE MODEVA Price list` 03.07.26 | `(Internal Use Only)` |
-| `THE TITLE SIERRA Price List` 15.05.26 | `(Internal Use Only)` |
-| `CASA DE MONTE VILLA Price List` 28.02.26 | `(Internal Use Only)` |
-| `Rainpalm - Price List` (all variants) | `(for In house)` in the filename |
+| Price list                                  | Page-1 marking                   |
+| ------------------------------------------- | -------------------------------- |
+| `CORALINA Price List` 03.07.26 and 17.07.26 | `(Internal Use Only)`            |
+| `THE MODEVA Price list` 03.07.26            | `(Internal Use Only)`            |
+| `THE TITLE SIERRA Price List` 15.05.26      | `(Internal Use Only)`            |
+| `CASA DE MONTE VILLA Price List` 28.02.26   | `(Internal Use Only)`            |
+| `Rainpalm - Price List` (all variants)      | `(for In house)` in the filename |
 
 This does not block draft creation — drafts are unpublished. It does mean that
 **no unit-level price from any of these documents may be published** without
@@ -127,19 +134,19 @@ The brief permits replacing positions 4–10 when another commercially important
 project has materially better and fresher source evidence. Positions 1–3 are
 locked and were not touched.
 
-| Provisional entry | Local source found | Disposition |
-| --- | --- | --- |
-| 1. Modeva Bang Tao | yes — full package | retained |
-| 2. The Title Coralina Kamala | yes — 343 source files | retained |
-| 3. Rainpalm Villas Bangtao | yes — full dossier | retained |
-| 4. Gardens of Eden | yes, as **Garden of Eden (Park Residence)** | retained, name corrected |
-| 5. Botanica Four Seasons — Spring I | **none** | not_selected |
-| 6. Origin Residence Bangtao | **none** | not_selected |
-| 7. Above Patong | **none** | not_selected |
-| 8. Vibe Residence Karon | **none** | not_selected |
-| 9. La Green Hotel & Residence Layan | **none** under that name | not_selected — see §6.11 |
-| 10. MontAzure | **none** | not_selected |
-| 10alt. The Title Legendary | video archive only | not_selected — see §6.12 |
+| Provisional entry                   | Local source found                          | Disposition              |
+| ----------------------------------- | ------------------------------------------- | ------------------------ |
+| 1. Modeva Bang Tao                  | yes — full package                          | retained                 |
+| 2. The Title Coralina Kamala        | yes — 343 source files                      | retained                 |
+| 3. Rainpalm Villas Bangtao          | yes — full dossier                          | retained                 |
+| 4. Gardens of Eden                  | yes, as **Garden of Eden (Park Residence)** | retained, name corrected |
+| 5. Botanica Four Seasons — Spring I | **none**                                    | not_selected             |
+| 6. Origin Residence Bangtao         | **none**                                    | not_selected             |
+| 7. Above Patong                     | **none**                                    | not_selected             |
+| 8. Vibe Residence Karon             | **none**                                    | not_selected             |
+| 9. La Green Hotel & Residence Layan | **none** under that name                    | not_selected — see §6.11 |
+| 10. MontAzure                       | **none**                                    | not_selected             |
+| 10alt. The Title Legendary          | video archive only                          | not_selected — see §6.12 |
 
 Searches were performed by name across `C:\forever`, `C:\forever-incoming`,
 `Downloads`, `Documents` and `Desktop`. Positions 5–8 and 10 returned zero
@@ -148,18 +155,18 @@ that do have current, source-backed material.
 
 ## 5. Final catalogue of ten
 
-| # | Project | Slug | Type | Location (source-backed) | Depth | Disposition |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | Modeva | `modeva` | Condominium | Bang Tao | deep | `already_in_database` |
-| 2 | The Title Coralina Kamala | `coralina` | Residential condo | Kamala | deep | `missing_critical_source` (prerequisites) |
-| 3 | Rainpalm Villas | `rainpalm-villas` | Pool Villa | Bang Tao | deep | `duplicate_or_identity_review` |
-| 4 | Garden of Eden (Park Residence) | `garden-of-eden` | Apart-hotel | Layan | passport_light | `ready_with_warnings` |
-| 5 | The Title Sierra | `the-title-sierra` | Condominium | *not source-backed* | passport_light | `ready_with_warnings` |
-| 6 | Layan Green Park | `layan-green-park` | Condominium / apart-hotel | Layan | passport_light | `ready_with_warnings` |
-| 7 | AYANA Heights Seaview Residence | `ayana-heights-seaview-residence` | Apart-hotel | Layan | passport_light | `ready_with_warnings` |
-| 8 | Casa de Monte Villa | `casa-de-monte-villa` | Villa | *not source-backed* | passport_light | `ready_with_warnings` |
-| 9 | The Title Olive | `the-title-olive` | Premium complex | Nai Yang | passport_light | `ready_with_warnings` |
-| 10 | Sudara Phuket | `sudara-phuket` | Condominium | Bang Tao | passport_light | `ready_with_warnings` |
+| #   | Project                         | Slug                              | Type                      | Location (source-backed) | Depth          | Disposition                               |
+| --- | ------------------------------- | --------------------------------- | ------------------------- | ------------------------ | -------------- | ----------------------------------------- |
+| 1   | Modeva                          | `modeva`                          | Condominium               | Bang Tao                 | deep           | `already_in_database`                     |
+| 2   | The Title Coralina Kamala       | `coralina`                        | Residential condo         | Kamala                   | deep           | `missing_critical_source` (prerequisites) |
+| 3   | Rainpalm Villas                 | `rainpalm-villas`                 | Pool Villa                | Bang Tao                 | deep           | `duplicate_or_identity_review`            |
+| 4   | Garden of Eden (Park Residence) | `garden-of-eden`                  | Apart-hotel               | Layan                    | passport_light | `ready_with_warnings`                     |
+| 5   | The Title Sierra                | `the-title-sierra`                | Condominium               | _not source-backed_      | passport_light | `ready_with_warnings`                     |
+| 6   | Layan Green Park                | `layan-green-park`                | Condominium / apart-hotel | Layan                    | passport_light | `ready_with_warnings`                     |
+| 7   | AYANA Heights Seaview Residence | `ayana-heights-seaview-residence` | Apart-hotel               | Layan                    | passport_light | `ready_with_warnings`                     |
+| 8   | Casa de Monte Villa             | `casa-de-monte-villa`             | Villa                     | _not source-backed_      | passport_light | `ready_with_warnings`                     |
+| 9   | The Title Olive                 | `the-title-olive`                 | Premium complex           | Nai Yang                 | passport_light | `ready_with_warnings`                     |
+| 10  | Sudara Phuket                   | `sudara-phuket`                   | Condominium               | Bang Tao                 | passport_light | `ready_with_warnings`                     |
 
 Reserve bench, not selected: The Liberty by Wallaya Villas (Cherngtalay,
 developer deck present), The Balcony (Title brochure + company profile),
@@ -484,18 +491,33 @@ Identity is sound: name `Rainpalm Villas`, developer raw `Tonsai Company`,
 location `Bang Tao, Phuket`, type `Pool Villa`, all attributed to
 `For PDF Presentation.pdf` with page-level references.
 
+**Corrected 2026-07-26.** "Perfect agreement on the structural layer" means the
+extraction pipeline agreed with itself, not that the structure is
+document-backed. The intake inventory `price-list.json` — the actual source of
+all 21 unit rows — cites `Копия Rainpalm - Price List（for In house)-1.pdf` for
+**every** field, including code, type, bedrooms, bathrooms and size, and that
+document is absent. So the structural layer carries the same broken citation as
+the price layer; only the price layer was flagged in the first pass. The Wave 1
+draft therefore records those fields as `extracted` from an operator intake
+artifact at 0.5 confidence, not as developer-provided material.
+
+Identity is genuinely sound and is unaffected: `project-facts.json`
+(sha `1e470322…`) states each identity fact and cites
+`For PDF Presentation.pdf` (sha `9887f0ff…`, 10,664,808 B), which resolves and
+verifies. That chain is complete.
+
 ### 7.2 The price provenance conflict
 
 The same comparison report records `positive_price_agreement: 9/14` and
 `availability_agreement: 18/21`. Those are not rounding artefacts. Four distinct
 price documents exist for this project:
 
-| Document | SHA-256 (first 16) | Bytes | Extractable prices |
-| --- | --- | --- | --- |
-| `Rainpalm - Price List（for In house).pdf` | `08b4ceb9a71c7dc2` | 77,942 | 14 |
-| `Rainpalm - Price List（for In house) update 04.2025.pdf` | `4ddee05fe5063bd8` | 77,091 | 9 |
-| `Rainpalm - Price List（for In house) update 4_12_2025.pdf` | `ac1c213b547d00d5` | 78,944 | **21, all different values** |
-| `Rainpalm - Price List new.pdf` = `…new-1.pdf` | `772c02f01d030a56` | 78,261 | 14 (identical set to the first) |
+| Document                                                    | SHA-256 (first 16) | Bytes  | Extractable prices              |
+| ----------------------------------------------------------- | ------------------ | ------ | ------------------------------- |
+| `Rainpalm - Price List（for In house).pdf`                  | `08b4ceb9a71c7dc2` | 77,942 | 14                              |
+| `Rainpalm - Price List（for In house) update 04.2025.pdf`   | `4ddee05fe5063bd8` | 77,091 | 9                               |
+| `Rainpalm - Price List（for In house) update 4_12_2025.pdf` | `ac1c213b547d00d5` | 78,944 | **21, all different values**    |
+| `Rainpalm - Price List new.pdf` = `…new-1.pdf`              | `772c02f01d030a56` | 78,261 | 14 (identical set to the first) |
 
 Three findings follow.
 
@@ -575,67 +597,67 @@ tooling.
 
 `Y` present, `—` absent, `img` present but image-only, `!` present but disputed.
 
-| Project | Facts | Price list | Brochure | Plans | Media | Developer id | Location | Completion | Internal source date |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Modeva | Y | Y | Y | Y | Y | Y | Y | — | 2026-07-03 |
-| Coralina | Y | Y (stale by 14d) | Y | Y | Y | Y | Y | — | 2026-07-03 / 2026-07-17 available |
-| Rainpalm | Y | ! | Y | img | Y | raw only | Y | — | conflicting |
-| Garden of Eden | Y | — | Y | — | embedded | — | Y | Q4-2027 | 2026-01 |
-| The Title Sierra | partial | Y | — | img | — | — | — | — | 2026-05-15 |
-| Layan Green Park | Y | — | Y | — | embedded | — | Y | Q1-2026 | 2026-01 |
-| AYANA Heights | Y | — | Y | — | embedded | — | Y | Q2-2027 | 2026-01 |
-| Casa de Monte Villa | partial | Y | — | img | — | — | — | — | 2026-02-28 |
-| The Title Olive | Y | — | Y | — | embedded | — | Y | ambiguous | none stated |
-| Sudara Phuket | Y | — | Y | — | embedded | — | Y | Q4-2027 | none stated |
+| Project             | Facts   | Price list       | Brochure | Plans | Media    | Developer id | Location | Completion | Internal source date              |
+| ------------------- | ------- | ---------------- | -------- | ----- | -------- | ------------ | -------- | ---------- | --------------------------------- |
+| Modeva              | Y       | Y                | Y        | Y     | Y        | Y            | Y        | —          | 2026-07-03                        |
+| Coralina            | Y       | Y (stale by 14d) | Y        | Y     | Y        | Y            | Y        | —          | 2026-07-03 / 2026-07-17 available |
+| Rainpalm            | Y       | !                | Y        | img   | Y        | raw only     | Y        | —          | conflicting                       |
+| Garden of Eden      | Y       | —                | Y        | —     | embedded | —            | Y        | Q4-2027    | 2026-01                           |
+| The Title Sierra    | partial | Y                | —        | img   | —        | —            | —        | —          | 2026-05-15                        |
+| Layan Green Park    | Y       | —                | Y        | —     | embedded | —            | Y        | Q1-2026    | 2026-01                           |
+| AYANA Heights       | Y       | —                | Y        | —     | embedded | —            | Y        | Q2-2027    | 2026-01                           |
+| Casa de Monte Villa | partial | Y                | —        | img   | —        | —            | —        | —          | 2026-02-28                        |
+| The Title Olive     | Y       | —                | Y        | —     | embedded | —            | Y        | ambiguous  | none stated                       |
+| Sudara Phuket       | Y       | —                | Y        | —     | embedded | —            | Y        | Q4-2027    | none stated                       |
 
 ## 9. Materials the Owner must provide
 
 Blocking for the named record:
 
-| Project | Required |
-| --- | --- |
-| Rainpalm | Authoritative price list and the four clarifications in §7.4 |
+| Project  | Required                                                         |
+| -------- | ---------------------------------------------------------------- |
+| Rainpalm | Authoritative price list and the four clarifications in §7.4     |
 | Coralina | Nothing from the Owner — the blockers are database prerequisites |
 
 Non-blocking but needed before publication:
 
-| Need | Applies to |
-| --- | --- |
-| Developer legal identity | Garden of Eden, Layan Green Park, AYANA Heights, Sierra, Casa de Monte, Olive, Sudara |
-| Location statement in a text-extractable document | The Title Sierra, Casa de Monte Villa |
-| Price list | Garden of Eden, Layan Green Park, AYANA Heights, Olive, Sudara |
-| Brochure | The Title Sierra, Casa de Monte Villa |
-| Text-extractable or OCR'd master plan | Sierra, Casa de Monte |
-| Written permission to publish unit-level prices | Modeva, Coralina, Rainpalm, Sierra, Casa de Monte |
-| Current construction status | all ten |
-| Coordinates | all ten |
-| Early Bird promotion validity dates | Casa de Monte Villa |
-| Confirmation of intent | "La Green Hotel & Residence Layan" vs Layan Green Park |
-| Full source packages | Botanica Four Seasons Spring I, Origin Residence Bangtao, Above Patong, Vibe Residence Karon, MontAzure, The Title Legendary |
+| Need                                              | Applies to                                                                                                                   |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Developer legal identity                          | Garden of Eden, Layan Green Park, AYANA Heights, Sierra, Casa de Monte, Olive, Sudara                                        |
+| Location statement in a text-extractable document | The Title Sierra, Casa de Monte Villa                                                                                        |
+| Price list                                        | Garden of Eden, Layan Green Park, AYANA Heights, Olive, Sudara                                                               |
+| Brochure                                          | The Title Sierra, Casa de Monte Villa                                                                                        |
+| Text-extractable or OCR'd master plan             | Sierra, Casa de Monte                                                                                                        |
+| Written permission to publish unit-level prices   | Modeva, Coralina, Rainpalm, Sierra, Casa de Monte                                                                            |
+| Current construction status                       | all ten                                                                                                                      |
+| Coordinates                                       | all ten                                                                                                                      |
+| Early Bird promotion validity dates               | Casa de Monte Villa                                                                                                          |
+| Confirmation of intent                            | "La Green Hotel & Residence Layan" vs Layan Green Park                                                                       |
+| Full source packages                              | Botanica Four Seasons Spring I, Origin Residence Bangtao, Above Patong, Vibe Residence Karon, MontAzure, The Title Legendary |
 
 ## 10. Identity conflicts
 
-| Conflict | Detail | Resolution |
-| --- | --- | --- |
-| Gardens of Eden vs Garden of Eden (Park Residence) | Source says singular with a second registered name | Use the source form; keep both as search aliases |
-| La Green Hotel & Residence Layan vs Layan Green Park | No source for the former; the latter is a distinct project | Keep separate; ask the Owner which was meant |
-| `Title\Carolina\` folder | Misspelled duplicate of Coralina material | Do not create a record; duplicates of existing source |
-| Rainpalm price-list lineage | Four documents, cited file absent | See §7.4 |
-| Rainpalm D4 status | Payload `available`; `04.2025` document `Reserved` | Owner ruling required |
-| `Копия …-1.pdf` / `…(1)-1.pdf` naming | `-1` suffix on both cited provenance filenames | Likely a tooling artefact; verify before regenerating |
+| Conflict                                             | Detail                                                     | Resolution                                            |
+| ---------------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------- |
+| Gardens of Eden vs Garden of Eden (Park Residence)   | Source says singular with a second registered name         | Use the source form; keep both as search aliases      |
+| La Green Hotel & Residence Layan vs Layan Green Park | No source for the former; the latter is a distinct project | Keep separate; ask the Owner which was meant          |
+| `Title\Carolina\` folder                             | Misspelled duplicate of Coralina material                  | Do not create a record; duplicates of existing source |
+| Rainpalm price-list lineage                          | Four documents, cited file absent                          | See §7.4                                              |
+| Rainpalm D4 status                                   | Payload `available`; `04.2025` document `Reserved`         | Owner ruling required                                 |
+| `Копия …-1.pdf` / `…(1)-1.pdf` naming                | `-1` suffix on both cited provenance filenames             | Likely a tooling artefact; verify before regenerating |
 
 ## 11. Validation performed
 
-| Check | Result |
-| --- | --- |
-| `git fetch origin` and base SHA capture | `a9d275fc678065ef70b331aee20f24f1c4f030e6` |
-| PR #100 merged | Confirmed, merge commit `a9d275fc`, merged 2026-07-25T02:13:22Z |
-| PR #102 dependency | Open draft; not used, not merged, not referenced |
-| Worktree isolation | `C:\forever-worktrees\catalog-10` on `claude/forever-catalog-10-001`; `C:\forever` untouched |
-| Rainpalm `-ValidateOnly` | `DRAFT_PAYLOAD_VALID`, sha256 `c95fb847…`, matches the recorded pilot hash |
-| Rainpalm payload `publish` flag | `false` |
-| Deterministic fingerprint | `2ef6931168fc7b4c…` unchanged |
-| Owner source files | Read-only throughout; no create, delete, rename, move or edit |
-| Private data | No client, financial or personal file referenced by any package |
-| Invented values | None. Every field above is either quoted from source or marked absent |
-| Production | Not contacted. No connection string, credential or endpoint used |
+| Check                                   | Result                                                                                       |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `git fetch origin` and base SHA capture | `a9d275fc678065ef70b331aee20f24f1c4f030e6`                                                   |
+| PR #100 merged                          | Confirmed, merge commit `a9d275fc`, merged 2026-07-25T02:13:22Z                              |
+| PR #102 dependency                      | Open draft; not used, not merged, not referenced                                             |
+| Worktree isolation                      | `C:\forever-worktrees\catalog-10` on `claude/forever-catalog-10-001`; `C:\forever` untouched |
+| Rainpalm `-ValidateOnly`                | `DRAFT_PAYLOAD_VALID`, sha256 `c95fb847…`, matches the recorded pilot hash                   |
+| Rainpalm payload `publish` flag         | `false`                                                                                      |
+| Deterministic fingerprint               | `2ef6931168fc7b4c…` unchanged                                                                |
+| Owner source files                      | Read-only throughout; no create, delete, rename, move or edit                                |
+| Private data                            | No client, financial or personal file referenced by any package                              |
+| Invented values                         | None. Every field above is either quoted from source or marked absent                        |
+| Production                              | Not contacted. No connection string, credential or endpoint used                             |

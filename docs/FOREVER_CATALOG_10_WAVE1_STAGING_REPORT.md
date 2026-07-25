@@ -23,12 +23,12 @@ prepared work and the database, and it affects all four projects equally.
 
 ## 1. Exact base and branch
 
-| Item | Value |
-| --- | --- |
-| Branch | `claude/forever-catalog-10-001` |
-| Base SHA | `a9d275fc678065ef70b331aee20f24f1c4f030e6` (`origin/main`, merge commit of PR #100) |
-| Continued from | `72454e3` — planning-only commit, unpushed at task start |
-| Worktree | `C:\forever-worktrees\catalog-10`; `C:\forever` was read but never modified |
+| Item           | Value                                                                               |
+| -------------- | ----------------------------------------------------------------------------------- |
+| Branch         | `claude/forever-catalog-10-001`                                                     |
+| Base SHA       | `a9d275fc678065ef70b331aee20f24f1c4f030e6` (`origin/main`, merge commit of PR #100) |
+| Continued from | `72454e3` — planning-only commit, unpushed at task start                            |
+| Worktree       | `C:\forever-worktrees\catalog-10`; `C:\forever` was read but never modified         |
 
 ## 2. Staging target verification
 
@@ -36,10 +36,10 @@ The task requires the authorized staging project to be identified explicitly and
 never inferred from the locally linked project. Both were enumerated read-only
 through the authenticated Supabase CLI project inventory.
 
-| Role | Ref (sanitized) | Name | Region | Linked locally |
-| --- | --- | --- | --- | --- |
-| **Authorized staging** | `garji…zisu` | `forever-staging` | `ap-southeast-2` | **no** |
-| Production — forbidden | `abtvs…jeed` | `ForeverOs26's Project` | `ap-northeast-1` | **yes** |
+| Role                   | Ref (sanitized) | Name                    | Region           | Linked locally |
+| ---------------------- | --------------- | ----------------------- | ---------------- | -------------- |
+| **Authorized staging** | `garji…zisu`    | `forever-staging`       | `ap-southeast-2` | **no**         |
+| Production — forbidden | `abtvs…jeed`    | `ForeverOs26's Project` | `ap-northeast-1` | **yes**        |
 
 Three facts follow, and they matter:
 
@@ -61,13 +61,13 @@ Baseline counts, the Coralina state query, and every import in this task require
 authenticated access to the staging Postgres database. That access does not
 exist in this environment.
 
-| Channel | State |
-| --- | --- |
-| `scripts/import/Import-ForeverProjectDraft.ps1` | Requires `-HostName`, `-SslRootCert` and a password. Line 153 prompts interactively (`Read-Host -AsSecureString`). This session is non-interactive. |
-| `FOREVER_IMPORT_HOST/PORT/DATABASE/USER/SSLROOTCERT` | Absent from the process, User and Machine environments. |
-| `.env` | Only one exists, at `C:\forever\.env`. It holds a **production** URL and a publishable (anon) key. No staging URL, no staging key, no service-role key. |
-| `supabase migration list` / `db` commands | Both `--db-url` and `--password` are declared required. There is no access-token-only read path. |
-| `SUPABASE_ACCESS_TOKEN` | Not set. The CLI's token lives in the Windows Credential Manager and is reachable only by the CLI itself; extracting it to run ad-hoc SQL would mean handling a secret in plaintext and is not something this task will do. |
+| Channel                                              | State                                                                                                                                                                                                                       |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/import/Import-ForeverProjectDraft.ps1`      | Requires `-HostName`, `-SslRootCert` and a password. Line 153 prompts interactively (`Read-Host -AsSecureString`). This session is non-interactive.                                                                         |
+| `FOREVER_IMPORT_HOST/PORT/DATABASE/USER/SSLROOTCERT` | Absent from the process, User and Machine environments.                                                                                                                                                                     |
+| `.env`                                               | Only one exists, at `C:\forever\.env`. It holds a **production** URL and a publishable (anon) key. No staging URL, no staging key, no service-role key.                                                                     |
+| `supabase migration list` / `db` commands            | Both `--db-url` and `--password` are declared required. There is no access-token-only read path.                                                                                                                            |
+| `SUPABASE_ACCESS_TOKEN`                              | Not set. The CLI's token lives in the Windows Credential Manager and is reachable only by the CLI itself; extracting it to run ad-hoc SQL would mean handling a secret in plaintext and is not something this task will do. |
 
 Two further points on why the gap was not worked around:
 
@@ -95,19 +95,19 @@ not performed. Nothing is asserted that was not observed.
 The brief asks which of the contradictory documents is right. The contradiction
 was resolved from repository evidence; it could not be closed by query.
 
-| Document | Claim |
-| --- | --- |
-| `docs/CURRENT_STAGE.md` (canonical, 2026-07-23) | "Coralina imported as an unpublished draft: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch" |
-| `RC5_6_CONTROLLED_IMPORT_REPORT_FINAL.md` (2026-07-18 01:34) | Coralina absent; 0 of 405 expected writes; V15 rolled back |
+| Document                                                     | Claim                                                                                                                     |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `docs/CURRENT_STAGE.md` (canonical, 2026-07-23)              | "Coralina imported as an unpublished draft: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch" |
+| `RC5_6_CONTROLLED_IMPORT_REPORT_FINAL.md` (2026-07-18 01:34) | Coralina absent; 0 of 405 expected writes; V15 rolled back                                                                |
 
 Four later reports, all from 2026-07-18 and all newer than RC5.6, settle it:
 
-| Report | Time | Outcome |
-| --- | --- | --- |
-| `CORALINA_PROGRESSIVE_DRAFT_IMPORT_REPORT_FINAL.md` | 19:27 | not imported |
-| `CORALINA_TEMP_PAYLOAD_ROLE_BOUNDARY_REPAIR_REPORT_FINAL.md` | 19:55 | repair only |
-| `CORALINA_PROGRESSIVE_DRAFT_IMPORT_REPORT_FINAL_V2.md` | 20:16 | stopped fail-closed at TLS attestation; "The committed Coralina import was not attempted." |
-| `CORALINA_SIMPLE_DRAFT_IMPORT_REPORT_FINAL.md` | 20:31 | "IMPORT FAILED AND ROLLED BACK … no database connection was made"; counts all zero |
+| Report                                                       | Time  | Outcome                                                                                    |
+| ------------------------------------------------------------ | ----- | ------------------------------------------------------------------------------------------ |
+| `CORALINA_PROGRESSIVE_DRAFT_IMPORT_REPORT_FINAL.md`          | 19:27 | not imported                                                                               |
+| `CORALINA_TEMP_PAYLOAD_ROLE_BOUNDARY_REPAIR_REPORT_FINAL.md` | 19:55 | repair only                                                                                |
+| `CORALINA_PROGRESSIVE_DRAFT_IMPORT_REPORT_FINAL_V2.md`       | 20:16 | stopped fail-closed at TLS attestation; "The committed Coralina import was not attempted." |
+| `CORALINA_SIMPLE_DRAFT_IMPORT_REPORT_FINAL.md`               | 20:31 | "IMPORT FAILED AND ROLLED BACK … no database connection was made"; counts all zero         |
 
 **Resolution: `docs/CURRENT_STAGE.md` is wrong.** Every Coralina import attempt
 on record failed and rolled back. The canonical stage document describes the
@@ -136,30 +136,34 @@ variant was prepared. The existing canonical package is a clean `create`.
 Four complete, validated, staging-ready draft packages. All four are
 unpublished by construction, deterministic, and free of invented values.
 
-| Project | Slug | Buildings | Units | Prices | Media | Docs | Warnings |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| The Title Coralina Kamala | `coralina` | 8 | 198 | 198 | 0 | 0 | 6 |
-| Rainpalm Villas | `rainpalm-villas` | 0 | 21 | **0** | 0 | 0 | 10 |
-| Garden of Eden (Park Residence) | `garden-of-eden` | 0 | 0 | 0 | 0 | 0 | 13 |
-| The Title Sierra | `the-title-sierra` | 2 | 180 | 180 | 0 | 0 | 14 |
+| Project                         | Slug               | Buildings | Units | Prices | Media | Docs | Warnings |
+| ------------------------------- | ------------------ | --------: | ----: | -----: | ----: | ---: | -------: |
+| The Title Coralina Kamala       | `coralina`         |         8 |   198 |    198 |     0 |    0 |        6 |
+| Rainpalm Villas                 | `rainpalm-villas`  |         0 |    21 |  **0** |     0 |    0 |       10 |
+| Garden of Eden (Park Residence) | `garden-of-eden`   |         0 |     0 |      0 |     0 |    0 |       13 |
+| The Title Sierra                | `the-title-sierra` |         2 |   180 |    180 |     0 |    0 |       14 |
 
 Payload digests and idempotency keys:
 
-| Slug | `payload.json` SHA-256 | `batch_fingerprint` |
-| --- | --- | --- |
-| `coralina` | `2d5613a35705b251f20208aa4273038c2d8001bebe5d2c5bab5e55cb653e6605` | `9ceb05d2daa5c2a174d37d4d92fb49c4bc39294fa1b5ab402a10ab526230631c` |
-| `rainpalm-villas` | `793d6d705c42092813878bc6fd39a0ce6d9230389e2a9e1b45f81ed0e7c4bf12` | `5174d429c1893bd715df4756d59cff2c14dbfa5737ce5f923d9f3444a5e82a31` |
-| `garden-of-eden` | `49f4c999591f0d244a9c8817a76de33171b2ddda38dcbbf30e0e2a5e7493e18d` | `f85ca779274234a3a55356dacc876eb44ba69cc3b5dc69116d783f30b289d63b` |
-| `the-title-sierra` | `317755bc5656633bf7f4f00bbd4e6b0959a438de92672bd206fe740b0c990706` | `f38928f22470cc5e00ec736aa0c3396561979be4adf6487f150a0c40e0fd59e1` |
+| Slug               | `payload.json` SHA-256                                             | `batch_fingerprint`                                                |
+| ------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| `coralina`         | `2d5613a35705b251f20208aa4273038c2d8001bebe5d2c5bab5e55cb653e6605` | `9ceb05d2daa5c2a174d37d4d92fb49c4bc39294fa1b5ab402a10ab526230631c` |
+| `rainpalm-villas`  | `ef6058f45b614c9ba73c015160ff58cb8ecbcf8bd455508fa5e30dd92a234750` | `bfe02898ca6851c93fb2b55d3ae99e84ad1e7c4443251d0a98072bd8ea2290c4` |
+| `garden-of-eden`   | `afaaefea90e96b7faf1c89a3739c690918bfe5338d1fc14f235179caee111861` | `ee405fcc82f1d8bbcbf75f3e629b6d05a05ab68e4e0335c02081291bf0e214d3` |
+| `the-title-sierra` | `5be54c396bd46789b01b723a664fd236346597de9851b5cb80df82f20d0c63d6` | `43fcc38a971b384b483a3b1eae8d44cc8af9283695e9998e77b8a6a972ef6198` |
 
 All four pass the canonical offline validator:
 
 ```text
 DRAFT_PAYLOAD_VALID|slug=coralina|sha256=2d5613a3…|buildings=8|units=198|prices=198|media=0|documents=0|warnings=6
-DRAFT_PAYLOAD_VALID|slug=rainpalm-villas|sha256=793d6d70…|buildings=0|units=21|prices=0|media=0|documents=0|warnings=10
-DRAFT_PAYLOAD_VALID|slug=garden-of-eden|sha256=49f4c999…|buildings=0|units=0|prices=0|media=0|documents=0|warnings=13
-DRAFT_PAYLOAD_VALID|slug=the-title-sierra|sha256=317755bc…|buildings=2|units=180|prices=180|media=0|documents=0|warnings=14
+DRAFT_PAYLOAD_VALID|slug=rainpalm-villas|sha256=ef6058f4…|buildings=0|units=21|prices=0|media=0|documents=0|warnings=10
+DRAFT_PAYLOAD_VALID|slug=garden-of-eden|sha256=afaaefea…|buildings=0|units=0|prices=0|media=0|documents=0|warnings=13
+DRAFT_PAYLOAD_VALID|slug=the-title-sierra|sha256=5be54c39…|buildings=2|units=180|prices=180|media=0|documents=0|warnings=14
 ```
+
+> **Corrective pass (FOREVER-CATALOG-10-003).** The three authored payloads were
+> rebuilt after a source-integrity review. Four defects were fixed, and the
+> hashes above are the corrected ones. See §12.
 
 ### 5.1 Coralina — local canonical payload reused unchanged; staging presence query-unverified
 
@@ -187,9 +191,9 @@ exactly. Nothing was regenerated; re-deriving it would only risk drift.
 **The 2026-07-17 freshness question is answered, and the answer is mild.** The
 fresher list was inventoried, not merged:
 
-| Document | SHA-256 | Bytes |
-| --- | --- | --- |
-| `CLK - Price List V.2. - Updated 17.07.26.pdf` | `268c2fa30e39e89c7dd5e3d7751326e3cf958ec2783e5953eabccbece9b3f3c0` | 251,902 |
+| Document                                                  | SHA-256                                                            | Bytes     |
+| --------------------------------------------------------- | ------------------------------------------------------------------ | --------- |
+| `CLK - Price List V.2. - Updated 17.07.26.pdf`            | `268c2fa30e39e89c7dd5e3d7751326e3cf958ec2783e5953eabccbece9b3f3c0` | 251,902   |
 | `CLK - Master Plan Price list V.2 - updated 17.07.26.pdf` | `1f7d70c83a53b96981dabba3e03206996f8c1c6bfdfc37983a48c9e16eadd2fa` | 1,474,832 |
 
 Read-only comparison of the 17.07.26 list against the ingested 03.07.26 package:
@@ -210,40 +214,69 @@ not applied. The canonical package was not modified.
 Built exactly to §4. The verified structural layer is present; the price layer
 is absent by decision, not by omission.
 
-- Identity retained verbatim from the validated Fast Intake v1 package:
-  `Rainpalm Villas`, developer raw `Tonsai Company`, `Bang Tao, Phuket`,
-  `Pool Villa`, all attributed to `For PDF Presentation.pdf` with page refs.
-- All 21 units with identifier, type, bedrooms, bathrooms and size.
+Every value is read from an Owner source that the build resolves and verifies at
+runtime. The retired Fast Intake v1 package is **not** evidence for any business
+fact — it is used only as a deterministic cross-check.
+
+Sources resolved and digest-verified on every run, including `--check`:
+
+| Source                     | Role                             | SHA-256                                                            |      Bytes |
+| -------------------------- | -------------------------------- | ------------------------------------------------------------------ | ---------: |
+| `project-facts.json`       | project identity                 | `1e47032269fe2cd48ed93f436075915a05e1be7380d2afc58ce793e55d5c795b` |      1,315 |
+| `price-list.json`          | 21-unit inventory                | `6ce4a187711f1fdcc26eed84689a0ef0f7a461262a4630b895c251781d10a73f` |     43,890 |
+| `For PDF Presentation.pdf` | document the identity facts cite | `9887f0ffe03cf294eefd60b15a99578c11fb08981a86dc40b6909f663d30df38` | 10,664,808 |
+
+- **Identity is fully document-backed.** `project-facts.json` states the name,
+  developer raw name, location, area, type and short description, each citing
+  `For PDF Presentation.pdf` with a page reference — and that PDF resolves and
+  verifies. The chain is complete, so these fields keep `developer_provided`
+  provenance.
+- **Unit structure is not.** Every field of `price-list.json` — code, type,
+  bedrooms, bathrooms, size and availability — cites
+  `Копия Rainpalm - Price List（for In house)-1.pdf`, which this build **proves
+  absent** on every run. The 21 units are therefore carried at `extracted`
+  confidence 0.5 against `operator_intake`, with a per-field note naming the
+  dangling citation. They are explicitly _not_ labelled developer-provided.
+- All 21 units carry identifier, type, bedrooms, bathrooms and size, each with
+  its own `field_provenance` entry.
 - **0 prices.** The 14-price payload was not carried over.
-- The original package is retained unchanged as
+- The retired package is retained unchanged as
   `forever-data/projects/rainpalm-villas/progressive/payload.fast-intake-v1.json`
-  (SHA-256 `c95fb84744d9c067a003284be3fd8de5a2a84a2f9cf03a36b2c78b72d283a9b7`),
-  so the previous evidence is preserved and the rebuild has a stable input.
+  (SHA-256 `c95fb84744d9c067a003284be3fd8de5a2a84a2f9cf03a36b2c78b72d283a9b7`).
+  The build re-derives all 21 units from source and then asserts, field by
+  field, that the unit set and every type, bedroom, bathroom and size value
+  match it. A divergence aborts the build. That check passes, which is what
+  proves the rebuild changed provenance and not facts.
 
 `authoritative_price_list_unresolved` is recorded as required, carrying all four
-conflicting documents with their real digests and byte lengths:
+conflicting documents. Each is resolved and digest-verified during the build, so
+the digests below are observed, not remembered:
 
-| Document | SHA-256 | Bytes | Extractable prices |
-| --- | --- | --- | ---: |
-| `Rainpalm - Price List（for In house).pdf` | `08b4ceb9a71c7dc292cbfec6bf5d34c419687e6097c2d75e25b865ed0a459faf` | 77,942 | 14 |
-| `Rainpalm - Price List（for In house) update 04.2025.pdf` | `4ddee05fe5063bd8548ca8d2833c20bb4ca9b6b81a23aee8f21b065e1b5260b6` | 77,091 | 9 |
-| `Rainpalm - Price List（for In house) update 4_12_2025.pdf` | `ac1c213b547d00d5c620cf152a0855c350cb4e193d302ac370ede971f8ae9535` | 78,944 | 21 |
-| `Rainpalm - Price List new.pdf` | `772c02f01d030a56dd03512298bb881ccf3d0b7764bd665877a4f6a9ddaf4441` | 78,261 | 14 |
+| Document                                                    | SHA-256                                                            | Bytes  | Extractable prices |
+| ----------------------------------------------------------- | ------------------------------------------------------------------ | ------ | -----------------: |
+| `Rainpalm - Price List（for In house).pdf`                  | `08b4ceb9a71c7dc292cbfec6bf5d34c419687e6097c2d75e25b865ed0a459faf` | 77,942 |                 14 |
+| `Rainpalm - Price List（for In house) update 04.2025.pdf`   | `4ddee05fe5063bd8548ca8d2833c20bb4ca9b6b81a23aee8f21b065e1b5260b6` | 77,091 |                  9 |
+| `Rainpalm - Price List（for In house) update 4_12_2025.pdf` | `ac1c213b547d00d5c620cf152a0855c350cb4e193d302ac370ede971f8ae9535` | 78,944 |                 21 |
+| `Rainpalm - Price List new.pdf`                             | `772c02f01d030a56dd03512298bb881ccf3d0b7764bd665877a4f6a9ddaf4441` | 78,261 |                 14 |
 
 None of them states an issue date inside the document. Nothing was averaged,
 merged, or selected by filename.
 
 Two further warnings were added rather than glossed over:
 
-- `cited_source_file_absent` — every unit and price row in the previous package
-  cited `Копия Rainpalm - Price List（for In house)-1.pdf`. A fresh search across
-  every inspected source root confirms no such file exists.
+- `cited_source_file_absent` — the verified `price-list.json` cites
+  `Копия Rainpalm - Price List（for In house)-1.pdf` for every unit field, and
+  the retired package cited it for every price. The build walks all configured
+  source roots on each run and aborts with `cited_source_reappeared` if the file
+  turns up, so this warning can never go quietly stale. A second citation,
+  `Rainpalm Legal and Ownership.pdf (1)-1.pdf`, is absent for the same reason —
+  the real file has no `-1` — and is proven absent alongside it.
 - `availability_unverified` plus a unit-level `availability_conflict` for D4.
   Availability was deliberately **not** imported: every availability value in
-  the source package derives from the disputed price documents, and D4 is
-  Available in the package but Reserved in the one document with a qualified
-  extraction chain. All 21 units will carry the schema default, and that default
-  must not be read as a verified availability state.
+  `price-list.json` cites the absent document, and D4 reads `Available` there
+  but `Reserved` in the one price document with a qualified extraction chain.
+  All 21 units will carry the schema default, and that default must not be read
+  as a verified availability state.
 
 The seven `price_missing` warnings from the original package were dropped. They
 each said a named unit had no price "so the price row was omitted", which in a
@@ -260,21 +293,30 @@ the 598 MB video exceeds the 300 MiB intake limit.
 The source is two January 2026 decks. Everything the deck states is recorded;
 everything it does not state is absent and warning-marked.
 
-| Item | Source-stated value |
-| --- | --- |
+| Item          | Source-stated value                                                |
+| ------------- | ------------------------------------------------------------------ |
 | Official name | `GARDEN OF EDEN (PARK RESIDENCE)` — singular, as the source has it |
-| Property type | `PREMIUM APART-HOTEL` |
-| Location | `Layan`; 300 m to beach |
-| Completion | `Q4-2027` |
-| Buildings | 6 |
-| Total area | over 122,000 sqm |
-| Source date | `January 2026`, stated on the title page |
+| Property type | `PREMIUM APART-HOTEL`                                              |
+| Location      | `Layan`; 300 m to beach                                            |
+| Completion    | `Q4-2027`                                                          |
+| Buildings     | 6                                                                  |
+| Total area    | over 122,000 sqm                                                   |
+| Source date   | `January 2026`, stated on the title page                           |
 
 Notable decisions:
 
 - **Developer is not merely unresolved — it is unstated.** Both decks are agency
-  investment presentations produced by Sunthai Property, not developer material.
+  investment presentations produced by SunThai Property, not developer material.
   No raw developer name was preserved, because there is none to preserve.
+- **Provenance reflects the secondary source.** Because the documents are agency
+  presentations, no Garden of Eden field may claim developer or official
+  standing. Every field carries `status: "extracted"`,
+  `source_type: "agency_investment_presentation"`, `confidence: 0.5` and
+  `source_date: "2026-01"`, with a note stating that no developer or official
+  confirmation is implied. A build-time assertion fails the whole run if any
+  field is ever labelled `developer_provided`, `official_source`,
+  `official_project_material`, `official_project_price_list`, or given
+  confidence 1.
 - `completion_date` stays NULL. `Q4-2027` is a quarter, not a date; resolving it
   to a day would be invention. The stated quarter is kept in
   `completion_quarter_only`.
@@ -306,27 +348,27 @@ refuses to emit anything if a single row fails its strict pattern.
 
 Integrity gates, all passed on all 180 rows:
 
-| Gate | Result |
-| --- | --- |
-| Rows parsed / unresolved | 180 / **0** |
-| Unique room numbers | 180 of 180 |
-| Tower letter agrees with room-number prefix | 180 of 180 |
-| Floor agrees with room-number encoding | 180 of 180 |
-| Price/sqm × area agrees with selling price (±0.5%) | 180 of 180 |
-| Non-integer selling prices | 0 |
+| Gate                                               | Result      |
+| -------------------------------------------------- | ----------- |
+| Rows parsed / unresolved                           | 180 / **0** |
+| Unique room numbers                                | 180 of 180  |
+| Tower letter agrees with room-number prefix        | 180 of 180  |
+| Floor agrees with room-number encoding             | 180 of 180  |
+| Price/sqm × area agrees with selling price (±0.5%) | 180 of 180  |
+| Non-integer selling prices                         | 0           |
 
 Verified content:
 
-| Item | Value |
-| --- | --- |
-| Official name | `THE TITLE SIERRA` (internal code `SIB`) |
-| Buildings | Towers `A` and `C`, taken from the Tower column |
-| Units | 180 — 128 in Tower A, 52 in Tower C; floors 3–8 |
-| Bedrooms | 157 one-bedroom, 23 two-bedroom, read from the stated Room Type |
-| Areas | 28.40 – 58.10 sqm |
-| Prices | 180, THB 3,145,400 – 7,713,800 |
-| Price-list date | `2026-05-15`, from the in-document header `Updated : 15.05.26` |
-| Availability | all 180 stated `Available`; no conflicts |
+| Item            | Value                                                           |
+| --------------- | --------------------------------------------------------------- |
+| Official name   | `THE TITLE SIERRA` (internal code `SIB`)                        |
+| Buildings       | Towers `A` and `C`, taken from the Tower column                 |
+| Units           | 180 — 128 in Tower A, 52 in Tower C; floors 3–8                 |
+| Bedrooms        | 157 one-bedroom, 23 two-bedroom, read from the stated Room Type |
+| Areas           | 28.40 – 58.10 sqm                                               |
+| Prices          | 180, THB 3,145,400 – 7,713,800                                  |
+| Price-list date | `2026-05-15`, from the in-document header `Updated : 15.05.26`  |
+| Availability    | all 180 stated `Available`; no conflicts                        |
 
 Decisions worth stating:
 
@@ -348,8 +390,15 @@ Decisions worth stating:
   `1 BEDROOM MC2(M)`. Both columns are stored verbatim — Room Type as
   `unit_type`, Type (No.) in unit metadata — and neither was normalised.
 - Bathrooms are absent from the source and stay NULL for all 180 units.
-- Building rows carry no floor or unit counts. A price list enumerates offered
-  units, not a building's inventory, so deriving counts from it would overstate.
+- **Building rows carry a code and nothing else.** The Tower column supplies the
+  letters `A` and `C`. It supplies no building _name_, so none is emitted — a
+  label such as "Tower A" would be this pipeline's invention presented as a
+  source fact, and marking a derived display string as developer-provided would
+  be worse still. Floor and unit counts are likewise absent: a price list
+  enumerates offered units, not a building's inventory, so deriving counts from
+  it would overstate. A build-time assertion fails the run if any building ever
+  regains a `name`. The RPC supplies its own fallback label at insert time,
+  which is a database default rather than a fact asserted here.
 
 **Internal Use Only handling.** Every page is stamped `(Internal Use Only)`.
 `internal_use_only_source` records that the data may be held in this internal
@@ -359,11 +408,11 @@ why the draft state enforces this structurally.
 
 ## 6. Warnings summary
 
-| Project | Warnings |
-| --- | --- |
-| `coralina` | `developer_unresolved`, `location_unresolved`, `coordinates_missing`, `construction_status_missing`, `media_processing_deferred`, `document_processing_deferred` |
-| `rainpalm-villas` | `country_missing`, `coordinates_missing`, `construction_status_missing`, `developer_unresolved`, `location_unresolved`, **`authoritative_price_list_unresolved`**, `cited_source_file_absent`, `availability_unverified`, `availability_conflict`, `media_not_ingested` |
-| `garden-of-eden` | `developer_unresolved`, `location_unresolved`, `country_missing`, `coordinates_missing`, `construction_status_missing`, `completion_quarter_only`, `building_inventory_missing`, `unit_types_missing`, `price_list_missing`, `investment_projections_not_prices`, `stated_facts_not_modelled`, `media_not_ingested`, `source_date_recorded` |
+| Project            | Warnings                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `coralina`         | `developer_unresolved`, `location_unresolved`, `coordinates_missing`, `construction_status_missing`, `media_processing_deferred`, `document_processing_deferred`                                                                                                                                                                                                  |
+| `rainpalm-villas`  | `country_missing`, `coordinates_missing`, `construction_status_missing`, `developer_unresolved`, `location_unresolved`, **`authoritative_price_list_unresolved`**, `cited_source_file_absent`, `availability_unverified`, `availability_conflict`, `media_not_ingested`                                                                                           |
+| `garden-of-eden`   | `developer_unresolved`, `location_unresolved`, `country_missing`, `coordinates_missing`, `construction_status_missing`, `completion_quarter_only`, `building_inventory_missing`, `unit_types_missing`, `price_list_missing`, `investment_projections_not_prices`, `stated_facts_not_modelled`, `media_not_ingested`, `source_date_recorded`                       |
 | `the-title-sierra` | `developer_unresolved`, `location_missing`, `country_missing`, `project_type_missing`, `coordinates_missing`, `construction_status_missing`, `bathrooms_missing`, `building_inventory_partial`, `unit_type_code_inconsistent`, `price_currency_document_level_only`, `internal_use_only_source`, `brochure_missing`, `media_not_ingested`, `source_date_recorded` |
 
 ## 7. Determinism and idempotent replay
@@ -382,9 +431,30 @@ All four payloads self-verify: recomputing the fingerprint from the committed
 content reproduces the declared `batch_fingerprint` in every case, which is the
 check `src/intake/validate-draft.ts` performs and the PowerShell path does not.
 
-Source identity is pinned. Each source document is resolved by filename against
-`FOREVER_WAVE1_SOURCE_ROOTS` and then verified by SHA-256; a substituted or
-edited source fails closed instead of silently producing a different draft.
+**Source identity is pinned, and the promise is now tested.** Every document
+whose digest appears in a payload or in this report is resolved by filename
+across `FOREVER_WAVE1_SOURCE_ROOTS` and verified by **both** SHA-256 and byte
+length — on a normal build and on `--check` alike. Eleven documents are pinned:
+two Sierra, two Garden of Eden, and seven Rainpalm (identity facts, unit
+inventory, the cited presentation, and the four conflicting price lists).
+
+`scripts/catalog/test-wave1-source-integrity.mjs` proves the fail-closed
+behaviour against a disposable mirror of the Owner sources, writing no payload
+and touching no database:
+
+| Test                                         | Expected                  | Result |
+| -------------------------------------------- | ------------------------- | ------ |
+| Control — intact mirror                      | clean rebuild             | PASS   |
+| A pinned document is removed                 | `source_missing`          | PASS   |
+| A pinned document is edited                  | `source_digest_mismatch`  | PASS   |
+| A different document takes a pinned filename | `source_digest_mismatch`  | PASS   |
+| The absent cited document reappears          | `cited_source_reappeared` | PASS   |
+| Final control — mirror restored              | clean rebuild             | PASS   |
+
+The last case matters most: if
+`Копия Rainpalm - Price List（for In house)-1.pdf` ever appears, the build stops
+for review rather than shipping a payload whose absence warning has quietly
+become false.
 
 **Idempotent replay — proven from the contract, not from a run.** A second
 identical import creates zero duplicate business rows, guaranteed at three
@@ -409,13 +479,13 @@ half of §9.
 Verified statically from the migration chain, which is checkable without a
 database connection:
 
-| Guarantee | Mechanism |
-| --- | --- |
-| Drafts are never public | `public.projects` public SELECT policy is `is_active = true AND public_status = 'published'`. The RPC's create path hard-codes `'draft'` and cannot publish. |
+| Guarantee                                      | Mechanism                                                                                                                                                              |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Drafts are never public                        | `public.projects` public SELECT policy is `is_active = true AND public_status = 'published'`. The RPC's create path hard-codes `'draft'` and cannot publish.           |
 | Draft units, prices and media are never public | Every project-scoped child table — `units`, `buildings`, `unit_price_history`, `project_media`, `documents`, `images`, `videos` — requires a published, active parent. |
-| Warnings and batches are never public | `ingestion_warnings` and `ingestion_batches` have RLS enabled and **no public policy at all**. |
-| Never born verified | The RPC hard-codes `forever_verified = false` on create. |
-| No automatic media publication | All four payloads carry `media: 0` and `documents: 0`. No asset was uploaded and no Storage object was created or made public. |
+| Warnings and batches are never public          | `ingestion_warnings` and `ingestion_batches` have RLS enabled and **no public policy at all**.                                                                         |
+| Never born verified                            | The RPC hard-codes `forever_verified = false` on create.                                                                                                               |
+| No automatic media publication                 | All four payloads carry `media: 0` and `documents: 0`. No asset was uploaded and no Storage object was created or made public.                                         |
 
 So Sierra's Internal Use Only unit prices are structurally unreachable
 anonymously for as long as the project stays `draft`. **Public catalogue absence
@@ -481,18 +551,18 @@ that was 2026-07-22 and is not re-verified here.
 
 ## 10. Production untouched
 
-| Check | Result |
-| --- | --- |
-| Production database connection | **None.** No psql, no client, no query. |
-| Production credential used | **None.** The production anon key in `C:\forever\.env` was never read into any command. |
-| Production migration applied | None. |
-| Production write | None. |
-| Locally linked project | Remains production, unlinked and unused; `supabase/config.toml` unmodified. |
-| Supabase CLI use | One read-only `projects list` for identity comparison. |
-| Publication | None. No public catalogue output changed. |
-| Owner source files | Read-only throughout. No create, delete, rename, move or edit. |
-| Private zones | Not entered. No client, contract, financial or personal file referenced. |
-| Committed secrets | None. No credential, no connection string, no Owner absolute path, no Internal Use Only document. |
+| Check                          | Result                                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Production database connection | **None.** No psql, no client, no query.                                                           |
+| Production credential used     | **None.** The production anon key in `C:\forever\.env` was never read into any command.           |
+| Production migration applied   | None.                                                                                             |
+| Production write               | None.                                                                                             |
+| Locally linked project         | Remains production, unlinked and unused; `supabase/config.toml` unmodified.                       |
+| Supabase CLI use               | One read-only `projects list` for identity comparison.                                            |
+| Publication                    | None. No public catalogue output changed.                                                         |
+| Owner source files             | Read-only throughout. No create, delete, rename, move or edit.                                    |
+| Private zones                  | Not entered. No client, contract, financial or personal file referenced.                          |
+| Committed secrets              | None. No credential, no connection string, no Owner absolute path, no Internal Use Only document. |
 
 ## 11. What the Owner must supply
 
@@ -519,3 +589,113 @@ Non-blocking, needed before any publication:
 7. Developer legal identity for Garden of Eden and The Title Sierra.
 8. A location statement for The Title Sierra in a text-extractable document.
 9. A decision on the Coralina `CKF406` / `CKD508` inventory difference.
+
+## 12. Source-integrity corrective pass (FOREVER-CATALOG-10-003)
+
+A review of PR #104 at head `3a430eb` found four defects. All are fixed; the
+three authored payloads were rebuilt and their hashes in §5 updated. Coralina is
+untouched — it was not rebuilt in either pass.
+
+### 12.1 Gitignore exposure closed
+
+The first pass un-ignored the whole `rainpalm-villas/intake/` and
+`rainpalm-villas/sip/` directories to keep already-tracked evidence visible.
+That also made any _newly added_ file under those paths trackable, including
+source documents and media.
+
+Both broad rules are removed. Exactly four payload files are allowed through;
+every surrounding directory is re-ignored. Files tracked from an earlier commit
+stay tracked — `.gitignore` does not untrack — but nothing new can join them
+without a deliberate rule.
+
+Proven with sentinel paths that do not exist in the tree:
+
+| Sentinel                                                        | Ignored by                                 |
+| --------------------------------------------------------------- | ------------------------------------------ |
+| `rainpalm-villas/intake/SENTINEL-new-evidence.json`             | `forever-data/projects/rainpalm-villas/*`  |
+| `rainpalm-villas/sip/SENTINEL-qualification.json`               | `forever-data/projects/rainpalm-villas/*`  |
+| `rainpalm-villas/source/price-list/SENTINEL-Rainpalm-price.pdf` | `forever-data/projects/rainpalm-villas/*`  |
+| `rainpalm-villas/source/SENTINEL-master-plan.jpg`               | `forever-data/projects/rainpalm-villas/*`  |
+| `rainpalm-villas/progressive/SENTINEL-scratch.json`             | `.../progressive/*`                        |
+| `garden-of-eden/source/SENTINEL-deck.pdf`                       | `forever-data/projects/garden-of-eden/*`   |
+| `the-title-sierra/source/SENTINEL-pricelist.pdf`                | `forever-data/projects/the-title-sierra/*` |
+
+All four intended payloads remain un-ignored. The sentinels were deleted after
+the check and never committed.
+
+### 12.2 Garden of Eden provenance corrected
+
+The first pass labelled Garden of Eden fields `developer_provided` /
+`official_project_material` / confidence `1`. The documents are SunThai Property
+**agency investment presentations**, so that overstated their standing.
+
+|               | Before                      | After                                                        |
+| ------------- | --------------------------- | ------------------------------------------------------------ |
+| `status`      | `developer_provided`        | `extracted`                                                  |
+| `source_type` | `official_project_material` | `agency_investment_presentation`                             |
+| `confidence`  | `1`                         | `0.5`                                                        |
+| `source_date` | —                           | `2026-01`                                                    |
+| `note`        | —                           | states that no developer or official confirmation is implied |
+
+`extracted` and the 0..1 confidence scale come from the existing vocabulary in
+`src/features/forever-ingestion/provenance.ts`; no new status was invented. The
+project name is unchanged and still exactly what the deck states. All warnings
+that developer, country, canonical location, units and prices remain unresolved
+are retained. A build-time assertion now fails the entire run if any Garden
+field is labelled `developer_provided`, `official_source`,
+`official_project_material`, `official_project_price_list`, or given confidence 1.
+
+### 12.3 Rainpalm structure made genuinely source-backed
+
+The first pass verified only the retained Fast Intake JSON and copied its unit
+structure, while reporting four price-document digests it never resolved. The
+documented promise did not match the behaviour.
+
+Now the build resolves and verifies seven Rainpalm documents on every run,
+`--check` included: `project-facts.json`, `price-list.json`,
+`For PDF Presentation.pdf` and the four conflicting price lists. Identity comes
+from `project-facts.json`; the 21 units come from `price-list.json`. The retired
+package is demoted to a cross-check — the build re-derives every unit from
+source and aborts if the unit set or any type, bedroom, bathroom or size value
+diverges from it.
+
+The honest finding this surfaced: **the unit structure was never
+document-backed.** Every field of `price-list.json` cites the absent
+`Копия Rainpalm - Price List（for In house)-1.pdf`, so the structural layer has
+the same broken citation as the price layer. Those fields are now `extracted` /
+`operator_intake` / 0.5 with a per-field note, not developer-provided. Identity
+is unaffected: its citations resolve to the verified presentation PDF.
+
+Absence is proven rather than remembered — both dangling citations are searched
+for on every run, and the build refuses to continue if either appears. Prices
+stay at 0, availability is still not imported,
+`authoritative_price_list_unresolved` and the D4 conflict are retained, and the
+draft stays unpublished.
+
+### 12.4 Sierra derived building names removed
+
+The Tower column supplies the codes `A` and `C`. It does not supply names, so
+the generated `Tower A` / `Tower C` labels — and their `developer_provided`
+provenance — are gone. Buildings now carry `building_code` and its provenance
+only. A build-time assertion fails the run if a `name` ever returns.
+
+### 12.5 Validation
+
+| Check                                                    | Result                                                                                                                                                      |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Builder, normal run                                      | pass — three payloads written                                                                                                                               |
+| Builder, `--check`                                       | pass — all `UNCHANGED`, exit 0                                                                                                                              |
+| Two consecutive rebuilds byte-identical                  | yes                                                                                                                                                         |
+| Canonical offline validator, all four payloads           | `DRAFT_PAYLOAD_VALID` ×4                                                                                                                                    |
+| Fingerprint self-verification, all four                  | 4/4 recompute correctly                                                                                                                                     |
+| Source-integrity negative tests                          | 6/6 pass                                                                                                                                                    |
+| Provenance audits (Garden, Sierra, Rainpalm, draft-only) | pass                                                                                                                                                        |
+| `git check-ignore -v` sentinels                          | 7/7 ignored; 4/4 payloads allowed                                                                                                                           |
+| Absolute Owner-path scan of staged content               | clean                                                                                                                                                       |
+| Credential/secret scan of staged content                 | clean                                                                                                                                                       |
+| `git diff --check`                                       | clean                                                                                                                                                       |
+| Prettier, builder and edited docs                        | formatted                                                                                                                                                   |
+| ESLint                                                   | **not run** — `node_modules` is not installed in this worktree and `eslint.config.js` cannot resolve `@eslint/js`. Pre-existing, unrelated to this change.  |
+| GitHub CI checks on PR #104                              | **none configured.** The repository runs no CI workflow against this PR, so there is no passing status to report. An empty check list is not a green build. |
+
+No database was contacted in either pass.

@@ -19,16 +19,9 @@
   "buildings": [
     {
       "building_code": "A",
-      "name": "Tower A",
       "metadata": {
         "field_provenance": {
           "building_code": {
-            "status": "developer_provided",
-            "source_type": "official_project_material",
-            "source_ref": "SIB - Price List V.1. - Updated 15.05.2026.pdf#column=Tower",
-            "confidence": 1
-          },
-          "name": {
             "status": "developer_provided",
             "source_type": "official_project_material",
             "source_ref": "SIB - Price List V.1. - Updated 15.05.2026.pdf#column=Tower",
@@ -39,16 +32,9 @@
     },
     {
       "building_code": "C",
-      "name": "Tower C",
       "metadata": {
         "field_provenance": {
           "building_code": {
-            "status": "developer_provided",
-            "source_type": "official_project_material",
-            "source_ref": "SIB - Price List V.1. - Updated 15.05.2026.pdf#column=Tower",
-            "confidence": 1
-          },
-          "name": {
             "status": "developer_provided",
             "source_type": "official_project_material",
             "source_ref": "SIB - Price List V.1. - Updated 15.05.2026.pdf#column=Tower",
@@ -15423,7 +15409,7 @@
       "entity": "building",
       "code": "building_inventory_partial",
       "severity": "info",
-      "message": "Building rows were derived from the Tower column of the price list, so they cover only towers with listed units. Floor counts and unit counts are not stated and were not derived from the listing, because a price list enumerates offered units rather than a building's full inventory.",
+      "message": "Building rows were derived from the Tower column of the price list, so they cover only towers with listed units. The source supplies the tower codes and nothing else: no building name, floor count or unit count is stated, and none was derived — a price list enumerates offered units rather than a building's full inventory, and a label such as \"Tower A\" would be this pipeline's invention rather than a source fact.",
       "payload": {
         "towers": [
           "A",
@@ -15520,5 +15506,5 @@
       }
     }
   ],
-  "batch_fingerprint": "f38928f22470cc5e00ec736aa0c3396561979be4adf6487f150a0c40e0fd59e1"
+  "batch_fingerprint": "43fcc38a971b384b483a3b1eae8d44cc8af9283695e9998e77b8a6a972ef6198"
 }

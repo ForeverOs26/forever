@@ -85,13 +85,15 @@ forever-data/projects/coralina/source/*
 forever-data/projects/coralina/source/*/*
 !forever-data/projects/coralina/source/*/.gitkeep
 
-# FOREVER-CATALOG-10-002 Wave 1 draft packages. Only the progressive payloads
-# and the existing Rainpalm intake/SIP evidence are committed; no source
-# document, media asset, or Owner path enters the repository.
+# FOREVER-CATALOG-10-002 Wave 1 draft packages. EXACTLY four payload files are
+# allowed through; every directory around them stays ignored. In particular
+# `intake/`, `sip/` and any `source/` directory are re-ignored below, so a newly
+# added local evidence file, PDF, image or media asset under those paths can
+# never become trackable by accident. Files already tracked from an earlier
+# commit stay tracked — .gitignore does not untrack — but nothing new joins them
+# without a deliberate, separately reviewed rule.
 !forever-data/projects/rainpalm-villas/
 forever-data/projects/rainpalm-villas/*
-!forever-data/projects/rainpalm-villas/intake/
-!forever-data/projects/rainpalm-villas/sip/
 !forever-data/projects/rainpalm-villas/progressive/
 forever-data/projects/rainpalm-villas/progressive/*
 !forever-data/projects/rainpalm-villas/progressive/payload.json

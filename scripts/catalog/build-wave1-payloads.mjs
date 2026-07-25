@@ -31,9 +31,18 @@
 
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+  mkdirSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -84,45 +93,88 @@ const SOURCES = {
     sha256: "ac5cfa99a55867d8c78c8397230356732da1b140f25b69945480ccbb40221ca6",
     bytes: 6885501,
   },
-};
 
-/** The four conflicting Rainpalm price documents, preserved as evidence only. */
-const RAINPALM_PRICE_DOCUMENTS = [
-  {
-    file: "Rainpalm - Price List（for In house).pdf",
+  // Rainpalm. These are the documents the build actually reads and the ones
+  // whose digests appear in the payload; every one is resolved and verified on
+  // both a normal build and a `--check` run.
+  rainpalmFacts: {
+    citation: "project-facts.json",
+    sha256: "1e47032269fe2cd48ed93f436075915a05e1be7380d2afc58ce793e55d5c795b",
+    bytes: 1315,
+  },
+  rainpalmInventory: {
+    citation: "price-list.json",
+    sha256: "6ce4a187711f1fdcc26eed84689a0ef0f7a461262a4630b895c251781d10a73f",
+    bytes: 43890,
+  },
+  rainpalmPresentation: {
+    citation: "For PDF Presentation.pdf",
+    sha256: "9887f0ffe03cf294eefd60b15a99578c11fb08981a86dc40b6909f663d30df38",
+    bytes: 10664808,
+  },
+  rainpalmPriceOriginal: {
+    citation: "Rainpalm - Price List（for In house).pdf",
     sha256: "08b4ceb9a71c7dc292cbfec6bf5d34c419687e6097c2d75e25b865ed0a459faf",
     bytes: 77942,
+  },
+  rainpalmPrice042025: {
+    citation: "Rainpalm - Price List（for In house) update 04.2025.pdf",
+    sha256: "4ddee05fe5063bd8548ca8d2833c20bb4ca9b6b81a23aee8f21b065e1b5260b6",
+    bytes: 77091,
+  },
+  rainpalmPrice4122025: {
+    citation: "Rainpalm - Price List（for In house) update 4_12_2025.pdf",
+    sha256: "ac1c213b547d00d5c620cf152a0855c350cb4e193d302ac370ede971f8ae9535",
+    bytes: 78944,
+  },
+  rainpalmPriceNew: {
+    citation: "Rainpalm - Price List new.pdf",
+    sha256: "772c02f01d030a56dd03512298bb881ccf3d0b7764bd665877a4f6a9ddaf4441",
+    bytes: 78261,
+  },
+};
+
+/**
+ * The four conflicting Rainpalm price documents. Only the annotations live
+ * here; the identity fields (filename, digest, size) come from the verified
+ * SOURCES entries at build time, so nothing is reported that was not resolved.
+ */
+const RAINPALM_PRICE_DOCUMENT_NOTES = [
+  {
+    key: "rainpalmPriceOriginal",
     extractable_prices: 14,
     stated_source_date: null,
     note: "No issue date inside the document; the filename carries none either.",
   },
   {
-    file: "Rainpalm - Price List（for In house) update 04.2025.pdf",
-    sha256: "4ddee05fe5063bd8548ca8d2833c20bb4ca9b6b81a23aee8f21b065e1b5260b6",
-    bytes: 77091,
+    key: "rainpalmPrice042025",
     extractable_prices: 9,
     stated_source_date: null,
-    note: "The only variant with a qualified SIP extraction chain. Supports 9 of the 14 asserted prices; renders D4 as Reserved.",
+    note: "The only variant with a qualified SIP extraction chain. Supports 9 of the 14 previously asserted prices; renders D4 as Reserved.",
   },
   {
-    file: "Rainpalm - Price List（for In house) update 4_12_2025.pdf",
-    sha256: "ac1c213b547d00d5c620cf152a0855c350cb4e193d302ac370ede971f8ae9535",
-    bytes: 78944,
+    key: "rainpalmPrice4122025",
     extractable_prices: 21,
     stated_source_date: null,
-    note: "Prices all 21 villas with an entirely different schedule (~8-10% below the asserted set). Whether 4_12_2025 means 4 December 2025 or 12 April 2025 is not determinable from the filename.",
+    note: "Prices all 21 villas with an entirely different schedule (~8-10% below the previously asserted set). Whether 4_12_2025 means 4 December 2025 or 12 April 2025 is not determinable from the filename.",
   },
   {
-    file: "Rainpalm - Price List new.pdf",
-    sha256: "772c02f01d030a56dd03512298bb881ccf3d0b7764bd665877a4f6a9ddaf4441",
-    bytes: 78261,
+    key: "rainpalmPriceNew",
     extractable_prices: 14,
     stated_source_date: null,
     note: "Identical 14 values to the undated original. Not confirmed by the Owner to be the same document under a different name.",
   },
 ];
 
+/**
+ * Cited by every field of the Rainpalm intake inventory, and by every price row
+ * of the retired package, but not present on disk. The build proves this on
+ * every run rather than asserting it from a past observation.
+ */
 const RAINPALM_CITED_BUT_ABSENT = "Копия Rainpalm - Price List（for In house)-1.pdf";
+
+/** Cited for currency by the intake inventory; also absent (the real file has no `-1`). */
+const RAINPALM_CURRENCY_CITED_BUT_ABSENT = "Rainpalm Legal and Ownership.pdf (1)-1.pdf";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -150,26 +202,78 @@ function sourceRoots() {
   return roots;
 }
 
+/** Bounded recursive walk of a configured root. Depth-limited and sorted, so
+ * resolution order is deterministic regardless of filesystem enumeration. */
+const MAX_SEARCH_DEPTH = 4;
+
+function walk(root, depth = 0) {
+  if (depth > MAX_SEARCH_DEPTH) return [];
+  let entries;
+  try {
+    entries = readdirSync(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const found = [];
+  for (const entry of [...entries].sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    const full = join(root, entry.name);
+    if (entry.isDirectory()) found.push(...walk(full, depth + 1));
+    else if (entry.isFile()) found.push(full);
+  }
+  return found;
+}
+
+function allSourceFiles() {
+  return sourceRoots().flatMap((root) => walk(root));
+}
+
 /**
- * Resolve a pinned source by filename, then prove identity by digest. The
- * resolved absolute path is used but never recorded in any payload.
+ * Resolve a pinned source by filename across every configured root, then prove
+ * identity by digest AND byte size. A same-name file with different content is
+ * a hard failure, never a silent substitution. The resolved absolute path is
+ * used but never recorded in any payload.
  */
 function requireSource(key) {
   const source = SOURCES[key];
-  for (const root of sourceRoots()) {
-    const candidate = join(root, source.citation);
-    if (!existsSync(candidate)) continue;
-    const actual = sha256File(candidate);
-    if (actual !== source.sha256) {
-      throw new Error(
-        `Source digest mismatch for ${source.citation}: expected ${source.sha256}, found ${actual}`,
-      );
-    }
-    return { ...source, path: candidate };
+  const matches = allSourceFiles().filter((path) => basename(path) === source.citation);
+  if (!matches.length) {
+    throw new Error(
+      `source_missing: ${source.citation} was not found in any configured root (expected sha256 ${source.sha256}).`,
+    );
   }
-  throw new Error(
-    `Source document not found in any configured root: ${source.citation} (expected sha256 ${source.sha256})`,
-  );
+  const verified = [];
+  const rejected = [];
+  for (const path of matches) {
+    const actualBytes = statSync(path).size;
+    const actualSha = sha256File(path);
+    if (actualSha === source.sha256 && actualBytes === source.bytes) verified.push(path);
+    else rejected.push({ path: basename(path), actualSha, actualBytes });
+  }
+  if (!verified.length) {
+    throw new Error(
+      `source_digest_mismatch: ${source.citation} resolved to ${matches.length} file(s), none matching the pinned identity ` +
+        `(expected sha256 ${source.sha256}, ${source.bytes} bytes; found ${rejected
+          .map((r) => `${r.actualSha}/${r.actualBytes}B`)
+          .join(", ")}).`,
+    );
+  }
+  return { ...source, path: verified[0] };
+}
+
+/**
+ * Prove a cited-but-missing document is still missing. If it appears, the build
+ * stops for review rather than quietly continuing with a warning that has
+ * become false.
+ */
+function assertStillAbsent(filename, context) {
+  const hits = allSourceFiles().filter((path) => basename(path) === filename);
+  if (hits.length) {
+    throw new Error(
+      `cited_source_reappeared: "${filename}" is now present in a configured source root ` +
+        `(${hits.length} match(es)). ${context} This build refuses to continue: the payload's ` +
+        `absence warning would be false, and the document must be reviewed and pinned first.`,
+    );
+  }
 }
 
 /**
@@ -193,13 +297,50 @@ function pdfToTableText(path) {
   }
 }
 
-function provenance(sourceRef, status = "developer_provided") {
-  return {
+/**
+ * Field provenance. Statuses and the 0..1 confidence scale come from
+ * src/features/forever-ingestion/provenance.ts.
+ *
+ * `developer_provided` + `official_project_material` + confidence 1 is reserved
+ * for a fact stated in first-party developer material whose citation resolves to
+ * a document this build verified. Anything weaker must say so.
+ */
+function provenance(sourceRef, status = "developer_provided", options = {}) {
+  const { sourceType = "official_project_material", confidence = 1, note, sourceDate } = options;
+  const result = {
     status,
-    source_type: "official_project_material",
+    source_type: sourceType,
     source_ref: sourceRef,
-    confidence: 1,
+    confidence,
   };
+  if (sourceDate) result.source_date = sourceDate;
+  if (note) result.note = note;
+  return result;
+}
+
+/**
+ * A fact taken from an agency/internal presentation rather than developer
+ * material. Never `developer_provided`, never `official_project_material`.
+ */
+function agencyProvenance(sourceRef, sourceDate) {
+  return provenance(sourceRef, "extracted", {
+    sourceType: "agency_investment_presentation",
+    confidence: 0.5,
+    sourceDate,
+    note: "Extracted from a SunThai Property agency investment presentation. Not developer-issued material; no developer or official confirmation is implied.",
+  });
+}
+
+/**
+ * A fact taken from an operator-authored intake artifact whose own upstream
+ * citation could not be resolved to a document on disk.
+ */
+function intakeProvenance(sourceRef, citedButAbsent) {
+  return provenance(sourceRef, "extracted", {
+    sourceType: "operator_intake",
+    confidence: 0.5,
+    note: `Value read from the verified operator intake artifact "${sourceRef}". That artifact cites "${citedButAbsent}", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed.`,
+  });
 }
 
 function emit(slug, payload) {
@@ -238,15 +379,118 @@ function emit(slug, payload) {
 // ---------------------------------------------------------------------------
 
 /**
- * The input is the retained Fast Intake v1 package, never this builder's own
- * output — otherwise a second run would derive from a payload that already had
- * its price layer removed, and the build would not be idempotent.
+ * The retired Fast Intake v1 package. It is a deterministic cross-check only —
+ * never the evidence for a business fact. Every value below is read from a
+ * verified Owner source; the package is used solely to prove the rebuild did
+ * not silently change the unit set.
  */
 const RAINPALM_FAST_INTAKE_SHA256 =
   "c95fb84744d9c067a003284be3fd8de5a2a84a2f9cf03a36b2c78b72d283a9b7";
 
+function factValue(fact, label) {
+  const value = fact?.value;
+  if (value == null || String(value).trim() === "") {
+    throw new Error(`rainpalm_source_incomplete: ${label} is absent from the verified source.`);
+  }
+  return String(value).trim();
+}
+
 function buildRainpalm() {
-  const inputPath = join(
+  // Every Rainpalm source whose digest this build reports is resolved and
+  // verified here, on both a normal run and a `--check` run.
+  const facts = requireSource("rainpalmFacts");
+  const inventory = requireSource("rainpalmInventory");
+  const presentation = requireSource("rainpalmPresentation");
+  const priceDocuments = RAINPALM_PRICE_DOCUMENT_NOTES.map((entry) => {
+    const source = requireSource(entry.key);
+    return {
+      file: source.citation,
+      sha256: source.sha256,
+      bytes: source.bytes,
+      extractable_prices: entry.extractable_prices,
+      stated_source_date: entry.stated_source_date,
+      note: entry.note,
+    };
+  });
+
+  // Prove — do not assume — that the cited documents are still missing.
+  assertStillAbsent(
+    RAINPALM_CITED_BUT_ABSENT,
+    "It is cited by every field of the Rainpalm intake inventory and by every price row of the retired package.",
+  );
+  assertStillAbsent(
+    RAINPALM_CURRENCY_CITED_BUT_ABSENT,
+    "It is cited by the intake inventory for currency.",
+  );
+
+  const factsDocument = JSON.parse(readFileSync(facts.path, "utf8"));
+  const inventoryDocument = JSON.parse(readFileSync(inventory.path, "utf8"));
+
+  // Project identity comes from the verified facts artifact, whose citations
+  // resolve to the verified presentation PDF. That chain is complete, so these
+  // fields keep developer-provided provenance.
+  const identityRef = (fact) => String(fact.source_ref ?? presentation.citation);
+  const project = {
+    slug: "rainpalm-villas",
+    name: factValue(factsDocument.name, "project name"),
+    developer_id: null,
+    location_id: null,
+    publish: false,
+    developer_name_raw: factValue(factsDocument.developer, "developer raw name"),
+    location_name_raw: factValue(factsDocument.location, "location"),
+    location_area: factValue(factsDocument.location_area, "location area"),
+    project_type: factValue(factsDocument.project_type, "project type"),
+    short_description: factValue(factsDocument.short_description, "short description"),
+    field_provenance: {
+      name: provenance(identityRef(factsDocument.name)),
+      developer_name_raw: provenance(identityRef(factsDocument.developer)),
+      location_name_raw: provenance(identityRef(factsDocument.location)),
+      location_area: provenance(identityRef(factsDocument.location_area)),
+      project_type: provenance(identityRef(factsDocument.project_type)),
+      short_description: provenance(identityRef(factsDocument.short_description)),
+    },
+  };
+
+  const inventoryRows = inventoryDocument.unit_inventory;
+  if (!Array.isArray(inventoryRows) || !inventoryRows.length) {
+    throw new Error("rainpalm_source_incomplete: the intake inventory holds no unit rows.");
+  }
+
+  // Structural layer only: identifier, type, bedrooms, bathrooms, size — each
+  // read from the verified inventory and each carrying its own provenance.
+  // Availability is deliberately not imported: every availability value derives
+  // from the disputed price documents, and D4 is in open conflict.
+  const unitProvenance = intakeProvenance(inventory.citation, RAINPALM_CITED_BUT_ABSENT);
+  const units = inventoryRows
+    .map((row) => {
+      const code = factValue(row.unit_number, "unit code");
+      const unit = {
+        unit_code: code,
+        unit_type: factValue(row.unit_type, `unit ${code} type`),
+        bedrooms: Number(factValue(row.bedrooms, `unit ${code} bedrooms`)),
+        bathrooms: Number(factValue(row.bathrooms, `unit ${code} bathrooms`)),
+        size_sqm: Number(factValue(row.size_sqm, `unit ${code} size`)),
+        metadata: {
+          field_provenance: {
+            unit_type: unitProvenance,
+            bedrooms: unitProvenance,
+            bathrooms: unitProvenance,
+            size_sqm: unitProvenance,
+          },
+        },
+      };
+      for (const [key, value] of Object.entries(unit)) {
+        if (typeof value === "number" && !Number.isFinite(value)) {
+          throw new Error(`rainpalm_source_incomplete: unit ${code} has a non-numeric ${key}.`);
+        }
+      }
+      return unit;
+    })
+    .sort((a, b) => (a.unit_code < b.unit_code ? -1 : a.unit_code > b.unit_code ? 1 : 0));
+
+  // Deterministic cross-check against the retired package. A divergence means
+  // the rebuild changed the business facts and must be reviewed, not shipped.
+  const retiredPath = join(
     REPO_ROOT,
     "forever-data",
     "projects",
@@ -254,37 +498,71 @@ function buildRainpalm() {
     "progressive",
     "payload.fast-intake-v1.json",
   );
-  const actual = sha256File(inputPath);
-  if (actual !== RAINPALM_FAST_INTAKE_SHA256) {
+  const retiredSha = sha256File(retiredPath);
+  if (retiredSha !== RAINPALM_FAST_INTAKE_SHA256) {
     throw new Error(
-      `Rainpalm Fast Intake v1 package digest mismatch: expected ${RAINPALM_FAST_INTAKE_SHA256}, found ${actual}`,
+      `rainpalm_crosscheck_input_changed: expected ${RAINPALM_FAST_INTAKE_SHA256}, found ${retiredSha}`,
     );
   }
-  const existing = JSON.parse(readFileSync(inputPath, "utf8"));
+  const retired = JSON.parse(readFileSync(retiredPath, "utf8"));
+  const retiredUnits = new Map(retired.units.map((unit) => [unit.unit_code, unit]));
+  if (retiredUnits.size !== units.length) {
+    throw new Error(
+      `rainpalm_unit_set_diverged: rebuilt ${units.length} units, retired package had ${retiredUnits.size}.`,
+    );
+  }
+  for (const unit of units) {
+    const previous = retiredUnits.get(unit.unit_code);
+    if (!previous) throw new Error(`rainpalm_unit_set_diverged: ${unit.unit_code} is new.`);
+    for (const field of ["unit_type", "bedrooms", "bathrooms", "size_sqm"]) {
+      if (previous[field] !== unit[field]) {
+        throw new Error(
+          `rainpalm_unit_field_diverged: ${unit.unit_code}.${field} — source says ${JSON.stringify(unit[field])}, retired package said ${JSON.stringify(previous[field])}.`,
+        );
+      }
+    }
+  }
 
-  // Identity is retained verbatim from the validated Fast Intake v1 package.
-  const project = existing.project;
-
-  // Structural layer only: identifier, type, bedrooms, bathrooms, size. The
-  // availability column is deliberately dropped — every availability value in
-  // the package derives from the disputed price documents, and D4 is in open
-  // conflict between them.
-  const units = existing.units
-    .map((unit) => ({
-      unit_code: unit.unit_code,
-      unit_type: unit.unit_type,
-      bedrooms: unit.bedrooms,
-      bathrooms: unit.bathrooms,
-      size_sqm: unit.size_sqm,
-    }))
-    .sort((a, b) => (a.unit_code < b.unit_code ? -1 : a.unit_code > b.unit_code ? 1 : 0));
-
-  // The seven `price_missing` warnings described a price layer that no longer
-  // exists. Retaining them would imply the other fourteen units carry prices.
-  const retained = existing.warnings.filter((warning) => warning.code !== "price_missing");
+  const d4 = inventoryRows.find((row) => row.unit_number?.value === "D4");
+  const d4Availability = d4?.availability_status?.value ?? null;
 
   const warnings = [
-    ...retained,
+    {
+      entity: "project",
+      code: "country_missing",
+      severity: "warning",
+      message:
+        "No source-backed country was provided; currency cannot be inferred and remains NULL unless a price row states it.",
+    },
+    {
+      entity: "project",
+      field: "latitude",
+      code: "coordinates_missing",
+      severity: "info",
+      message: "No coordinates are stated in the verified source; latitude/longitude remain NULL.",
+    },
+    {
+      entity: "project",
+      field: "construction_status",
+      code: "construction_status_missing",
+      severity: "info",
+      message:
+        "No construction status or completion date is stated in the verified source; these remain NULL.",
+    },
+    {
+      entity: "developer",
+      code: "developer_unresolved",
+      severity: "warning",
+      message: `No canonical developer matches "${project.developer_name_raw}"; the raw value was preserved for later enrichment.`,
+      payload: { raw_name: project.developer_name_raw },
+    },
+    {
+      entity: "location",
+      code: "location_unresolved",
+      severity: "warning",
+      message: `No canonical location matches "${project.location_name_raw}"; the raw value was preserved for later enrichment.`,
+      payload: { raw_name: project.location_name_raw },
+    },
     {
       entity: "project",
       code: "authoritative_price_list_unresolved",
@@ -293,7 +571,7 @@ function buildRainpalm() {
         "No authoritative Rainpalm price list has been selected. Four conflicting price documents exist; the document cited by the original package is absent; the only variant with a qualified extraction chain supports 9 of the 14 previously asserted prices; and a fourth variant carries an entirely different 21-unit schedule. No unit price was imported. Prices must not be averaged, merged, or selected by filename.",
       payload: {
         cited_source_file_absent: RAINPALM_CITED_BUT_ABSENT,
-        conflicting_documents: RAINPALM_PRICE_DOCUMENTS,
+        conflicting_documents: priceDocuments,
         owner_decision_required: [
           "Nominate the authoritative price list, ideally with its issue date stated inside the document.",
           "Rule on whether the 4_12_2025 variant supersedes the 14-price schedule, and state what 4_12_2025 denotes.",
@@ -308,16 +586,28 @@ function buildRainpalm() {
       field: "source_file",
       code: "cited_source_file_absent",
       severity: "warning",
-      message: `Every unit and price row in the previous package cited "${RAINPALM_CITED_BUT_ABSENT}", which does not exist on any inspected source root. The structural layer was therefore re-attributed to the presentation document, which does resolve; no price row was carried over.`,
-      payload: { cited_file: RAINPALM_CITED_BUT_ABSENT },
+      message: `The verified intake inventory "${inventory.citation}" cites "${RAINPALM_CITED_BUT_ABSENT}" for every unit field — code, type, bedrooms, bathrooms, size and availability — and the retired package cited it for every price. This build proved the file is absent from every configured source root. The structural layer is therefore carried at "extracted" confidence against the intake artifact, not as document-backed developer material, and no price row was carried over. Project identity is unaffected: it resolves through "${facts.citation}" to the verified "${presentation.citation}".`,
+      payload: {
+        cited_file: RAINPALM_CITED_BUT_ABSENT,
+        also_absent: RAINPALM_CURRENCY_CITED_BUT_ABSENT,
+        affected_layer: "unit structure and availability",
+        verified_intake_artifacts: [
+          { file: facts.citation, sha256: facts.sha256, bytes: facts.bytes },
+          { file: inventory.citation, sha256: inventory.sha256, bytes: inventory.bytes },
+        ],
+        identity_chain_resolves_to: {
+          file: presentation.citation,
+          sha256: presentation.sha256,
+          bytes: presentation.bytes,
+        },
+      },
     },
     {
       entity: "unit",
       field: "availability_status",
       code: "availability_unverified",
       severity: "warning",
-      message:
-        "Availability was not imported. Every availability value in the source package derives from the disputed price documents, so all 21 units carry the schema default and that default must not be read as a verified availability state.",
+      message: `Availability was not imported. Every availability value in the verified intake inventory cites the absent "${RAINPALM_CITED_BUT_ABSENT}", so all ${units.length} units carry the schema default and that default must not be read as a verified availability state.`,
       payload: { units_affected: units.length },
     },
     {
@@ -325,13 +615,13 @@ function buildRainpalm() {
       field: "availability_status",
       code: "availability_conflict",
       severity: "warning",
-      message:
-        "Unit D4 is rendered Available by the previous package and Reserved by the one price document with a qualified extraction chain. The conflict is unresolved.",
+      message: `Unit D4 is rendered ${d4Availability ?? "(unstated)"} by the verified intake inventory and Reserved by the one price document with a qualified extraction chain. The conflict is unresolved.`,
       payload: {
         unit_code: "D4",
-        package_value: "available",
+        intake_inventory_value: d4Availability,
+        intake_inventory_file: inventory.citation,
         document_value: "Reserved",
-        document: "Rainpalm - Price List（for In house) update 04.2025.pdf",
+        document: SOURCES.rainpalmPrice042025.citation,
       },
     },
     {
@@ -370,10 +660,12 @@ function buildGardenOfEden() {
     location_area: "Layan",
     project_type: "Premium apart-hotel",
     field_provenance: {
-      name: provenance(`${eng.citation}#page=2`),
-      location_name_raw: provenance(`${eng.citation}#page=2`),
-      location_area: provenance(`${eng.citation}#page=2`),
-      project_type: provenance(`${eng.citation}#page=2`),
+      // Agency presentation, not developer material: never developer_provided,
+      // never official_project_material, confidence below 1.
+      name: agencyProvenance(`${eng.citation}#page=2`, "2026-01"),
+      location_name_raw: agencyProvenance(`${eng.citation}#page=2`, "2026-01"),
+      location_area: agencyProvenance(`${eng.citation}#page=2`, "2026-01"),
+      project_type: agencyProvenance(`${eng.citation}#page=2`, "2026-01"),
     },
   };
 
@@ -569,14 +861,17 @@ function buildSierra() {
 
   const sorted = [...rows].sort((a, b) => (a.room < b.room ? -1 : a.room > b.room ? 1 : 0));
 
+  // Only the code is source-backed: the Tower column contains the letters A and
+  // C. It does not contain building names. "Tower A" would be a display label
+  // this build invented, so no `name` is emitted. The RPC supplies its own
+  // fallback label at insert time, which is a database default rather than a
+  // fact asserted here.
   const towers = [...new Set(sorted.map((row) => row.tower))].sort();
   const buildings = towers.map((tower) => ({
     building_code: tower,
-    name: `Tower ${tower}`,
     metadata: {
       field_provenance: {
         building_code: provenance(`${priceList.citation}#column=Tower`),
-        name: provenance(`${priceList.citation}#column=Tower`),
       },
     },
   }));
@@ -722,7 +1017,7 @@ function buildSierra() {
       code: "building_inventory_partial",
       severity: "info",
       message:
-        "Building rows were derived from the Tower column of the price list, so they cover only towers with listed units. Floor counts and unit counts are not stated and were not derived from the listing, because a price list enumerates offered units rather than a building's full inventory.",
+        "Building rows were derived from the Tower column of the price list, so they cover only towers with listed units. The source supplies the tower codes and nothing else: no building name, floor count or unit count is stated, and none was derived — a price list enumerates offered units rather than a building's full inventory, and a label such as \"Tower A\" would be this pipeline's invention rather than a source fact.",
       payload: {
         towers: towers,
         listed_units_per_tower: Object.fromEntries(
@@ -819,7 +1114,123 @@ function buildSierra() {
 }
 
 // ---------------------------------------------------------------------------
+// Regression assertions — run on every build and every `--check`.
+// ---------------------------------------------------------------------------
 
-buildRainpalm();
-buildGardenOfEden();
-buildSierra();
+/** Every `field_provenance` entry anywhere in a payload, with a readable path. */
+function collectProvenance(node, path = "", found = []) {
+  if (!node || typeof node !== "object") return found;
+  if (Array.isArray(node)) {
+    node.forEach((item, index) => collectProvenance(item, `${path}[${index}]`, found));
+    return found;
+  }
+  for (const [key, value] of Object.entries(node)) {
+    const next = path ? `${path}.${key}` : key;
+    if (key === "field_provenance" && value && typeof value === "object") {
+      for (const [field, entry] of Object.entries(value)) {
+        found.push({ path: `${next}.${field}`, entry });
+      }
+      continue;
+    }
+    collectProvenance(value, next, found);
+  }
+  return found;
+}
+
+function auditGardenOfEden(payload) {
+  const entries = collectProvenance(payload);
+  const offending = entries.filter(
+    ({ entry }) =>
+      entry?.status === "developer_provided" ||
+      entry?.status === "official_source" ||
+      entry?.source_type === "official_project_material" ||
+      entry?.source_type === "official_project_price_list",
+  );
+  if (offending.length) {
+    throw new Error(
+      `garden_provenance_violation: the Garden of Eden sources are agency investment presentations, ` +
+        `so no field may claim developer or official provenance. Offending: ` +
+        offending.map((item) => item.path).join(", "),
+    );
+  }
+  const overconfident = entries.filter(({ entry }) => (entry?.confidence ?? 0) >= 1);
+  if (overconfident.length) {
+    throw new Error(
+      `garden_provenance_violation: a secondary source cannot carry confidence 1. Offending: ` +
+        overconfident.map((item) => item.path).join(", "),
+    );
+  }
+  if (!entries.length) {
+    throw new Error("garden_provenance_violation: no field provenance was emitted at all.");
+  }
+  console.log(
+    `AUDIT garden-of-eden: ${entries.length} provenance entries, none developer_provided or official_project_material`,
+  );
+}
+
+function auditSierra(payload) {
+  const named = (payload.buildings ?? []).filter((building) => "name" in building);
+  if (named.length) {
+    throw new Error(
+      `sierra_derived_name_violation: building name is not source-backed. Offending: ` +
+        named.map((building) => building.building_code).join(", "),
+    );
+  }
+  console.log(
+    `AUDIT the-title-sierra: ${(payload.buildings ?? []).length} buildings, code-only, no derived names`,
+  );
+}
+
+function auditRainpalm(payload) {
+  if ((payload.prices ?? []).length) {
+    throw new Error("rainpalm_price_violation: the structural draft must carry zero prices.");
+  }
+  const withAvailability = (payload.units ?? []).filter((unit) => "availability_status" in unit);
+  if (withAvailability.length) {
+    throw new Error(
+      `rainpalm_availability_violation: availability must not be imported. Offending: ` +
+        withAvailability.map((unit) => unit.unit_code).join(", "),
+    );
+  }
+  const missingProvenance = (payload.units ?? []).filter(
+    (unit) => !unit.metadata?.field_provenance,
+  );
+  if (missingProvenance.length) {
+    throw new Error(
+      `rainpalm_provenance_missing: every retained unit field needs provenance. Offending: ` +
+        missingProvenance.map((unit) => unit.unit_code).join(", "),
+    );
+  }
+  const codes = new Set((payload.warnings ?? []).map((warning) => warning.code));
+  for (const required of [
+    "authoritative_price_list_unresolved",
+    "cited_source_file_absent",
+    "availability_conflict",
+  ]) {
+    if (!codes.has(required)) {
+      throw new Error(`rainpalm_warning_missing: ${required}`);
+    }
+  }
+  console.log(
+    `AUDIT rainpalm-villas: 0 prices, no availability, ${(payload.units ?? []).length} units with field provenance`,
+  );
+}
+
+function auditDraftOnly(slug, payload) {
+  if (payload.project.publish !== false || payload.mode !== "create") {
+    throw new Error(`draft_violation: ${slug} must be mode=create with publish=false.`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+const built = {
+  "rainpalm-villas": buildRainpalm(),
+  "garden-of-eden": buildGardenOfEden(),
+  "the-title-sierra": buildSierra(),
+};
+
+for (const [slug, payload] of Object.entries(built)) auditDraftOnly(slug, payload);
+auditRainpalm(built["rainpalm-villas"]);
+auditGardenOfEden(built["garden-of-eden"]);
+auditSierra(built["the-title-sierra"]);
