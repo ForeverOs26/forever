@@ -51,7 +51,7 @@ import {
   visibleDirections,
   type BedroomPreference,
   type BoothBudgetCurrency,
-  type BoothFunnelEvent,
+  type BoothClientObservedEvent,
   type BoothGuide,
   type BoothV2Action,
   type BoothV2Session,
@@ -222,12 +222,17 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
    * Client-observed funnel events only, with acknowledgement BEFORE dedupe:
    * the event is marked recorded only after the server confirms persistence,
    * so a transient network failure leaves it retryable instead of silently
-   * lost. Every transition event (profile confirmed, WhatsApp verified, Guide
-   * assigned/acknowledged, first contact, consultation booked, no-contact
-   * continuation) is emitted server-side by the operation that establishes
-   * the fact and is not routed through here at all.
+   * lost.
+   *
+   * The parameter type is BoothClientObservedEvent, not the full vocabulary, so
+   * a future edit cannot even name a transition event here — and the endpoint,
+   * the service and `booth_record_event` would each refuse it anyway. Every
+   * transition event (profile confirmed, WhatsApp verified, Guide
+   * assigned/acknowledged, first contact, consultation booked, no-contact QR
+   * continuation) is emitted server-side by the operation that establishes the
+   * fact and is not routed through here at all.
    */
-  async function recordEventOnce(event: BoothFunnelEvent, step?: string, reason?: string) {
+  async function recordEventOnce(event: BoothClientObservedEvent, step?: string, reason?: string) {
     if (session.recordedEvents.includes(event)) return;
     try {
       await boothV2RecordEvent({
@@ -534,10 +539,11 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
             primaryLabel="Yes — let's look together"
             onPrimary={grantPermission}
             secondaryLabel="I'm just browsing on my own"
-            onSecondary={() => {
-              dispatch({ type: "declinePermission" });
-              void recordEventOnce("qr_continuation");
-            }}
+            // No client-side qr_continuation here: declining the opening
+            // permission is not yet a continuation. The event is emitted by the
+            // atomic no-contact completion RPC when the guest actually finishes
+            // on the QR screen, so the metric records what happened.
+            onSecondary={() => dispatch({ type: "declinePermission" })}
             sticky={false}
           />
         </Panel>
@@ -779,8 +785,10 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
         <NoContactView
           finished={session.outcome === "no_contact_qr"}
           onFinish={() => {
-            void recordEventOnce("qr_continuation");
             dispatch({ type: "completeNoContact" });
+            // The no-contact completion RPC clears everything, deletes any lead
+            // and emits qr_continuation in ONE transaction — the browser never
+            // asserts the continuation itself.
             void boothV2CompleteSession({
               data: { clientRef: session.clientRef, outcome: "no_contact_qr" },
             }).catch(() => undefined);

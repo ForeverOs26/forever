@@ -149,6 +149,7 @@ vi.mock("./booth-v2.functions", () => ({
 }));
 
 import { BoothV2Navigator } from "./BoothV2Navigator";
+import { BOOTH_CLIENT_OBSERVED_EVENTS } from "../core/v2";
 
 function button(name: RegExp | string) {
   return screen.getByText(name, { selector: "button" });
@@ -387,6 +388,14 @@ describe("BoothV2Navigator — verified handoff to completion", () => {
     expect(clientEvents).not.toContain("whatsapp_verified");
     expect(clientEvents).not.toContain("guide_assigned");
     expect(clientEvents).not.toContain("consultation_booked");
+    // Stronger than a denylist: across a COMPLETE run of the real shell, every
+    // event the browser posted is inside the client-observed subset. Nothing
+    // fact-establishing left the tablet (corrective pass 3, item 3).
+    for (const event of clientEvents) {
+      expect(
+        `${event}:${(BOOTH_CLIENT_OBSERVED_EVENTS as readonly string[]).includes(event)}`,
+      ).toBe(`${event}:true`);
+    }
     // The consultation time reached the server as an exact ISO instant.
     const handoffWithTime = serverFns.recordHandoff.mock.calls
       .map((call) => (call[0] as Call).data as { consultationScheduledAt?: string | null })

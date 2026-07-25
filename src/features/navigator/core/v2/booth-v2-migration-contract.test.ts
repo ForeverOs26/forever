@@ -471,6 +471,94 @@ describe("booth V2 pilot migration — atomicity", () => {
   });
 });
 
+/**
+ * PR #102 corrective pass 3, item 3. `booth_record_event` is the BROWSER's event
+ * entry point, so the database itself must refuse a transition event — including
+ * a direct service_role call that has bypassed the TypeScript type, the zod
+ * validator and the service allowlist.
+ */
+describe("booth V2 pilot migration — the client-observed funnel allowlist", () => {
+  const CLIENT_OBSERVED = ["meaningful_conversation", "profile_started", "session_abandoned"];
+  const TRANSITION_EVENTS = [
+    "profile_confirmed",
+    "whatsapp_verified",
+    "guide_assigned",
+    "guide_acknowledged",
+    "guide_contacted",
+    "consultation_booked",
+    "qr_continuation",
+    "viewing_booked",
+  ];
+
+  it("allows exactly the three client-observed events, and nothing else", () => {
+    const body = functionBody("booth_record_event");
+    const allowlist = body.match(/p_event NOT IN \(([\s\S]*?)\)/)?.[1] ?? "";
+    const allowed = [...allowlist.matchAll(/'([a-z_]+)'/g)].map((match) => match[1]);
+    expect(allowed.sort()).toEqual([...CLIENT_OBSERVED].sort());
+  });
+
+  it("refuses a transition event BEFORE locating or locking any session row", () => {
+    const body = functionBody("booth_record_event");
+    const refusalIndex = body.indexOf("booth_event_not_client_observed");
+    const lockIndex = body.indexOf("booth_lock_owned_session(");
+    const emitIndex = body.indexOf("booth_emit_event(");
+    expect(refusalIndex).toBeGreaterThan(-1);
+    // The guard is the first thing the body does, so a rejected call cannot
+    // insert an event, settle an outcome, or touch a session row.
+    expect(refusalIndex).toBeLessThan(lockIndex);
+    expect(refusalIndex).toBeLessThan(emitIndex);
+    // The guard is the body's very first statement (comments are stripped from
+    // `executable`, so this is the executable prefix).
+    expect(body.slice(body.indexOf("BEGIN"))).toMatch(
+      /^BEGIN\s*\n\s*IF p_event IS NULL OR p_event NOT IN/,
+    );
+  });
+
+  it("names no transition event in its allowlist", () => {
+    const body = functionBody("booth_record_event");
+    const guard = body.slice(0, body.indexOf("booth_lock_owned_session("));
+    for (const event of TRANSITION_EVENTS) {
+      expect(`${event}:${guard.includes(`'${event}'`)}`).toBe(`${event}:false`);
+    }
+  });
+
+  it("no longer treats qr_continuation as a replayable client event", () => {
+    const body = functionBody("booth_record_event");
+    expect(body).not.toContain("qr_continuation");
+    // Only the abandoned terminal state replays its own event.
+    expect(body).toMatch(/v_session\.outcome <> 'abandoned' OR p_event <> 'session_abandoned'/);
+  });
+
+  it("leaves every transition event to booth_emit_event inside its owning RPC", () => {
+    const owners: Record<string, string> = {
+      profile_confirmed: "booth_mark_profile_confirmed",
+      whatsapp_verified: "booth_set_whatsapp_state",
+      guide_assigned: "booth_assign_guide",
+      guide_acknowledged: "booth_acknowledge_guide",
+      guide_contacted: "booth_record_handoff",
+      consultation_booked: "booth_record_handoff",
+      qr_continuation: "booth_complete_session",
+    };
+    for (const [event, owner] of Object.entries(owners)) {
+      const body = functionBody(owner);
+      expect(`${event}:${body.includes(`booth_emit_event(v_session.id, '${event}'`)}`).toBe(
+        `${event}:true`,
+      );
+    }
+    // Nothing emits the reserved event, so nothing can claim it.
+    expect(executable).not.toMatch(/booth_emit_event\([^)]*'viewing_booked'/);
+  });
+
+  it("keeps booth_emit_event itself unreachable from any browser role", () => {
+    expect(executable).toMatch(
+      /REVOKE ALL ON FUNCTION public\.booth_emit_event\([^)]*\) FROM PUBLIC, anon, authenticated;/,
+    );
+    expect(executable).toMatch(
+      /GRANT EXECUTE ON FUNCTION public\.booth_emit_event\([^)]*\) TO service_role;/,
+    );
+  });
+});
+
 describe("booth V2 pilot migration — nothing invented", () => {
   it("seeds no rows at all (no staff, no guides, no leads)", () => {
     // INSERTs exist only inside the transaction functions; none at file level.

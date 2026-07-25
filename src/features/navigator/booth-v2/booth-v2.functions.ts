@@ -25,9 +25,28 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
+import { BOOTH_CLIENT_OBSERVED_EVENTS } from "../core/v2/funnel";
 import { requireBoothStaff } from "./booth-auth";
 
 const clientRefSchema = z.string().min(8).max(80);
+
+/**
+ * The browser may record ONLY events it genuinely witnessed. Every
+ * fact-establishing transition event is emitted by the atomic RPC that performs
+ * the transition, so this enum is deliberately narrower than the funnel
+ * vocabulary and a transition event is refused here before any handler runs.
+ *
+ * Exported so the funnel-integrity suite can validate against the REAL schema
+ * this endpoint uses rather than a copy of it.
+ */
+export const boothV2RecordEventInput = z
+  .object({
+    clientRef: clientRefSchema,
+    event: z.enum(BOOTH_CLIENT_OBSERVED_EVENTS),
+    step: z.string().max(120).optional(),
+    reason: z.string().max(300).optional(),
+  })
+  .strict();
 
 const shortlistEntriesSchema = z
   .array(z.object({ slug: z.string().min(1).max(200), mentionedByGuest: z.boolean() }).strict())
@@ -87,18 +106,18 @@ export const boothV2EnsureSession = createServerFn({ method: "POST" })
     return runBoothEndpoint("session", () => ensureSession(context.actor, data));
   });
 
+/**
+ * CLIENT-OBSERVED events only. The validator accepts the three events the
+ * tablet is the sole witness to and nothing else: a transition event such as
+ * whatsapp_verified, guide_assigned, guide_acknowledged, guide_contacted,
+ * consultation_booked, profile_confirmed or qr_continuation is rejected here,
+ * then again by the service allowlist, then again by `booth_record_event`
+ * itself — so neither an authenticated Host nor a future UI mistake can
+ * fabricate transition evidence.
+ */
 export const boothV2RecordEvent = createServerFn({ method: "POST" })
   .middleware([requireBoothStaff])
-  .validator(
-    z
-      .object({
-        clientRef: clientRefSchema,
-        event: z.string().max(60),
-        step: z.string().max(120).optional(),
-        reason: z.string().max(300).optional(),
-      })
-      .strict(),
-  )
+  .validator(boothV2RecordEventInput)
   .handler(async ({ data, context }) => {
     const { recordFunnelEvent, runBoothEndpoint } = await import("./server/service");
     return runBoothEndpoint("funnel_event", () =>

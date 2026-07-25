@@ -243,7 +243,14 @@ describe("every Booth V2 endpoint is gated", () => {
       (match) => match[1],
     );
     expect(exported.length).toBeGreaterThanOrEqual(13);
-    const blocks = text.split("export const ").slice(1);
+    // Only the SERVER FUNCTIONS are gated; the module also exports the
+    // client-observed event schema, which is a validation contract, not an
+    // endpoint (see booth-funnel-integrity.test.ts).
+    const blocks = text
+      .split("export const ")
+      .slice(1)
+      .filter((block) => block.includes("createServerFn"));
+    expect(blocks).toHaveLength(exported.length);
     for (const block of blocks) {
       const name = block.slice(0, block.indexOf(" "));
       const expected = !UNGATED_BY_DESIGN.includes(name);
