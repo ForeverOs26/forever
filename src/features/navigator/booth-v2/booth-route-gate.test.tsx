@@ -159,12 +159,19 @@ describe("the Gate never decides enablement itself", () => {
     render(<BoothV2Gate />);
     await screen.findByText("Forever Booth");
 
-    const [handler] = mocks.onAuthStateChange.mock.calls[0] as unknown as [() => void];
-    mocks.getSession.mockResolvedValue({ data: { session: { user: { id: "u" } } } });
+    // The real callback signature: Supabase supplies the session, and the Gate
+    // reads it from the argument instead of asking Supabase again — see
+    // booth-auth-lifecycle.test.tsx for why that distinction is the whole fix.
+    const [handler] = mocks.onAuthStateChange.mock.calls[0] as unknown as [
+      (event: string, session: unknown) => void,
+    ];
     await act(async () => {
-      handler();
+      handler("SIGNED_IN", { user: { id: "u" } });
     });
 
     await waitFor(() => expect(screen.getByText(/Booth V2 shell for/)).toBeInTheDocument());
+    // The Gate did not re-read the session: the initial mount is the only
+    // getSession this component performs.
+    expect(mocks.getSession).toHaveBeenCalledTimes(1);
   });
 });

@@ -138,6 +138,57 @@ The authorization half is proven against a real database by
 
 ---
 
+## 0d. Corrective pass 4 (PR #102 — Supabase auth-event re-entrancy)
+
+Passes 1–3 stand unchanged. This pass closes one narrow **runtime lifecycle**
+defect that none of the earlier boundaries could expose, because it is not about
+what the Gate decides — it is about **when it asks**.
+
+| Defect                                                                                               | Correction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **P0** `BoothV2Gate`'s `onAuthStateChange` subscriber re-ran a check that opened with `getSession()` | supabase-js holds an internal lock while it emits an auth event and awaits its subscribers, so a Supabase API call from inside that callback — directly, or indirectly through a Booth server function whose client middleware calls `getSession()` to attach the Host's token — can deadlock the shared client. The work is now split. **Initial session discovery** runs once on mount, where a Supabase call is safe. The **authorized-access probe** (`boothV2GetAccess`) never runs inside the callback stack: the subscriber reads the session object Supabase supplies, decides synchronously, and hands the probe to a fresh macrotask via `setTimeout(…, 0)` — the documented workaround. The callback calls nothing and returns a non-thenable. |
+
+**Why the tablet was actually exposed.** The deadlock window is reachable from
+`SIGNED_IN` (every staff sign-in), `TOKEN_REFRESHED` (an idle tablet rotating its
+token through the Booth function middleware), and `SIGNED_OUT` followed by a
+rapid re-login. The symptom is a page stuck on `Loading…` with every subsequent
+Supabase call hanging behind it — recoverable only by reloading the tablet.
+
+**Three invariants sit around the deferral**, because deferring alone would
+introduce races the synchronous version did not have:
+
+- a **monotonic generation counter** — a probe applies its result only while its
+  own generation is current, so a grant or a refusal that was already in flight
+  when the Host signed out, or signed in as somebody else, is discarded instead
+  of overwriting the newer state;
+- a **per-identity guard** keyed on the user id and deliberately **not** on the
+  access token — the token rotates on every `TOKEN_REFRESHED`, and keying on it
+  would re-probe the gated endpoint on a timer for as long as a tablet stays
+  signed in, and bounce the Host back to `Loading…` each time;
+- **unmount cancellation** that also clears the scheduled timer, so a tablet that
+  navigated away never reaches the gated endpoint at all.
+
+**How the claim is evidenced.** `booth-auth-lifecycle.test.tsx` asserts on the
+call **timeline**, not only the rendered outcome: every Supabase auth method and
+the gated Booth function are instrumented with a "was the auth callback on the
+stack?" flag, the subscriber is driven with the real supabase-js `(event,
+session)` shape, timers are faked so "nothing ran during the callback" and "the
+probe ran after it" are two separately observable moments, and the callback's
+synchronous return value is asserted to be a non-thenable (supabase-js awaits
+what a subscriber returns, so an `async` callback would resume inside the same
+lock window). Verified negatively as well: against the pre-correction component,
+**13 of the suite's 17 tests fail**.
+
+**What this pass does not change.** The credential transport and server
+verification are untouched — `boothV2GetAccess` still travels through
+`requireBoothStaff`, which attaches the Host's own access token and has the
+server re-verify the JWT from the inbound request. Deferring the call changes
+when it is made, not what it proves; `booth-auth-transport.test.ts` is unmodified
+and still passes in full. The opaque denial is preserved: every refusal, and
+every stale or discarded result, still lands on the ordinary not-found boundary.
+
+---
+
 ## 1. Diagnosis of the current implementation
 
 The pre-existing Booth Mode (`/booth`, `src/features/navigator/booth/*`) implements only

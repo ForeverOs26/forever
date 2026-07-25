@@ -24,6 +24,40 @@
  * shape all land on the not-found boundary. This gate is presentation only —
  * every operational endpoint is independently gated on the server, and the
  * browser's own credential is attached and re-verified per call.
+ *
+ * THE AUTH-EVENT LIFECYCLE (PR #102 corrective pass 4).
+ *
+ * What was wrong: the `onAuthStateChange` subscriber re-ran the whole check,
+ * and that check opened with `supabase.auth.getSession()`. Supabase-js holds an
+ * internal lock while it emits an auth event and awaits its subscribers, so
+ * calling any Supabase API from inside that callback — directly or through a
+ * Booth server function, whose client middleware calls `getSession()` to attach
+ * the Host's token — can deadlock the shared client. On a booth tablet that is
+ * not a theoretical window: SIGNED_IN, TOKEN_REFRESHED on an idle tablet,
+ * SIGNED_OUT followed by a rapid re-login all land in it, and the symptom is a
+ * page stuck on "Loading…" with every later Supabase call hanging behind it.
+ *
+ * What replaces it: the work is split in two.
+ *
+ *   • INITIAL SESSION DISCOVERY runs once on mount. It may call `getSession()`
+ *     because it is not inside an auth callback.
+ *   • THE AUTHORIZED-ACCESS PROBE — the gated `boothV2GetAccess` call — never
+ *     runs inside the callback stack. The subscriber reads the session object
+ *     Supabase hands it, decides synchronously, and hands the probe to a fresh
+ *     macrotask via `setTimeout(…, 0)`, the documented workaround. By the time
+ *     it runs the callback has long returned and the lock is released.
+ *
+ * Around that sit three invariants, all proven in booth-auth-lifecycle.test.tsx:
+ * a monotonic generation counter, so a probe whose auth state has since changed
+ * can never apply its result; a per-identity guard, so repeated SIGNED_IN and
+ * TOKEN_REFRESHED events for the same Host do not restart the probe (a token
+ * rotating on a timer would otherwise probe the server forever); and unmount
+ * cancellation that also clears the scheduled timers.
+ *
+ * The credential transport is untouched: `boothV2GetAccess` still travels
+ * through `requireBoothStaff`, which attaches the Host's own access token and
+ * has the server re-verify it. Deferring the call changes WHEN it is made, not
+ * what it proves.
  */
 
 import { useEffect, useState } from "react";
@@ -43,48 +77,148 @@ type GateState =
   | { status: "signed_out" }
   | { status: "denied" };
 
+/**
+ * The only part of a Supabase session this gate reads. Deliberately structural
+ * rather than the imported `Session` type: the gate must keep working when
+ * Supabase hands the callback something unexpected, and a null-ish session is
+ * simply "signed out".
+ */
+type ObservedSession = { user?: { id?: string | null } | null } | null | undefined;
+
+/**
+ * A session that exists but carries no readable user id. It still counts as
+ * signed in — the server, not this component, decides who may operate the booth
+ * — but it collapses to one identity so it cannot drive a repeated probe.
+ */
+const UNIDENTIFIED_SESSION = "session-without-user-id";
+
+/**
+ * The key the access probe is deduplicated on: `null` when there is no session,
+ * otherwise the signed-in user. NOT the access token — the token rotates on
+ * every TOKEN_REFRESHED, and keying on it would re-probe the gated endpoint for
+ * as long as a tablet stays signed in.
+ */
+function observedIdentity(session: ObservedSession): string | null {
+  if (!session) return null;
+  const id = session.user?.id;
+  return typeof id === "string" && id.length > 0 ? id : UNIDENTIFIED_SESSION;
+}
+
 export function BoothV2Gate() {
   const [state, setState] = useState<GateState>({ status: "checking" });
 
   useEffect(() => {
     let active = true;
-    async function check() {
-      // 1. A signed-out visitor may sign in. (The route already proved, on the
-      //    server, that this deployment enabled the pilot at all.)
-      let signedIn = false;
-      try {
-        const { data } = await supabase.auth.getSession();
-        signedIn = Boolean(data.session);
-      } catch {
-        signedIn = false;
-      }
-      if (!active) return;
-      if (!signedIn) {
-        setState({ status: "signed_out" });
-        return;
-      }
+    /**
+     * Bumped by every auth observation that changes the answer. A probe applies
+     * its result only while its own generation is still current, so a result
+     * that was already in flight when the Host signed out — or signed in as
+     * somebody else — is discarded instead of overwriting the newer state.
+     */
+    let generation = 0;
+    /**
+     * The last identity this gate acted on. `undefined` means nothing has been
+     * observed yet, which is deliberately distinct from `null` — "observed, and
+     * there is no session".
+     */
+    let observed: string | null | undefined = undefined;
+    /** Deferred probes, so unmount can cancel one that has not fired yet. */
+    const scheduled = new Set<ReturnType<typeof setTimeout>>();
 
-      // 2. Signed in: the server decides, opaquely. The gated call carries the
-      //    Host's own access token and the server re-verifies it.
+    /**
+     * The gated access probe. It reaches the server and, through the Booth
+     * client middleware, Supabase — so it must never run inside an auth
+     * callback. Every caller below either is already outside one or defers.
+     */
+    async function probeAccess(forGeneration: number) {
       try {
         const access = await boothV2GetAccess();
-        if (!active) return;
+        if (!active || forGeneration !== generation) return;
         setState({ status: "granted", hostName: access.hostName });
       } catch {
-        if (!active) return;
+        if (!active || forGeneration !== generation) return;
         // Non-member, disabled membership, missing Booth capability, a pilot
         // switched off since the route loaded, or any other refusal — all
         // indistinguishable, all fail closed.
         setState({ status: "denied" });
       }
     }
-    void check();
-    const { data: subscription } = supabase.auth.onAuthStateChange(() => {
+
+    /**
+     * Hand the probe to a fresh macrotask. `setTimeout(…, 0)` rather than
+     * `queueMicrotask`: a microtask can still run while Supabase is unwinding
+     * the emit that invoked us, which is precisely the re-entrancy being fixed.
+     */
+    function deferProbe(forGeneration: number) {
+      const timer = setTimeout(() => {
+        scheduled.delete(timer);
+        if (!active || forGeneration !== generation) return;
+        void probeAccess(forGeneration);
+      }, 0);
+      scheduled.add(timer);
+    }
+
+    /**
+     * Decide from an observed session. SYNCHRONOUS AND SUPABASE-FREE — this is
+     * the whole body of the auth callback, so nothing it does may touch the
+     * Supabase client.
+     */
+    function applyObservedSession(session: ObservedSession, defer: boolean) {
+      const identity = observedIdentity(session);
+
+      // Supabase emits INITIAL_SESSION on subscribe, re-emits SIGNED_IN, and
+      // emits TOKEN_REFRESHED every time the token rotates. The same identity
+      // is the same decision: leave the settled state alone rather than
+      // flickering back through "checking" and re-probing the server on a
+      // timer for as long as the tablet stays signed in.
+      if (identity === observed) return;
+
+      // A real transition. Anything already in flight, or still pending, was
+      // decided for the previous identity and must not apply its result —
+      // signing out therefore invalidates an unfinished access probe.
+      generation += 1;
+      observed = identity;
+
+      if (identity === null) {
+        setState({ status: "signed_out" });
+        return;
+      }
       setState({ status: "checking" });
-      void check();
+      if (defer) deferProbe(generation);
+      else void probeAccess(generation);
+    }
+
+    // 1. INITIAL SESSION DISCOVERY. A Supabase call is safe here: this runs on
+    //    mount, not inside an auth callback. (The route already proved, on the
+    //    server, that this deployment enabled the pilot at all.)
+    void (async () => {
+      let session: ObservedSession = null;
+      try {
+        const { data } = await supabase.auth.getSession();
+        session = (data?.session ?? null) as ObservedSession;
+      } catch {
+        // Unreadable storage or an unconfigured client: treated as signed out.
+        session = null;
+      }
+      if (!active) return;
+      // Supabase emits INITIAL_SESSION on subscribe, and an auth transition may
+      // have arrived while this read was in flight. The newer observation wins.
+      if (generation !== 0) return;
+      applyObservedSession(session, false);
+    })();
+
+    // 2. AUTH TRANSITIONS. The callback uses the session Supabase supplies and
+    //    calls nothing — no getSession, getUser, refreshSession, signIn,
+    //    signOut, and no Booth server function. The probe is deferred out of
+    //    this stack entirely.
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      applyObservedSession(session as ObservedSession, true);
     });
+
     return () => {
       active = false;
+      for (const timer of scheduled) clearTimeout(timer);
+      scheduled.clear();
       subscription.subscription.unsubscribe();
     };
   }, []);
