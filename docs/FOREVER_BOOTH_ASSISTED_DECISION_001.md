@@ -68,7 +68,10 @@ operated by an authenticated Host on behalf of the guest, so guest-facing
 screens carry no separate guest identity; Guide acknowledgement is truthful but
 manual (no WhatsApp API); the flow mode is the one operational fact recorded
 before consent (it is non-personal and is cleared on a no-contact outcome); and
-the migration remains unapplied everywhere except the disposable local harness.
+the Booth migrations are applied to the **dedicated staging project only** —
+`20260725150000_booth_v2_pilot.sql` during the earlier staging gate (at PR head
+`6ecfed8`) and `20260726120000_booth_v2_server_issued_session.sql` at the
+pass 5.1 recheck. **Production has neither** (§0f).
 
 ---
 
@@ -282,6 +285,55 @@ touches the database exactly once.
 
 ---
 
+## 0f. Corrective pass 5.1 (PR #102 — migration lineage restored)
+
+Pass 5 was **correct in code and wrong in delivery**. It applied its database
+changes by rewriting `supabase/migrations/20260725150000_booth_v2_pilot.sql` in
+place, on the stated belief that the file "has never been applied to any
+environment". That belief was false.
+
+**The correct history.** The pilot migration was applied to the **dedicated
+Booth staging Supabase project** during the earlier staging gate, at PR head
+`6ecfed8`. It has **never** been applied to production. The version
+`20260725150000` therefore already exists in staging's migration history.
+
+**Why rewriting it was a defect.** An applied version is history. Editing the
+file behind it produces two different definitions of one version: staging keeps
+the OLD functions (its history says `20260725150000` is done, so nothing
+re-runs), while a freshly provisioned environment gets the NEW ones — and the
+application expects the pass 5 contract from both. That is migration drift, and
+it would have left staging with a creating `booth_ensure_session` under an
+application that no longer supplies a client reference.
+
+| Correction                                                                                | What it means                                                                                                                                                                                                                                          |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `20260725150000_booth_v2_pilot.sql` restored **byte-for-byte** to its `6ecfed8` state     | Git blob `f785adc3181080e6d38695bef1054735a3b37585`. Verifiable with `git rev-parse 6ecfed8:supabase/migrations/20260725150000_booth_v2_pilot.sql`, and pinned by the contract suite so a future edit fails the build.                                 |
+| Every pass 5 database change moved to `20260726120000_booth_v2_server_issued_session.sql` | Drops the four-argument creating ensure, creates `booth_create_session`, creates the non-creating ensure, restates the explicit REVOKE / service_role-only GRANT, keeps `SET search_path = ''`, and records both contracts with `COMMENT ON FUNCTION`. |
+| The additive migration runs **no DML**                                                    | No Booth session, guest record, lead, guide or funnel event is created, updated or deleted when it is applied. It creates no table, column, constraint, trigger, policy or index either.                                                               |
+| **No non-migration pass 5 code was reverted**                                             | The TypeScript boundary, the Navigator, the session type and every behavioural test are exactly as pass 5 left them. Only the delivery of the SQL changed.                                                                                             |
+
+The file header of the applied migration still says it was never applied. It is
+deliberately **not** corrected: correcting it would mean editing an applied
+migration, which is the very thing this pass exists to stop. The new file
+carries the correction, in its header and in this record.
+
+**Proven, not asserted.** `npm run booth:migration-upgrade-test` applies the
+chain in two stages against real PostgreSQL 17: everything through the `6ecfed8`
+Booth schema, then real pre-upgrade data written through the OLD API (an empty
+shell, a fully consented session with a linked lead, and a frozen terminal
+session), then the additive migration **alone**, exactly as `supabase db push`
+would apply it to staging. It asserts the old creating signature existed and is
+gone, that exactly one `booth_ensure_session` overload survives, that the whole
+`booth_sessions` fingerprint and the session/lead/event counts are **unchanged**
+by the upgrade, that pre-upgrade browser-chosen references stay fully operable,
+that creation and the non-creating ensure work, that unknown and foreign
+references refuse without inserting, that service_role keeps EXECUTE while no
+browser role gains it under hostile `DEFAULT PRIVILEGES`, and that a second
+application is a no-op. `npm run studio:pg-test` independently proves the
+fresh-database path: the whole chain applied to an empty cluster.
+
+---
+
 ## 1. Diagnosis of the current implementation
 
 The pre-existing Booth Mode (`/booth`, `src/features/navigator/booth/*`) implements only
@@ -428,7 +480,10 @@ requires a non-blank email — the browser-side website contract is not weakened
 
 ## 9. Structured storage
 
-Migration `supabase/migrations/20260725150000_booth_v2_pilot.sql` (pending; NOT applied):
+Two ordered migrations (§0f). `supabase/migrations/20260725150000_booth_v2_pilot.sql`
+creates everything below and is **applied to dedicated staging, never to
+production**; `supabase/migrations/20260726120000_booth_v2_server_issued_session.sql`
+adds the server-issued session identity on top of it:
 
 - `booth_guides` — operator-maintained roster (name, languages, specializations,
   active, on-duty). **No seed rows** — no staff names or numbers are invented.
@@ -455,11 +510,14 @@ Migration `supabase/migrations/20260725150000_booth_v2_pilot.sql` (pending; NOT 
   goes through it. The assigned Guide's opt-in applies to exactly two functions
   (`booth_acknowledge_guide`, `booth_record_handoff`) and only for their own
   acknowledgement and their own first contact.
-- **Server-issued session identity** (§0e): `booth_create_session(host_user_id,
-host_email, booth_id) returns text` is the ONLY function that inserts into
-  `booth_sessions`. It takes no client reference, mints one with
-  `pg_catalog.gen_random_uuid()`, and has no `ON CONFLICT` clause — a reference it issued
-  must be new. `booth_ensure_session(client_ref, actor)` creates nothing; it delegates
+- **Server-issued session identity** (§0e), installed by the **additive**
+  `20260726120000_booth_v2_server_issued_session.sql`, not by the applied pilot file
+  (§0f): `booth_create_session(host_user_id, host_email, booth_id) returns text` is the
+  ONLY function that inserts into `booth_sessions`. It takes no client reference, mints
+  one with `pg_catalog.gen_random_uuid()`, and has no `ON CONFLICT` clause — a reference
+  it issued must be new. The old four-argument creating
+  `booth_ensure_session(client_ref, host_user_id, host_email, booth_id)` is DROPPED, and
+  the replacement `booth_ensure_session(client_ref, actor)` creates nothing; it delegates
   straight to the ownership gate, so an unknown reference and a foreign one raise the two
   distinct internal exceptions the boundary collapses into one, and neither writes a row.
 - `public.studio_members.can_access_booth` (NOT NULL DEFAULT FALSE) — the explicit
@@ -611,7 +669,9 @@ is declared. Neither discloses a Booth title, description, UI, configuration, st
 or secret. Both residuals are documented in §0c.
 
 **To replace `/booth` later (explicit Owner action, not part of this
-task):** apply the migration to production, configure `BOOTH_WHATSAPP_NUMBER` (+
+task):** apply **both** Booth migrations to production in filename order
+(`20260725150000_booth_v2_pilot.sql`, then
+`20260726120000_booth_v2_server_issued_session.sql`), configure `BOOTH_WHATSAPP_NUMBER` (+
 optionally `BOOTH_FX_RATES_JSON`, `BOOTH_ID`), enter real Guides into `booth_guides`,
 verify the pilot on `/booth-v2`, then point `src/routes/booth.tsx` at `BoothV2Navigator`
 (or delete the legacy shell) in a reviewed PR.
@@ -624,9 +684,17 @@ verify the pilot on `/booth-v2`, then point `src/routes/booth.tsx` at `BoothV2Na
   directions (fail-closed dimensions, FX on/off, no fabricated trade-offs, typed
   unknowns, freshness); contact + consents; WhatsApp fail-closed config; Guide
   suggestion/blocks.
-- Migration text contract: RLS + service_role-only grants, no policies on booth tables,
-  leads policy untouched, shortlist/funnel/completion CHECKs, funnel vocabulary
+- Migration text contract (`booth-v2-migration-contract.test.ts`): reads the **ordered
+  chain**, not one file. Per-file it pins the applied pilot migration's git blob so an
+  edit to applied history fails the build, and holds the additive migration to exactly
+  two functions, one dropped signature, no schema surgery, no DML and none but
+  idempotent statements. End-state (last `CREATE OR REPLACE` wins) it proves RLS +
+  service_role-only grants at each function's **final** signature, no policies on booth
+  tables, leads policy untouched, shortlist/funnel/completion CHECKs, funnel vocabulary
   lockstep, no seeds, no phone numbers, no rates.
+- **Migration upgrade path** (`npm run booth:migration-upgrade-test`): the two-stage
+  real-PostgreSQL harness described in §0f — the staging schema upgraded in place by the
+  additive migration alone, with the pre-upgrade row fingerprint asserted unchanged.
 - UI suite: Quick flow → summary → directions → contact → verification → assignment →
   SLA timers → next step → truthful completion; consent enforcement; duplicate-submit
   guard; unconfigured-WhatsApp fail-closed; no-contact path; guarded reset privacy;
@@ -656,7 +724,8 @@ verify the pilot on `/booth-v2`, then point `src/routes/booth.tsx` at `BoothV2Na
   disjoint from the server-only set, the endpoint's real zod schema and the service
   allowlist both refuse every transition event with zero database work, and an unknown vs
   foreign session refusal is indistinguishable on the wire.
-- **Server-issued session identity** (§0e): the migration-contract suite pins that
+- **Server-issued session identity** (§0e): the migration-contract suite pins, against
+  the end state of the whole chain, that
   `booth_create_session` accepts no `p_client_ref`, mints
   `pg_catalog.gen_random_uuid()`, inserts exactly once with no `ON CONFLICT`, and is the
   ONLY function that inserts into `booth_sessions`; the service suite pins that the
@@ -666,7 +735,8 @@ verify the pilot on `/booth-v2`, then point `src/routes/booth.tsx` at `BoothV2Na
   replays exactly the issued reference everywhere, stays retryable on a failed create,
   and generates no reference of its own.
 - Real database: `npm run studio:pg-test` applies the full committed migration chain
-  (including the booth migration) to a disposable PostgreSQL cluster. It additionally
+  (both booth migrations included, in filename order) to a disposable PostgreSQL
+  cluster — the fresh-environment path. It additionally
   proves `booth_record_event` refuses every transition event **before inserting
   anything**, even for a direct `service_role` caller that has bypassed all three
   application layers, while the legitimate atomic RPCs still emit those events. It also

@@ -11,13 +11,10 @@
  * Exits 0 on success, non-zero on the first failed assertion or apply error.
  */
 
-import { execFile, execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
+import { createCluster, errorText, sleep } from "./pg-cluster.mjs";
 
 const REPO = process.cwd();
 const MIGRATIONS_DIR = join(REPO, "supabase", "migrations");
@@ -33,91 +30,8 @@ const BOOTH_SUITE = join(
   "booth.postgres.sql",
 );
 
-function findBinDir() {
-  for (const base of ["/usr/lib/postgresql", "/usr/pgsql", "/opt/homebrew/opt"]) {
-    if (!existsSync(base)) continue;
-    for (const entry of readdirSync(base).sort().reverse()) {
-      const bin = join(base, entry, "bin");
-      if (existsSync(join(bin, "initdb")) && existsSync(join(bin, "pg_ctl"))) return bin;
-    }
-  }
-  // Fall back to PATH.
-  return "";
-}
-
-const BIN = findBinDir();
-const bin = (name) => (BIN ? join(BIN, name) : name);
-const WINDOWS = process.platform === "win32";
-const work = mkdtempSync(join(tmpdir(), "forever-studio-pg-"));
-const data = join(work, "data");
-// PostgreSQL on Windows does not support the Unix-domain socket setup used by
-// the POSIX runner. Keep the disposable cluster loopback-only instead.
-const HOST = WINDOWS ? "127.0.0.1" : work;
-const PORT = WINDOWS ? process.env.STUDIO_PG_PORT || "55432" : "";
-// Detached Windows postgres children inherit pg_ctl's output handles. Avoid
-// pipe handles there so execFileSync can return once pg_ctl reports ready.
-const PG_CTL_OPTIONS = WINDOWS ? { stdio: "ignore" } : {};
-
-// PostgreSQL refuses to run as root. When invoked as root (CI/containers),
-// run the cluster commands as an unprivileged user (default: postgres).
-const RUN_AS =
-  process.env.STUDIO_PG_USER || (process.getuid && process.getuid() === 0 ? "postgres" : "");
-
-let started = false;
-
-if (RUN_AS) {
-  // The unprivileged user must own the cluster + socket directory.
-  execFileSync("chown", ["-R", `${RUN_AS}:${RUN_AS}`, work]);
-  execFileSync("chmod", ["777", work]);
-}
-
-function run(cmd, args, opts = {}) {
-  if (RUN_AS) {
-    return execFileSync("runuser", ["-u", RUN_AS, "--", cmd, ...args], {
-      stdio: "pipe",
-      encoding: "utf8",
-      ...opts,
-    });
-  }
-  return execFileSync(cmd, args, { stdio: "pipe", encoding: "utf8", ...opts });
-}
-
-function psqlArgs(extra) {
-  return [
-    "-h",
-    HOST,
-    ...(WINDOWS ? ["-p", PORT] : []),
-    "-U",
-    "postgres",
-    "-d",
-    "postgres",
-    "-v",
-    "ON_ERROR_STOP=1",
-    "-q",
-    ...extra,
-  ];
-}
-
-function psql(file) {
-  return run(bin("psql"), psqlArgs(["-f", file]));
-}
-
-function psqlSql(sql) {
-  return run(bin("psql"), psqlArgs(["-c", sql]));
-}
-
-/** A SECOND live session (async), for real cross-session concurrency probes. */
-function psqlSqlAsync(sql) {
-  const args = psqlArgs(["-c", sql]);
-  if (RUN_AS) {
-    return execFileAsync("runuser", ["-u", RUN_AS, "--", bin("psql"), ...args], {
-      encoding: "utf8",
-    });
-  }
-  return execFileAsync(bin("psql"), args, { encoding: "utf8" });
-}
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const cluster = createCluster({ prefix: "forever-studio-pg-" });
+const { psql, psqlSql, psqlSqlAsync } = cluster;
 
 /**
  * Concurrency probes for studio_index_archive_entries (exact inventory
@@ -204,9 +118,7 @@ async function concurrencyProbes() {
   try {
     await psqlSqlAsync(`SET ROLE service_role; ${indexCall(PA2, "evil.bin")};`);
   } catch (error) {
-    conflictRejected = /studio_archive_entries_conflict/.test(
-      String(error.stderr ?? "") + String(error.stdout ?? "") + String(error.message ?? ""),
-    );
+    conflictRejected = /studio_archive_entries_conflict/.test(errorText(error));
     if (!conflictRejected) throw error;
   }
   await sessionA2;
@@ -323,9 +235,7 @@ async function boothConcurrencyProbes() {
   try {
     await psqlSqlAsync(`SET ROLE service_role; ${consentCall(OWNED_REF, OTHER_HOST_ID)};`);
   } catch (error) {
-    intruderRefused = /booth_session_forbidden/.test(
-      String(error.stderr ?? "") + String(error.stdout ?? "") + String(error.message ?? ""),
-    );
+    intruderRefused = /booth_session_forbidden/.test(errorText(error));
     if (!intruderRefused) throw error;
   }
   const intruderElapsed = Date.now() - intruderStart;
@@ -428,24 +338,7 @@ async function boothConcurrencyProbes() {
 }
 
 try {
-  run(bin("initdb"), ["-D", data, "-U", "postgres", "--auth=trust", "-E", "UTF8"]);
-  run(
-    bin("pg_ctl"),
-    [
-      "-D",
-      data,
-      "-o",
-      WINDOWS
-        ? `-h ${HOST} -p ${PORT} -c fsync=off -c synchronous_commit=off`
-        : `-k ${work} -c listen_addresses='' -c fsync=off -c synchronous_commit=off`,
-      "-w",
-      "-l",
-      join(work, "log"),
-      "start",
-    ],
-    PG_CTL_OPTIONS,
-  );
-  started = true;
+  cluster.start();
 
   console.log("[studio-pg] applying bootstrap prerequisites");
   psql(BOOTSTRAP);
@@ -493,12 +386,5 @@ try {
   console.error("[studio-pg] FAIL\n" + detail);
   process.exitCode = 1;
 } finally {
-  if (started) {
-    try {
-      run(bin("pg_ctl"), ["-D", data, "-w", "-m", "immediate", "stop"], PG_CTL_OPTIONS);
-    } catch {
-      /* best effort */
-    }
-  }
-  rmSync(work, { recursive: true, force: true });
+  cluster.dispose();
 }
