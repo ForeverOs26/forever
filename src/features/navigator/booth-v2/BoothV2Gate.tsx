@@ -1,14 +1,25 @@
 /**
  * Booth Mode 2.0 access gate.
  *
- * `noindex` is not access control, so the pilot shell only renders after the
- * SERVER confirms both conditions (pilot explicitly enabled AND an active
- * Forever staff account). The probe is the same gated endpoint every other
- * Booth call uses, so a refusal here means every endpoint would refuse too.
+ * `noindex` is not access control, so nothing about the pilot renders until the
+ * SERVER has spoken. The order is deliberate and is what makes the
+ * default-disabled route TRUTHFUL (PR #102 corrective item 9):
  *
- * When the browser holds no Supabase session we show the staff sign-in form;
- * in every other refusal we render the application's normal not-found
- * boundary, so a signed-in non-member cannot tell the pilot exists at all.
+ *   1. ask the server whether this deployment has enabled the pilot at all.
+ *      While it has not, /booth-v2 renders the application's ordinary
+ *      not-found boundary for EVERY visitor — including a signed-out one. A
+ *      disabled deployment therefore never shows a Forever Booth login form,
+ *      and the page is indistinguishable from a URL that does not exist;
+ *   2. only once the pilot is known to be enabled does a visitor without a
+ *      Supabase session see the staff sign-in form;
+ *   3. a signed-in caller is then checked against the same gated endpoint every
+ *      other Booth call uses — active staff membership AND the explicit Booth
+ *      capability. Any refusal renders the same not-found boundary, so a
+ *      signed-in account without the capability cannot tell the pilot exists.
+ *
+ * Every step fails closed: a network error, a thrown probe or an unexpected
+ * shape all land on the not-found boundary. This gate is presentation only —
+ * every operational endpoint is independently gated on the server.
  */
 
 import { useEffect, useState } from "react";
@@ -19,7 +30,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { NotFoundComponent } from "@/routes/__root";
 
-import { boothV2GetAccess } from "./booth-v2.functions";
+import { boothV2GetAccess, boothV2GetRouteAvailability } from "./booth-v2.functions";
 import { BoothV2Navigator } from "./BoothV2Navigator";
 
 type GateState =
@@ -34,20 +45,37 @@ export function BoothV2Gate() {
   useEffect(() => {
     let active = true;
     async function check() {
+      // 1. Deployment enablement FIRST — before any sign-in surface exists.
+      try {
+        const availability = await boothV2GetRouteAvailability();
+        if (!active) return;
+        if (availability?.available !== true) {
+          setState({ status: "denied" });
+          return;
+        }
+      } catch {
+        if (!active) return;
+        setState({ status: "denied" });
+        return;
+      }
+
+      // 2. The pilot is enabled: a signed-out visitor may sign in.
       const { data } = await supabase.auth.getSession();
       if (!active) return;
       if (!data.session) {
         setState({ status: "signed_out" });
         return;
       }
+
+      // 3. Signed in: the server decides, opaquely.
       try {
         const access = await boothV2GetAccess();
         if (!active) return;
         setState({ status: "granted", hostName: access.hostName });
       } catch {
         if (!active) return;
-        // Disabled pilot, non-member, disabled membership, or any other
-        // refusal — all indistinguishable, all fail closed.
+        // Non-member, disabled membership, missing Booth capability, or any
+        // other refusal — all indistinguishable, all fail closed.
         setState({ status: "denied" });
       }
     }

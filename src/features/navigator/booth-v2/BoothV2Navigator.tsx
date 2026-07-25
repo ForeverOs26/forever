@@ -70,17 +70,17 @@ import { useBoothV2Session } from "./useBoothV2Session";
 import {
   boothV2AcknowledgeGuide,
   boothV2AssignGuide,
+  boothV2CommitConsent,
   boothV2CompleteSession,
-  boothV2ConfirmProfile,
   boothV2ConfirmWhatsappVerification,
   boothV2EnsureSession,
   boothV2GetConfig,
   boothV2ListGuides,
+  boothV2MarkProfileConfirmed,
   boothV2RecordEvent,
   boothV2RecordHandoff,
-  boothV2SaveContact,
-  boothV2SetShortlist,
   boothV2StartWhatsappVerification,
+  boothV2ValidateShortlist,
 } from "./booth-v2.functions";
 
 function SectionHeading({ eyebrow, title }: { eyebrow: string; title: string }) {
@@ -276,22 +276,28 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
 
   function chooseMode(mode: "quick" | "full") {
     dispatch({ type: "chooseMode", mode });
-    void recordEventOnce("profile_started");
+    // The mode travels as the funnel event's step, so quick-vs-full stays
+    // measurable without the session row retaining anything about the guest.
+    void recordEventOnce("profile_started", mode);
   }
 
+  /**
+   * Confirming the profile does NOT persist it. The server re-runs the strict
+   * schema (so a malformed or tampered payload is caught here rather than at
+   * the contact step) and records only the non-personal funnel fact; the
+   * profile itself stays in this tablet's local session until the guest gives
+   * the consultation consent.
+   */
   async function confirmProfile() {
     const profile = buildProfileFromDraft(session, fx, new Date().toISOString());
     if (!profile) return;
     try {
-      // The server confirms the profile (and emits profile_confirmed inside
-      // the same transaction) BEFORE the tablet moves on, so the structured
-      // record and the screen can never disagree.
-      await boothV2ConfirmProfile({ data: { clientRef: session.clientRef, profile } });
+      await boothV2MarkProfileConfirmed({ data: { clientRef: session.clientRef, profile } });
       dispatch({ type: "confirmProfile", profile });
     } catch {
       setToast({
         tone: "error",
-        message: "We couldn't save the Decision Profile. Please try again.",
+        message: "We couldn't confirm the Decision Profile. Please try again.",
       });
     }
   }
@@ -299,7 +305,9 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
   async function syncShortlistAndContinue() {
     dispatch({ type: "continueToContact" });
     try {
-      await boothV2SetShortlist({
+      // Validation only: proves every selected direction is a real project.
+      // The selection is persisted by the consent transaction, not here.
+      await boothV2ValidateShortlist({
         data: {
           clientRef: session.clientRef,
           entries: session.shortlist.entries,
@@ -307,30 +315,31 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
         },
       });
     } catch {
-      // Shortlist syncs again implicitly through the saved contact summary.
+      // A stale direction surfaces again at the consent step, which refuses it.
     }
   }
 
+  /**
+   * THE consent boundary. The confirmed profile and the shortlist are sent HERE
+   * — with the contact bundle and the guest's acknowledgement — because none of
+   * them has been persisted before this moment. The server writes all of it,
+   * the consent and exactly one lead in a single transaction.
+   */
   async function handleContactSubmit() {
     if (submitting) return;
+    if (!session.confirmedProfile) return;
     setFailedBanner(null);
     setSubmitting(true);
     try {
-      // Re-confirm profile + shortlist first so the structured record is
-      // complete even if an earlier background sync failed.
-      if (session.confirmedProfile) {
-        await boothV2ConfirmProfile({
-          data: { clientRef: session.clientRef, profile: session.confirmedProfile },
-        }).catch(() => undefined);
-      }
-      await boothV2SetShortlist({
+      await boothV2CommitConsent({
         data: {
           clientRef: session.clientRef,
+          profile: session.confirmedProfile,
           entries: session.shortlist.entries,
           guidePrepares: session.shortlist.guidePrepares,
+          contact,
         },
-      }).catch(() => undefined);
-      await boothV2SaveContact({ data: { clientRef: session.clientRef, contact } });
+      });
       dispatch({ type: "contactSaved", at: new Date().toISOString() });
     } catch {
       setFailedBanner(
@@ -343,8 +352,10 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
 
   async function declineContact() {
     dispatch({ type: "declineContact" });
-    // The server clears every stored field, deletes any lead created for this
-    // session, and emits qr_continuation — all in one transaction.
+    // Nothing about the guest was ever persisted before consent, so there is
+    // usually nothing to erase; the server still clears anything a corrected
+    // earlier consent had stored, deletes any lead for this session, and emits
+    // qr_continuation — all in one transaction.
     try {
       await boothV2CompleteSession({
         data: { clientRef: session.clientRef, outcome: "no_contact_qr" },

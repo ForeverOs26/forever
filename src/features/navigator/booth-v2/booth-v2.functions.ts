@@ -1,11 +1,22 @@
 /**
  * Booth Mode 2.0 — server function endpoints (pilot).
  *
- * EVERY endpoint runs behind requireBoothStaff: the pilot must be explicitly
- * enabled on this deployment (BOOTH_V2_ENABLED, default off) AND the caller
- * must hold an active row in the existing public.studio_members staff roster.
- * There is no unauthenticated Booth operation and no client-supplied Host
- * identity — the Host is the authenticated account itself.
+ * EVERY OPERATIONAL endpoint runs behind requireBoothStaff: the pilot must be
+ * explicitly enabled on this deployment (BOOTH_V2_ENABLED, default off), the
+ * caller must hold an ACTIVE row in the existing public.studio_members staff
+ * roster, AND that row must carry the explicit `can_access_booth` capability.
+ * There is no client-supplied Host identity — the Host is the authenticated
+ * account itself — and each endpoint is gated independently, so no screen or
+ * route decision can substitute for the boundary.
+ *
+ * THE ONE DELIBERATE EXCEPTION is `boothV2GetRouteAvailability`: an
+ * unauthenticated probe that returns a single boolean, whether this deployment
+ * has enabled the pilot at all. It exists because item 9 requires /booth-v2 to
+ * render the ordinary not-found boundary for a SIGNED-OUT visitor while the
+ * pilot is disabled — which the browser cannot know before asking the server.
+ * It discloses nothing beyond what an enabled deployment already reveals by
+ * showing a staff sign-in form, touches no session, reads no database, and
+ * grants nothing.
  *
  * Handlers dynamically import the server module so no service-role code can
  * reach the client bundle; this file carries only wiring and zod validation.
@@ -17,6 +28,10 @@ import { z } from "zod";
 import { requireBoothStaff } from "./booth-auth";
 
 const clientRefSchema = z.string().min(8).max(80);
+
+const shortlistEntriesSchema = z
+  .array(z.object({ slug: z.string().min(1).max(200), mentionedByGuest: z.boolean() }).strict())
+  .max(4);
 
 const contactSchema = z
   .object({
@@ -34,9 +49,21 @@ const contactSchema = z
   .strict();
 
 /**
+ * Deployment availability probe — UNAUTHENTICATED BY DESIGN (see the file
+ * header). Returns exactly one boolean and nothing else: no session, no
+ * database read, no actor, no configuration. When the pilot is disabled the
+ * route renders the ordinary not-found boundary for every visitor, signed in
+ * or not, so a disabled deployment never shows a Forever Booth login form.
+ */
+export const boothV2GetRouteAvailability = createServerFn({ method: "GET" }).handler(async () => {
+  const { isBoothV2Enabled } = await import("./server/access");
+  return { available: isBoothV2Enabled() };
+});
+
+/**
  * Access probe for the route shell. It is gated exactly like every other
- * endpoint, so a refusal is indistinguishable from "no such page": it returns
- * only whether this caller may operate the booth, never why not.
+ * operational endpoint, so a refusal is indistinguishable from "no such page":
+ * it returns only whether this caller may operate the booth, never why not.
  */
 export const boothV2GetAccess = createServerFn({ method: "GET" })
   .middleware([requireBoothStaff])
@@ -84,7 +111,13 @@ export const boothV2RecordEvent = createServerFn({ method: "POST" })
     );
   });
 
-export const boothV2ConfirmProfile = createServerFn({ method: "POST" })
+/**
+ * Validation only — this endpoint persists NOTHING about the guest. It proves
+ * the confirmed profile satisfies the canonical strict schema and records the
+ * non-personal funnel fact plus the flow mode. The profile itself stays on the
+ * tablet until the guest consents.
+ */
+export const boothV2MarkProfileConfirmed = createServerFn({ method: "POST" })
   .middleware([requireBoothStaff])
   .validator(
     z
@@ -97,38 +130,60 @@ export const boothV2ConfirmProfile = createServerFn({ method: "POST" })
       .strict(),
   )
   .handler(async ({ data, context }) => {
-    const { confirmProfile, runBoothEndpoint } = await import("./server/service");
+    const { markProfileConfirmed, runBoothEndpoint } = await import("./server/service");
     return runBoothEndpoint("profile_confirm", () =>
-      confirmProfile(context.actor, { clientRef: data.clientRef, profile: data.profile }),
+      markProfileConfirmed(context.actor, { clientRef: data.clientRef, profile: data.profile }),
     );
   });
 
-export const boothV2SetShortlist = createServerFn({ method: "POST" })
+/** Validation only — the shortlist is persisted by the consent transaction. */
+export const boothV2ValidateShortlist = createServerFn({ method: "POST" })
   .middleware([requireBoothStaff])
   .validator(
     z
       .object({
         clientRef: clientRefSchema,
-        entries: z
-          .array(
-            z.object({ slug: z.string().min(1).max(200), mentionedByGuest: z.boolean() }).strict(),
-          )
-          .max(4),
+        entries: shortlistEntriesSchema,
         guidePrepares: z.boolean(),
       })
       .strict(),
   )
   .handler(async ({ data, context }) => {
-    const { setShortlist, runBoothEndpoint } = await import("./server/service");
-    return runBoothEndpoint("shortlist", () => setShortlist(context.actor, data));
+    const { validateShortlistSelection, runBoothEndpoint } = await import("./server/service");
+    return runBoothEndpoint("shortlist", () => validateShortlistSelection(context.actor, data));
   });
 
-export const boothV2SaveContact = createServerFn({ method: "POST" })
+/**
+ * THE consent boundary. The confirmed profile and the shortlist travel WITH the
+ * contact bundle because none of them has been persisted before this moment;
+ * the server writes them, the consent and exactly one lead in one transaction.
+ */
+export const boothV2CommitConsent = createServerFn({ method: "POST" })
   .middleware([requireBoothStaff])
-  .validator(z.object({ clientRef: clientRefSchema, contact: contactSchema }).strict())
+  .validator(
+    z
+      .object({
+        clientRef: clientRefSchema,
+        profile: z.unknown(),
+        entries: shortlistEntriesSchema,
+        guidePrepares: z.boolean(),
+        contact: contactSchema,
+      })
+      .strict(),
+  )
   .handler(async ({ data, context }) => {
-    const { saveContact, runBoothEndpoint } = await import("./server/service");
-    return runBoothEndpoint("contact", () => saveContact(context.actor, data));
+    const { commitConsent, runBoothEndpoint } = await import("./server/service");
+    return runBoothEndpoint("consent", () =>
+      commitConsent(context.actor, {
+        clientRef: data.clientRef,
+        // A missing profile is simply an invalid one: the strict schema
+        // refuses it, so consent can never be committed without it.
+        profile: data.profile,
+        entries: data.entries,
+        guidePrepares: data.guidePrepares,
+        contact: data.contact,
+      }),
+    );
   });
 
 export const boothV2StartWhatsappVerification = createServerFn({ method: "POST" })

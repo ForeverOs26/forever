@@ -1,45 +1,97 @@
 -- ============================================================================
 -- FOREVER BOOTH MODE 2.0 — PILOT MIGRATION DRAFT (pending; NOT applied)
 --
--- FOREVER-BOOTH-ASSISTED-DECISION-001 + PR #102 corrective pass 1.
+-- FOREVER-BOOTH-ASSISTED-DECISION-001 + PR #102 corrective passes 1 and 2.
 -- This file has never been applied to any environment (it is unmerged and
--- unapplied), so the corrective pass rewrites it IN PLACE rather than layering
+-- unapplied), so each corrective pass rewrites it IN PLACE rather than layering
 -- a second migration on an imaginary applied state. It is exercised only by
 -- the disposable PostgreSQL harness (npm run studio:pg-test).
 --
--- TRUST MODEL (corrective pass 1)
+-- TRUST MODEL
 --   The booth tablet is NOT an anonymous kiosk. Every Booth V2 server function
---   runs behind an authenticated, active Forever staff identity
---   (public.studio_members — the existing staff roster; no second identity
---   system is introduced) AND a default-disabled server-side enablement flag.
---   These tables therefore carry NO anonymous or authenticated grants at all:
---   RLS is enabled with no policies, every privilege is explicitly REVOKEd
---   from PUBLIC / anon / authenticated, and only service_role — reachable
---   solely through the authenticated server boundary — may touch them.
+--   runs behind an authenticated staff identity that holds an ACTIVE row in
+--   public.studio_members (the existing staff roster; no second identity system
+--   is introduced) AND the explicit least-privilege capability
+--   studio_members.can_access_booth, AND a default-disabled server-side
+--   enablement flag. Active membership alone is NOT sufficient. No user
+--   receives the capability automatically and no staff row is seeded here.
+--   The booth tables carry NO anonymous or authenticated grants at all: RLS is
+--   enabled with no policies, every privilege is explicitly REVOKEd from
+--   PUBLIC / anon / authenticated, and only service_role — reachable solely
+--   through the authenticated server boundary — may touch them.
+--
+-- CONSENT BOUNDARY (corrective pass 2, item 1)
+--   NOTHING about the guest is persisted before the guest gives the required
+--   acknowledgement (permission to save the Decision Profile and provide the
+--   requested consultation). Before that moment the server stores only the
+--   minimum operational session shell: a random client reference, the
+--   authorized Host, the booth identifier, the flow mode, and non-personal
+--   funnel events. The confirmed Decision Profile and the shortlist live ONLY
+--   in the tablet's versioned local session until consent. This is enforced by
+--   the database itself (booth_sessions_pre_consent_minimal), not only by the
+--   application: a row without consultation_consent physically cannot carry a
+--   profile, a shortlist, answers, a note, a language, contact data, or a lead.
+--   booth_commit_consent is the ONE locked operation that turns consent into
+--   persisted truth: profile + shortlist + contact bundle + consent + exactly
+--   one lead + the funnel facts, atomically.
+--
+-- SESSION OWNERSHIP (corrective pass 2, item 4)
+--   Knowing a client_ref is not authorization. Every session RPC takes the
+--   acting staff account and refuses unless booth_sessions.host_user_id equals
+--   it. The single exception is deliberately narrow: the session's currently
+--   assigned Guide, matched through booth_guides.staff_user_id, may confirm
+--   THEIR OWN acknowledgement and THEIR OWN first contact — nothing else. A
+--   Guide can never edit the profile, shortlist, contact, consent, WhatsApp
+--   verification, Guide assignment or completion. booth_ensure_session is
+--   idempotent for the same Host and refuses deterministically for a different
+--   Host; ownership is never transferred silently.
+--
+-- TERMINAL IMMUTABILITY (corrective pass 2, item 6)
+--   Once a session reaches contacted_complete, no_contact_qr or abandoned it is
+--   frozen at the DATABASE level by booth_sessions_freeze_terminal — even a
+--   direct service_role UPDATE is refused. Every transition RPC additionally
+--   requires outcome = 'active'; the only accepted terminal calls are an exact
+--   idempotent replay of the already-established outcome (which performs no
+--   write at all) and the documented read-mostly booth_ensure_session.
+--
+-- NO-CONTACT DATA MINIMIZATION (corrective pass 2, item 2)
+--   STRATEGY: clear-in-place, not delete. A no_contact_qr session is retained
+--   as an ANONYMOUS funnel shell so pilot conversion can be measured honestly,
+--   and booth_complete_session atomically clears every guest-specific value:
+--   profile, profile version, confirmation timestamp, flow mode, shortlist and
+--   its mode, every contact field, preferred language, both consents, the
+--   WhatsApp state and all its evidence, the Guide assignment and reserve,
+--   every acknowledgement/first-contact actor and method, the fallback reason,
+--   the scheduled instant and its timezone, and the next step; any lead created
+--   for the session is DELETED and unlinked. What may remain is only: a random
+--   session identity, Host/booth attribution, timestamps, the no_contact_qr
+--   outcome, and non-personal funnel events. booth_sessions_no_contact_retains_nothing
+--   proves every one of those fields is clear.
 --
 -- WHAT THIS MIGRATION DOES — exact, in order:
---   1. booth_guides — operator-maintained Guide roster, optionally linked to an
+--   1. public.studio_members gains can_access_booth (NOT NULL DEFAULT FALSE).
+--      Purely additive: no existing row's Studio behaviour changes, and every
+--      existing and future member starts WITHOUT Booth access.
+--   2. booth_guides — operator-maintained Guide roster, optionally linked to an
 --      auth user so a Guide can confirm their own acknowledgement. NO seed rows.
---   2. booth_sessions — the authoritative structured record: versioned
---      confirmed Decision Profile, server-derived Host identity, shortlist
---      (0–4), an all-or-nothing contact bundle with format checks, separate
---      consents, manual WhatsApp verification, Guide assignment with attributed
---      acknowledgement/first-contact, a STRUCTURED consultation instant
---      (TIMESTAMPTZ), truthful completion gates, and a UNIQUE lead link.
---   3. booth_funnel_events — once-only structured pilot events.
---   4. Atomic SECURITY DEFINER RPCs (service_role EXECUTE only, search_path='')
---      so contact+lead creation, verification, assignment, handoff and
---      completion are single transactions with the session row locked — a
---      retry can never create a second lead or a partial state.
---   5. public.leads: email becomes nullable with a NULL-tolerant format CHECK
+--   3. booth_sessions — the authoritative structured record, with the consent
+--      boundary, the ownership column, the truthful completion gates, the
+--      no-contact minimization gate and a UNIQUE lead link.
+--   4. booth_funnel_events — once-only structured pilot events.
+--   5. The terminal-immutability trigger.
+--   6. Atomic SECURITY DEFINER RPCs (service_role EXECUTE only, search_path='')
+--      so consent, verification, assignment, handoff and completion are single
+--      transactions with the session row locked and ownership proven.
+--   7. public.leads: email becomes nullable with a NULL-tolerant format CHECK
 --      so the trusted server can mirror a booth lead that has no email. The
 --      anonymous INSERT policy is NOT modified: it still requires a non-blank
 --      email, so the website's browser-side contract is unchanged and a
 --      NULL-email lead can only originate from the trusted server boundary.
 --
 -- ROLLBACK TRUTH: see the DOWN reference at the end. The booth objects are new;
--- dropping them destroys only pilot data. Restoring leads.email NOT NULL is
--- safe only after verifying no NULL-email rows exist.
+-- dropping them destroys only pilot data. studio_members.can_access_booth is an
+-- additive column. Restoring leads.email NOT NULL is safe only after verifying
+-- no NULL-email rows exist.
 --
 -- The static suite
 -- src/features/navigator/core/v2/booth-v2-migration-contract.test.ts pins this
@@ -50,7 +102,25 @@
 BEGIN;
 
 -- ----------------------------------------------------------------------------
--- 1. booth_guides — operator-maintained roster (NO seed data)
+-- 1. studio_members — an EXPLICIT, least-privilege Booth capability
+--
+--    Reuses the existing staff roster rather than introducing a second identity
+--    table. Active membership is deliberately NOT sufficient for Booth: this
+--    column must additionally be TRUE. It defaults to FALSE, so this migration
+--    grants Booth access to nobody — not even the Owner. Turning it on for a
+--    real operator is a separate, controlled staging action taken by the Owner.
+--    Nothing else about studio_members changes, so every existing Studio
+--    authorization path behaves exactly as before.
+-- ----------------------------------------------------------------------------
+
+ALTER TABLE public.studio_members
+  ADD COLUMN IF NOT EXISTS can_access_booth BOOLEAN NOT NULL DEFAULT FALSE;
+
+COMMENT ON COLUMN public.studio_members.can_access_booth IS
+  'Least-privilege Booth Mode 2.0 capability. Booth requires is_active AND this flag; Studio ignores it.';
+
+-- ----------------------------------------------------------------------------
+-- 2. booth_guides — operator-maintained roster (NO seed data)
 -- ----------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS public.booth_guides (
@@ -59,8 +129,10 @@ CREATE TABLE IF NOT EXISTS public.booth_guides (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   display_name TEXT NOT NULL,
   -- Optional link to an authenticated staff account: when present, that Guide
-  -- can confirm their OWN acknowledgement ('guide_self_confirmed'); otherwise
-  -- only a disclosed Host observation is possible.
+  -- can confirm their OWN acknowledgement and first contact
+  -- ('guide_self_confirmed'); otherwise only a disclosed Host observation is
+  -- possible. This link is also the ONLY route by which a non-Host staff
+  -- account may touch a session at all, and then only for those two facts.
   staff_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   languages TEXT[] NOT NULL DEFAULT '{}',
   specializations TEXT[] NOT NULL DEFAULT '{}',
@@ -76,7 +148,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS booth_guides_staff_user_id_key
 ALTER TABLE public.booth_guides ENABLE ROW LEVEL SECURITY;
 
 -- ----------------------------------------------------------------------------
--- 2. booth_sessions — authoritative structured Booth V2 session record
+-- 3. booth_sessions — authoritative structured Booth V2 session record
 -- ----------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS public.booth_sessions (
@@ -86,18 +158,25 @@ CREATE TABLE IF NOT EXISTS public.booth_sessions (
 
   -- Idempotency: the tablet generates one random reference per guest session;
   -- every server write upserts on it, so retries never duplicate a session.
+  -- A client_ref is an idempotency key, NEVER a capability: every RPC also
+  -- proves the caller owns the session.
   client_ref TEXT NOT NULL UNIQUE,
   CONSTRAINT booth_sessions_client_ref_not_empty CHECK (length(btrim(client_ref)) > 0),
 
   -- Host identity is SERVER-DERIVED from the authenticated staff account that
-  -- opened the session. There is no client-supplied host label anywhere.
+  -- opened the session. There is no client-supplied host label anywhere, and
+  -- this column is the ownership anchor for every subsequent transition.
   host_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
   host_email TEXT,
   booth_id TEXT NOT NULL DEFAULT 'unconfigured',
 
-  -- Versioned confirmed Decision Profile. The jsonb payload is authoritative;
-  -- profile_version lets consumers fail closed on obsolete payloads.
+  -- Flow mode is part of the pre-consent operational shell (which journey the
+  -- Host opened); the profile CONTENT is not.
   flow_mode TEXT CHECK (flow_mode IN ('quick', 'full')),
+
+  -- Versioned confirmed Decision Profile. Persisted ONLY at consent. The jsonb
+  -- payload is authoritative; profile_version lets consumers fail closed on
+  -- obsolete payloads.
   profile JSONB,
   profile_version INTEGER,
   profile_confirmed_at TIMESTAMPTZ,
@@ -107,6 +186,7 @@ CREATE TABLE IF NOT EXISTS public.booth_sessions (
   ),
 
   -- Shortlist of ZERO to FOUR directions — enforced here, not only in the UI.
+  -- Persisted ONLY at consent.
   shortlist JSONB NOT NULL DEFAULT '[]'::jsonb,
   shortlist_mode TEXT NOT NULL DEFAULT 'none'
     CHECK (shortlist_mode IN ('none', 'guest_selected', 'guide_prepares')),
@@ -119,8 +199,9 @@ CREATE TABLE IF NOT EXISTS public.booth_sessions (
   ),
 
   -- Preferred language is a PROFILE fact captured before the Decision Summary,
-  -- so it may exist before any contact data. It must agree with the confirmed
-  -- profile payload (checked below) and is cleared on a no-contact outcome.
+  -- so it travels with the confirmed profile at consent. It must agree with the
+  -- persisted profile payload (checked below) and is cleared on a no-contact
+  -- outcome.
   preferred_language TEXT,
 
   -- Light contact bundle: present as a WHOLE or not at all (checked below).
@@ -133,10 +214,33 @@ CREATE TABLE IF NOT EXISTS public.booth_sessions (
   host_note TEXT,
 
   -- Two DELIBERATELY separate consents. Consultation consent is the required
-  -- acknowledgement; marketing is opt-in only and defaults to FALSE.
+  -- acknowledgement and the gate for ALL guest persistence; marketing is
+  -- opt-in only and defaults to FALSE.
   consultation_consent BOOLEAN NOT NULL DEFAULT FALSE,
   consent_recorded_at TIMESTAMPTZ,
   marketing_opt_in BOOLEAN NOT NULL DEFAULT FALSE,
+
+  -- THE CONSENT BOUNDARY, enforced by the database.
+  -- Without the consultation consent this row may hold ONLY the operational
+  -- shell: identity, Host/booth attribution, flow mode, outcome, abandonment
+  -- context and timestamps. No profile, no shortlist, no answers, no note, no
+  -- language, no contact data, no lead. A bug in the application layer cannot
+  -- write guest data ahead of consent, because this CHECK would reject it.
+  CONSTRAINT booth_sessions_pre_consent_minimal CHECK (
+    consultation_consent
+    OR (
+      profile IS NULL
+      AND profile_version IS NULL
+      AND profile_confirmed_at IS NULL
+      AND jsonb_array_length(shortlist) = 0
+      AND shortlist_mode = 'none'
+      AND preferred_language IS NULL
+      AND first_name IS NULL AND whatsapp IS NULL AND last_name IS NULL
+      AND email IS NULL AND country IS NULL AND preferred_contact_time IS NULL
+      AND host_note IS NULL
+      AND lead_id IS NULL
+    )
+  ),
 
   -- A contact bundle is either COMPLETELY absent, or complete and coherent:
   -- nonblank first name, a valid WhatsApp number, a nonblank preferred
@@ -288,13 +392,17 @@ CREATE TABLE IF NOT EXISTS public.booth_sessions (
       AND (consultation_scheduled_at IS NOT NULL OR guide_first_contact_at IS NOT NULL)
     )
   ),
-  -- A no-contact session retains NOTHING personal or operational about the
-  -- guest: no contact bundle, no consents, no verification, no Guide, no
-  -- handoff timestamps, no next step, and no lead link.
+  -- A no-contact session retains NOTHING about the guest: no Decision Profile,
+  -- no shortlist, no flow mode, no contact bundle, no consents, no
+  -- verification, no Guide, no handoff attribution, no schedule, no next step,
+  -- and no lead. Only the anonymous funnel shell survives.
   CONSTRAINT booth_sessions_no_contact_retains_nothing CHECK (
     outcome <> 'no_contact_qr'
     OR (
-      first_name IS NULL AND whatsapp IS NULL AND last_name IS NULL
+      profile IS NULL AND profile_version IS NULL AND profile_confirmed_at IS NULL
+      AND flow_mode IS NULL
+      AND jsonb_array_length(shortlist) = 0 AND shortlist_mode = 'none'
+      AND first_name IS NULL AND whatsapp IS NULL AND last_name IS NULL
       AND email IS NULL AND country IS NULL AND preferred_contact_time IS NULL
       AND host_note IS NULL AND preferred_language IS NULL
       AND consultation_consent = FALSE AND consent_recorded_at IS NULL
@@ -302,9 +410,14 @@ CREATE TABLE IF NOT EXISTS public.booth_sessions (
       AND whatsapp_verification_state = 'unverified'
       AND whatsapp_verified_at IS NULL AND whatsapp_verification_method IS NULL
       AND assigned_guide_id IS NULL AND reserve_guide_id IS NULL
-      AND guide_assigned_at IS NULL AND guide_acknowledged_at IS NULL
-      AND guide_first_contact_at IS NULL
-      AND consultation_scheduled_at IS NULL AND next_step IS NULL
+      AND guide_assigned_at IS NULL
+      AND guide_acknowledged_at IS NULL AND guide_acknowledged_by IS NULL
+      AND guide_acknowledged_method IS NULL
+      AND guide_first_contact_at IS NULL AND guide_first_contact_by IS NULL
+      AND guide_first_contact_method IS NULL
+      AND guide_fallback_reason IS NULL
+      AND consultation_scheduled_at IS NULL AND consultation_timezone IS NULL
+      AND next_step IS NULL
       AND lead_id IS NULL
     )
   )
@@ -320,7 +433,7 @@ CREATE INDEX IF NOT EXISTS idx_booth_sessions_host
 ALTER TABLE public.booth_sessions ENABLE ROW LEVEL SECURITY;
 
 -- ----------------------------------------------------------------------------
--- 3. booth_funnel_events — once-only structured pilot funnel events
+-- 4. booth_funnel_events — once-only structured pilot events
 -- ----------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS public.booth_funnel_events (
@@ -342,7 +455,10 @@ CREATE TABLE IF NOT EXISTS public.booth_funnel_events (
   )),
   step TEXT,
   reason TEXT,
-  -- Each funnel event is recorded at most once per session.
+  -- Each funnel event is recorded at most once per session. Events whose
+  -- evidence is invalidated (a replaced WhatsApp number, a genuine Guide
+  -- reassignment) are DELETED by the operation that invalidates them, so the
+  -- event can be re-earned truthfully rather than left standing as a lie.
   CONSTRAINT booth_funnel_events_once UNIQUE (session_id, event)
 );
 
@@ -352,7 +468,35 @@ CREATE INDEX IF NOT EXISTS idx_booth_funnel_events_session
 ALTER TABLE public.booth_funnel_events ENABLE ROW LEVEL SECURITY;
 
 -- ----------------------------------------------------------------------------
--- 4. Privileges — service_role ONLY, with explicit REVOKEs.
+-- 5. Terminal immutability — enforced by the database, not by convention.
+--    A session that has reached any terminal outcome can never be updated
+--    again, by ANY caller including service_role and including a direct SQL
+--    statement that bypasses the RPCs entirely. The legitimate transitions
+--    into a terminal outcome all read OLD.outcome = 'active', so they pass;
+--    an idempotent replay performs no UPDATE at all.
+-- ----------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.booth_sessions_freeze_terminal()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF OLD.outcome <> 'active' THEN
+    RAISE EXCEPTION 'booth_session_terminal_immutable';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS booth_sessions_freeze_terminal ON public.booth_sessions;
+CREATE TRIGGER booth_sessions_freeze_terminal
+  BEFORE UPDATE ON public.booth_sessions
+  FOR EACH ROW EXECUTE FUNCTION public.booth_sessions_freeze_terminal();
+
+-- ----------------------------------------------------------------------------
+-- 6. Privileges — service_role ONLY, with explicit REVOKEs.
 --    No policies exist on these tables, and no anon/authenticated privilege is
 --    granted or inherited: an anonymous or merely-signed-in client has no path
 --    to booth data even if a default privilege changed upstream.
@@ -367,12 +511,14 @@ GRANT ALL ON TABLE public.booth_sessions TO service_role;
 GRANT ALL ON TABLE public.booth_funnel_events TO service_role;
 
 -- ----------------------------------------------------------------------------
--- 5. Atomic transaction functions.
---    Every one of these locks the session row and performs the whole state
---    transition (including its funnel event) in ONE transaction, so a retry or
---    a concurrent call can never produce a duplicate lead, a duplicate event,
---    or a partially-applied handoff. SECURITY DEFINER + SET search_path = ''
---    + fully qualified objects + no dynamic SQL; EXECUTE is service_role only.
+-- 7. Atomic transaction functions.
+--    Every one of these locks the session row through booth_lock_owned_session
+--    (which also proves the caller owns it) and performs the whole state
+--    transition — including its funnel events — in ONE transaction, so a retry
+--    or a concurrent call can never produce a duplicate lead, a duplicate
+--    event, or a partially-applied handoff. SECURITY DEFINER + SET search_path
+--    = '' + fully qualified objects + no dynamic SQL; EXECUTE is service_role
+--    only.
 -- ----------------------------------------------------------------------------
 
 -- Internal helper: record a funnel event at most once (same transaction).
@@ -392,8 +538,64 @@ AS $$
   ON CONFLICT (session_id, event) DO NOTHING;
 $$;
 
+-- THE ownership gate. Locks the session row and proves the acting staff
+-- account may touch it at all:
+--   * the session's Host always may;
+--   * with p_allow_assigned_guide, the session's currently assigned Guide —
+--     matched through booth_guides.staff_user_id — may too, and the CALLER
+--     then restricts WHICH facts that Guide is permitted to establish.
+-- Anyone else is refused deterministically, before any write, so a rejected
+-- operation changes zero rows.
+CREATE OR REPLACE FUNCTION public.booth_lock_owned_session(
+  p_client_ref TEXT,
+  p_actor_user_id UUID,
+  p_allow_assigned_guide BOOLEAN DEFAULT FALSE
+)
+RETURNS public.booth_sessions
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_session public.booth_sessions;
+BEGIN
+  IF p_actor_user_id IS NULL THEN
+    RAISE EXCEPTION 'booth_session_forbidden';
+  END IF;
+
+  SELECT * INTO v_session FROM public.booth_sessions
+    WHERE client_ref = p_client_ref FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'booth_session_not_found';
+  END IF;
+
+  IF v_session.host_user_id = p_actor_user_id THEN
+    RETURN v_session;
+  END IF;
+
+  IF p_allow_assigned_guide
+     AND v_session.assigned_guide_id IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM public.booth_guides
+        WHERE id = v_session.assigned_guide_id
+          AND staff_user_id = p_actor_user_id
+     ) THEN
+    RETURN v_session;
+  END IF;
+
+  RAISE EXCEPTION 'booth_session_forbidden';
+END;
+$$;
+
 -- Create (or return) the session for a client reference. Host identity comes
 -- from the authenticated caller resolved at the server boundary.
+--
+-- READ-MOSTLY (documented terminal-state exception): it INSERTs only when the
+-- session does not exist; for an existing session it is a pure
+-- ownership-checked read and is therefore permitted on a terminal session.
+-- Replay rules: same client_ref + same Host is an idempotent success; same
+-- client_ref + a DIFFERENT Host is refused deterministically and ownership is
+-- never transferred.
 CREATE OR REPLACE FUNCTION public.booth_ensure_session(
   p_client_ref TEXT,
   p_host_user_id UUID,
@@ -408,18 +610,37 @@ AS $$
 DECLARE
   v_session public.booth_sessions;
 BEGIN
+  IF p_host_user_id IS NULL THEN
+    RAISE EXCEPTION 'booth_session_forbidden';
+  END IF;
+
   INSERT INTO public.booth_sessions (client_ref, host_user_id, host_email, booth_id)
   VALUES (p_client_ref, p_host_user_id, NULLIF(btrim(p_host_email), ''), p_booth_id)
   ON CONFLICT (client_ref) DO NOTHING;
 
-  SELECT * INTO v_session FROM public.booth_sessions WHERE client_ref = p_client_ref;
+  SELECT * INTO v_session FROM public.booth_sessions
+    WHERE client_ref = p_client_ref FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'booth_session_not_found';
+  END IF;
+
+  -- A second Host presenting the same reference is refused, never adopted.
+  IF v_session.host_user_id <> p_host_user_id THEN
+    RAISE EXCEPTION 'booth_session_forbidden';
+  END IF;
+
   RETURN v_session;
 END;
 $$;
 
 -- Record a client-observed funnel event (and settle abandonment) atomically.
+-- A terminal session accepts ONLY an exact replay of the event its own
+-- outcome already established; that replay is a no-op thanks to the once-only
+-- constraint, so no funnel transition inconsistent with the terminal state can
+-- ever be recorded.
 CREATE OR REPLACE FUNCTION public.booth_record_event(
   p_client_ref TEXT,
+  p_actor_user_id UUID,
   p_event TEXT,
   p_step TEXT,
   p_reason TEXT
@@ -432,15 +653,21 @@ AS $$
 DECLARE
   v_session public.booth_sessions;
 BEGIN
-  SELECT * INTO v_session FROM public.booth_sessions
-    WHERE client_ref = p_client_ref FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'booth_session_not_found';
+  SELECT * INTO v_session FROM public.booth_lock_owned_session(p_client_ref, p_actor_user_id);
+
+  IF v_session.outcome <> 'active' THEN
+    IF NOT (
+      (v_session.outcome = 'abandoned' AND p_event = 'session_abandoned')
+      OR (v_session.outcome = 'no_contact_qr' AND p_event = 'qr_continuation')
+    ) THEN
+      RAISE EXCEPTION 'booth_session_not_active';
+    END IF;
+    RETURN TRUE; -- idempotent replay of the terminal state's own event
   END IF;
 
   PERFORM public.booth_emit_event(v_session.id, p_event, p_step, p_reason);
 
-  IF p_event = 'session_abandoned' AND v_session.outcome = 'active' THEN
+  IF p_event = 'session_abandoned' THEN
     UPDATE public.booth_sessions
        SET outcome = 'abandoned',
            abandonment_step = p_step,
@@ -452,14 +679,16 @@ BEGIN
 END;
 $$;
 
--- Confirm the Decision Profile (and its preferred language) atomically.
-CREATE OR REPLACE FUNCTION public.booth_confirm_profile(
+-- Mark that the guest confirmed a Decision Profile, WITHOUT persisting it.
+-- Before consent the server learns only WHICH journey was completed (the flow
+-- mode, part of the operational shell) and the non-personal funnel fact. The
+-- profile content, the answers, the note, the budget, the areas, the concerns
+-- and the language stay in the tablet's local session until
+-- booth_commit_consent.
+CREATE OR REPLACE FUNCTION public.booth_mark_profile_confirmed(
   p_client_ref TEXT,
-  p_flow_mode TEXT,
-  p_profile JSONB,
-  p_profile_version INTEGER,
-  p_confirmed_at TIMESTAMPTZ,
-  p_preferred_language TEXT
+  p_actor_user_id UUID,
+  p_flow_mode TEXT
 )
 RETURNS BOOLEAN
 LANGUAGE plpgsql
@@ -469,66 +698,52 @@ AS $$
 DECLARE
   v_session public.booth_sessions;
 BEGIN
-  SELECT * INTO v_session FROM public.booth_sessions
-    WHERE client_ref = p_client_ref FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'booth_session_not_found';
-  END IF;
+  SELECT * INTO v_session FROM public.booth_lock_owned_session(p_client_ref, p_actor_user_id);
   IF v_session.outcome <> 'active' THEN
     RAISE EXCEPTION 'booth_session_not_active';
   END IF;
 
   UPDATE public.booth_sessions
      SET flow_mode = p_flow_mode,
-         profile = p_profile,
-         profile_version = p_profile_version,
-         profile_confirmed_at = p_confirmed_at,
-         preferred_language = NULLIF(btrim(p_preferred_language), ''),
          updated_at = now()
    WHERE id = v_session.id;
 
-  PERFORM public.booth_emit_event(v_session.id, 'profile_confirmed');
+  PERFORM public.booth_emit_event(v_session.id, 'profile_confirmed', p_flow_mode);
   RETURN TRUE;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.booth_set_shortlist(
+-- THE consent transaction. This is the ONLY operation that turns the guest's
+-- acknowledgement into persisted truth, and it does the whole thing at once
+-- under the session row lock:
+--   * the confirmed Decision Profile, its version and its confirmation instant;
+--   * the shortlist and its mode;
+--   * the complete contact bundle and the preferred language;
+--   * the consultation consent (and its timestamp) plus the marketing opt-in;
+--   * exactly ONE lead, created if absent and UPDATED in place on every
+--     accepted replay so the session, the lead and the summary can never drift
+--     apart;
+--   * the profile_confirmed funnel fact.
+-- A failure anywhere rolls back BOTH the session and the lead: no orphan lead,
+-- no stale mirror, no half-applied consent.
+--
+-- Correcting the WhatsApp number is a genuine identity change, so it
+-- invalidates everything that was evidence about the OLD number: the
+-- verification state, its timestamp and method, the first-contact evidence and
+-- its attribution, and the whatsapp_verified / guide_contacted funnel events.
+-- 'verified' is NEVER carried over to a replacement number, so completion
+-- becomes blocked until the new number is verified afresh. The Guide
+-- assignment and an already-agreed consultation instant SURVIVE: they are
+-- facts about the people and the appointment, not about the number.
+CREATE OR REPLACE FUNCTION public.booth_commit_consent(
   p_client_ref TEXT,
+  p_actor_user_id UUID,
+  p_flow_mode TEXT,
+  p_profile JSONB,
+  p_profile_version INTEGER,
+  p_profile_confirmed_at TIMESTAMPTZ,
   p_shortlist JSONB,
-  p_shortlist_mode TEXT
-)
-RETURNS BOOLEAN
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-DECLARE
-  v_session public.booth_sessions;
-BEGIN
-  SELECT * INTO v_session FROM public.booth_sessions
-    WHERE client_ref = p_client_ref FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'booth_session_not_found';
-  END IF;
-  IF v_session.outcome <> 'active' THEN
-    RAISE EXCEPTION 'booth_session_not_active';
-  END IF;
-
-  UPDATE public.booth_sessions
-     SET shortlist = p_shortlist,
-         shortlist_mode = p_shortlist_mode,
-         updated_at = now()
-   WHERE id = v_session.id;
-  RETURN TRUE;
-END;
-$$;
-
--- Save the contact bundle AND create-or-return exactly one lead, atomically.
--- The session row is locked first, so two concurrent retries serialize: the
--- second sees the linked lead and returns the SAME lead id. A failure at any
--- point rolls the whole thing back — no unattached lead can survive.
-CREATE OR REPLACE FUNCTION public.booth_save_contact_and_lead(
-  p_client_ref TEXT,
+  p_shortlist_mode TEXT,
   p_contact JSONB,
   p_lead JSONB
 )
@@ -540,23 +755,31 @@ AS $$
 DECLARE
   v_session public.booth_sessions;
   v_lead_id UUID;
+  v_updated INTEGER;
   v_now TIMESTAMPTZ := now();
+  v_whatsapp TEXT := p_contact ->> 'whatsapp';
+  v_number_changed BOOLEAN;
 BEGIN
-  SELECT * INTO v_session FROM public.booth_sessions
-    WHERE client_ref = p_client_ref FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'booth_session_not_found';
-  END IF;
+  SELECT * INTO v_session FROM public.booth_lock_owned_session(p_client_ref, p_actor_user_id);
   IF v_session.outcome <> 'active' THEN
     RAISE EXCEPTION 'booth_session_not_active';
   END IF;
-  IF v_session.profile IS NULL THEN
+  IF p_profile IS NULL OR p_profile_version IS NULL OR p_profile_confirmed_at IS NULL THEN
     RAISE EXCEPTION 'booth_profile_required';
   END IF;
 
+  v_number_changed := v_session.whatsapp IS NOT NULL
+                      AND v_session.whatsapp IS DISTINCT FROM v_whatsapp;
+
   UPDATE public.booth_sessions
-     SET first_name = p_contact ->> 'first_name',
-         whatsapp = p_contact ->> 'whatsapp',
+     SET flow_mode = p_flow_mode,
+         profile = p_profile,
+         profile_version = p_profile_version,
+         profile_confirmed_at = p_profile_confirmed_at,
+         shortlist = p_shortlist,
+         shortlist_mode = p_shortlist_mode,
+         first_name = p_contact ->> 'first_name',
+         whatsapp = v_whatsapp,
          preferred_language = p_contact ->> 'preferred_language',
          last_name = p_contact ->> 'last_name',
          email = p_contact ->> 'email',
@@ -566,39 +789,80 @@ BEGIN
          consultation_consent = TRUE,
          consent_recorded_at = COALESCE(v_session.consent_recorded_at, v_now),
          marketing_opt_in = COALESCE((p_contact ->> 'marketing_opt_in')::BOOLEAN, FALSE),
+         -- A replacement number is never born verified.
+         whatsapp_verification_state = CASE
+           WHEN v_number_changed THEN 'unverified'
+           ELSE v_session.whatsapp_verification_state END,
+         whatsapp_verified_at = CASE
+           WHEN v_number_changed THEN NULL ELSE v_session.whatsapp_verified_at END,
+         whatsapp_verification_method = CASE
+           WHEN v_number_changed THEN NULL ELSE v_session.whatsapp_verification_method END,
+         -- Evidence of a message sent to the OLD number proves nothing here.
+         guide_first_contact_at = CASE
+           WHEN v_number_changed THEN NULL ELSE v_session.guide_first_contact_at END,
+         guide_first_contact_by = CASE
+           WHEN v_number_changed THEN NULL ELSE v_session.guide_first_contact_by END,
+         guide_first_contact_method = CASE
+           WHEN v_number_changed THEN NULL ELSE v_session.guide_first_contact_method END,
          updated_at = v_now
    WHERE id = v_session.id;
 
-  -- Exactly one lead per session: the locked row's link is authoritative.
-  IF v_session.lead_id IS NOT NULL THEN
-    RETURN v_session.lead_id;
+  IF v_number_changed THEN
+    DELETE FROM public.booth_funnel_events
+     WHERE session_id = v_session.id
+       AND event IN ('whatsapp_verified', 'guide_contacted');
   END IF;
 
-  INSERT INTO public.leads (name, email, phone, country, budget, interest, project_slug, message, status, source)
-  VALUES (
-    p_lead ->> 'name',
-    p_lead ->> 'email',
-    p_lead ->> 'phone',
-    p_lead ->> 'country',
-    p_lead ->> 'budget',
-    p_lead ->> 'interest',
-    p_lead ->> 'project_slug',
-    p_lead ->> 'message',
-    'new',
-    p_lead ->> 'source'
-  )
-  RETURNING id INTO v_lead_id;
+  -- Exactly one lead per session: the locked row's link is authoritative.
+  -- Every accepted replay refreshes it, so the lead mirror never goes stale.
+  v_lead_id := v_session.lead_id;
+  IF v_lead_id IS NOT NULL THEN
+    UPDATE public.leads
+       SET name = p_lead ->> 'name',
+           email = p_lead ->> 'email',
+           phone = p_lead ->> 'phone',
+           country = p_lead ->> 'country',
+           budget = p_lead ->> 'budget',
+           interest = p_lead ->> 'interest',
+           project_slug = p_lead ->> 'project_slug',
+           message = p_lead ->> 'message',
+           source = p_lead ->> 'source'
+     WHERE id = v_lead_id;
+    GET DIAGNOSTICS v_updated = ROW_COUNT;
+    -- The linked lead vanished (ON DELETE SET NULL races an operator delete):
+    -- fall through and create a fresh one rather than report a stale link.
+    IF v_updated = 0 THEN v_lead_id := NULL; END IF;
+  END IF;
 
-  UPDATE public.booth_sessions
-     SET lead_id = v_lead_id, updated_at = v_now
-   WHERE id = v_session.id;
+  IF v_lead_id IS NULL THEN
+    INSERT INTO public.leads (name, email, phone, country, budget, interest, project_slug, message, status, source)
+    VALUES (
+      p_lead ->> 'name',
+      p_lead ->> 'email',
+      p_lead ->> 'phone',
+      p_lead ->> 'country',
+      p_lead ->> 'budget',
+      p_lead ->> 'interest',
+      p_lead ->> 'project_slug',
+      p_lead ->> 'message',
+      'new',
+      p_lead ->> 'source'
+    )
+    RETURNING id INTO v_lead_id;
 
+    UPDATE public.booth_sessions
+       SET lead_id = v_lead_id, updated_at = v_now
+     WHERE id = v_session.id;
+  END IF;
+
+  PERFORM public.booth_emit_event(v_session.id, 'profile_confirmed', p_flow_mode);
   RETURN v_lead_id;
 END;
 $$;
 
 CREATE OR REPLACE FUNCTION public.booth_set_whatsapp_state(
   p_client_ref TEXT,
+  p_actor_user_id UUID,
   p_state TEXT,
   p_method TEXT
 )
@@ -611,11 +875,7 @@ DECLARE
   v_session public.booth_sessions;
   v_verified_at TIMESTAMPTZ;
 BEGIN
-  SELECT * INTO v_session FROM public.booth_sessions
-    WHERE client_ref = p_client_ref FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'booth_session_not_found';
-  END IF;
+  SELECT * INTO v_session FROM public.booth_lock_owned_session(p_client_ref, p_actor_user_id);
   IF v_session.outcome <> 'active' THEN
     RAISE EXCEPTION 'booth_session_not_active';
   END IF;
@@ -628,7 +888,7 @@ BEGIN
     UPDATE public.booth_sessions
        SET whatsapp_verification_state = 'verified',
            whatsapp_verified_at = v_verified_at,
-           whatsapp_verification_method = p_method,
+           whatsapp_verification_method = COALESCE(v_session.whatsapp_verification_method, p_method),
            updated_at = now()
      WHERE id = v_session.id;
     PERFORM public.booth_emit_event(v_session.id, 'whatsapp_verified');
@@ -650,8 +910,18 @@ BEGIN
 END;
 $$;
 
+-- Assign (or re-assign) the primary Guide. A GENUINE reassignment — a
+-- different primary Guide — invalidates every downstream fact the PREVIOUS
+-- Guide established, because that evidence cannot complete the new
+-- assignment: the acknowledgement, the first contact, the agreed consultation
+-- instant, the next step, and the corresponding funnel events are all cleared
+-- so they must be re-earned. Facts that remain true regardless of who guides
+-- the guest — the profile, the contact bundle, the consent and a verified
+-- WhatsApp number — are deliberately kept. Changing only the reserve Guide or
+-- the fallback reason is NOT a reassignment and resets nothing.
 CREATE OR REPLACE FUNCTION public.booth_assign_guide(
   p_client_ref TEXT,
+  p_actor_user_id UUID,
   p_guide_id UUID,
   p_reserve_guide_id UUID,
   p_fallback_reason TEXT
@@ -664,12 +934,9 @@ AS $$
 DECLARE
   v_session public.booth_sessions;
   v_now TIMESTAMPTZ := now();
+  v_reassigned BOOLEAN;
 BEGIN
-  SELECT * INTO v_session FROM public.booth_sessions
-    WHERE client_ref = p_client_ref FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'booth_session_not_found';
-  END IF;
+  SELECT * INTO v_session FROM public.booth_lock_owned_session(p_client_ref, p_actor_user_id);
   IF v_session.outcome <> 'active' THEN
     RAISE EXCEPTION 'booth_session_not_active';
   END IF;
@@ -684,23 +951,54 @@ BEGIN
     RAISE EXCEPTION 'booth_guide_not_found';
   END IF;
 
-  -- Re-assignment resets the acknowledgement: the new Guide has not confirmed.
+  v_reassigned := v_session.assigned_guide_id IS NOT NULL
+                  AND v_session.assigned_guide_id IS DISTINCT FROM p_guide_id;
+
   UPDATE public.booth_sessions
      SET assigned_guide_id = p_guide_id,
          reserve_guide_id = p_reserve_guide_id,
-         guide_assigned_at = v_now,
-         guide_acknowledged_at = NULL,
-         guide_acknowledged_by = NULL,
-         guide_acknowledged_method = NULL,
+         guide_assigned_at = CASE
+           WHEN v_session.assigned_guide_id IS DISTINCT FROM p_guide_id THEN v_now
+           ELSE v_session.guide_assigned_at END,
+         -- A newly assigned Guide has confirmed nothing yet.
+         guide_acknowledged_at = CASE
+           WHEN v_reassigned THEN NULL ELSE v_session.guide_acknowledged_at END,
+         guide_acknowledged_by = CASE
+           WHEN v_reassigned THEN NULL ELSE v_session.guide_acknowledged_by END,
+         guide_acknowledged_method = CASE
+           WHEN v_reassigned THEN NULL ELSE v_session.guide_acknowledged_method END,
+         guide_first_contact_at = CASE
+           WHEN v_reassigned THEN NULL ELSE v_session.guide_first_contact_at END,
+         guide_first_contact_by = CASE
+           WHEN v_reassigned THEN NULL ELSE v_session.guide_first_contact_by END,
+         guide_first_contact_method = CASE
+           WHEN v_reassigned THEN NULL ELSE v_session.guide_first_contact_method END,
+         consultation_scheduled_at = CASE
+           WHEN v_reassigned THEN NULL ELSE v_session.consultation_scheduled_at END,
+         consultation_timezone = CASE
+           WHEN v_reassigned THEN NULL ELSE v_session.consultation_timezone END,
+         next_step = CASE
+           WHEN v_reassigned THEN NULL ELSE v_session.next_step END,
          guide_fallback_reason = NULLIF(btrim(p_fallback_reason), ''),
          updated_at = v_now
    WHERE id = v_session.id;
+
+  -- The previous Guide's funnel evidence is deleted, not left standing.
+  IF v_reassigned THEN
+    DELETE FROM public.booth_funnel_events
+     WHERE session_id = v_session.id
+       AND event IN ('guide_acknowledged', 'guide_contacted', 'consultation_booked');
+  END IF;
 
   PERFORM public.booth_emit_event(v_session.id, 'guide_assigned');
   RETURN v_now;
 END;
 $$;
 
+-- Record the acknowledgement. The Host always may; the session's currently
+-- assigned Guide may confirm their OWN acknowledgement and nothing else.
+-- 'guide_self_confirmed' is only truthful when the actor IS that Guide's own
+-- staff account; anything else must be recorded as a disclosed observation.
 CREATE OR REPLACE FUNCTION public.booth_acknowledge_guide(
   p_client_ref TEXT,
   p_actor_user_id UUID,
@@ -715,21 +1013,23 @@ DECLARE
   v_session public.booth_sessions;
   v_at TIMESTAMPTZ;
 BEGIN
-  SELECT * INTO v_session FROM public.booth_sessions
-    WHERE client_ref = p_client_ref FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'booth_session_not_found';
+  SELECT * INTO v_session FROM public.booth_lock_owned_session(p_client_ref, p_actor_user_id, TRUE);
+  IF v_session.outcome <> 'active' THEN
+    RAISE EXCEPTION 'booth_session_not_active';
   END IF;
   IF v_session.assigned_guide_id IS NULL THEN
     RAISE EXCEPTION 'booth_guide_required';
   END IF;
-  -- 'guide_self_confirmed' is only truthful when the actor IS the assigned
-  -- Guide's own staff account; anything else must be recorded as an observation.
   IF p_method = 'guide_self_confirmed' AND NOT EXISTS (
     SELECT 1 FROM public.booth_guides
      WHERE id = v_session.assigned_guide_id AND staff_user_id = p_actor_user_id
   ) THEN
     RAISE EXCEPTION 'booth_ack_actor_mismatch';
+  END IF;
+  -- A non-Host actor reached this point only as the assigned Guide, and may
+  -- establish nothing except their own acknowledgement.
+  IF v_session.host_user_id <> p_actor_user_id AND p_method <> 'guide_self_confirmed' THEN
+    RAISE EXCEPTION 'booth_session_forbidden';
   END IF;
 
   v_at := COALESCE(v_session.guide_acknowledged_at, now());
@@ -745,6 +1045,10 @@ BEGIN
 END;
 $$;
 
+-- Record the warm handoff. The Host may record all of it. The session's
+-- assigned Guide may ONLY confirm their own first contact: a Guide call that
+-- also tries to set the consultation instant or the next step is refused, as
+-- is a Guide call claiming a host observation.
 CREATE OR REPLACE FUNCTION public.booth_record_handoff(
   p_client_ref TEXT,
   p_actor_user_id UUID,
@@ -763,13 +1067,18 @@ DECLARE
   v_now TIMESTAMPTZ := now();
   v_first_contact_at TIMESTAMPTZ;
 BEGIN
-  SELECT * INTO v_session FROM public.booth_sessions
-    WHERE client_ref = p_client_ref FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'booth_session_not_found';
-  END IF;
+  SELECT * INTO v_session FROM public.booth_lock_owned_session(p_client_ref, p_actor_user_id, TRUE);
   IF v_session.outcome <> 'active' THEN
     RAISE EXCEPTION 'booth_session_not_active';
+  END IF;
+
+  IF v_session.host_user_id <> p_actor_user_id
+     AND (
+       p_first_contact_method IS DISTINCT FROM 'guide_self_confirmed'
+       OR p_consultation_scheduled_at IS NOT NULL
+       OR NULLIF(btrim(p_next_step), '') IS NOT NULL
+     ) THEN
+    RAISE EXCEPTION 'booth_session_forbidden';
   END IF;
 
   v_first_contact_at := v_session.guide_first_contact_at;
@@ -814,11 +1123,14 @@ END;
 $$;
 
 -- Complete the session. A contacted completion is gated on every fact (and the
--- table CHECK backs it up). A no-contact completion CLEARS every personal and
--- operational field and DELETES any lead created for this session — all in one
--- transaction, so a partial clear can never be observed or left behind.
+-- table CHECK backs it up). A no-contact completion CLEARS every guest-specific
+-- value (see NO-CONTACT DATA MINIMIZATION above) and DELETES any lead created
+-- for this session — all in one transaction, so a partial clear can never be
+-- observed or left behind. Replaying the outcome the session already holds is
+-- an idempotent success that writes nothing.
 CREATE OR REPLACE FUNCTION public.booth_complete_session(
   p_client_ref TEXT,
+  p_actor_user_id UUID,
   p_outcome TEXT
 )
 RETURNS BOOLEAN
@@ -830,13 +1142,9 @@ DECLARE
   v_session public.booth_sessions;
   v_lead_id UUID;
 BEGIN
-  SELECT * INTO v_session FROM public.booth_sessions
-    WHERE client_ref = p_client_ref FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'booth_session_not_found';
-  END IF;
+  SELECT * INTO v_session FROM public.booth_lock_owned_session(p_client_ref, p_actor_user_id);
   IF v_session.outcome = p_outcome THEN
-    RETURN TRUE; -- idempotent replay
+    RETURN TRUE; -- idempotent replay of the established terminal outcome
   END IF;
   IF v_session.outcome <> 'active' THEN
     RAISE EXCEPTION 'booth_session_not_active';
@@ -868,7 +1176,13 @@ BEGIN
 
   v_lead_id := v_session.lead_id;
   UPDATE public.booth_sessions
-     SET first_name = NULL,
+     SET flow_mode = NULL,
+         profile = NULL,
+         profile_version = NULL,
+         profile_confirmed_at = NULL,
+         shortlist = '[]'::jsonb,
+         shortlist_mode = 'none',
+         first_name = NULL,
          whatsapp = NULL,
          last_name = NULL,
          email = NULL,
@@ -876,9 +1190,6 @@ BEGIN
          preferred_contact_time = NULL,
          host_note = NULL,
          preferred_language = NULL,
-         profile = CASE
-           WHEN profile IS NULL THEN NULL
-           ELSE jsonb_set(profile, '{preferredLanguage}', 'null'::jsonb, true) END,
          consultation_consent = FALSE,
          consent_recorded_at = NULL,
          marketing_opt_in = FALSE,
@@ -916,32 +1227,33 @@ $$;
 -- Privileged RPCs: revoke every inherited privilege, then grant EXECUTE to
 -- service_role alone. No anonymous or merely-authenticated caller can execute
 -- them even with a valid Supabase session.
+REVOKE ALL ON FUNCTION public.booth_sessions_freeze_terminal() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.booth_emit_event(UUID, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.booth_lock_owned_session(TEXT, UUID, BOOLEAN) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.booth_ensure_session(TEXT, UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.booth_record_event(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.booth_confirm_profile(TEXT, TEXT, JSONB, INTEGER, TIMESTAMPTZ, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.booth_set_shortlist(TEXT, JSONB, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.booth_save_contact_and_lead(TEXT, JSONB, JSONB) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.booth_set_whatsapp_state(TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.booth_assign_guide(TEXT, UUID, UUID, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.booth_record_event(TEXT, UUID, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.booth_mark_profile_confirmed(TEXT, UUID, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.booth_commit_consent(TEXT, UUID, TEXT, JSONB, INTEGER, TIMESTAMPTZ, JSONB, TEXT, JSONB, JSONB) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.booth_set_whatsapp_state(TEXT, UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.booth_assign_guide(TEXT, UUID, UUID, UUID, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.booth_acknowledge_guide(TEXT, UUID, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.booth_record_handoff(TEXT, UUID, TEXT, TIMESTAMPTZ, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.booth_complete_session(TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.booth_complete_session(TEXT, UUID, TEXT) FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION public.booth_emit_event(UUID, TEXT, TEXT, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION public.booth_lock_owned_session(TEXT, UUID, BOOLEAN) TO service_role;
 GRANT EXECUTE ON FUNCTION public.booth_ensure_session(TEXT, UUID, TEXT, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION public.booth_record_event(TEXT, TEXT, TEXT, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION public.booth_confirm_profile(TEXT, TEXT, JSONB, INTEGER, TIMESTAMPTZ, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION public.booth_set_shortlist(TEXT, JSONB, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION public.booth_save_contact_and_lead(TEXT, JSONB, JSONB) TO service_role;
-GRANT EXECUTE ON FUNCTION public.booth_set_whatsapp_state(TEXT, TEXT, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION public.booth_assign_guide(TEXT, UUID, UUID, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION public.booth_record_event(TEXT, UUID, TEXT, TEXT, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION public.booth_mark_profile_confirmed(TEXT, UUID, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION public.booth_commit_consent(TEXT, UUID, TEXT, JSONB, INTEGER, TIMESTAMPTZ, JSONB, TEXT, JSONB, JSONB) TO service_role;
+GRANT EXECUTE ON FUNCTION public.booth_set_whatsapp_state(TEXT, UUID, TEXT, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION public.booth_assign_guide(TEXT, UUID, UUID, UUID, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION public.booth_acknowledge_guide(TEXT, UUID, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION public.booth_record_handoff(TEXT, UUID, TEXT, TIMESTAMPTZ, TEXT, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION public.booth_complete_session(TEXT, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION public.booth_complete_session(TEXT, UUID, TEXT) TO service_role;
 
 -- ----------------------------------------------------------------------------
--- 6. leads — allow service-boundary Booth V2 leads without an email address.
+-- 8. leads — allow service-boundary Booth V2 leads without an email address.
 --    The anonymous INSERT policy is deliberately NOT modified: it still
 --    requires length(btrim(email)) > 0, which is never true for NULL, so the
 --    browser-side contract is unchanged and NULL-email rows can only come from
@@ -962,21 +1274,26 @@ COMMIT;
 --
 --   1. Booth pilot data lives ONLY in the three booth tables; dropping them
 --      destroys that pilot data:
---        DROP FUNCTION IF EXISTS public.booth_complete_session(TEXT, TEXT);
+--        DROP TRIGGER IF EXISTS booth_sessions_freeze_terminal ON public.booth_sessions;
+--        DROP FUNCTION IF EXISTS public.booth_sessions_freeze_terminal();
+--        DROP FUNCTION IF EXISTS public.booth_complete_session(TEXT, UUID, TEXT);
 --        DROP FUNCTION IF EXISTS public.booth_record_handoff(TEXT, UUID, TEXT, TIMESTAMPTZ, TEXT, TEXT);
 --        DROP FUNCTION IF EXISTS public.booth_acknowledge_guide(TEXT, UUID, TEXT);
---        DROP FUNCTION IF EXISTS public.booth_assign_guide(TEXT, UUID, UUID, TEXT);
---        DROP FUNCTION IF EXISTS public.booth_set_whatsapp_state(TEXT, TEXT, TEXT);
---        DROP FUNCTION IF EXISTS public.booth_save_contact_and_lead(TEXT, JSONB, JSONB);
---        DROP FUNCTION IF EXISTS public.booth_set_shortlist(TEXT, JSONB, TEXT);
---        DROP FUNCTION IF EXISTS public.booth_confirm_profile(TEXT, TEXT, JSONB, INTEGER, TIMESTAMPTZ, TEXT);
---        DROP FUNCTION IF EXISTS public.booth_record_event(TEXT, TEXT, TEXT, TEXT);
+--        DROP FUNCTION IF EXISTS public.booth_assign_guide(TEXT, UUID, UUID, UUID, TEXT);
+--        DROP FUNCTION IF EXISTS public.booth_set_whatsapp_state(TEXT, UUID, TEXT, TEXT);
+--        DROP FUNCTION IF EXISTS public.booth_commit_consent(TEXT, UUID, TEXT, JSONB, INTEGER, TIMESTAMPTZ, JSONB, TEXT, JSONB, JSONB);
+--        DROP FUNCTION IF EXISTS public.booth_mark_profile_confirmed(TEXT, UUID, TEXT);
+--        DROP FUNCTION IF EXISTS public.booth_record_event(TEXT, UUID, TEXT, TEXT, TEXT);
 --        DROP FUNCTION IF EXISTS public.booth_ensure_session(TEXT, UUID, TEXT, TEXT);
+--        DROP FUNCTION IF EXISTS public.booth_lock_owned_session(TEXT, UUID, BOOLEAN);
 --        DROP FUNCTION IF EXISTS public.booth_emit_event(UUID, TEXT, TEXT, TEXT);
 --        DROP TABLE IF EXISTS public.booth_funnel_events;
 --        DROP TABLE IF EXISTS public.booth_sessions;
 --        DROP TABLE IF EXISTS public.booth_guides;
---   2. Restoring the strict leads email contract is only safe when no
+--   2. The Booth capability column is additive and Studio never reads it, so
+--      dropping it is safe and affects no Studio behaviour:
+--        ALTER TABLE public.studio_members DROP COLUMN IF EXISTS can_access_booth;
+--   3. Restoring the strict leads email contract is only safe when no
 --      NULL-email rows exist (Booth V2 pilot leads would violate it). First:
 --        SELECT count(*) FROM public.leads WHERE email IS NULL;
 --      Only if that is zero:

@@ -2,13 +2,30 @@
  * Booth Mode 2.0 — trusted server boundary (pilot).
  *
  * Every function here runs ONLY after requireBoothStaff has proven, on the
- * server, that the pilot is enabled and the caller is an active Forever staff
- * member (see server/access.ts). The booth tables carry no anonymous or
- * authenticated privileges at all, so this boundary is the only path to them.
+ * server, that the pilot is enabled, the caller is an ACTIVE Forever staff
+ * member, and that member holds the explicit Booth capability (see
+ * server/access.ts). The booth tables carry no anonymous or authenticated
+ * privileges at all, so this boundary is the only path to them.
+ *
+ * THE CONSENT BOUNDARY (corrective pass 2, item 1). Nothing about the guest is
+ * sent to the database before the guest gives the required acknowledgement.
+ * `markProfileConfirmed` and `validateShortlistSelection` are deliberately
+ * NON-PERSISTING: they re-run the canonical strict validation server-side and
+ * record only the non-personal funnel fact and the flow mode. The confirmed
+ * Decision Profile and the shortlist live only in the tablet's versioned local
+ * session until `commitConsent` — the ONE locked transaction that persists the
+ * profile, the shortlist, the contact bundle, the consent and exactly one lead
+ * together.
+ *
+ * SESSION OWNERSHIP (corrective pass 2, item 4). Every RPC carries the acting
+ * staff account and the database refuses unless that account owns the session
+ * (or, for the two narrow self-actions, is the session's assigned Guide). The
+ * check lives inside the locked SECURITY DEFINER functions, not only here, so
+ * knowing a client_ref is never authorization.
  *
  * State transitions go through the atomic SECURITY DEFINER RPCs added by
  * 20260725150000_booth_v2_pilot.sql: each one locks the session row and
- * performs the whole transition — including its funnel event — in a single
+ * performs the whole transition — including its funnel events — in a single
  * transaction. A retry can therefore never create a second lead, a duplicate
  * event, or a partially applied handoff, and the key transition events are
  * emitted by the same operation that establishes the fact rather than by a
@@ -32,6 +49,7 @@ import {
   parseStoredProfileV2,
   parseWhatsappConfig,
   sessionCodeFromClientRef,
+  shortlistMode,
   validateBoothContact,
   validateShortlist,
   type BoothContactV2,
@@ -67,6 +85,9 @@ function redactForLog(text: string): string {
 const RPC_ERROR_MESSAGES: Record<string, string> = {
   booth_session_not_found: "This booth session no longer exists.",
   booth_session_not_active: "This booth session has already been closed.",
+  booth_session_terminal_immutable: "This booth session has already been closed.",
+  // Deliberately says nothing about who DOES own the session.
+  booth_session_forbidden: "This booth session belongs to another Host.",
   booth_profile_required: "Confirm the Decision Profile before saving contact details.",
   booth_contact_required: "Save the guest's contact details first.",
   booth_guide_required: "Assign a Guide before recording this.",
@@ -158,7 +179,19 @@ async function callRpc<T>(fn: string, args: Record<string, unknown>): Promise<T>
   return data as T;
 }
 
-async function readSession(clientRef: string) {
+/**
+ * Read a session the acting staff account is entitled to see. Reads are
+ * ownership-checked exactly like writes: the Host always qualifies, and — only
+ * where the caller explicitly allows it — so does the session's currently
+ * assigned Guide, matched through their own staff account. The database
+ * enforces the same rule inside every locked RPC; this is the read-side mirror,
+ * never the authority.
+ */
+async function readSessionForActor(
+  actor: BoothActor,
+  clientRef: string,
+  options: { allowAssignedGuide?: boolean } = {},
+) {
   const { data, error } = await supabaseAdmin
     .from("booth_sessions")
     .select("*")
@@ -167,13 +200,26 @@ async function readSession(clientRef: string) {
   if (error) mapRpcError(error);
   if (!data)
     throw new BoothError("booth_session_not_found", "This booth session no longer exists.");
-  return data;
+  if (data.host_user_id === actor.userId) return data;
+
+  if (options.allowAssignedGuide === true && data.assigned_guide_id !== null) {
+    const { data: guide, error: guideError } = await supabaseAdmin
+      .from("booth_guides")
+      .select("staff_user_id")
+      .eq("id", data.assigned_guide_id)
+      .maybeSingle();
+    if (guideError) mapRpcError(guideError);
+    if (guide?.staff_user_id === actor.userId) return data;
+  }
+
+  throw new BoothError("booth_session_forbidden", "This booth session belongs to another Host.");
 }
 
 /**
  * Create (or return) the session for this client reference. The Host identity
  * is taken from the authenticated actor — there is no client-supplied host
- * label anywhere in the contract.
+ * label anywhere in the contract. Presenting a client_ref that already belongs
+ * to a different Host is refused by the RPC; ownership is never transferred.
  */
 export async function ensureSession(
   actor: BoothActor,
@@ -192,10 +238,11 @@ export async function ensureSession(
 
 /**
  * Client-observed funnel events only (conversation started, profile started,
- * abandonment, QR continuation). Every transition event — profile confirmed,
- * WhatsApp verified, Guide assigned/acknowledged, first contact, consultation
- * booked, no-contact continuation — is emitted server-side by the RPC that
- * establishes the fact, so a lost client call cannot lose those metrics.
+ * abandonment, QR continuation) — all non-personal. Every transition event —
+ * profile confirmed, WhatsApp verified, Guide assigned/acknowledged, first
+ * contact, consultation booked, no-contact continuation — is emitted
+ * server-side by the RPC that establishes the fact, so a lost client call
+ * cannot lose those metrics.
  */
 export async function recordFunnelEvent(
   actor: BoothActor,
@@ -208,6 +255,7 @@ export async function recordFunnelEvent(
   await ensureSession(actor, { clientRef: input.clientRef });
   await callRpc("booth_record_event", {
     p_client_ref: input.clientRef,
+    p_actor_user_id: actor.userId,
     p_event: input.event,
     p_step: input.step ?? null,
     p_reason: input.reason ?? null,
@@ -215,9 +263,21 @@ export async function recordFunnelEvent(
   return { ok: true };
 }
 
-/* ---------- Profile + shortlist ---------- */
+/* ---------- Profile + shortlist: VALIDATION ONLY, before consent ---------- */
 
-export async function confirmProfile(
+/**
+ * Re-validate the confirmed Decision Profile server-side and record ONLY the
+ * non-personal funnel fact plus the flow mode.
+ *
+ * This deliberately persists NOTHING about the guest. Before the consultation
+ * consent the profile — its answers, note, budget, areas, concerns and
+ * language — stays in the tablet's versioned local session. The canonical
+ * strict schema still runs here so a malformed, obsolete or tampered payload is
+ * refused at the boundary rather than at the summary screen, and the database
+ * physically rejects any guest data written ahead of consent
+ * (booth_sessions_pre_consent_minimal).
+ */
+export async function markProfileConfirmed(
   actor: BoothActor,
   input: { clientRef: string; profile: unknown },
 ): Promise<{ ok: true }> {
@@ -232,62 +292,72 @@ export async function confirmProfile(
   }
   if (isBoothDemoNoWriteMode()) return { ok: true };
   await ensureSession(actor, { clientRef: input.clientRef });
-  await callRpc("booth_confirm_profile", {
+  await callRpc("booth_mark_profile_confirmed", {
     p_client_ref: input.clientRef,
+    p_actor_user_id: actor.userId,
     p_flow_mode: profile.flowMode,
-    p_profile: profile as unknown as Json,
-    p_profile_version: profile.profileVersion,
-    p_confirmed_at: profile.confirmedAt,
-    p_preferred_language: profile.preferredLanguage,
   });
   return { ok: true };
 }
 
-export async function setShortlist(
-  actor: BoothActor,
+/**
+ * Validate a shortlist selection without persisting it. Bounds and identity are
+ * checked here, and every selected slug is proven to be a real project, so the
+ * Host learns about a stale direction immediately — but the selection itself is
+ * only written by the consent transaction.
+ */
+export async function validateShortlistSelection(
+  _actor: BoothActor,
   input: { clientRef: string; entries: ShortlistV2["entries"]; guidePrepares: boolean },
 ): Promise<{ ok: true }> {
   const shortlist: ShortlistV2 = { entries: input.entries, guidePrepares: input.guidePrepares };
-  const invalid = validateShortlist(shortlist);
-  if (invalid) {
-    // A malformed shortlist is rejected whole — never silently truncated.
-    throw new BoothError("booth_shortlist_invalid", `The shortlist is not valid (${invalid}).`);
-  }
-  if (isBoothDemoNoWriteMode()) return { ok: true };
-
-  // Every selected slug must be a real project; an unknown slug is refused
-  // rather than stored as a dangling direction.
-  if (shortlist.entries.length > 0) {
-    const slugs = shortlist.entries.map((entry) => entry.slug);
-    const { data, error } = await supabaseAdmin.from("projects").select("slug").in("slug", slugs);
-    if (error) mapRpcError(error);
-    const known = new Set((data ?? []).map((row) => row.slug));
-    if (slugs.some((slug) => !known.has(slug))) {
-      throw new BoothError(
-        "booth_shortlist_unknown_project",
-        "A selected project no longer exists.",
-      );
-    }
-  }
-
-  await ensureSession(actor, { clientRef: input.clientRef });
-  await callRpc("booth_set_shortlist", {
-    p_client_ref: input.clientRef,
-    p_shortlist: shortlist.entries.slice(0, MAX_SHORTLIST) as unknown as Json,
-    p_shortlist_mode: shortlist.guidePrepares
-      ? "guide_prepares"
-      : shortlist.entries.length > 0
-        ? "guest_selected"
-        : "none",
-  });
+  await assertShortlistIsReal(shortlist);
   return { ok: true };
 }
 
-/* ---------- Contact + consent + the atomic lead mirror ---------- */
+/**
+ * A malformed shortlist is rejected whole — never silently truncated — and an
+ * unknown slug is refused rather than carried as a dangling direction.
+ */
+async function assertShortlistIsReal(shortlist: ShortlistV2): Promise<void> {
+  const invalid = validateShortlist(shortlist);
+  if (invalid) {
+    throw new BoothError("booth_shortlist_invalid", `The shortlist is not valid (${invalid}).`);
+  }
+  if (isBoothDemoNoWriteMode() || shortlist.entries.length === 0) return;
 
-export async function saveContact(
+  const slugs = shortlist.entries.map((entry) => entry.slug);
+  const { data, error } = await supabaseAdmin.from("projects").select("slug").in("slug", slugs);
+  if (error) mapRpcError(error);
+  const known = new Set((data ?? []).map((row) => row.slug));
+  if (slugs.some((slug) => !known.has(slug))) {
+    throw new BoothError("booth_shortlist_unknown_project", "A selected project no longer exists.");
+  }
+}
+
+/* ---------- The consent transaction ---------- */
+
+/**
+ * THE consent boundary. Called only when the guest has accepted the
+ * consultation acknowledgement, and it is the FIRST moment anything about the
+ * guest is written: the confirmed Decision Profile, the shortlist, the complete
+ * contact bundle, the consent itself, and exactly one lead — all in one locked
+ * database transaction that also emits the funnel facts.
+ *
+ * Every accepted replay refreshes the linked lead in place, so a corrected
+ * name, email or country can never leave the session and its lead mirror
+ * disagreeing, and a replaced WhatsApp number invalidates the verification and
+ * the first-contact evidence that belonged to the old number.
+ */
+export async function commitConsent(
   actor: BoothActor,
-  input: { clientRef: string; contact: BoothContactV2 },
+  input: {
+    clientRef: string;
+    profile: unknown;
+    entries: ShortlistV2["entries"];
+    guidePrepares: boolean;
+    contact: BoothContactV2;
+  },
 ): Promise<{ ok: true }> {
   const errors = validateBoothContact(input.contact);
   if (hasBoothContactErrors(errors)) {
@@ -296,19 +366,27 @@ export async function saveContact(
       "Please check the contact fields — first name, WhatsApp number, language, and the consultation permission are required.",
     );
   }
-  if (isBoothDemoNoWriteMode()) return { ok: true };
+  // Consent is what makes persistence lawful here: without the explicit
+  // acknowledgement nothing is written at all.
+  if (input.contact.consultationConsent !== true) {
+    throw new BoothError(
+      "booth_consent_required",
+      "We need the guest's permission before saving anything.",
+    );
+  }
 
-  await ensureSession(actor, { clientRef: input.clientRef });
-  const session = await readSession(input.clientRef);
-  const profile = parseStoredProfileV2(session.profile);
-  if (!profile) {
+  // The profile arrives WITH the consent (it was never stored before), and the
+  // canonical strict schema validates it on the server exactly as it did on
+  // the tablet.
+  const profile = parseStoredProfileV2(input.profile);
+  if (profile === null || profile.confirmedAt === null) {
     throw new BoothError(
       "booth_profile_required",
       "Confirm the Decision Profile before saving contact details.",
     );
   }
   // The contact form may not introduce a language the confirmed profile
-  // disagrees with: the persisted profile and the session column are one fact.
+  // disagrees with: the profile payload and the session column are one fact.
   if ((profile.preferredLanguage ?? "") !== input.contact.preferredLanguage.trim()) {
     throw new BoothError(
       "booth_language_mismatch",
@@ -316,15 +394,26 @@ export async function saveContact(
     );
   }
 
+  const shortlist: ShortlistV2 = { entries: input.entries, guidePrepares: input.guidePrepares };
+  await assertShortlistIsReal(shortlist);
+  if (isBoothDemoNoWriteMode()) return { ok: true };
+
   const contact = input.contact;
-  const shortlist = readStoredShortlist(session.shortlist, session.shortlist_mode);
   const summary = buildBoothV2Summary({ profile, shortlist, hostNote: contact.hostNote });
   const projectSlug = shortlist.entries[0]?.slug ?? null;
 
-  // ONE transaction: the locked session row, the contact bundle, and
-  // create-or-return exactly one lead. A retry returns the same lead id.
-  await callRpc("booth_save_contact_and_lead", {
+  await ensureSession(actor, { clientRef: input.clientRef });
+  // ONE transaction: the locked session row, the profile, the shortlist, the
+  // contact bundle, the consent, and create-or-update exactly one lead.
+  await callRpc("booth_commit_consent", {
     p_client_ref: input.clientRef,
+    p_actor_user_id: actor.userId,
+    p_flow_mode: profile.flowMode,
+    p_profile: profile as unknown as Json,
+    p_profile_version: profile.profileVersion,
+    p_profile_confirmed_at: profile.confirmedAt,
+    p_shortlist: shortlist.entries.slice(0, MAX_SHORTLIST) as unknown as Json,
+    p_shortlist_mode: shortlistMode(shortlist),
     p_contact: {
       first_name: contact.firstName.trim(),
       whatsapp: contact.whatsapp.trim(),
@@ -360,21 +449,6 @@ function budgetDisplay(profile: DecisionProfileV2): string | null {
   return `${range} ${budget.originalCurrency}`;
 }
 
-function readStoredShortlist(raw: unknown, mode: string): ShortlistV2 {
-  const entries = Array.isArray(raw)
-    ? raw
-        .filter(
-          (entry): entry is { slug: string; mentionedByGuest?: boolean } =>
-            Boolean(entry) &&
-            typeof entry === "object" &&
-            typeof (entry as { slug?: unknown }).slug === "string",
-        )
-        .map((entry) => ({ slug: entry.slug, mentionedByGuest: entry.mentionedByGuest === true }))
-        .slice(0, MAX_SHORTLIST)
-    : [];
-  return { entries, guidePrepares: mode === "guide_prepares" };
-}
-
 /* ---------- WhatsApp manual verification (fail-closed) ---------- */
 
 export interface WhatsappStartResult {
@@ -395,6 +469,7 @@ export async function startWhatsappVerification(
       await ensureSession(actor, { clientRef: input.clientRef });
       await callRpc("booth_set_whatsapp_state", {
         p_client_ref: input.clientRef,
+        p_actor_user_id: actor.userId,
         p_state: "unavailable",
         p_method: null,
       });
@@ -405,7 +480,7 @@ export async function startWhatsappVerification(
   const sessionCode = sessionCodeFromClientRef(input.clientRef);
   if (!isBoothDemoNoWriteMode()) {
     await ensureSession(actor, { clientRef: input.clientRef });
-    const session = await readSession(input.clientRef);
+    const session = await readSessionForActor(actor, input.clientRef);
     if (session.whatsapp === null) {
       throw new BoothError(
         "booth_contact_required",
@@ -414,6 +489,7 @@ export async function startWhatsappVerification(
     }
     await callRpc("booth_set_whatsapp_state", {
       p_client_ref: input.clientRef,
+      p_actor_user_id: actor.userId,
       p_state: "pending",
       p_method: null,
     });
@@ -436,6 +512,7 @@ export async function confirmWhatsappVerification(
   await ensureSession(actor, { clientRef: input.clientRef });
   const verifiedAt = await callRpc<string>("booth_set_whatsapp_state", {
     p_client_ref: input.clientRef,
+    p_actor_user_id: actor.userId,
     p_state: "verified",
     p_method: input.method,
   });
@@ -477,6 +554,7 @@ export async function assignGuide(
   await ensureSession(actor, { clientRef: input.clientRef });
   const assignedAt = await callRpc<string>("booth_assign_guide", {
     p_client_ref: input.clientRef,
+    p_actor_user_id: actor.userId,
     p_guide_id: input.guideId,
     p_reserve_guide_id: input.reserveGuideId,
     p_fallback_reason: input.fallbackReason,
@@ -498,7 +576,9 @@ export async function acknowledgeGuide(
   if (isBoothDemoNoWriteMode()) {
     return { ok: true, acknowledgedAt: now, method: "host_observed" };
   }
-  const session = await readSession(input.clientRef);
+  // The assigned Guide's own account may reach this operation; the Host always
+  // may. Anyone else is refused by both this read and the RPC.
+  const session = await readSessionForActor(actor, input.clientRef, { allowAssignedGuide: true });
   if (session.assigned_guide_id === null) {
     throw new BoothError("booth_guide_required", "Assign a Guide before recording this.");
   }
@@ -535,7 +615,7 @@ export async function recordHandoff(
   },
 ): Promise<{ ok: true; firstContactMethod: HandoffAttributionMethod | null }> {
   if (isBoothDemoNoWriteMode()) return { ok: true, firstContactMethod: null };
-  const session = await readSession(input.clientRef);
+  const session = await readSessionForActor(actor, input.clientRef, { allowAssignedGuide: true });
 
   let method: HandoffAttributionMethod | null = null;
   if (input.firstContactConfirmed === true) {
@@ -599,6 +679,7 @@ export async function completeSession(
   // deletion (no-contact) plus the outcome, never two separate updates.
   await callRpc("booth_complete_session", {
     p_client_ref: input.clientRef,
+    p_actor_user_id: actor.userId,
     p_outcome: input.outcome,
   });
   return { ok: true };

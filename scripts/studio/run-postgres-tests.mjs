@@ -227,28 +227,35 @@ async function concurrencyProbes() {
 }
 
 /**
- * Booth V2 contact+lead atomicity probes (PR #102 corrective item 3): two REAL
- * sessions racing the same booth_save_contact_and_lead call. Session A holds
- * the locked session row inside an open transaction while session B issues the
- * identical call. Proves: (1) B blocks on A's row lock rather than racing it;
- * (2) both return the SAME lead id; (3) exactly one lead row exists; (4) no
- * unattached lead is left behind. Then a failed link inside one transaction is
- * shown to roll the lead insert back entirely.
+ * Booth V2 consent-commit atomicity and cross-Host ownership probes (PR #102
+ * corrective items 4 and 5): two REAL, concurrent psql sessions.
+ *
+ * Probe 1 — atomic consent replay. Session A holds the locked booth session row
+ * inside an open transaction while session B issues the identical
+ * booth_commit_consent call. Proves: (1) B blocks on A's row lock rather than
+ * racing it; (2) both return the SAME lead id; (3) exactly one lead row exists;
+ * (4) no unattached lead is left behind.
+ *
+ * Probe 2 — cross-Host ownership under contention. Session A (the owning Host)
+ * holds the row lock; session B is a DIFFERENT valid staff account that knows
+ * the client_ref. Proves the refusal is not a race artefact: B waits for the
+ * lock, then is refused deterministically and changes nothing.
+ *
+ * Probe 3 — rollback. A failure after the lead write rolls the whole
+ * transaction back: no consent, no contact bundle, no orphan lead.
  */
 async function boothConcurrencyProbes() {
   const HOST_ID = "b0000000-0000-0000-0000-000000000001";
+  const OTHER_HOST_ID = "b0000000-0000-0000-0000-000000000004";
   const REF = "ref-probe-concurrent-1";
-  const call = (extra = "") =>
-    `SELECT public.booth_save_contact_and_lead('${REF}',` +
+  const consentCall = (ref, actor, extra = "") =>
+    `SELECT public.booth_commit_consent('${ref}','${actor}','quick',` +
+    ` '{"profileVersion":2,"preferredLanguage":"English"}'::jsonb, 2, now(), '[]'::jsonb, 'none',` +
     ` '{"first_name":"Race","whatsapp":"+79990009988","preferred_language":"English"${extra}}'::jsonb,` +
     ` '{"name":"Race","phone":"+79990009988","message":"m","source":"booth_v2"}'::jsonb)`;
+  const call = (extra = "") => consentCall(REF, HOST_ID, extra);
 
-  psqlSql(
-    [
-      `SELECT public.booth_ensure_session('${REF}','${HOST_ID}','host@example.test','probe')`,
-      `SELECT public.booth_confirm_profile('${REF}','quick','{"profileVersion":2,"preferredLanguage":"English"}'::jsonb,2,now(),'English')`,
-    ].join("; "),
-  );
+  psqlSql(`SELECT public.booth_ensure_session('${REF}','${HOST_ID}','host@example.test','probe')`);
 
   const sessionA = psqlSqlAsync(
     `SET ROLE service_role; BEGIN; ${call()}; SELECT pg_sleep(6); COMMIT;`,
@@ -287,20 +294,57 @@ async function boothConcurrencyProbes() {
     throw new Error(`unattached booth leads exist after the race:\n${orphans}`);
   }
 
-  // A failure after the lead insert rolls the whole transaction back: the
-  // session keeps no contact bundle and no orphan lead remains.
+  // --- Probe 2: a DIFFERENT Host, under real lock contention, is refused. ---
+  const OWNED_REF = "ref-probe-ownership-1";
+  psqlSql(
+    `SELECT public.booth_ensure_session('${OWNED_REF}','${HOST_ID}','host@example.test','probe')`,
+  );
+  const ownerHolds = psqlSqlAsync(
+    `SET ROLE service_role; BEGIN;` +
+      ` SELECT public.booth_lock_owned_session('${OWNED_REF}','${HOST_ID}');` +
+      ` SELECT pg_sleep(6); COMMIT;`,
+  );
+  await sleep(1000);
+  const intruderStart = Date.now();
+  let intruderRefused = false;
+  try {
+    await psqlSqlAsync(`SET ROLE service_role; ${consentCall(OWNED_REF, OTHER_HOST_ID)};`);
+  } catch (error) {
+    intruderRefused = /booth_session_forbidden/.test(
+      String(error.stderr ?? "") + String(error.stdout ?? "") + String(error.message ?? ""),
+    );
+    if (!intruderRefused) throw error;
+  }
+  const intruderElapsed = Date.now() - intruderStart;
+  await ownerHolds;
+  if (!intruderRefused) {
+    throw new Error("a different Host committed consent on another Host's session");
+  }
+  if (intruderElapsed < 1000) {
+    throw new Error(
+      `the intruder returned in ${intruderElapsed} ms — it never contended for the owner's row lock`,
+    );
+  }
+  const untouched = psqlSql(
+    `SELECT (SELECT count(*) FROM public.booth_sessions WHERE client_ref='${OWNED_REF}'` +
+      ` AND consultation_consent = FALSE AND lead_id IS NULL) || ':' ||` +
+      ` (SELECT count(*) FROM public.leads WHERE phone='+79990009988')`,
+  );
+  if (!/\b1:1\b/.test(untouched)) {
+    throw new Error(`the refused cross-Host attempt changed rows:\n${untouched}`);
+  }
+
+  // --- Probe 3: a failure after the lead write rolls everything back. -------
   const ROLLBACK_REF = "ref-probe-rollback-1";
   psqlSql(
-    [
-      `SELECT public.booth_ensure_session('${ROLLBACK_REF}','${HOST_ID}','host@example.test','probe')`,
-      `SELECT public.booth_confirm_profile('${ROLLBACK_REF}','quick','{"profileVersion":2,"preferredLanguage":"English"}'::jsonb,2,now(),'English')`,
-    ].join("; "),
+    `SELECT public.booth_ensure_session('${ROLLBACK_REF}','${HOST_ID}','host@example.test','probe')`,
   );
   let rolledBack = false;
   try {
     psqlSql(
       `SET ROLE service_role; BEGIN;` +
-        ` SELECT public.booth_save_contact_and_lead('${ROLLBACK_REF}',` +
+        ` SELECT public.booth_commit_consent('${ROLLBACK_REF}','${HOST_ID}','quick',` +
+        ` '{"profileVersion":2,"preferredLanguage":"English"}'::jsonb, 2, now(), '[]'::jsonb, 'none',` +
         ` '{"first_name":"Rollback","whatsapp":"+79990007766","preferred_language":"English"}'::jsonb,` +
         ` '{"name":"Rollback","phone":"+79990007766","message":"m","source":"booth_v2"}'::jsonb);` +
         // Deliberate violation inside the same transaction.
@@ -312,14 +356,15 @@ async function boothConcurrencyProbes() {
   if (!rolledBack) throw new Error("the deliberate mid-transaction violation did not fail");
   const afterRollback = psqlSql(
     `SELECT (SELECT count(*) FROM public.leads WHERE phone='+79990007766') || ':' ||` +
-      ` (SELECT count(*) FROM public.booth_sessions WHERE client_ref='${ROLLBACK_REF}' AND first_name IS NOT NULL)`,
+      ` (SELECT count(*) FROM public.booth_sessions WHERE client_ref='${ROLLBACK_REF}' AND consultation_consent)`,
   );
   if (!/\b0:0\b/.test(afterRollback)) {
-    throw new Error(`a partially applied contact/lead survived the rollback:\n${afterRollback}`);
+    throw new Error(`a partially applied consent commit survived the rollback:\n${afterRollback}`);
   }
 
   console.log(
-    `[studio-pg] booth atomicity probes PASS (session B blocked ${bElapsed} ms then returned the same lead; rollback left nothing)`,
+    `[studio-pg] booth atomicity + ownership probes PASS (consent replay blocked ${bElapsed} ms then returned the same lead;` +
+      ` a different Host contended ${intruderElapsed} ms and was refused; rollback left nothing)`,
   );
 }
 

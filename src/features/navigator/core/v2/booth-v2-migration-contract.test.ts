@@ -72,11 +72,11 @@ describe("booth V2 pilot migration — least privilege / anti-spoofing", () => {
   it("restricts every privileged RPC to service_role", () => {
     const functions = [
       "booth_emit_event",
+      "booth_lock_owned_session",
       "booth_ensure_session",
       "booth_record_event",
-      "booth_confirm_profile",
-      "booth_set_shortlist",
-      "booth_save_contact_and_lead",
+      "booth_mark_profile_confirmed",
+      "booth_commit_consent",
       "booth_set_whatsapp_state",
       "booth_assign_guide",
       "booth_acknowledge_guide",
@@ -93,6 +93,23 @@ describe("booth V2 pilot migration — least privilege / anti-spoofing", () => {
         new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\([^)]*\\) TO service_role;`),
       );
     }
+    // The trigger function is revoked too and never granted to anyone.
+    expect(executable).toContain(
+      "REVOKE ALL ON FUNCTION public.booth_sessions_freeze_terminal() FROM PUBLIC, anon, authenticated;",
+    );
+  });
+
+  it("adds the Booth capability to the EXISTING staff roster, default off, seeding nobody", () => {
+    expect(executable).toMatch(
+      /ALTER TABLE public\.studio_members\s+ADD COLUMN IF NOT EXISTS can_access_booth BOOLEAN NOT NULL DEFAULT FALSE;/,
+    );
+    // No second identity table, and no row is granted the capability here.
+    expect(executable).not.toMatch(/CREATE TABLE[^;]*booth_staff/i);
+    expect(executable).not.toMatch(/UPDATE public\.studio_members/i);
+    expect(executable).not.toMatch(/can_access_booth\s*=\s*TRUE/i);
+    // Nothing else about studio_members is touched, so Studio is unchanged.
+    const studioStatements = executable.match(/ALTER TABLE public\.studio_members[^;]*;/g) ?? [];
+    expect(studioStatements).toHaveLength(1);
   });
 
   it("pins SECURITY DEFINER functions to an empty search_path with no dynamic SQL", () => {
@@ -198,6 +215,20 @@ describe("booth V2 pilot migration — truthful data constraints", () => {
     expect(gate).not.toBeNull();
     const body = gate?.[1] ?? "";
     for (const column of [
+      "profile IS NULL",
+      "profile_version IS NULL",
+      "profile_confirmed_at IS NULL",
+      "flow_mode IS NULL",
+      "jsonb_array_length(shortlist) = 0",
+      "shortlist_mode = 'none'",
+      "guide_acknowledged_by IS NULL",
+      "guide_acknowledged_method IS NULL",
+      "guide_first_contact_by IS NULL",
+      "guide_first_contact_method IS NULL",
+      "guide_fallback_reason IS NULL",
+      "consultation_timezone IS NULL",
+      "whatsapp_verified_at IS NULL",
+      "whatsapp_verification_method IS NULL",
       "first_name IS NULL",
       "whatsapp IS NULL",
       "last_name IS NULL",
@@ -228,33 +259,201 @@ describe("booth V2 pilot migration — truthful data constraints", () => {
   });
 });
 
-describe("booth V2 pilot migration — atomicity", () => {
-  it("locks the session row in every state-transition function", () => {
-    const locks = executable.match(/WHERE client_ref = p_client_ref FOR UPDATE/g) ?? [];
-    // ensure_session upserts; every other transition locks first.
-    expect(locks.length).toBeGreaterThanOrEqual(8);
+/** The body of one CREATE OR REPLACE FUNCTION block, by name. */
+function functionBody(name: string): string {
+  const match = executable.match(
+    new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}\\([\\s\\S]*?\\$\\$;`),
+  );
+  expect(match).not.toBeNull();
+  return match?.[0] ?? "";
+}
+
+/** Every state-transition RPC, i.e. everything that may write a session. */
+const TRANSITION_FUNCTIONS = [
+  "booth_record_event",
+  "booth_mark_profile_confirmed",
+  "booth_commit_consent",
+  "booth_set_whatsapp_state",
+  "booth_assign_guide",
+  "booth_acknowledge_guide",
+  "booth_record_handoff",
+  "booth_complete_session",
+];
+
+describe("booth V2 pilot migration — session ownership", () => {
+  it("locks AND ownership-checks the session in every state-transition function", () => {
+    for (const fn of TRANSITION_FUNCTIONS) {
+      expect(`${fn}:${functionBody(fn).includes("booth_lock_owned_session(")}`).toBe(`${fn}:true`);
+    }
   });
 
-  it("creates and links the lead inside the same locked transaction", () => {
-    const fn = executable.match(
-      /CREATE OR REPLACE FUNCTION public\.booth_save_contact_and_lead[\s\S]*?\$\$;/,
+  it("takes the acting staff account on every state-transition function", () => {
+    for (const fn of TRANSITION_FUNCTIONS) {
+      expect(`${fn}:${functionBody(fn).includes("p_actor_user_id UUID")}`).toBe(`${fn}:true`);
+    }
+  });
+
+  it("proves ownership against host_user_id, under the row lock, before any write", () => {
+    const body = functionBody("booth_lock_owned_session");
+    expect(body).toContain("WHERE client_ref = p_client_ref FOR UPDATE");
+    expect(body).toContain("IF v_session.host_user_id = p_actor_user_id THEN");
+    expect(body).toContain("booth_session_forbidden");
+    // The narrow Guide exception is opt-in per call site and matches the
+    // assigned Guide's own staff account only.
+    expect(body).toContain("p_allow_assigned_guide");
+    expect(body).toMatch(/staff_user_id = p_actor_user_id/);
+  });
+
+  it("refuses a different Host on ensure_session instead of transferring ownership", () => {
+    const body = functionBody("booth_ensure_session");
+    expect(body).toContain("IF v_session.host_user_id <> p_host_user_id THEN");
+    expect(body).toContain("booth_session_forbidden");
+    expect(body).not.toMatch(/SET host_user_id/);
+  });
+
+  it("grants the assigned Guide ONLY the two self-actions", () => {
+    // Exactly two functions opt into the Guide exception.
+    const optIn = TRANSITION_FUNCTIONS.filter((fn) =>
+      functionBody(fn).includes("booth_lock_owned_session(p_client_ref, p_actor_user_id, TRUE)"),
     );
-    expect(fn).not.toBeNull();
-    const body = fn?.[0] ?? "";
-    expect(body).toContain("FOR UPDATE");
-    expect(body).toContain("IF v_session.lead_id IS NOT NULL THEN");
+    expect(optIn.sort()).toEqual(["booth_acknowledge_guide", "booth_record_handoff"]);
+    // And the handoff refuses a non-Host that tries to do anything more than
+    // confirm their own first contact.
+    const handoff = functionBody("booth_record_handoff");
+    expect(handoff).toContain("v_session.host_user_id <> p_actor_user_id");
+    expect(handoff).toContain("p_consultation_scheduled_at IS NOT NULL");
+    expect(handoff).toContain("NULLIF(btrim(p_next_step), '') IS NOT NULL");
+  });
+});
+
+describe("booth V2 pilot migration — the consent boundary", () => {
+  it("physically forbids guest data before the consultation consent", () => {
+    const gate = executable.match(/booth_sessions_pre_consent_minimal CHECK \(([\s\S]*?)\n {2}\),/);
+    expect(gate).not.toBeNull();
+    const body = gate?.[1] ?? "";
+    expect(body).toContain("consultation_consent");
+    for (const column of [
+      "profile IS NULL",
+      "profile_version IS NULL",
+      "profile_confirmed_at IS NULL",
+      "jsonb_array_length(shortlist) = 0",
+      "shortlist_mode = 'none'",
+      "preferred_language IS NULL",
+      "first_name IS NULL",
+      "whatsapp IS NULL",
+      "host_note IS NULL",
+      "lead_id IS NULL",
+    ]) {
+      expect(body).toContain(column);
+    }
+  });
+
+  it("never persists the profile payload before consent", () => {
+    // The pre-consent marker records the flow mode and the funnel fact ONLY.
+    const body = functionBody("booth_mark_profile_confirmed");
+    expect(body).toContain("SET flow_mode = p_flow_mode");
+    expect(body).not.toMatch(/\bprofile\s*=/);
+    expect(body).not.toMatch(/preferred_language\s*=/);
+    expect(body).not.toMatch(/shortlist\s*=/);
+    // It cannot even receive one.
+    expect(body).not.toMatch(/p_profile\b/);
+  });
+
+  it("persists profile, shortlist, contact, consent and the lead in ONE function", () => {
+    const body = functionBody("booth_commit_consent");
+    for (const written of [
+      "profile = p_profile",
+      "shortlist = p_shortlist",
+      "first_name = p_contact ->> 'first_name'",
+      "consultation_consent = TRUE",
+      "INSERT INTO public.leads",
+      "UPDATE public.leads",
+    ]) {
+      expect(body).toContain(written);
+    }
+    expect(body).toContain("booth_lock_owned_session(");
+  });
+});
+
+describe("booth V2 pilot migration — terminal immutability", () => {
+  it("freezes a terminal session with a trigger the RPCs cannot bypass", () => {
+    const body = functionBody("booth_sessions_freeze_terminal");
+    expect(body).toContain("IF OLD.outcome <> 'active' THEN");
+    expect(body).toContain("booth_session_terminal_immutable");
+    expect(executable).toMatch(
+      /CREATE TRIGGER booth_sessions_freeze_terminal\s+BEFORE UPDATE ON public\.booth_sessions/,
+    );
+  });
+
+  it("requires an active session in every transition RPC", () => {
+    for (const fn of TRANSITION_FUNCTIONS) {
+      // complete_session allows the exact idempotent replay first, then this.
+      expect(`${fn}:${functionBody(fn).includes("booth_session_not_active")}`).toBe(`${fn}:true`);
+    }
+    expect(functionBody("booth_complete_session")).toContain(
+      "IF v_session.outcome = p_outcome THEN",
+    );
+  });
+});
+
+describe("booth V2 pilot migration — atomicity", () => {
+  it("creates OR updates exactly one linked lead inside the same locked transaction", () => {
+    const body = functionBody("booth_commit_consent");
+    expect(body).toContain("booth_lock_owned_session(");
+    expect(body).toContain("IF v_lead_id IS NOT NULL THEN");
+    expect(body).toContain("UPDATE public.leads");
     expect(body).toContain("INSERT INTO public.leads");
     expect(body).toContain("SET lead_id = v_lead_id");
   });
 
-  it("clears everything and deletes the lead in one no-contact transaction", () => {
-    const fn = executable.match(
-      /CREATE OR REPLACE FUNCTION public\.booth_complete_session[\s\S]*?\$\$;/,
+  it("never carries a verification across a replaced WhatsApp number", () => {
+    const body = functionBody("booth_commit_consent");
+    expect(body).toContain("v_number_changed");
+    expect(body).toMatch(/WHEN v_number_changed THEN 'unverified'/);
+    expect(body).toMatch(/guide_first_contact_at = CASE\s*\n\s*WHEN v_number_changed THEN NULL/);
+    expect(body).toMatch(/event IN \('whatsapp_verified', 'guide_contacted'\)/);
+  });
+
+  it("resets the previous Guide's evidence on a genuine reassignment", () => {
+    const body = functionBody("booth_assign_guide");
+    expect(body).toContain("v_reassigned");
+    for (const cleared of [
+      "guide_acknowledged_at",
+      "guide_first_contact_at",
+      "consultation_scheduled_at",
+      "next_step",
+    ]) {
+      expect(body).toMatch(new RegExp(`${cleared} = CASE\\s*\\n\\s*WHEN v_reassigned THEN NULL`));
+    }
+    expect(body).toMatch(
+      /event IN \('guide_acknowledged', 'guide_contacted', 'consultation_booked'\)/,
     );
-    const body = fn?.[0] ?? "";
+  });
+
+  it("clears everything and deletes the lead in one no-contact transaction", () => {
+    const body = functionBody("booth_complete_session");
     expect(body).toContain("DELETE FROM public.leads WHERE id = v_lead_id");
     expect(body).toContain("outcome = 'no_contact_qr'");
     expect(body).toContain("booth_completion_blocked");
+    // Every guest-specific value is cleared in the SAME statement.
+    for (const cleared of [
+      "profile = NULL",
+      "profile_version = NULL",
+      "profile_confirmed_at = NULL",
+      "flow_mode = NULL",
+      "shortlist = '[]'::jsonb",
+      "shortlist_mode = 'none'",
+      "preferred_language = NULL",
+      "guide_acknowledged_by = NULL",
+      "guide_acknowledged_method = NULL",
+      "guide_first_contact_by = NULL",
+      "guide_first_contact_method = NULL",
+      "guide_fallback_reason = NULL",
+      "consultation_timezone = NULL",
+      "lead_id = NULL",
+    ]) {
+      expect(body).toContain(cleared);
+    }
   });
 
   it("emits the transition funnel events server-side", () => {

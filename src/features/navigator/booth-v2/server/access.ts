@@ -1,9 +1,9 @@
 /**
- * Booth Mode 2.0 — server-enforced access boundary (PR #102 corrective item 1
- * and 2).
+ * Booth Mode 2.0 — server-enforced access boundary (PR #102 corrective items 1,
+ * 2, 3, 9 and 10).
  *
- * TWO independent conditions must BOTH hold before any Booth V2 operation
- * runs, and both are evaluated on the server only:
+ * THREE independent conditions must ALL hold before any Booth V2 operation
+ * runs, and all three are evaluated on the server only:
  *
  *   1. the pilot is explicitly enabled for this deployment
  *      (BOOTH_V2_ENABLED === "true" — DEFAULT DISABLED, and never read from a
@@ -11,11 +11,17 @@
  *   2. the caller presents a valid Supabase session whose account holds an
  *      ACTIVE row in public.studio_members — the existing Forever staff
  *      roster. No second staff identity system is introduced, and there is no
- *      self-registration or bootstrap path here: an account that is not
- *      already an active member is refused.
+ *      self-registration or bootstrap path here;
+ *   3. that row carries the EXPLICIT least-privilege Booth capability
+ *      (studio_members.can_access_booth). Active membership alone is
+ *      deliberately NOT sufficient: an active Owner or Trusted Publisher who
+ *      has not been granted the capability is refused exactly like a stranger.
+ *      The column defaults to FALSE and the migration grants it to nobody.
  *
  * Host identity is derived from that membership, never from client input.
- * Anything missing fails closed with a stable, non-descriptive denial.
+ * Anything missing fails closed with a stable, non-descriptive denial: the
+ * caller can never distinguish "pilot disabled" from "not a member" from
+ * "member without the Booth capability".
  */
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -46,6 +52,7 @@ interface StudioMemberRow {
   display_name: string | null;
   email: string | null;
   is_active: boolean;
+  can_access_booth: boolean;
 }
 
 export interface BoothActor {
@@ -58,8 +65,8 @@ export interface BoothActor {
 
 /**
  * Resolve the authenticated caller into an authorized Booth actor. Throws the
- * single opaque denial when the pilot is disabled or the account is not an
- * active staff member.
+ * single opaque denial when the pilot is disabled, the account is not an active
+ * staff member, or the account lacks the explicit Booth capability.
  */
 export async function resolveBoothActor(session: {
   userId: string;
@@ -90,7 +97,7 @@ export async function resolveBoothActor(session: {
 
   const { data, error } = await members
     .from("studio_members")
-    .select("user_id, role, display_name, email, is_active")
+    .select("user_id, role, display_name, email, is_active, can_access_booth")
     .eq("user_id", session.userId)
     .maybeSingle();
 
@@ -99,7 +106,9 @@ export async function resolveBoothActor(session: {
     console.error("[booth-v2] membership lookup failed");
     throw boothDenied();
   }
-  if (!data || !data.is_active) throw boothDenied();
+  // Active membership AND the explicit Booth capability. Both are required and
+  // both fail into the same opaque denial.
+  if (!data || data.is_active !== true || data.can_access_booth !== true) throw boothDenied();
 
   return {
     userId: data.user_id,

@@ -74,9 +74,9 @@ const serverFns = vi.hoisted(() => ({
   })),
   ensureSession: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
   recordEvent: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
-  confirmProfile: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
-  setShortlist: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
-  saveContact: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
+  markProfileConfirmed: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
+  validateShortlist: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
+  commitConsent: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
   startWhatsapp: vi.fn(
     async (_input: {
       data: Record<string, unknown>;
@@ -136,9 +136,9 @@ vi.mock("./booth-v2.functions", () => ({
   boothV2GetConfig: serverFns.getConfig,
   boothV2EnsureSession: serverFns.ensureSession,
   boothV2RecordEvent: serverFns.recordEvent,
-  boothV2ConfirmProfile: serverFns.confirmProfile,
-  boothV2SetShortlist: serverFns.setShortlist,
-  boothV2SaveContact: serverFns.saveContact,
+  boothV2MarkProfileConfirmed: serverFns.markProfileConfirmed,
+  boothV2ValidateShortlist: serverFns.validateShortlist,
+  boothV2CommitConsent: serverFns.commitConsent,
   boothV2StartWhatsappVerification: serverFns.startWhatsapp,
   boothV2ConfirmWhatsappVerification: serverFns.confirmWhatsapp,
   boothV2ListGuides: serverFns.listGuides,
@@ -204,7 +204,7 @@ async function fillContactAndSubmit() {
   });
   fireEvent.click(screen.getByLabelText(/I agree that Forever saves my Decision Profile/));
   fireEvent.click(button("Save and continue"));
-  await waitFor(() => expect(serverFns.saveContact).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(serverFns.commitConsent).toHaveBeenCalledTimes(1));
 }
 
 beforeEach(() => {
@@ -270,13 +270,13 @@ describe("BoothV2Navigator — contact & consent", () => {
     expect(
       await screen.findByText(/We need your permission to save your Decision Profile/),
     ).toBeInTheDocument();
-    expect(serverFns.saveContact).not.toHaveBeenCalled();
+    expect(serverFns.commitConsent).not.toHaveBeenCalled();
     // Consent → proceeds without surname or email.
     fireEvent.click(screen.getByLabelText(/I agree that Forever saves my Decision Profile/));
     fireEvent.click(button("Save and continue"));
-    await waitFor(() => expect(serverFns.saveContact).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(serverFns.commitConsent).toHaveBeenCalledTimes(1));
     const saved = (
-      serverFns.saveContact.mock.calls[0][0] as {
+      serverFns.commitConsent.mock.calls[0][0] as {
         data: { contact: { marketingOptIn: boolean; lastName: string; email: string } };
       }
     ).data.contact;
@@ -287,7 +287,7 @@ describe("BoothV2Navigator — contact & consent", () => {
 
   it("blocks duplicate submits while saving", async () => {
     let release: () => void = () => undefined;
-    serverFns.saveContact.mockImplementationOnce(
+    serverFns.commitConsent.mockImplementationOnce(
       () =>
         new Promise<{ ok: true }>((resolveFn) => {
           release = () => resolveFn({ ok: true });
@@ -304,7 +304,7 @@ describe("BoothV2Navigator — contact & consent", () => {
     fireEvent.click(button("Saving…"));
     fireEvent.click(button("Saving…"));
     release();
-    await waitFor(() => expect(serverFns.saveContact).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(serverFns.commitConsent).toHaveBeenCalledTimes(1));
   });
 
   it("offers a respectful no-contact continuation that stores nothing", async () => {
@@ -314,7 +314,7 @@ describe("BoothV2Navigator — contact & consent", () => {
     fireEvent.click(button(/I'd rather continue on my own — no contact/));
     await screen.findByText(/Continue in your own time/);
     expect(screen.getByText(/Nothing about you is stored/)).toBeInTheDocument();
-    expect(serverFns.saveContact).not.toHaveBeenCalled();
+    expect(serverFns.commitConsent).not.toHaveBeenCalled();
     // The no-contact outcome (clearing + lead deletion + qr_continuation) is
     // ONE server transaction, not a best-effort client event.
     await waitFor(() =>
