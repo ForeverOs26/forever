@@ -10,6 +10,17 @@ project was imported, no project was published, no production endpoint was
 contacted, and no Owner source file was created, deleted, renamed, moved,
 normalised or edited.
 
+> **Wave 1 outcome (FOREVER-CATALOG-10-002, 2026-07-26).** Four staging draft
+> packages were prepared and validated: `coralina`, `rainpalm-villas`
+> (structural, zero prices), `garden-of-eden` and `the-title-sierra`. None was
+> loaded — no staging database credential exists in the working environment.
+> Full detail, including the resolution of the Coralina contradiction and the
+> Owner runbook, is in
+> [`FOREVER_CATALOG_10_WAVE1_STAGING_REPORT.md`](FOREVER_CATALOG_10_WAVE1_STAGING_REPORT.md).
+> Two findings below are superseded by that report and are marked inline: §1's
+> Coralina reasoning, and §6.5's assumption that Sierra needs SIP qualification
+> before a draft can be built.
+
 ## 1. Correction to the assumed starting state
 
 The task brief assumes the Forever Database already holds two records, Modeva
@@ -32,6 +43,24 @@ This conclusion is drawn purely from committed and untracked repository reports.
 Production was not queried to confirm it, because this task forbids production
 access. The Owner should treat "Coralina absent" as evidence-backed but
 production-unverified.
+
+**Updated 2026-07-26.** The Wave 1 task resolved the contradiction more
+precisely. Four reports later than RC5.6 — all from 2026-07-18, the latest at
+20:31 — show every Coralina import attempt failing and rolling back, and every
+one of them targeting **production**, not staging. `docs/CURRENT_STAGE.md`'s
+claim that Coralina is an imported draft is therefore wrong: it describes the
+package's intended end state, not an achieved database state. For
+`forever-staging` specifically, Coralina is classified **absent** at high
+confidence, since no import was ever aimed there and the staging project was
+created 2026-07-21, three days after the last attempt. Still query-unverified.
+
+The prerequisite framing also needs a correction: the missing developer and
+`kamala` location rows are **not** blockers for a draft. The progressive
+ingestion contract accepts `developer_id: null` and `location_id: null`, keeps
+the raw names, and records `developer_unresolved` / `location_unresolved`
+warnings. Coralina's package already does exactly that, so it can be loaded as a
+draft without the prerequisite migration. Canonical resolution remains a
+publication prerequisite, not an import one.
 
 ## 2. Source roots inspected
 
@@ -267,6 +296,14 @@ the price layer has an unresolved provenance conflict.
   (`pdftotext` table mode) exactly as Rainpalm was; create Passport Light draft
   with `location_missing`, `developer_unresolved`, `construction_status_missing`.
   Do not publish prices — Internal Use Only.
+- **Done 2026-07-26.** Extracted with Xpdf 4.06 `-table`, the mode the SIP
+  contract requires. 180 rows, 0 unresolved, and every integrity gate passed:
+  unique room numbers, tower and floor agreeing with the room-number encoding,
+  and price/sqm × area agreeing with selling price on all 180. Towers A and C
+  become 2 buildings; 180 units; 180 THB prices dated 2026-05-15; all stated
+  `Available`. `project_type` was left absent rather than inferred as
+  "Condominium" — the document never names a type. Package built and validated;
+  not loaded.
 
 ### 6.6 Layan Green Park — `layan-green-park`
 

@@ -7,6 +7,30 @@ Companion to `FOREVER_CATALOG_10_ONBOARDING.md`. Same base SHA
 No production action is authorised by this document. Every wave below ends at a
 staging boundary. Nothing here permits a publish.
 
+> **Status update — FOREVER-CATALOG-10-002, 2026-07-26.** The Owner reshaped
+> Wave 1 to four members: Coralina, Rainpalm, Gardens of Eden and The Title
+> Sierra. All four packages are prepared, validated and staging-ready; none is
+> loaded, because no staging database credential exists in the working
+> environment. See
+> [`FOREVER_CATALOG_10_WAVE1_STAGING_REPORT.md`](FOREVER_CATALOG_10_WAVE1_STAGING_REPORT.md).
+>
+> Two structural corrections to the plan below, both material:
+>
+> - **Wave 0 is dissolved.** It assumed Coralina was blocked on a prerequisite
+>   migration for the developer and `kamala` location rows. It is not. The
+>   progressive ingestion contract accepts null developer and location IDs,
+>   keeps the raw names and emits `*_unresolved` warnings — which Coralina's
+>   package already does. Canonical resolution is a publication prerequisite,
+>   not an import one, so the pinned migration is not on the Wave 1 path.
+> - **Rainpalm is no longer blocked on the price ruling.** It ships as a
+>   structural draft with 21 units and zero prices, carrying
+>   `authoritative_price_list_unresolved`. The Owner ruling is now required
+>   before Rainpalm gets *prices*, not before it gets a record.
+>
+> The gate table below still applies to Waves 2 and 3 unchanged. G1 is the gate
+> Rainpalm previously failed; the structural draft passes it by citing the
+> presentation document, which resolves, and by carrying no price rows at all.
+
 ## Wave 0 — Coralina prerequisites (blocking, ahead of everything else)
 
 Wave 0 is not in the original three-wave shape. It exists because the Coralina
@@ -217,10 +241,12 @@ that leaves identity, slug and publication state untouched.
 
 ## Summary
 
+Superseded for Wave 1 by the 2026-07-26 update above; retained for Waves 2–3.
+
 | Wave | Members | Blocking dependency |
 | --- | --- | --- |
-| 0 | Coralina | prerequisite migration, developer row, `kamala` location |
-| 1 | Rainpalm, Garden of Eden, The Title Sierra | Rainpalm price-list ruling |
+| 0 | ~~Coralina~~ | **dissolved** — not a real blocker; folded into Wave 1 |
+| 1 | Coralina, Rainpalm, Gardens of Eden, The Title Sierra | **staging database credential** (all four prepared, none loaded) |
 | 2 | Layan Green Park, AYANA Heights, Casa de Monte Villa | none |
 | 3 | The Title Olive, Sudara Phuket | none |
 

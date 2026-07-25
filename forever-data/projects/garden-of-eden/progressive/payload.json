@@ -1,0 +1,172 @@
+{
+  "schema_version": "1",
+  "mode": "create",
+  "project": {
+    "slug": "garden-of-eden",
+    "name": "Garden of Eden (Park Residence)",
+    "developer_id": null,
+    "location_id": null,
+    "publish": false,
+    "location_name_raw": "Layan",
+    "location_area": "Layan",
+    "project_type": "Premium apart-hotel",
+    "field_provenance": {
+      "name": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "GARDEN OF EDEN - eng.pdf#page=2",
+        "confidence": 1
+      },
+      "location_name_raw": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "GARDEN OF EDEN - eng.pdf#page=2",
+        "confidence": 1
+      },
+      "location_area": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "GARDEN OF EDEN - eng.pdf#page=2",
+        "confidence": 1
+      },
+      "project_type": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "GARDEN OF EDEN - eng.pdf#page=2",
+        "confidence": 1
+      }
+    }
+  },
+  "warnings": [
+    {
+      "entity": "developer",
+      "code": "developer_unresolved",
+      "severity": "warning",
+      "message": "No developer is named anywhere in the available source. Both decks are agency investment presentations produced by Sunthai Property, not developer material, so no raw developer name could be preserved either.",
+      "payload": {
+        "source_documents": [
+          "GARDEN OF EDEN - eng.pdf",
+          "GARDEN OF EDEN.pdf"
+        ]
+      }
+    },
+    {
+      "entity": "location",
+      "code": "location_unresolved",
+      "severity": "warning",
+      "message": "No canonical location matches \"Layan\"; the raw value was preserved for later enrichment.",
+      "payload": {
+        "raw_name": "Layan"
+      }
+    },
+    {
+      "entity": "project",
+      "code": "country_missing",
+      "severity": "warning",
+      "message": "No country is stated. The deck references Phuket International Airport and Laguna Phuket, but neither names the country, so currency cannot be inferred."
+    },
+    {
+      "entity": "project",
+      "field": "latitude",
+      "code": "coordinates_missing",
+      "severity": "info",
+      "message": "No coordinates are stated in the source; latitude/longitude remain NULL."
+    },
+    {
+      "entity": "project",
+      "field": "construction_status",
+      "code": "construction_status_missing",
+      "severity": "info",
+      "message": "No construction status is stated. The deck states a completion quarter only, which is recorded separately."
+    },
+    {
+      "entity": "project",
+      "field": "completion_date",
+      "code": "completion_quarter_only",
+      "severity": "info",
+      "message": "The source states completion as \"Q4-2027\". A quarter is not a date, so completion_date remains NULL rather than being resolved to an invented day.",
+      "payload": {
+        "stated": "Q4-2027",
+        "source_ref": "GARDEN OF EDEN - eng.pdf#page=2"
+      }
+    },
+    {
+      "entity": "building",
+      "code": "building_inventory_missing",
+      "severity": "warning",
+      "message": "The source states \"Buildings: 6\" but gives no building identifiers, names, floor counts or unit counts. No building row was created, because inventing six codes would fabricate structure.",
+      "payload": {
+        "stated_count": 6,
+        "source_ref": "GARDEN OF EDEN - eng.pdf#page=2"
+      }
+    },
+    {
+      "entity": "unit",
+      "code": "unit_types_missing",
+      "severity": "warning",
+      "message": "No unit schedule, unit type list or unit inventory appears in the source. No unit row was created."
+    },
+    {
+      "entity": "price",
+      "code": "price_list_missing",
+      "severity": "warning",
+      "message": "No developer price list exists for this project in any inspected source root. No price row was created."
+    },
+    {
+      "entity": "price",
+      "code": "investment_projections_not_prices",
+      "severity": "warning",
+      "message": "Pages 4 to 6 of the deck carry a five-year investment model with entry/exit figures, discount tiers, ROI percentages and a stated rental return. These are agency projections, not developer prices or yields. They were deliberately not ingested and must never be rendered as a price, a price range or a yield promise.",
+      "payload": {
+        "source_ref": "GARDEN OF EDEN - eng.pdf#pages=4-6"
+      }
+    },
+    {
+      "entity": "project",
+      "code": "stated_facts_not_modelled",
+      "severity": "info",
+      "message": "Source-stated facts with no column in the current schema were preserved here rather than discarded or forced into an unrelated field.",
+      "payload": {
+        "distance_to_beach": "300 m",
+        "total_area": "over 122 000 sqm",
+        "territory_landscaped_share": "70% parks, lakes, gardens and swimming pools",
+        "management": "A professional management company is in place",
+        "source_ref": "GARDEN OF EDEN - eng.pdf#pages=2-3"
+      }
+    },
+    {
+      "entity": "media",
+      "code": "media_not_ingested",
+      "severity": "info",
+      "message": "Both decks contain embedded imagery only, with no standalone media assets. No media row was created and no asset was uploaded or made public.",
+      "payload": {
+        "documents": [
+          {
+            "file": "GARDEN OF EDEN - eng.pdf",
+            "sha256": "9c4a2abeddf4d1b687598824d98fef9220e4c5f015eb58c95687a60e165e3cde",
+            "bytes": 11156967,
+            "language": "English"
+          },
+          {
+            "file": "GARDEN OF EDEN.pdf",
+            "sha256": "ac5cfa99a55867d8c78c8397230356732da1b140f25b69945480ccbb40221ca6",
+            "bytes": 6885501,
+            "language": "Russian"
+          }
+        ]
+      }
+    },
+    {
+      "entity": "project",
+      "field": "source_date",
+      "code": "source_date_recorded",
+      "severity": "info",
+      "message": "The English deck states \"January 2026\" on its title page. That in-document statement is the source date; no file timestamp was used.",
+      "payload": {
+        "source_date": "2026-01",
+        "source_ref": "GARDEN OF EDEN - eng.pdf#page=1"
+      }
+    }
+  ],
+  "batch_fingerprint": "f85ca779274234a3a55356dacc876eb44ba69cc3b5dc69116d783f30b289d63b"
+}

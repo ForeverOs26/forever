@@ -84,3 +84,25 @@ forever-data/projects/coralina/source/*
 !forever-data/projects/coralina/source/*/
 forever-data/projects/coralina/source/*/*
 !forever-data/projects/coralina/source/*/.gitkeep
+
+# FOREVER-CATALOG-10-002 Wave 1 draft packages. Only the progressive payloads
+# and the existing Rainpalm intake/SIP evidence are committed; no source
+# document, media asset, or Owner path enters the repository.
+!forever-data/projects/rainpalm-villas/
+forever-data/projects/rainpalm-villas/*
+!forever-data/projects/rainpalm-villas/intake/
+!forever-data/projects/rainpalm-villas/sip/
+!forever-data/projects/rainpalm-villas/progressive/
+forever-data/projects/rainpalm-villas/progressive/*
+!forever-data/projects/rainpalm-villas/progressive/payload.json
+!forever-data/projects/rainpalm-villas/progressive/payload.fast-intake-v1.json
+!forever-data/projects/garden-of-eden/
+forever-data/projects/garden-of-eden/*
+!forever-data/projects/garden-of-eden/progressive/
+forever-data/projects/garden-of-eden/progressive/*
+!forever-data/projects/garden-of-eden/progressive/payload.json
+!forever-data/projects/the-title-sierra/
+forever-data/projects/the-title-sierra/*
+!forever-data/projects/the-title-sierra/progressive/
+forever-data/projects/the-title-sierra/progressive/*
+!forever-data/projects/the-title-sierra/progressive/payload.json
