@@ -10,6 +10,7 @@ import {
   DECISION_PROFILE_VERSION,
   MAX_PROFILE_PAYLOAD_BYTES,
   derivePurchasePurpose,
+  parseFxRateConfig,
   parseStoredProfileV2,
   statedBudget,
   validateBudgetRange,
@@ -380,5 +381,188 @@ describe("Full-flow purchase purpose derivation", () => {
 
   it("derives exploring only when there is genuinely no evidence", () => {
     expect(derivePurchasePurpose({ motivations: [], goals: [] })).toBe("exploring");
+  });
+});
+
+/**
+ * PR #102 corrective item 8 — the strict profile is bound to DERIVED truth.
+ * A confirmed profile must state the language it was captured in, must pin its
+ * confirmation to an unambiguous instant, and — in the Full flow — must carry
+ * the purchase purpose its own answers actually derive.
+ */
+
+/** A complete, confirmed FULL profile: every Full-flow answer is present. */
+function validFullProfile(overrides: Partial<DecisionProfileV2> = {}): DecisionProfileV2 {
+  return validProfile({
+    flowMode: "full",
+    motivations: ["second_home"],
+    goals: ["peace_privacy"],
+    concerns: ["ownership"],
+    purchasePurpose: "lifestyle",
+    essentials: {
+      propertyType: "condominium",
+      bedrooms: "2",
+      preferredAreas: ["Bang Tao"],
+      helpMeChooseArea: false,
+      readiness: "ready",
+    },
+    ...overrides,
+  });
+}
+
+describe("confirmed profiles must state a preferred language", () => {
+  it("rejects a confirmed Quick or Full profile with no language", () => {
+    expect(parse(validProfile({ preferredLanguage: null }))).toBeNull();
+    expect(parse(validFullProfile({ preferredLanguage: null }))).toBeNull();
+  });
+
+  it("rejects a blank or over-long language on a confirmed profile", () => {
+    expect(parse(validProfile({ preferredLanguage: "   " }))).toBeNull();
+    expect(parse(validProfile({ preferredLanguage: "x".repeat(61) }))).toBeNull();
+  });
+
+  it("still allows an UNCONFIRMED draft to have no language yet", () => {
+    // The website adapter lifts legacy answers with confirmedAt: null; the
+    // booth captures the language before the Decision Summary.
+    expect(parse(validProfile({ confirmedAt: null, preferredLanguage: null }))).not.toBeNull();
+  });
+});
+
+describe("confirmedAt is a strict RFC3339 instant, not anything Date.parse likes", () => {
+  it("accepts a UTC instant and an explicit numeric offset", () => {
+    expect(parse(validProfile({ confirmedAt: "2026-07-25T10:00:00.000Z" }))).not.toBeNull();
+    expect(parse(validProfile({ confirmedAt: "2026-07-25T17:00:00+07:00" }))).not.toBeNull();
+    expect(parse(validProfile({ confirmedAt: "2026-07-25T17:00:00-05:30" }))).not.toBeNull();
+  });
+
+  it("rejects a datetime with NO explicit offset — it pins down no instant", () => {
+    expect(parse(validProfile({ confirmedAt: "2026-07-25T10:00:00" }))).toBeNull();
+    expect(parse(validProfile({ confirmedAt: "2026-07-25T10:00:00.000" }))).toBeNull();
+  });
+
+  it("rejects strings Date.parse accepts but that are not RFC3339 instants", () => {
+    for (const value of [
+      "2026",
+      "2026-07-25",
+      "July 25, 2026",
+      "Sat, 25 Jul 2026 10:00:00 GMT",
+      "2026-07-25 10:00:00Z",
+      "2026/07/25 10:00:00",
+    ]) {
+      expect(Number.isFinite(Date.parse(value))).toBe(true);
+      expect(parse(validProfile({ confirmedAt: value }))).toBeNull();
+    }
+  });
+
+  it("rejects impossible calendar dates and impossible clock values", () => {
+    for (const value of [
+      "2026-02-30T10:00:00Z",
+      "2026-13-01T10:00:00Z",
+      "2026-00-10T10:00:00Z",
+      "2026-07-32T10:00:00Z",
+      "2025-02-29T10:00:00Z",
+      "2026-07-25T24:00:00Z",
+      "2026-07-25T10:60:00Z",
+      "2026-07-25T10:00:61Z",
+      "2026-07-25T10:00:00+24:00",
+      "2026-07-25T10:00:00+05:60",
+    ]) {
+      expect(parse(validProfile({ confirmedAt: value }))).toBeNull();
+    }
+  });
+
+  it("accepts a real leap day", () => {
+    expect(parse(validProfile({ confirmedAt: "2028-02-29T10:00:00Z" }))).not.toBeNull();
+  });
+});
+
+describe("a confirmed Full profile carries the purpose its answers derive", () => {
+  it("accepts the derived value", () => {
+    const derived = derivePurchasePurpose({
+      motivations: ["second_home"],
+      goals: ["peace_privacy"],
+    });
+    expect(derived).toBe("lifestyle");
+    expect(parse(validFullProfile({ purchasePurpose: derived }))).not.toBeNull();
+  });
+
+  it("rejects a client-supplied purpose that diverges from the derivation", () => {
+    for (const tampered of ["investment", "both", "exploring"] as const) {
+      expect(parse(validFullProfile({ purchasePurpose: tampered }))).toBeNull();
+    }
+  });
+
+  it("rejects a downgrade to 'exploring' while the answers say investment", () => {
+    const investment = validFullProfile({
+      motivations: ["investment"],
+      goals: ["rental_income"],
+      purchasePurpose: "investment",
+    });
+    expect(parse(investment)).not.toBeNull();
+    expect(parse({ ...investment, purchasePurpose: "exploring" })).toBeNull();
+    expect(parse({ ...investment, purchasePurpose: "lifestyle" })).toBeNull();
+  });
+
+  it("rejects an upgrade to 'both' that the answers do not support", () => {
+    expect(
+      parse(
+        validFullProfile({
+          motivations: ["investment"],
+          goals: ["rental_income"],
+          purchasePurpose: "both",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("does NOT recompute the purpose of a Quick profile — the guest answered it", () => {
+    // Quick asks outright and collects no NAV-001 answers, so a derivation
+    // would always say "exploring". The guest's own answer stands.
+    expect(derivePurchasePurpose({ motivations: [], goals: [] })).toBe("exploring");
+    for (const answered of ["lifestyle", "investment", "both", "exploring"] as const) {
+      expect(parse(validProfile({ flowMode: "quick", purchasePurpose: answered }))).not.toBeNull();
+    }
+  });
+
+  it("does not bind an UNCONFIRMED Full draft, which may still be mid-edit", () => {
+    expect(
+      parse(validFullProfile({ confirmedAt: null, purchasePurpose: "investment" })),
+    ).not.toBeNull();
+  });
+});
+
+describe("FX effective dates must be real days", () => {
+  it("rejects an impossible calendar date in an operator FX config", () => {
+    const config = (effectiveDate: string) => ({
+      source: "Bank of Thailand",
+      effectiveDate,
+      thbPerUnit: { USD: 36.1 },
+    });
+    expect(parseFxRateConfig(config("2026-07-25"))).not.toBeNull();
+    expect(parseFxRateConfig(config("2026-02-30"))).toBeNull();
+    expect(parseFxRateConfig(config("2026-13-01"))).toBeNull();
+    expect(parseFxRateConfig(config("2025-02-29"))).toBeNull();
+    expect(parseFxRateConfig(config("2026-07-00"))).toBeNull();
+    expect(parseFxRateConfig(config("2026-7-25"))).toBeNull();
+  });
+
+  it("rejects an impossible effective date carried inside a canonical THB block", () => {
+    const withDate = (effectiveDate: string) =>
+      validProfile({
+        budget: statedBudget(100, 200, "USD"),
+        canonicalThb: {
+          minimumTHB: 3610,
+          maximumTHB: 7220,
+          conversion: {
+            kind: "converted" as const,
+            source: "Bank of Thailand",
+            effectiveDate,
+            thbPerUnit: 36.1,
+          },
+        },
+      });
+    expect(parse(withDate("2026-07-25"))).not.toBeNull();
+    expect(parse(withDate("2026-02-30"))).toBeNull();
+    expect(parse(withDate("2026-13-01"))).toBeNull();
   });
 });

@@ -123,15 +123,57 @@ export interface FxRateConfig {
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * True only for a date that actually exists in the proleptic Gregorian
+ * calendar. A regex alone accepts 2026-02-30 and 2026-13-01; round-tripping
+ * through UTC rejects them, because a non-existent date normalizes to a
+ * different day.
+ */
+function isRealCalendarDate(year: number, month: number, day: number): boolean {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return false;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  return (
+    utc.getUTCFullYear() === year && utc.getUTCMonth() === month - 1 && utc.getUTCDate() === day
+  );
+}
+
+/** An ISO calendar date (YYYY-MM-DD) that is also a REAL day. */
+export function isStrictIsoDate(value: string): boolean {
+  if (!ISO_DATE_PATTERN.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  return isRealCalendarDate(year, month, day);
+}
+
+/**
+ * Strict RFC3339: a real calendar date, a real wall-clock time, and an
+ * EXPLICIT offset (`Z` or ±HH:MM). Deliberately stricter than `Date.parse`,
+ * which accepts "2026-13-45", bare "2026", "March 3 2026" and offset-less
+ * local times — none of which can pin down an instant a Guide can be held to.
+ */
+const RFC3339_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:[Zz]|([+-])(\d{2}):(\d{2}))$/;
+
+export function isStrictRfc3339(value: string): boolean {
+  const match = RFC3339_PATTERN.exec(value);
+  if (!match) return false;
+  const [, year, month, day, hour, minute, second, , offsetHour, offsetMinute] = match;
+  if (!isRealCalendarDate(Number(year), Number(month), Number(day))) return false;
+  if (Number(hour) > 23 || Number(minute) > 59 || Number(second) > 59) return false;
+  if (offsetHour !== undefined) {
+    if (Number(offsetHour) > 23 || Number(offsetMinute) > 59) return false;
+  }
+  return Number.isFinite(Date.parse(value));
+}
+
 /** Parse an operator-provided FX config, fail-closed on anything malformed. */
 export function parseFxRateConfig(raw: unknown): FxRateConfig | null {
   if (!raw || typeof raw !== "object") return null;
   const candidate = raw as Partial<FxRateConfig>;
   if (typeof candidate.source !== "string" || candidate.source.trim().length === 0) return null;
-  if (
-    typeof candidate.effectiveDate !== "string" ||
-    !ISO_DATE_PATTERN.test(candidate.effectiveDate)
-  ) {
+  // The effective date must be a real day: an impossible calendar date would
+  // make the rate's provenance a fiction.
+  if (typeof candidate.effectiveDate !== "string" || !isStrictIsoDate(candidate.effectiveDate)) {
     return null;
   }
   if (!candidate.thbPerUnit || typeof candidate.thbPerUnit !== "object") return null;
@@ -389,7 +431,10 @@ const canonicalThbSchema = z
         .object({
           kind: z.literal("converted"),
           source: z.string().trim().min(1).max(200),
-          effectiveDate: z.string().regex(ISO_DATE_PATTERN),
+          // A real day, not merely a well-shaped string.
+          effectiveDate: z.string().refine(isStrictIsoDate, {
+            message: "effectiveDate must be a real ISO calendar date",
+          }),
           thbPerUnit: z.number().finite().positive(),
         })
         .strict(),
@@ -413,9 +458,14 @@ const essentialsSchema = z
     message: "help-me-choose and explicit areas are mutually exclusive",
   });
 
-const isoTimestamp = z
-  .string()
-  .refine((value) => Number.isFinite(Date.parse(value)), { message: "invalid ISO timestamp" });
+/**
+ * A confirmation instant must be an unambiguous point in time: strict RFC3339
+ * with an explicit offset and a real calendar date. `Date.parse` is far too
+ * permissive to establish when a guest actually confirmed their profile.
+ */
+const isoTimestamp = z.string().refine(isStrictRfc3339, {
+  message: "confirmedAt must be a strict RFC3339 datetime with an explicit offset",
+});
 
 export const decisionProfileV2Schema = z
   .object({
@@ -467,12 +517,42 @@ export const decisionProfileV2Schema = z
     // Flow completeness: a confirmed profile must actually carry the answers
     // its own flow promises.
     if (profile.confirmedAt === null) return;
+
+    // A CONFIRMED profile always states the language it was captured in. The
+    // booth asks for it before the Decision Summary, the persisted session
+    // column must agree with it, and the Guide is chosen on it — so a
+    // confirmed profile without a language is not a truthful record.
+    if (profile.preferredLanguage === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "a confirmed profile must state the guest's preferred language",
+      });
+    }
+
     if (profile.flowMode === "quick") {
+      // Quick asks the purchase purpose OUTRIGHT, so the guest's own answer is
+      // authoritative here and is preserved exactly as given — it is never
+      // recomputed from the (empty) NAV-001 answer set.
       if (profile.essentials.propertyType === null || profile.timeline === null) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "incomplete Quick profile" });
       }
       return;
     }
+
+    // Full DERIVES the purchase purpose from the NAV-001 answers, so a
+    // client-supplied value that diverges from the derivation is a tampered or
+    // stale payload and is rejected outright rather than silently corrected.
+    const derived = derivePurchasePurpose({
+      motivations: profile.motivations,
+      goals: profile.goals,
+    });
+    if (profile.purchasePurpose !== derived) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Full purchasePurpose must be the derived value (${derived})`,
+      });
+    }
+
     const essentials = profile.essentials;
     const areasAnswered = essentials.preferredAreas.length > 0 || essentials.helpMeChooseArea;
     if (
