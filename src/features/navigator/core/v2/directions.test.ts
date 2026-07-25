@@ -10,7 +10,7 @@ import {
 } from "./directions";
 import {
   canonicalThbBudget,
-  budgetV2FromBand,
+  statedBudget,
   profileV2FromLegacyAnswers,
   type DecisionProfileV2,
   type FxRateConfig,
@@ -167,7 +167,7 @@ describe("evaluateDirections — fail-closed reasons", () => {
 });
 
 describe("evaluateDirections — budget truthfulness", () => {
-  const statedUsd = budgetV2FromBand("500k_1m", "USD");
+  const statedUsd = statedBudget(500_000, 1_000_000, "USD");
 
   it("missing FX disables budget matching (never a mismatch)", () => {
     const profile = profileWith({}, { budget: statedUsd, canonicalThb: null });

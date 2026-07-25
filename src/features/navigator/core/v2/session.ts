@@ -18,15 +18,19 @@
  */
 
 import { toggleMaxThree, toggleSingle } from "../questions";
-import type { BudgetKey, ConcernKey, GoalKey, MotivationKey, TimelineKey } from "../questions";
+import type { ConcernKey, GoalKey, MotivationKey, TimelineKey } from "../questions";
 import { emptyAnswers, type NavigatorAnswers } from "../decision-profile";
 import {
-  budgetV2FromBand,
   canonicalThbBudget,
   DECISION_PROFILE_VERSION,
+  derivePurchasePurpose,
+  exploringBudget,
   parseStoredProfileV2,
+  statedBudget,
+  validateBudgetRange,
   type BedroomPreference,
   type BoothBudgetCurrency,
+  type BudgetRangeV2,
   type DecisionProfileV2,
   type FlowMode,
   type FxRateConfig,
@@ -43,6 +47,10 @@ import type { BoothFunnelEvent } from "./funnel";
 export const BOOTH_V2_SCREENS = [
   "welcome",
   "permission",
+  // The guest's language is captured BEFORE the Decision Summary, so the
+  // confirmed profile carries it and the contact step can never introduce a
+  // language the persisted profile disagrees with.
+  "language",
   "mode_selection",
   "quick_profile",
   "full_nav_questions",
@@ -71,31 +79,57 @@ export const FULL_NAV_STEPS = ["why_phuket", "success", "budget_timeline", "conc
 /* ---------- Draft (pre-confirmation answers) ---------- */
 
 export interface BoothV2Draft {
+  /** Asked explicitly in Quick; DERIVED from NAV-001 answers in Full. */
   purchasePurpose: PurchasePurpose | null;
   /** NAV-001 psychological answers — collected by the Full flow only. */
   nav: NavigatorAnswers;
-  /** Budget band + original currency; band boundaries are the guest's statement. */
-  budgetBand: BudgetKey | null;
+  /**
+   * The guest's own numeric budget statement. The approved NAV-001 USD bands
+   * are never reused as amounts in another currency — the booth asks for
+   * explicit numbers instead, and "still exploring" is a first-class answer.
+   */
+  budgetExploring: boolean;
+  budgetMinimum: number | null;
+  budgetMaximum: number | null;
   budgetCurrency: BoothBudgetCurrency;
   propertyType: PropertyTypePreference | null;
   bedrooms: BedroomPreference | null;
   preferredAreas: string[];
   helpMeChooseArea: boolean;
   readiness: ReadinessPreference | null;
+  /** Captured before the Decision Summary; part of the confirmed profile. */
+  preferredLanguage: string | null;
 }
 
 export function emptyDraft(): BoothV2Draft {
   return {
     purchasePurpose: null,
     nav: emptyAnswers(),
-    budgetBand: null,
+    budgetExploring: false,
+    budgetMinimum: null,
+    budgetMaximum: null,
     budgetCurrency: "USD",
     propertyType: null,
     bedrooms: null,
     preferredAreas: [],
     helpMeChooseArea: false,
     readiness: null,
+    preferredLanguage: null,
   };
+}
+
+/** The guest's stated budget as the shared V2 contract sees it. */
+export function draftBudget(draft: BoothV2Draft): BudgetRangeV2 {
+  if (draft.budgetExploring) return exploringBudget();
+  if (draft.budgetMinimum === null && draft.budgetMaximum === null) return exploringBudget();
+  return statedBudget(draft.budgetMinimum, draft.budgetMaximum, draft.budgetCurrency);
+}
+
+/** True when the budget answer is usable (explicitly exploring, or coherent). */
+export function draftBudgetAnswered(draft: BoothV2Draft): boolean {
+  if (draft.budgetExploring) return true;
+  if (draft.budgetMinimum === null && draft.budgetMaximum === null) return false;
+  return validateBudgetRange(draftBudget(draft)) === null;
 }
 
 /* ---------- Shortlist (zero to four) ---------- */
@@ -118,12 +152,56 @@ export function emptyShortlist(): ShortlistV2 {
   return { entries: [], guidePrepares: false };
 }
 
+export const MAX_SLUG_LENGTH = 200;
+
+export type ShortlistValidationError =
+  | "not_an_array"
+  | "too_many"
+  | "blank_slug"
+  | "slug_too_long"
+  | "duplicate_slug"
+  | "guide_prepares_conflict";
+
+/**
+ * Strict shortlist identity. A malformed shortlist is REJECTED whole — never
+ * silently truncated or de-duplicated — so a replay that disagrees with the
+ * stored one fails loudly instead of half-applying. Membership of each slug in
+ * the real catalogue is checked separately at the server boundary, where the
+ * project records live.
+ */
+export function validateShortlist(shortlist: ShortlistV2): ShortlistValidationError | null {
+  if (!Array.isArray(shortlist.entries)) return "not_an_array";
+  if (shortlist.entries.length > MAX_SHORTLIST) return "too_many";
+  if (shortlist.guidePrepares && shortlist.entries.length > 0) return "guide_prepares_conflict";
+  const seen = new Set<string>();
+  for (const entry of shortlist.entries) {
+    const slug = entry?.slug;
+    if (typeof slug !== "string" || slug.trim().length === 0) return "blank_slug";
+    if (slug.length > MAX_SLUG_LENGTH) return "slug_too_long";
+    // A duplicate slug is rejected even when the two entries disagree about
+    // mentionedByGuest — one project cannot be in the shortlist twice.
+    if (seen.has(slug)) return "duplicate_slug";
+    seen.add(slug);
+  }
+  return null;
+}
+
+/** The database's shortlist_mode for a given shortlist state. */
+export function shortlistMode(
+  shortlist: ShortlistV2,
+): "none" | "guest_selected" | "guide_prepares" {
+  if (shortlist.guidePrepares) return "guide_prepares";
+  return shortlist.entries.length > 0 ? "guest_selected" : "none";
+}
+
 /* ---------- Handoff ---------- */
 
 export interface AssignedGuideRef {
   id: string;
   displayName: string;
   languages: string[];
+  /** True when this Guide can confirm their OWN acknowledgement. */
+  hasStaffAccount?: boolean;
 }
 
 export interface HandoffState {
@@ -138,14 +216,27 @@ export interface HandoffState {
     reserve: AssignedGuideRef | null;
     assignedAt: string | null;
     acknowledgedAt: string | null;
+    /** How the acknowledgement was established — always disclosed in the UI. */
+    acknowledgedMethod: HandoffAttributionMethod | null;
     fallbackReason: string | null;
   };
-  /** The Guide's live message to the guest, confirmed by the Host. */
+  /** The Guide's live message to the guest, confirmed at the server boundary. */
   firstContactConfirmedAt: string | null;
-  /** Exact agreed consultation / contact time (operator-recorded). */
-  consultationScheduledFor: string | null;
+  firstContactMethod: HandoffAttributionMethod | null;
+  /** Exact agreed consultation instant (ISO) — structured, never free text. */
+  consultationScheduledAt: string | null;
+  /** The timezone the instant was agreed in, for display context only. */
+  consultationTimezone: string | null;
   nextStep: string | null;
 }
+
+/**
+ * Who established a handoff fact, and how. A Host pressing a button is
+ * recorded as an OBSERVATION ("host_observed"), never as the Guide's own
+ * confirmation; "guide_self_confirmed" is only possible when the assigned
+ * Guide's own authenticated staff account performs it (enforced in the RPC).
+ */
+export type HandoffAttributionMethod = "guide_self_confirmed" | "host_observed";
 
 export function emptyHandoff(): HandoffState {
   return {
@@ -156,10 +247,13 @@ export function emptyHandoff(): HandoffState {
       reserve: null,
       assignedAt: null,
       acknowledgedAt: null,
+      acknowledgedMethod: null,
       fallbackReason: null,
     },
     firstContactConfirmedAt: null,
-    consultationScheduledFor: null,
+    firstContactMethod: null,
+    consultationScheduledAt: null,
+    consultationTimezone: null,
     nextStep: null,
   };
 }
@@ -219,7 +313,10 @@ export function hasGuestDataV2(session: BoothV2Session): boolean {
     draft.nav.concerns.length > 0 ||
     draft.nav.note.trim().length > 0 ||
     draft.nav.timeline !== null ||
-    draft.budgetBand !== null ||
+    draft.budgetExploring ||
+    draft.budgetMinimum !== null ||
+    draft.budgetMaximum !== null ||
+    draft.preferredLanguage !== null ||
     draft.propertyType !== null ||
     draft.bedrooms !== null ||
     draft.preferredAreas.length > 0 ||
@@ -258,11 +355,17 @@ export function buildProfileFromDraft(
 ): DecisionProfileV2 | null {
   if (session.flowMode === null) return null;
   const { draft } = session;
-  const budget = budgetV2FromBand(draft.budgetBand, draft.budgetCurrency);
+  const budget = draftBudget(draft);
   return {
     profileVersion: DECISION_PROFILE_VERSION,
     flowMode: session.flowMode,
-    purchasePurpose: draft.purchasePurpose ?? "exploring",
+    // Quick asks the purpose outright; Full DERIVES it from the confirmed
+    // NAV-001 answers, so a completed Full profile never silently reads
+    // "exploring" while the answers establish investment or lifestyle.
+    purchasePurpose:
+      session.flowMode === "full"
+        ? derivePurchasePurpose(draft.nav)
+        : (draft.purchasePurpose ?? "exploring"),
     motivations: [...draft.nav.motivations],
     goals: [...draft.nav.goals],
     concerns: [...draft.nav.concerns],
@@ -277,7 +380,7 @@ export function buildProfileFromDraft(
       helpMeChooseArea: draft.helpMeChooseArea,
       readiness: draft.readiness,
     },
-    preferredLanguage: session.contact.preferredLanguage.trim() || null,
+    preferredLanguage: draft.preferredLanguage?.trim() || null,
     confirmedAt,
   };
 }
@@ -286,7 +389,7 @@ export function buildProfileFromDraft(
 export function quickProfileComplete(draft: BoothV2Draft): boolean {
   return (
     draft.purchasePurpose !== null &&
-    draft.budgetBand !== null &&
+    draftBudgetAnswered(draft) &&
     draft.propertyType !== null &&
     draft.nav.timeline !== null
   );
@@ -297,7 +400,7 @@ export function fullProfileComplete(draft: BoothV2Draft): boolean {
   return (
     draft.nav.motivations.length > 0 &&
     draft.nav.goals.length > 0 &&
-    draft.budgetBand !== null &&
+    draftBudgetAnswered(draft) &&
     draft.nav.timeline !== null &&
     draft.nav.concerns.length > 0 &&
     draft.propertyType !== null &&
@@ -322,7 +425,7 @@ export function contactedCompletionBlockers(session: BoothV2Session): string[] {
     blockers.push("Next step not recorded");
   }
   if (
-    session.handoff.consultationScheduledFor === null &&
+    session.handoff.consultationScheduledAt === null &&
     session.handoff.firstContactConfirmedAt === null
   ) {
     blockers.push(
@@ -345,6 +448,7 @@ export function canCompleteNoContact(session: BoothV2Session): boolean {
 
 export type EditTarget =
   | "purpose"
+  | "language"
   | "why_phuket"
   | "success"
   | "budget_timeline"
@@ -357,6 +461,8 @@ export type BoothV2Action =
   | { type: "begin" }
   | { type: "grantPermission" }
   | { type: "declinePermission" }
+  | { type: "setPreferredLanguage"; value: string }
+  | { type: "continueToModeSelection" }
   | { type: "chooseMode"; mode: FlowMode }
   | { type: "back" }
   | { type: "quickNext" }
@@ -366,7 +472,8 @@ export type BoothV2Action =
   | { type: "toggleGoal"; value: GoalKey }
   | { type: "toggleConcern"; value: ConcernKey }
   | { type: "setNote"; value: string }
-  | { type: "setBudgetBand"; value: BudgetKey }
+  | { type: "setBudgetAmounts"; minimum: number | null; maximum: number | null }
+  | { type: "setBudgetExploring"; value: boolean }
   | { type: "setBudgetCurrency"; value: BoothBudgetCurrency }
   | { type: "setTimeline"; value: TimelineKey }
   | { type: "setPropertyType"; value: PropertyTypePreference }
@@ -399,10 +506,10 @@ export type BoothV2Action =
       reserve: AssignedGuideRef | null;
       fallbackReason: string | null;
     }
-  | { type: "guideAcknowledged"; at: string }
+  | { type: "guideAcknowledged"; at: string; method: HandoffAttributionMethod }
   | { type: "continueToNextStep" }
-  | { type: "recordFirstContact"; at: string }
-  | { type: "setConsultationTime"; value: string | null }
+  | { type: "recordFirstContact"; at: string; method: HandoffAttributionMethod }
+  | { type: "setConsultationTime"; at: string | null; timezone: string | null }
   | { type: "setNextStep"; value: string }
   | { type: "completeContacted" }
   | { type: "completeNoContact" }
@@ -430,8 +537,10 @@ function backFrom(session: BoothV2Session): BoothV2Session {
       return session;
     case "permission":
       return { ...session, screen: "welcome" };
-    case "mode_selection":
+    case "language":
       return { ...session, screen: "permission" };
+    case "mode_selection":
+      return { ...session, screen: "language" };
     case "quick_profile":
       return session.quickStep > 0
         ? { ...session, quickStep: session.quickStep - 1 }
@@ -479,10 +588,13 @@ const EDIT_TARGET_LOCATION: Record<
     full: { screen: BoothV2Screen; step?: number };
   }
 > = {
+  // The Full flow derives the purpose from its NAV-001 answers, so editing it
+  // there means editing those answers (Why Phuket).
   purpose: {
     quick: { screen: "quick_profile", step: 0 },
-    full: { screen: "quick_profile", step: 0 },
+    full: { screen: "full_nav_questions", step: 0 },
   },
+  language: { quick: { screen: "language" }, full: { screen: "language" } },
   why_phuket: { quick: null, full: { screen: "full_nav_questions", step: 0 } },
   success: { quick: null, full: { screen: "full_nav_questions", step: 1 } },
   budget_timeline: {
@@ -518,10 +630,14 @@ export function boothV2Reducer(session: BoothV2Session, action: BoothV2Action): 
     case "begin":
       return { ...session, screen: "permission" };
     case "grantPermission":
-      return { ...session, permissionGranted: true, screen: "mode_selection" };
+      return { ...session, permissionGranted: true, screen: "language" };
     case "declinePermission":
       // Respectful exit: nothing personal was collected yet; show the QR path.
       return { ...session, permissionGranted: false, screen: "respectful_no_contact_qr" };
+    case "setPreferredLanguage":
+      return withDraft(session, { preferredLanguage: action.value.trim() || null });
+    case "continueToModeSelection":
+      return session.draft.preferredLanguage ? { ...session, screen: "mode_selection" } : session;
     case "chooseMode":
       return {
         ...session,
@@ -560,9 +676,21 @@ export function boothV2Reducer(session: BoothV2Session, action: BoothV2Action): 
       });
     case "setNote":
       return withNav(session, { note: action.value });
-    case "setBudgetBand":
+    case "setBudgetAmounts":
+      // Stating an amount is itself the answer to "still exploring?".
       return withDraft(session, {
-        budgetBand: toggleSingle(action.value, session.draft.budgetBand),
+        budgetMinimum: action.minimum,
+        budgetMaximum: action.maximum,
+        budgetExploring:
+          action.minimum === null && action.maximum === null
+            ? session.draft.budgetExploring
+            : false,
+      });
+    case "setBudgetExploring":
+      return withDraft(session, {
+        budgetExploring: action.value,
+        budgetMinimum: action.value ? null : session.draft.budgetMinimum,
+        budgetMaximum: action.value ? null : session.draft.budgetMaximum,
       });
     case "setBudgetCurrency":
       return withDraft(session, { budgetCurrency: action.value });
@@ -704,7 +832,10 @@ export function boothV2Reducer(session: BoothV2Session, action: BoothV2Action): 
             assigned: action.guide,
             reserve: action.reserve,
             assignedAt: action.at,
+            // A new assignment resets the acknowledgement: the newly assigned
+            // Guide has not confirmed anything yet.
             acknowledgedAt: null,
+            acknowledgedMethod: null,
             fallbackReason: action.fallbackReason,
           },
         },
@@ -715,17 +846,32 @@ export function boothV2Reducer(session: BoothV2Session, action: BoothV2Action): 
         ...session,
         handoff: {
           ...session.handoff,
-          guide: { ...session.handoff.guide, acknowledgedAt: action.at },
+          guide: {
+            ...session.handoff.guide,
+            acknowledgedAt: action.at,
+            acknowledgedMethod: action.method,
+          },
         },
       };
     case "continueToNextStep":
       return { ...session, screen: "next_step" };
     case "recordFirstContact":
-      return { ...session, handoff: { ...session.handoff, firstContactConfirmedAt: action.at } };
+      return {
+        ...session,
+        handoff: {
+          ...session.handoff,
+          firstContactConfirmedAt: action.at,
+          firstContactMethod: action.method,
+        },
+      };
     case "setConsultationTime":
       return {
         ...session,
-        handoff: { ...session.handoff, consultationScheduledFor: action.value },
+        handoff: {
+          ...session.handoff,
+          consultationScheduledAt: action.at,
+          consultationTimezone: action.timezone,
+        },
       };
     case "setNextStep":
       return { ...session, handoff: { ...session.handoff, nextStep: action.value } };

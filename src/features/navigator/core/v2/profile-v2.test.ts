@@ -3,11 +3,13 @@ import { describe, expect, it } from "vitest";
 import { emptyAnswers } from "../decision-profile";
 import {
   DECISION_PROFILE_VERSION,
-  budgetV2FromBand,
+  budgetV2FromLegacyBand,
   canonicalThbBudget,
+  exploringBudget,
   parseFxRateConfig,
   parseStoredProfileV2,
   profileV2FromLegacyAnswers,
+  statedBudget,
   type FxRateConfig,
 } from "./profile";
 
@@ -18,9 +20,8 @@ const datedFx: FxRateConfig = {
 };
 
 describe("BudgetRangeV2", () => {
-  it("keeps the original currency — a band is the guest's own statement", () => {
-    const budget = budgetV2FromBand("250_500k", "EUR");
-    expect(budget).toEqual({
+  it("keeps the guest's own numeric statement and currency", () => {
+    expect(statedBudget(250_000, 500_000, "EUR")).toEqual({
       state: "stated",
       minimum: 250_000,
       maximum: 500_000,
@@ -28,23 +29,38 @@ describe("BudgetRangeV2", () => {
     });
   });
 
-  it("treats 'exploring' and no selection as no budget fact", () => {
-    expect(budgetV2FromBand("exploring", "USD").state).toBe("exploring");
-    expect(budgetV2FromBand(null, "USD").state).toBe("exploring");
+  it("treats 'exploring' as no budget fact at all", () => {
+    expect(exploringBudget()).toEqual({
+      state: "exploring",
+      minimum: null,
+      maximum: null,
+      originalCurrency: null,
+    });
+  });
+
+  it("keeps the approved USD bands for the legacy website adapter only", () => {
+    expect(budgetV2FromLegacyBand("250_500k")).toEqual({
+      state: "stated",
+      minimum: 250_000,
+      maximum: 500_000,
+      originalCurrency: "USD",
+    });
+    expect(budgetV2FromLegacyBand("exploring").state).toBe("exploring");
+    expect(budgetV2FromLegacyBand(null).state).toBe("exploring");
   });
 });
 
 describe("canonical THB budget", () => {
   it("does not exist without a dated, source-identified rate", () => {
-    expect(canonicalThbBudget(budgetV2FromBand("500k_1m", "USD"), null)).toBeNull();
+    expect(canonicalThbBudget(statedBudget(500_000, 1_000_000, "USD"), null)).toBeNull();
   });
 
   it("does not exist when the config lacks the original currency", () => {
-    expect(canonicalThbBudget(budgetV2FromBand("500k_1m", "EUR"), datedFx)).toBeNull();
+    expect(canonicalThbBudget(statedBudget(500_000, 1_000_000, "EUR"), datedFx)).toBeNull();
   });
 
   it("exists with a dated verified rate and carries source + date", () => {
-    const canonical = canonicalThbBudget(budgetV2FromBand("500k_1m", "USD"), datedFx);
+    const canonical = canonicalThbBudget(statedBudget(500_000, 1_000_000, "USD"), datedFx);
     expect(canonical).not.toBeNull();
     expect(canonical?.minimumTHB).toBe(500_000 * 36);
     expect(canonical?.maximumTHB).toBe(1_000_000 * 36);
@@ -57,13 +73,13 @@ describe("canonical THB budget", () => {
   });
 
   it("is the identity for a THB original budget — no rate needed, none invented", () => {
-    const canonical = canonicalThbBudget(budgetV2FromBand("1m_2_5m", "THB"), null);
+    const canonical = canonicalThbBudget(statedBudget(1_000_000, 2_500_000, "THB"), null);
     expect(canonical?.conversion).toEqual({ kind: "identity" });
     expect(canonical?.maximumTHB).toBe(2_500_000);
   });
 
   it("never exists for an exploring budget", () => {
-    expect(canonicalThbBudget(budgetV2FromBand("exploring", "USD"), datedFx)).toBeNull();
+    expect(canonicalThbBudget(exploringBudget(), datedFx)).toBeNull();
   });
 });
 
@@ -160,8 +176,11 @@ describe("parseStoredProfileV2 (fail-closed versioned parsing)", () => {
     expect(parseStoredProfileV2({ ...valid, essentials: null })).toBeNull();
   });
 
-  it("never trusts an undated or unsourced stored conversion", () => {
-    const withBadConversion = {
+  it("rejects the WHOLE payload when a stored conversion is unsourced or undated", () => {
+    // The strict schema never salvages part of a tampered payload: an
+    // unsourced or undated conversion invalidates the entire profile rather
+    // than quietly dropping just the canonical budget.
+    const unsourced = {
       ...JSON.parse(JSON.stringify(valid)),
       canonicalThb: {
         minimumTHB: 1,
@@ -169,7 +188,7 @@ describe("parseStoredProfileV2 (fail-closed versioned parsing)", () => {
         conversion: { kind: "converted", source: "", effectiveDate: "2026-07-25", thbPerUnit: 36 },
       },
     };
-    expect(parseStoredProfileV2(withBadConversion)?.canonicalThb).toBeNull();
+    expect(parseStoredProfileV2(unsourced)).toBeNull();
 
     const undated = {
       ...JSON.parse(JSON.stringify(valid)),
@@ -179,6 +198,6 @@ describe("parseStoredProfileV2 (fail-closed versioned parsing)", () => {
         conversion: { kind: "converted", source: "x", effectiveDate: "recently", thbPerUnit: 36 },
       },
     };
-    expect(parseStoredProfileV2(undated)?.canonicalThb).toBeNull();
+    expect(parseStoredProfileV2(undated)).toBeNull();
   });
 });

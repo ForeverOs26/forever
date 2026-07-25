@@ -11,6 +11,12 @@ export interface BoothGuide {
   languages: string[];
   specializations: string[];
   onDuty: boolean;
+  /**
+   * True when this Guide has a linked staff account and can therefore confirm
+   * their OWN acknowledgement. When false, only a disclosed Host observation
+   * is possible — the UI must say so rather than implying the Guide replied.
+   */
+  hasStaffAccount?: boolean;
 }
 
 export type GuideBlockReason = "no_guides_configured" | "no_guides_on_duty";

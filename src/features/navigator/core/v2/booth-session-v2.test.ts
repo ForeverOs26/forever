@@ -39,11 +39,13 @@ function quickDraftSession(): BoothV2Session {
     createBoothV2Session("ref-quick-12345678"),
     { type: "begin" },
     { type: "grantPermission" },
+    { type: "setPreferredLanguage", value: "English" },
+    { type: "continueToModeSelection" },
     { type: "chooseMode", mode: "quick" },
     { type: "setPurchasePurpose", value: "lifestyle" },
     { type: "quickNext" },
-    { type: "setBudgetBand", value: "250_500k" },
     { type: "setBudgetCurrency", value: "EUR" },
+    { type: "setBudgetAmounts", minimum: 250_000, maximum: 500_000 },
     { type: "quickNext" },
     { type: "setPropertyType", value: "condominium" },
     { type: "quickNext" },
@@ -73,6 +75,9 @@ describe("Quick Profile flow", () => {
     const profile = buildProfileFromDraft(session, null, "2026-07-25T10:00:00.000Z");
     expect(profile?.flowMode).toBe("quick");
     expect(profile?.budget.originalCurrency).toBe("EUR");
+    expect(profile?.budget.minimum).toBe(250_000);
+    expect(profile?.budget.maximum).toBe(500_000);
+    expect(profile?.preferredLanguage).toBe("English");
     expect(profile?.canonicalThb).toBeNull(); // no FX config → no THB claim
     expect(profile?.confirmedAt).toBe("2026-07-25T10:00:00.000Z");
   });
@@ -84,10 +89,12 @@ describe("Full flow completeness", () => {
       createBoothV2Session("ref-full-12345678"),
       { type: "begin" },
       { type: "grantPermission" },
+      { type: "setPreferredLanguage", value: "English" },
+      { type: "continueToModeSelection" },
       { type: "chooseMode", mode: "full" },
       { type: "toggleMotivation", value: "second_home" },
       { type: "toggleGoal", value: "peace_privacy" },
-      { type: "setBudgetBand", value: "500k_1m" },
+      { type: "setBudgetAmounts", minimum: 500_000, maximum: 1_000_000 },
       { type: "setTimeline", value: "ready_now" },
       { type: "toggleConcern", value: "ownership" },
     );
@@ -111,6 +118,8 @@ describe("Explicit back navigation", () => {
     expect(session.quickStep).toBe(2);
     session = run(session, { type: "back" }, { type: "back" }, { type: "back" });
     expect(session.screen).toBe("mode_selection");
+    session = run(session, { type: "back" });
+    expect(session.screen).toBe("language");
     session = run(session, { type: "back" });
     expect(session.screen).toBe("permission");
     session = run(session, { type: "back" });
@@ -229,7 +238,7 @@ describe("Truthful completion gates", () => {
         reserve: null,
         fallbackReason: null,
       },
-      { type: "guideAcknowledged", at: "t4" },
+      { type: "guideAcknowledged", at: "t4", method: "host_observed" },
       { type: "continueToNextStep" },
       { type: "setNextStep", value: "30-minute consultation" },
     );
@@ -245,7 +254,11 @@ describe("Truthful completion gates", () => {
     const stillActive = run(session, { type: "completeContacted" });
     expect(stillActive.outcome).toBe("active"); // fail closed
 
-    const withTime = run(session, { type: "setConsultationTime", value: "Tomorrow 14:00" });
+    const withTime = run(session, {
+      type: "setConsultationTime",
+      at: "2026-07-26T07:00:00.000Z",
+      timezone: "Asia/Bangkok",
+    });
     expect(canCompleteContacted(withTime)).toBe(true);
     const completed = run(withTime, { type: "completeContacted" });
     expect(completed.outcome).toBe("contacted_complete");
@@ -253,7 +266,11 @@ describe("Truthful completion gates", () => {
   });
 
   it("accepts a confirmed live Guide message instead of an exact time", () => {
-    const withLive = run(handoffReady(), { type: "recordFirstContact", at: "t5" });
+    const withLive = run(handoffReady(), {
+      type: "recordFirstContact",
+      at: "t5",
+      method: "host_observed",
+    });
     expect(canCompleteContacted(withLive)).toBe(true);
   });
 
@@ -301,7 +318,8 @@ describe("Serialization is fail-closed and never leaks a previous guest", () => 
     const raw = serializeBoothV2Session(session, new Date(NOW).toISOString());
     const restored = deserializeBoothV2Session(raw, { nowMs: NOW + 1_000 });
     expect(restored).not.toBeNull();
-    expect(restored?.draft.budgetBand).toBe("250_500k");
+    expect(restored?.draft.budgetMinimum).toBe(250_000);
+    expect(restored?.draft.budgetCurrency).toBe("EUR");
   });
 
   it("rejects malformed and unversioned payloads", () => {

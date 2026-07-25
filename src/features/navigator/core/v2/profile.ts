@@ -2,21 +2,38 @@
  * DecisionProfileV2 — the versioned shared profile contract (Booth Mode 2.0).
  *
  * V2 extends the NAV-001 psychological profile with the Search Essentials the
- * booth captures (property type, bedrooms, areas, readiness), an explicit
- * purchase purpose, a budget range that keeps its ORIGINAL currency, and an
- * optional canonical THB representation that exists ONLY when a dated,
- * source-identified exchange rate is configured. No rate is ever invented:
- * missing FX data disables budget comparison instead of creating a mismatch.
+ * booth captures (property type, bedrooms, areas, readiness), a purchase
+ * purpose, a budget the guest states as EXPLICIT NUMERIC AMOUNTS in their own
+ * currency, and an optional canonical THB representation that exists ONLY when
+ * a dated, source-identified exchange rate is configured. No rate is ever
+ * invented: missing FX data disables budget comparison instead of creating a
+ * mismatch, and the approved USD NAV-001 bands are never reinterpreted as
+ * amounts in another currency.
  *
  * The website Navigator keeps producing legacy `NavigatorAnswers`; the
  * `profileV2FromLegacyAnswers` adapter lifts them into V2 with every Search
  * Essential honestly unknown, so website behaviour does not change.
  *
- * Persisted payloads are versioned and parsed fail-closed: an unknown or
- * malformed payload yields `null`, never a partially-trusted profile.
+ * ONE canonical strict schema (`decisionProfileV2Schema`) validates every
+ * persisted or transported payload — session hydration and the server boundary
+ * both use it, so a payload the browser accepts is exactly the payload the
+ * server accepts. Anything malformed, oversized, of an unknown version, or
+ * carrying unknown keys is rejected outright; nothing is coerced or cast.
  */
 
-import type { BudgetKey, ConcernKey, GoalKey, MotivationKey, TimelineKey } from "../questions";
+import { z } from "zod";
+
+import {
+  CONCERN_OPTIONS,
+  SUCCESS_OPTIONS,
+  TIMELINE_OPTIONS,
+  WHY_PHUKET_OPTIONS,
+  type BudgetKey,
+  type ConcernKey,
+  type GoalKey,
+  type MotivationKey,
+  type TimelineKey,
+} from "../questions";
 import type { NavigatorAnswers } from "../decision-profile";
 
 export const DECISION_PROFILE_VERSION = 2 as const;
@@ -31,10 +48,20 @@ export type BoothBudgetCurrency = (typeof BOOTH_BUDGET_CURRENCIES)[number];
 
 export type BudgetStateV2 = "stated" | "exploring";
 
+/** Guardrails for a stated amount: finite, non-negative, and not absurd. */
+export const MAX_BUDGET_AMOUNT = 1_000_000_000_000;
+export const MAX_PREFERRED_AREAS = 8;
+export const MAX_AREA_LENGTH = 80;
+export const MAX_NOTE_LENGTH = 500;
+export const MAX_LANGUAGE_LENGTH = 60;
+/** Hard ceiling on a transported profile payload (defensive, not a policy). */
+export const MAX_PROFILE_PAYLOAD_BYTES = 8_192;
+
 /**
- * A budget range in the guest's ORIGINAL currency. `maximum: null` means an
- * open-ended top band. When `state` is "exploring" no amounts or currency are
- * carried — an exploring guest has stated no budget fact.
+ * A budget range in the guest's ORIGINAL currency, stated as explicit numeric
+ * amounts. `minimum: null` means "no lower bound stated"; `maximum: null` means
+ * "no upper bound stated". When `state` is "exploring" no amounts or currency
+ * are carried — an exploring guest has stated no budget fact at all.
  */
 export interface BudgetRangeV2 {
   state: BudgetStateV2;
@@ -45,6 +72,40 @@ export interface BudgetRangeV2 {
 
 export function exploringBudget(): BudgetRangeV2 {
   return { state: "exploring", minimum: null, maximum: null, originalCurrency: null };
+}
+
+export function statedBudget(
+  minimum: number | null,
+  maximum: number | null,
+  originalCurrency: BoothBudgetCurrency,
+): BudgetRangeV2 {
+  return { state: "stated", minimum, maximum, originalCurrency };
+}
+
+export type BudgetValidationError =
+  | "currency_required"
+  | "amount_required"
+  | "amount_invalid"
+  | "range_inverted";
+
+/**
+ * Validate a guest-stated budget. A stated budget needs a currency, at least
+ * one finite non-negative amount, and a coherent minimum <= maximum.
+ */
+export function validateBudgetRange(budget: BudgetRangeV2): BudgetValidationError | null {
+  if (budget.state === "exploring") return null;
+  if (budget.originalCurrency === null) return "currency_required";
+  if (budget.minimum === null && budget.maximum === null) return "amount_required";
+  for (const amount of [budget.minimum, budget.maximum]) {
+    if (amount === null) continue;
+    if (!Number.isFinite(amount) || amount < 0 || amount > MAX_BUDGET_AMOUNT) {
+      return "amount_invalid";
+    }
+  }
+  if (budget.minimum !== null && budget.maximum !== null && budget.minimum > budget.maximum) {
+    return "range_inverted";
+  }
+  return null;
 }
 
 /**
@@ -105,6 +166,7 @@ export function canonicalThbBudget(
 ): CanonicalThbBudget | null {
   if (budget.state !== "stated" || budget.originalCurrency === null) return null;
   if (budget.minimum === null && budget.maximum === null) return null;
+  if (validateBudgetRange(budget) !== null) return null;
 
   if (budget.originalCurrency === "THB") {
     return {
@@ -181,11 +243,42 @@ export function wantsInvestmentV2(profile: DecisionProfileV2): boolean {
   return profile.purchasePurpose === "investment" || profile.purchasePurpose === "both";
 }
 
+/* ---------- Deterministic purpose derivation ---------- */
+
+const INVESTMENT_MOTIVATIONS: MotivationKey[] = ["investment"];
+const INVESTMENT_GOALS: GoalKey[] = ["rental_income", "financial_security"];
+
+/**
+ * The established NAV-001 derivation: an investment signal is an explicit
+ * investment motivation or an investment-shaped goal; a lifestyle signal is any
+ * other motivation or goal. Both → "both"; neither → "exploring". The Full
+ * flow uses this instead of asking a redundant question, so a completed Full
+ * profile can never silently fall back to "exploring" while the answers say
+ * otherwise.
+ */
+export function derivePurchasePurpose(answers: {
+  motivations: readonly MotivationKey[];
+  goals: readonly GoalKey[];
+}): PurchasePurpose {
+  const investment =
+    answers.motivations.some((key) => INVESTMENT_MOTIVATIONS.includes(key)) ||
+    answers.goals.some((key) => INVESTMENT_GOALS.includes(key));
+  const lifestyle =
+    answers.motivations.some((key) => !INVESTMENT_MOTIVATIONS.includes(key)) ||
+    answers.goals.some((key) => !INVESTMENT_GOALS.includes(key));
+  if (investment && lifestyle) return "both";
+  if (investment) return "investment";
+  if (lifestyle) return "lifestyle";
+  return "exploring";
+}
+
 /* ---------- Legacy adapter (website NAV-001 answers → V2) ---------- */
 
 /**
  * The USD amounts implied by the approved NAV-001 budget bands. These are the
- * bands' own boundaries, not conversions — the band labels are quoted in USD.
+ * bands' own boundaries as printed on the website in USD — they are NEVER
+ * reused as amounts in another currency (the booth collects explicit numbers
+ * instead), and they are never a conversion.
  */
 const LEGACY_BAND_RANGE: Record<
   BudgetKey,
@@ -199,15 +292,8 @@ const LEGACY_BAND_RANGE: Record<
   exploring: null,
 };
 
-/**
- * Budget range implied by an approved NAV-001 band, in the guest's stated
- * original currency. The band boundaries are the guest's own statement in
- * that currency — never a conversion.
- */
-export function budgetV2FromBand(
-  budget: BudgetKey | null,
-  currency: BoothBudgetCurrency,
-): BudgetRangeV2 {
+/** Legacy website bands only. The booth never calls this. */
+export function budgetV2FromLegacyBand(budget: BudgetKey | null): BudgetRangeV2 {
   if (!budget) return exploringBudget();
   const range = LEGACY_BAND_RANGE[budget];
   if (!range) return exploringBudget();
@@ -215,27 +301,8 @@ export function budgetV2FromBand(
     state: "stated",
     minimum: range.minimum,
     maximum: range.maximum,
-    originalCurrency: currency,
+    originalCurrency: "USD",
   };
-}
-
-export function budgetV2FromLegacyBand(budget: BudgetKey | null): BudgetRangeV2 {
-  // NAV-001 band labels are quoted in USD.
-  return budgetV2FromBand(budget, "USD");
-}
-
-function legacyPurchasePurpose(answers: NavigatorAnswers): PurchasePurpose {
-  const investment =
-    answers.motivations.includes("investment") ||
-    answers.goals.includes("rental_income") ||
-    answers.goals.includes("financial_security");
-  const lifestyle =
-    answers.motivations.some((m) => m !== "investment") ||
-    answers.goals.some((g) => g !== "rental_income" && g !== "financial_security");
-  if (investment && lifestyle) return "both";
-  if (investment) return "investment";
-  if (lifestyle) return "lifestyle";
-  return "exploring";
 }
 
 /**
@@ -252,7 +319,7 @@ export function profileV2FromLegacyAnswers(
   return {
     profileVersion: DECISION_PROFILE_VERSION,
     flowMode: "full",
-    purchasePurpose: legacyPurchasePurpose(answers),
+    purchasePurpose: derivePurchasePurpose(answers),
     motivations: [...answers.motivations],
     goals: [...answers.goals],
     concerns: [...answers.concerns],
@@ -266,123 +333,175 @@ export function profileV2FromLegacyAnswers(
   };
 }
 
-/* ---------- Fail-closed parsing of persisted payloads ---------- */
+/* ---------- The ONE canonical strict schema ---------- */
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
+const motivationKeys = WHY_PHUKET_OPTIONS.map((option) => option.key) as [
+  MotivationKey,
+  ...MotivationKey[],
+];
+const goalKeys = SUCCESS_OPTIONS.map((option) => option.key) as [GoalKey, ...GoalKey[]];
+const concernKeys = CONCERN_OPTIONS.map((option) => option.key) as [ConcernKey, ...ConcernKey[]];
+const timelineKeys = TIMELINE_OPTIONS.map((option) => option.key) as [
+  TimelineKey,
+  ...TimelineKey[],
+];
+
+const uniqueBoundedKeys = <T extends string>(values: [T, ...T[]], max: number) =>
+  z
+    .array(z.enum(values))
+    .max(max)
+    .refine((list) => new Set(list).size === list.length, {
+      message: "duplicate answer keys",
+    });
+
+const amountSchema = z.number().finite().nonnegative().max(MAX_BUDGET_AMOUNT).nullable();
+
+const budgetSchema = z
+  .object({
+    state: z.enum(["stated", "exploring"]),
+    minimum: amountSchema,
+    maximum: amountSchema,
+    originalCurrency: z.enum(BOOTH_BUDGET_CURRENCIES).nullable(),
+  })
+  .strict()
+  .superRefine((budget, ctx) => {
+    if (budget.state === "exploring") {
+      // An exploring guest states no amounts and no currency.
+      if (budget.minimum !== null || budget.maximum !== null || budget.originalCurrency !== null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "exploring budget carries no amounts",
+        });
+      }
+      return;
+    }
+    const error = validateBudgetRange(budget as BudgetRangeV2);
+    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `budget ${error}` });
+  });
+
+const canonicalThbSchema = z
+  .object({
+    minimumTHB: z.number().finite().nonnegative().nullable(),
+    maximumTHB: z.number().finite().nonnegative().nullable(),
+    conversion: z.union([
+      z.object({ kind: z.literal("identity") }).strict(),
+      z
+        .object({
+          kind: z.literal("converted"),
+          source: z.string().trim().min(1).max(200),
+          effectiveDate: z.string().regex(ISO_DATE_PATTERN),
+          thbPerUnit: z.number().finite().positive(),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
+
+const essentialsSchema = z
+  .object({
+    propertyType: z.enum(["condominium", "villa", "both", "unsure"]).nullable(),
+    bedrooms: z.enum(["studio", "1", "2", "3", "4_plus", "unsure"]).nullable(),
+    preferredAreas: z
+      .array(z.string().trim().min(1).max(MAX_AREA_LENGTH))
+      .max(MAX_PREFERRED_AREAS)
+      .refine((list) => new Set(list).size === list.length, { message: "duplicate areas" }),
+    helpMeChooseArea: z.boolean(),
+    readiness: z.enum(["ready", "off_plan", "both", "unsure"]).nullable(),
+  })
+  .strict()
+  .refine((essentials) => !(essentials.helpMeChooseArea && essentials.preferredAreas.length > 0), {
+    message: "help-me-choose and explicit areas are mutually exclusive",
+  });
+
+const isoTimestamp = z
+  .string()
+  .refine((value) => Number.isFinite(Date.parse(value)), { message: "invalid ISO timestamp" });
+
+export const decisionProfileV2Schema = z
+  .object({
+    profileVersion: z.literal(DECISION_PROFILE_VERSION),
+    flowMode: z.enum(["quick", "full"]),
+    purchasePurpose: z.enum(["lifestyle", "investment", "both", "exploring"]),
+    motivations: uniqueBoundedKeys(motivationKeys, 3),
+    goals: uniqueBoundedKeys(goalKeys, 3),
+    concerns: uniqueBoundedKeys(concernKeys, 3),
+    note: z.string().max(MAX_NOTE_LENGTH),
+    budget: budgetSchema,
+    canonicalThb: canonicalThbSchema.nullable(),
+    timeline: z.enum(timelineKeys).nullable(),
+    essentials: essentialsSchema,
+    preferredLanguage: z.string().trim().min(1).max(MAX_LANGUAGE_LENGTH).nullable(),
+    confirmedAt: isoTimestamp.nullable(),
+  })
+  .strict()
+  .superRefine((profile, ctx) => {
+    // Canonical THB must be arithmetically and provenance-consistent with the
+    // stated budget: an identity only for THB, a conversion only for a
+    // non-THB currency, and the amounts must actually follow from the rate.
+    const canonical = profile.canonicalThb;
+    if (canonical) {
+      if (profile.budget.state !== "stated") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "canonical THB without a stated budget",
+        });
+        return;
+      }
+      const isTHB = profile.budget.originalCurrency === "THB";
+      if ((canonical.conversion.kind === "identity") !== isTHB) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "canonical THB provenance mismatch" });
+        return;
+      }
+      const rate = canonical.conversion.kind === "identity" ? 1 : canonical.conversion.thbPerUnit;
+      const expected = (amount: number | null) => (amount === null ? null : amount * rate);
+      const close = (a: number | null, b: number | null) =>
+        a === null || b === null ? a === b : Math.abs(a - b) <= Math.max(1e-6, Math.abs(b) * 1e-9);
+      if (
+        !close(canonical.minimumTHB, expected(profile.budget.minimum)) ||
+        !close(canonical.maximumTHB, expected(profile.budget.maximum))
+      ) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "canonical THB arithmetic mismatch" });
+      }
+    }
+
+    // Flow completeness: a confirmed profile must actually carry the answers
+    // its own flow promises.
+    if (profile.confirmedAt === null) return;
+    if (profile.flowMode === "quick") {
+      if (profile.essentials.propertyType === null || profile.timeline === null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "incomplete Quick profile" });
+      }
+      return;
+    }
+    const essentials = profile.essentials;
+    const areasAnswered = essentials.preferredAreas.length > 0 || essentials.helpMeChooseArea;
+    if (
+      profile.motivations.length === 0 ||
+      profile.goals.length === 0 ||
+      profile.concerns.length === 0 ||
+      profile.timeline === null ||
+      essentials.propertyType === null ||
+      essentials.bedrooms === null ||
+      essentials.readiness === null ||
+      !areasAnswered
+    ) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "incomplete Full profile" });
+    }
+  });
 
 /**
- * Parse a persisted / transported profile payload. Anything malformed,
- * unversioned, or of an unknown version returns `null` — an obsolete payload
- * is never partially trusted or silently upgraded.
+ * Parse a persisted / transported profile payload with the canonical schema.
+ * Anything malformed, oversized, unversioned, of an unknown version, or
+ * carrying unknown keys returns `null` — an obsolete or tampered payload is
+ * never partially trusted, coerced, or silently upgraded.
  */
 export function parseStoredProfileV2(raw: unknown): DecisionProfileV2 | null {
-  if (!raw || typeof raw !== "object") return null;
-  const candidate = raw as Record<string, unknown>;
-  if (candidate.profileVersion !== DECISION_PROFILE_VERSION) return null;
-  if (candidate.flowMode !== "quick" && candidate.flowMode !== "full") return null;
-  const purpose = candidate.purchasePurpose;
-  if (
-    purpose !== "lifestyle" &&
-    purpose !== "investment" &&
-    purpose !== "both" &&
-    purpose !== "exploring"
-  ) {
-    return null;
+  if (raw === null || typeof raw !== "object") return null;
+  try {
+    if (JSON.stringify(raw).length > MAX_PROFILE_PAYLOAD_BYTES) return null;
+  } catch {
+    return null; // circular or otherwise non-serializable
   }
-  if (
-    !isStringArray(candidate.motivations) ||
-    !isStringArray(candidate.goals) ||
-    !isStringArray(candidate.concerns)
-  ) {
-    return null;
-  }
-  const budget = candidate.budget as BudgetRangeV2 | undefined;
-  if (!budget || typeof budget !== "object") return null;
-  if (budget.state !== "stated" && budget.state !== "exploring") return null;
-  const essentials = candidate.essentials as SearchEssentials | undefined;
-  if (!essentials || typeof essentials !== "object") return null;
-  if (!isStringArray(essentials.preferredAreas)) return null;
-
-  return {
-    profileVersion: DECISION_PROFILE_VERSION,
-    flowMode: candidate.flowMode,
-    purchasePurpose: purpose,
-    motivations: candidate.motivations as MotivationKey[],
-    goals: candidate.goals as GoalKey[],
-    concerns: candidate.concerns as ConcernKey[],
-    note: typeof candidate.note === "string" ? candidate.note : "",
-    budget: {
-      state: budget.state,
-      minimum: typeof budget.minimum === "number" ? budget.minimum : null,
-      maximum: typeof budget.maximum === "number" ? budget.maximum : null,
-      originalCurrency: BOOTH_BUDGET_CURRENCIES.includes(
-        budget.originalCurrency as BoothBudgetCurrency,
-      )
-        ? (budget.originalCurrency as BoothBudgetCurrency)
-        : null,
-    },
-    canonicalThb: parseStoredCanonicalThb(candidate.canonicalThb),
-    timeline: typeof candidate.timeline === "string" ? (candidate.timeline as TimelineKey) : null,
-    essentials: {
-      propertyType: parsePreference(essentials.propertyType, [
-        "condominium",
-        "villa",
-        "both",
-        "unsure",
-      ]),
-      bedrooms: parsePreference(essentials.bedrooms, ["studio", "1", "2", "3", "4_plus", "unsure"]),
-      preferredAreas: essentials.preferredAreas,
-      helpMeChooseArea: essentials.helpMeChooseArea === true,
-      readiness: parsePreference(essentials.readiness, ["ready", "off_plan", "both", "unsure"]),
-    },
-    preferredLanguage:
-      typeof candidate.preferredLanguage === "string" ? candidate.preferredLanguage : null,
-    confirmedAt: typeof candidate.confirmedAt === "string" ? candidate.confirmedAt : null,
-  };
-}
-
-function parsePreference<T extends string>(value: unknown, allowed: readonly T[]): T | null {
-  return typeof value === "string" && (allowed as readonly string[]).includes(value)
-    ? (value as T)
-    : null;
-}
-
-function parseStoredCanonicalThb(raw: unknown): CanonicalThbBudget | null {
-  if (!raw || typeof raw !== "object") return null;
-  const candidate = raw as CanonicalThbBudget;
-  const conversion = candidate.conversion;
-  if (!conversion || typeof conversion !== "object") return null;
-  if (conversion.kind === "identity") {
-    return {
-      minimumTHB: typeof candidate.minimumTHB === "number" ? candidate.minimumTHB : null,
-      maximumTHB: typeof candidate.maximumTHB === "number" ? candidate.maximumTHB : null,
-      conversion: { kind: "identity" },
-    };
-  }
-  if (conversion.kind === "converted") {
-    if (
-      typeof conversion.source !== "string" ||
-      conversion.source.trim().length === 0 ||
-      typeof conversion.effectiveDate !== "string" ||
-      !ISO_DATE_PATTERN.test(conversion.effectiveDate) ||
-      typeof conversion.thbPerUnit !== "number" ||
-      !Number.isFinite(conversion.thbPerUnit) ||
-      conversion.thbPerUnit <= 0
-    ) {
-      return null; // an undated or unsourced conversion is never trusted
-    }
-    return {
-      minimumTHB: typeof candidate.minimumTHB === "number" ? candidate.minimumTHB : null,
-      maximumTHB: typeof candidate.maximumTHB === "number" ? candidate.maximumTHB : null,
-      conversion: {
-        kind: "converted",
-        source: conversion.source,
-        effectiveDate: conversion.effectiveDate,
-        thbPerUnit: conversion.thbPerUnit,
-      },
-    };
-  }
-  return null;
+  const result = decisionProfileV2Schema.safeParse(raw);
+  return result.success ? (result.data as DecisionProfileV2) : null;
 }
