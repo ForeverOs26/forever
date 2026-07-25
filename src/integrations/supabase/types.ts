@@ -88,6 +88,7 @@ export type Database = {
           languages: string[]
           on_duty: boolean
           specializations: string[]
+          staff_user_id: string | null
           updated_at: string
         }
         Insert: {
@@ -98,6 +99,7 @@ export type Database = {
           languages?: string[]
           on_duty?: boolean
           specializations?: string[]
+          staff_user_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -108,6 +110,7 @@ export type Database = {
           languages?: string[]
           on_duty?: boolean
           specializations?: string[]
+          staff_user_id?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -121,17 +124,23 @@ export type Database = {
           client_ref: string
           consent_recorded_at: string | null
           consultation_consent: boolean
-          consultation_scheduled_for: string | null
+          consultation_scheduled_at: string | null
+          consultation_timezone: string | null
           country: string | null
           created_at: string
           email: string | null
           first_name: string | null
           flow_mode: string | null
           guide_acknowledged_at: string | null
+          guide_acknowledged_by: string | null
+          guide_acknowledged_method: string | null
           guide_assigned_at: string | null
           guide_fallback_reason: string | null
           guide_first_contact_at: string | null
-          host_label: string | null
+          guide_first_contact_by: string | null
+          guide_first_contact_method: string | null
+          host_email: string | null
+          host_user_id: string
           host_note: string | null
           id: string
           last_name: string | null
@@ -161,17 +170,23 @@ export type Database = {
           client_ref: string
           consent_recorded_at?: string | null
           consultation_consent?: boolean
-          consultation_scheduled_for?: string | null
+          consultation_scheduled_at?: string | null
+          consultation_timezone?: string | null
           country?: string | null
           created_at?: string
           email?: string | null
           first_name?: string | null
           flow_mode?: string | null
           guide_acknowledged_at?: string | null
+          guide_acknowledged_by?: string | null
+          guide_acknowledged_method?: string | null
           guide_assigned_at?: string | null
           guide_fallback_reason?: string | null
           guide_first_contact_at?: string | null
-          host_label?: string | null
+          guide_first_contact_by?: string | null
+          guide_first_contact_method?: string | null
+          host_email?: string | null
+          host_user_id: string
           host_note?: string | null
           id?: string
           last_name?: string | null
@@ -201,17 +216,23 @@ export type Database = {
           client_ref?: string
           consent_recorded_at?: string | null
           consultation_consent?: boolean
-          consultation_scheduled_for?: string | null
+          consultation_scheduled_at?: string | null
+          consultation_timezone?: string | null
           country?: string | null
           created_at?: string
           email?: string | null
           first_name?: string | null
           flow_mode?: string | null
           guide_acknowledged_at?: string | null
+          guide_acknowledged_by?: string | null
+          guide_acknowledged_method?: string | null
           guide_assigned_at?: string | null
           guide_fallback_reason?: string | null
           guide_first_contact_at?: string | null
-          host_label?: string | null
+          guide_first_contact_by?: string | null
+          guide_first_contact_method?: string | null
+          host_email?: string | null
+          host_user_id?: string
           host_note?: string | null
           id?: string
           last_name?: string | null
@@ -244,7 +265,7 @@ export type Database = {
           {
             foreignKeyName: "booth_sessions_lead_id_fkey"
             columns: ["lead_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "leads"
             referencedColumns: ["id"]
           },

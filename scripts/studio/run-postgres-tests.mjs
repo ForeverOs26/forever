@@ -23,6 +23,15 @@ const REPO = process.cwd();
 const MIGRATIONS_DIR = join(REPO, "supabase", "migrations");
 const BOOTSTRAP = join(REPO, "scripts", "studio", "pg-bootstrap.sql");
 const SUITE = join(REPO, "src", "features", "forever-studio", "tests", "studio.postgres.sql");
+const BOOTH_SUITE = join(
+  REPO,
+  "src",
+  "features",
+  "navigator",
+  "booth-v2",
+  "tests",
+  "booth.postgres.sql",
+);
 
 function findBinDir() {
   for (const base of ["/usr/lib/postgresql", "/usr/pgsql", "/opt/homebrew/opt"]) {
@@ -217,6 +226,103 @@ async function concurrencyProbes() {
   );
 }
 
+/**
+ * Booth V2 contact+lead atomicity probes (PR #102 corrective item 3): two REAL
+ * sessions racing the same booth_save_contact_and_lead call. Session A holds
+ * the locked session row inside an open transaction while session B issues the
+ * identical call. Proves: (1) B blocks on A's row lock rather than racing it;
+ * (2) both return the SAME lead id; (3) exactly one lead row exists; (4) no
+ * unattached lead is left behind. Then a failed link inside one transaction is
+ * shown to roll the lead insert back entirely.
+ */
+async function boothConcurrencyProbes() {
+  const HOST_ID = "b0000000-0000-0000-0000-000000000001";
+  const REF = "ref-probe-concurrent-1";
+  const call = (extra = "") =>
+    `SELECT public.booth_save_contact_and_lead('${REF}',` +
+    ` '{"first_name":"Race","whatsapp":"+79990009988","preferred_language":"English"${extra}}'::jsonb,` +
+    ` '{"name":"Race","phone":"+79990009988","message":"m","source":"booth_v2"}'::jsonb)`;
+
+  psqlSql(
+    [
+      `SELECT public.booth_ensure_session('${REF}','${HOST_ID}','host@example.test','probe')`,
+      `SELECT public.booth_confirm_profile('${REF}','quick','{"profileVersion":2,"preferredLanguage":"English"}'::jsonb,2,now(),'English')`,
+    ].join("; "),
+  );
+
+  const sessionA = psqlSqlAsync(
+    `SET ROLE service_role; BEGIN; ${call()}; SELECT pg_sleep(6); COMMIT;`,
+  );
+  await sleep(1000);
+  const bStart = Date.now();
+  const sessionB = await psqlSqlAsync(`SET ROLE service_role; ${call(',"country":"Thailand"')};`);
+  const bElapsed = Date.now() - bStart;
+  const aResult = await sessionA;
+
+  if (bElapsed < 1000) {
+    throw new Error(
+      `booth session B returned in ${bElapsed} ms — it never blocked on session A's row lock`,
+    );
+  }
+  const leadOf = (text) => {
+    const match = String(text).match(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/,
+    );
+    return match ? match[0] : null;
+  };
+  const leadA = leadOf(aResult.stdout);
+  const leadB = leadOf(sessionB.stdout);
+  if (!leadA || leadA !== leadB) {
+    throw new Error(`concurrent contact saves returned different leads: ${leadA} vs ${leadB}`);
+  }
+  const counted = psqlSql(`SELECT count(*) FROM public.leads WHERE phone='+79990009988'`);
+  if (!/\b1\b/.test(counted)) {
+    throw new Error(`concurrent contact saves created more than one lead:\n${counted}`);
+  }
+  const orphans = psqlSql(
+    `SELECT count(*) FROM public.leads l WHERE l.source='booth_v2'` +
+      ` AND NOT EXISTS (SELECT 1 FROM public.booth_sessions s WHERE s.lead_id = l.id)`,
+  );
+  if (!/\b0\b/.test(orphans)) {
+    throw new Error(`unattached booth leads exist after the race:\n${orphans}`);
+  }
+
+  // A failure after the lead insert rolls the whole transaction back: the
+  // session keeps no contact bundle and no orphan lead remains.
+  const ROLLBACK_REF = "ref-probe-rollback-1";
+  psqlSql(
+    [
+      `SELECT public.booth_ensure_session('${ROLLBACK_REF}','${HOST_ID}','host@example.test','probe')`,
+      `SELECT public.booth_confirm_profile('${ROLLBACK_REF}','quick','{"profileVersion":2,"preferredLanguage":"English"}'::jsonb,2,now(),'English')`,
+    ].join("; "),
+  );
+  let rolledBack = false;
+  try {
+    psqlSql(
+      `SET ROLE service_role; BEGIN;` +
+        ` SELECT public.booth_save_contact_and_lead('${ROLLBACK_REF}',` +
+        ` '{"first_name":"Rollback","whatsapp":"+79990007766","preferred_language":"English"}'::jsonb,` +
+        ` '{"name":"Rollback","phone":"+79990007766","message":"m","source":"booth_v2"}'::jsonb);` +
+        // Deliberate violation inside the same transaction.
+        ` UPDATE public.booth_sessions SET next_step='' WHERE client_ref='${ROLLBACK_REF}'; COMMIT;`,
+    );
+  } catch {
+    rolledBack = true;
+  }
+  if (!rolledBack) throw new Error("the deliberate mid-transaction violation did not fail");
+  const afterRollback = psqlSql(
+    `SELECT (SELECT count(*) FROM public.leads WHERE phone='+79990007766') || ':' ||` +
+      ` (SELECT count(*) FROM public.booth_sessions WHERE client_ref='${ROLLBACK_REF}' AND first_name IS NOT NULL)`,
+  );
+  if (!/\b0:0\b/.test(afterRollback)) {
+    throw new Error(`a partially applied contact/lead survived the rollback:\n${afterRollback}`);
+  }
+
+  console.log(
+    `[studio-pg] booth atomicity probes PASS (session B blocked ${bElapsed} ms then returned the same lead; rollback left nothing)`,
+  );
+}
+
 try {
   run(bin("initdb"), ["-D", data, "-U", "postgres", "--auth=trust", "-E", "UTF8"]);
   run(
@@ -251,6 +357,15 @@ try {
     if (file === "20260721120000_forever_studio_v1.sql") {
       psqlSql("GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated");
     }
+    // Same adversarial setup for the Booth pilot, but through DEFAULT
+    // PRIVILEGES so the tables and functions the migration is about to create
+    // are born with browser-role access. Its explicit REVOKEs must strip them.
+    if (file === "20260725150000_booth_v2_pilot.sql") {
+      psqlSql(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;" +
+          " ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated",
+      );
+    }
     console.log(`[studio-pg] applying ${file}`);
     psql(join(MIGRATIONS_DIR, file));
   }
@@ -258,8 +373,12 @@ try {
   console.log("[studio-pg] running behavioral suite");
   const out = psql(SUITE);
   process.stdout.write(out);
+  console.log("[studio-pg] running Booth V2 behavioral suite");
+  process.stdout.write(psql(BOOTH_SUITE));
   console.log("[studio-pg] running cross-session concurrency probes (LA-12.23/24)");
   await concurrencyProbes();
+  console.log("[studio-pg] running Booth V2 contact/lead atomicity probes");
+  await boothConcurrencyProbes();
   console.log("[studio-pg] PASS");
 } catch (error) {
   const detail = [error.stdout, error.stderr, error.message]
