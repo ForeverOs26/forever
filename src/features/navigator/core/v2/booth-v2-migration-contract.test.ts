@@ -73,6 +73,7 @@ describe("booth V2 pilot migration — least privilege / anti-spoofing", () => {
     const functions = [
       "booth_emit_event",
       "booth_lock_owned_session",
+      "booth_create_session",
       "booth_ensure_session",
       "booth_record_event",
       "booth_mark_profile_confirmed",
@@ -304,11 +305,10 @@ describe("booth V2 pilot migration — session ownership", () => {
     expect(body).toMatch(/staff_user_id = p_actor_user_id/);
   });
 
-  it("refuses a different Host on ensure_session instead of transferring ownership", () => {
-    const body = functionBody("booth_ensure_session");
-    expect(body).toContain("IF v_session.host_user_id <> p_host_user_id THEN");
-    expect(body).toContain("booth_session_forbidden");
-    expect(body).not.toMatch(/SET host_user_id/);
+  it("never transfers ownership: no function reassigns host_user_id", () => {
+    for (const fn of [...TRANSITION_FUNCTIONS, "booth_ensure_session"]) {
+      expect(`${fn}:${/SET host_user_id/.test(functionBody(fn))}`).toBe(`${fn}:false`);
+    }
   });
 
   it("grants the assigned Guide ONLY the two self-actions", () => {
@@ -323,6 +323,74 @@ describe("booth V2 pilot migration — session ownership", () => {
     expect(handoff).toContain("v_session.host_user_id <> p_actor_user_id");
     expect(handoff).toContain("p_consultation_scheduled_at IS NOT NULL");
     expect(handoff).toContain("NULLIF(btrim(p_next_step), '') IS NOT NULL");
+  });
+});
+
+/**
+ * SERVER-ISSUED SESSION IDENTITY (PR #102 corrective pass 5).
+ *
+ * Exactly one function may bring a session into existence, it takes no client
+ * reference, and it mints its own. Everything else — ensure included — refuses
+ * an unknown reference instead of quietly creating one.
+ */
+describe("booth V2 pilot migration — server-issued session identity", () => {
+  it("mints the client reference in the database and accepts none from the caller", () => {
+    const body = functionBody("booth_create_session");
+    // The signature carries the Host and the booth id only.
+    expect(body).toMatch(
+      /CREATE OR REPLACE FUNCTION public\.booth_create_session\(\s*p_host_user_id UUID,\s*p_host_email TEXT,\s*p_booth_id TEXT\s*\)/,
+    );
+    expect(body).not.toContain("p_client_ref");
+    // A cryptographically random, server-side value.
+    expect(body).toContain("pg_catalog.gen_random_uuid()::TEXT");
+    expect(body).toContain("RETURNS TEXT");
+    expect(body).toContain("SECURITY DEFINER");
+    expect(body).toContain("SET search_path = ''");
+  });
+
+  it("creates exactly one session per invocation and never adopts an existing one", () => {
+    const body = functionBody("booth_create_session");
+    const inserts = body.match(/INSERT INTO public\.booth_sessions/g) ?? [];
+    expect(inserts).toHaveLength(1);
+    // No ON CONFLICT: a reference this function issued must be new, so a
+    // collision is a hard error rather than a silent adoption.
+    expect(body).not.toMatch(/ON CONFLICT/i);
+  });
+
+  it("writes only the operational shell, so the pre-consent CHECK still holds", () => {
+    const body = functionBody("booth_create_session");
+    expect(body).toContain(
+      "INSERT INTO public.booth_sessions (client_ref, host_user_id, host_email, booth_id)",
+    );
+    for (const column of ["profile", "shortlist", "first_name", "whatsapp", "lead_id"]) {
+      expect(`${column}:${body.includes(column)}`).toBe(`${column}:false`);
+    }
+  });
+
+  it("makes booth_ensure_session incapable of creating a session", () => {
+    const body = functionBody("booth_ensure_session");
+    // The creating signature is dropped outright, not merely unused.
+    expect(executable).toContain(
+      "DROP FUNCTION IF EXISTS public.booth_ensure_session(TEXT, UUID, TEXT, TEXT);",
+    );
+    expect(body).toMatch(
+      /CREATE OR REPLACE FUNCTION public\.booth_ensure_session\(\s*p_client_ref TEXT,\s*p_actor_user_id UUID\s*\)/,
+    );
+    // It cannot insert, and it has no Host label or booth id left to write.
+    expect(body).not.toMatch(/INSERT INTO/i);
+    expect(body).not.toContain("p_host_user_id");
+    expect(body).not.toContain("p_booth_id");
+    // Existence and ownership go through the one shared, locked gate, so an
+    // unknown and a foreign reference raise the same two distinct exceptions
+    // every other operation raises.
+    expect(body).toContain("public.booth_lock_owned_session(p_client_ref, p_actor_user_id)");
+  });
+
+  it("leaves booth_create_session as the ONLY insert into booth_sessions", () => {
+    const creators = [...TRANSITION_FUNCTIONS, "booth_ensure_session", "booth_create_session"]
+      .filter((fn) => /INSERT INTO public\.booth_sessions/.test(functionBody(fn)))
+      .sort();
+    expect(creators).toEqual(["booth_create_session"]);
   });
 });
 

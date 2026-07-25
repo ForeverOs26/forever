@@ -42,9 +42,26 @@
 --   assigned Guide, matched through booth_guides.staff_user_id, may confirm
 --   THEIR OWN acknowledgement and THEIR OWN first contact — nothing else. A
 --   Guide can never edit the profile, shortlist, contact, consent, WhatsApp
---   verification, Guide assignment or completion. booth_ensure_session is
---   idempotent for the same Host and refuses deterministically for a different
---   Host; ownership is never transferred silently.
+--   verification, Guide assignment or completion. Ownership is never
+--   transferred silently.
+--
+-- SERVER-ISSUED SESSION IDENTITY (corrective pass 5)
+--   The browser no longer chooses the identity of a new Booth session, and no
+--   operation creates one implicitly. booth_create_session is the ONE way a row
+--   comes into existence: it takes NO client reference, mints a cryptographically
+--   random one with pg_catalog.gen_random_uuid(), takes the Host from the
+--   authenticated actor and the booth id from server configuration, and returns
+--   the new reference. One invocation creates exactly one session and persists
+--   nothing about a guest, so the pre-consent-minimal CHECK is satisfied by
+--   construction.
+--
+--   booth_ensure_session consequently CREATES NOTHING. It accepts an existing
+--   reference and succeeds idempotently for the owning Host; an unknown
+--   reference and a reference owned by another Host are both refused, neither
+--   creates a row, and a rejected call changes zero rows. Previously ensure
+--   INSERTed on an unknown reference, which let an authorized staff account
+--   distinguish an unused reference from an existing foreign one — and create
+--   arbitrary empty sessions. Both are closed.
 --
 -- TERMINAL IMMUTABILITY (corrective pass 2, item 6)
 --   Once a session reaches contacted_complete, no_contact_qr or abandoned it is
@@ -52,7 +69,7 @@
 --   direct service_role UPDATE is refused. Every transition RPC additionally
 --   requires outcome = 'active'; the only accepted terminal calls are an exact
 --   idempotent replay of the already-established outcome (which performs no
---   write at all) and the documented read-mostly booth_ensure_session.
+--   write at all) and the documented read-only booth_ensure_session.
 --
 -- NO-CONTACT DATA MINIMIZATION (corrective pass 2, item 2)
 --   STRATEGY: clear-in-place, not delete. A no_contact_qr session is retained
@@ -83,8 +100,10 @@
 --      that performs the transition.
 --   5. The terminal-immutability trigger.
 --   6. Atomic SECURITY DEFINER RPCs (service_role EXECUTE only, search_path='')
---      so consent, verification, assignment, handoff and completion are single
---      transactions with the session row locked and ownership proven.
+--      so creation, consent, verification, assignment, handoff and completion
+--      are single transactions with the session row locked and ownership proven.
+--      booth_create_session is the only one that brings a session into
+--      existence, and it issues the reference itself.
 --   7. public.leads: email becomes nullable with a NULL-tolerant format CHECK
 --      so the trusted server can mirror a booth lead that has no email. The
 --      anonymous INSERT policy is NOT modified: it still requires a non-blank
@@ -159,10 +178,11 @@ CREATE TABLE IF NOT EXISTS public.booth_sessions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-  -- Idempotency: the tablet generates one random reference per guest session;
-  -- every server write upserts on it, so retries never duplicate a session.
-  -- A client_ref is an idempotency key, NEVER a capability: every RPC also
-  -- proves the caller owns the session.
+  -- Idempotency: booth_create_session mints one cryptographically random
+  -- reference per guest session and hands it to the tablet, which replays it on
+  -- every subsequent write — so retries never duplicate a session. The browser
+  -- neither chooses nor guesses it. A client_ref is an idempotency key, NEVER a
+  -- capability: every RPC also proves the caller owns the session.
   client_ref TEXT NOT NULL UNIQUE,
   CONSTRAINT booth_sessions_client_ref_not_empty CHECK (length(btrim(client_ref)) > 0),
 
@@ -597,20 +617,73 @@ BEGIN
 END;
 $$;
 
--- Create (or return) the session for a client reference. Host identity comes
--- from the authenticated caller resolved at the server boundary.
+-- THE ONLY WAY A BOOTH SESSION COMES INTO EXISTENCE (corrective pass 5).
 --
--- READ-MOSTLY (documented terminal-state exception): it INSERTs only when the
--- session does not exist; for an existing session it is a pure
--- ownership-checked read and is therefore permitted on a terminal session.
--- Replay rules: same client_ref + same Host is an idempotent success; same
--- client_ref + a DIFFERENT Host is refused deterministically and ownership is
--- never transferred.
-CREATE OR REPLACE FUNCTION public.booth_ensure_session(
-  p_client_ref TEXT,
+-- It takes NO client reference. The reference is minted HERE with
+-- pg_catalog.gen_random_uuid() — a cryptographically random server-side value —
+-- so the browser can neither choose the identity of a new session nor guess an
+-- existing one. The Host comes from the authenticated actor resolved at the
+-- server boundary and the booth id from server configuration; neither is a
+-- client-supplied label.
+--
+-- One invocation creates EXACTLY one session. There is deliberately no
+-- ON CONFLICT clause: a reference this function issues must be new, so a
+-- collision is a hard error rather than a silent adoption of a session that
+-- already exists. Two concurrent calls therefore return two different
+-- references and insert two distinct rows.
+--
+-- Nothing about a guest is written: only the operational shell (the reference,
+-- the Host, the booth id), which is exactly what booth_sessions_pre_consent_minimal
+-- permits before the consultation consent.
+CREATE OR REPLACE FUNCTION public.booth_create_session(
   p_host_user_id UUID,
   p_host_email TEXT,
   p_booth_id TEXT
+)
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_client_ref TEXT;
+BEGIN
+  IF p_host_user_id IS NULL THEN
+    RAISE EXCEPTION 'booth_session_forbidden';
+  END IF;
+
+  v_client_ref := pg_catalog.gen_random_uuid()::TEXT;
+
+  INSERT INTO public.booth_sessions (client_ref, host_user_id, host_email, booth_id)
+  VALUES (v_client_ref, p_host_user_id, NULLIF(btrim(p_host_email), ''), p_booth_id);
+
+  RETURN v_client_ref;
+END;
+$$;
+
+-- Open an EXISTING session for a client reference the server previously issued.
+--
+-- CREATES NOTHING (corrective pass 5). This function used to INSERT when the
+-- reference was unknown, which meant an authorized staff account could tell an
+-- unused reference (silently created, success) apart from a reference owned by
+-- another Host (refused) — and could mint arbitrary empty sessions by presenting
+-- invented references. Creation now lives ONLY in booth_create_session.
+--
+-- Replay rules: an existing session owned by the acting Host succeeds
+-- idempotently; an unknown reference raises booth_session_not_found and a
+-- foreign one raises booth_session_forbidden. The two exceptions stay distinct
+-- HERE so an ownership bug is diagnosable in this suite; the TypeScript boundary
+-- collapses both into one indistinguishable wire response. Neither refusal
+-- creates a row and neither changes any row.
+--
+-- READ-ONLY (documented terminal-state exception): it only locks and returns the
+-- row, so it is permitted on a terminal session — FOR UPDATE does not fire the
+-- BEFORE UPDATE freeze trigger.
+DROP FUNCTION IF EXISTS public.booth_ensure_session(TEXT, UUID, TEXT, TEXT);
+
+CREATE OR REPLACE FUNCTION public.booth_ensure_session(
+  p_client_ref TEXT,
+  p_actor_user_id UUID
 )
 RETURNS public.booth_sessions
 LANGUAGE plpgsql
@@ -620,25 +693,8 @@ AS $$
 DECLARE
   v_session public.booth_sessions;
 BEGIN
-  IF p_host_user_id IS NULL THEN
-    RAISE EXCEPTION 'booth_session_forbidden';
-  END IF;
-
-  INSERT INTO public.booth_sessions (client_ref, host_user_id, host_email, booth_id)
-  VALUES (p_client_ref, p_host_user_id, NULLIF(btrim(p_host_email), ''), p_booth_id)
-  ON CONFLICT (client_ref) DO NOTHING;
-
-  SELECT * INTO v_session FROM public.booth_sessions
-    WHERE client_ref = p_client_ref FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'booth_session_not_found';
-  END IF;
-
-  -- A second Host presenting the same reference is refused, never adopted.
-  IF v_session.host_user_id <> p_host_user_id THEN
-    RAISE EXCEPTION 'booth_session_forbidden';
-  END IF;
-
+  SELECT * INTO v_session
+    FROM public.booth_lock_owned_session(p_client_ref, p_actor_user_id);
   RETURN v_session;
 END;
 $$;
@@ -1259,7 +1315,8 @@ $$;
 REVOKE ALL ON FUNCTION public.booth_sessions_freeze_terminal() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.booth_emit_event(UUID, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.booth_lock_owned_session(TEXT, UUID, BOOLEAN) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.booth_ensure_session(TEXT, UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.booth_create_session(UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.booth_ensure_session(TEXT, UUID) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.booth_record_event(TEXT, UUID, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.booth_mark_profile_confirmed(TEXT, UUID, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.booth_commit_consent(TEXT, UUID, TEXT, JSONB, INTEGER, TIMESTAMPTZ, JSONB, TEXT, JSONB, JSONB) FROM PUBLIC, anon, authenticated;
@@ -1271,7 +1328,8 @@ REVOKE ALL ON FUNCTION public.booth_complete_session(TEXT, UUID, TEXT) FROM PUBL
 
 GRANT EXECUTE ON FUNCTION public.booth_emit_event(UUID, TEXT, TEXT, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION public.booth_lock_owned_session(TEXT, UUID, BOOLEAN) TO service_role;
-GRANT EXECUTE ON FUNCTION public.booth_ensure_session(TEXT, UUID, TEXT, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION public.booth_create_session(UUID, TEXT, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION public.booth_ensure_session(TEXT, UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION public.booth_record_event(TEXT, UUID, TEXT, TEXT, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION public.booth_mark_profile_confirmed(TEXT, UUID, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION public.booth_commit_consent(TEXT, UUID, TEXT, JSONB, INTEGER, TIMESTAMPTZ, JSONB, TEXT, JSONB, JSONB) TO service_role;
@@ -1313,7 +1371,8 @@ COMMIT;
 --        DROP FUNCTION IF EXISTS public.booth_commit_consent(TEXT, UUID, TEXT, JSONB, INTEGER, TIMESTAMPTZ, JSONB, TEXT, JSONB, JSONB);
 --        DROP FUNCTION IF EXISTS public.booth_mark_profile_confirmed(TEXT, UUID, TEXT);
 --        DROP FUNCTION IF EXISTS public.booth_record_event(TEXT, UUID, TEXT, TEXT, TEXT);
---        DROP FUNCTION IF EXISTS public.booth_ensure_session(TEXT, UUID, TEXT, TEXT);
+--        DROP FUNCTION IF EXISTS public.booth_ensure_session(TEXT, UUID);
+--        DROP FUNCTION IF EXISTS public.booth_create_session(UUID, TEXT, TEXT);
 --        DROP FUNCTION IF EXISTS public.booth_lock_owned_session(TEXT, UUID, BOOLEAN);
 --        DROP FUNCTION IF EXISTS public.booth_emit_event(UUID, TEXT, TEXT, TEXT);
 --        DROP TABLE IF EXISTS public.booth_funnel_events;

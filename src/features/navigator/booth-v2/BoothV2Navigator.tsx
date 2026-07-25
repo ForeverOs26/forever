@@ -73,7 +73,7 @@ import {
   boothV2CommitConsent,
   boothV2CompleteSession,
   boothV2ConfirmWhatsappVerification,
-  boothV2EnsureSession,
+  boothV2CreateSession,
   boothV2GetConfig,
   boothV2ListGuides,
   boothV2MarkProfileConfirmed,
@@ -151,6 +151,7 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
   const [failedBanner, setFailedBanner] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [browseAll, setBrowseAll] = useState(false);
+  const [openingSession, setOpeningSession] = useState(false);
   const [waState, setWaState] = useState<{
     configured: boolean | null;
     waHref: string | null;
@@ -160,6 +161,9 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
   const { session, dispatch, reset, inactivityWarning, dismissInactivityWarning } =
     useBoothV2Session({
       onInactivityClear: (abandoned) => {
+        // A session the server never created has nothing to abandon: the
+        // tablet held local state only, and it is being discarded right now.
+        if (abandoned.clientRef === null) return;
         void boothV2RecordEvent({
           data: {
             clientRef: abandoned.clientRef,
@@ -232,17 +236,43 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
    * continuation) is emitted server-side by the operation that establishes the
    * fact and is not routed through here at all.
    */
-  async function recordEventOnce(event: BoothClientObservedEvent, step?: string, reason?: string) {
+  async function recordEventOnce(
+    clientRef: string | null,
+    event: BoothClientObservedEvent,
+    step?: string,
+    reason?: string,
+  ) {
+    // The reference is passed in rather than read from `session` because the
+    // very first event follows the create call in the same tick, before React
+    // has re-rendered with it. Nothing is recorded until the server has issued
+    // it: an observation about a session that does not exist is not a fact.
+    if (clientRef === null) return;
     if (session.recordedEvents.includes(event)) return;
     try {
-      await boothV2RecordEvent({
-        data: { clientRef: session.clientRef, event, step, reason },
-      });
+      await boothV2RecordEvent({ data: { clientRef, event, step, reason } });
       dispatch({ type: "markEventRecorded", event });
     } catch {
       // Left unmarked on purpose: the next attempt retries it, and the
       // database's (session_id, event) uniqueness keeps it exactly-once.
     }
+  }
+
+  /**
+   * The server-issued reference for an operation that is about to run, or null
+   * with a retryable, opaque error already surfaced.
+   *
+   * Every operational call goes through here, so an RPC can never be attempted
+   * for a session the server has not created. The message is deliberately the
+   * same one an unknown or foreign reference produces on the wire — the tablet
+   * reveals no more than the server does.
+   */
+  function operableRef(): string | null {
+    if (session.clientRef !== null) return session.clientRef;
+    setToast({
+      tone: "error",
+      message: "This booth session is unavailable. Start a new guest to continue.",
+    });
+    return null;
   }
 
   function handleStartNewGuest() {
@@ -268,22 +298,38 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
     }
   }
 
+  /**
+   * THE START OF A GUEST SESSION, and the moment the server issues its identity
+   * (PR #102 corrective pass 5).
+   *
+   * The tablet asks the server to CREATE a session — sending no reference and
+   * proposing none — and adopts the reference it gets back. Only then does the
+   * flow advance and only then is the first client-observed event recorded, so
+   * no operational call can ever run against a session that does not exist.
+   *
+   * A failed create leaves the guest exactly where they were with a retryable,
+   * opaque error: the button simply stays, and nothing has been persisted.
+   */
   async function grantPermission() {
-    dispatch({ type: "grantPermission" });
+    if (openingSession) return;
+    setOpeningSession(true);
     try {
-      await boothV2EnsureSession({ data: { clientRef: session.clientRef } });
+      const created = await boothV2CreateSession();
+      dispatch({ type: "sessionCreated", clientRef: created.clientRef });
+      dispatch({ type: "grantPermission" });
+      void recordEventOnce(created.clientRef, "meaningful_conversation");
     } catch {
-      setToast({ tone: "error", message: "Couldn't open a booth session. Try again." });
-      return;
+      setToast({ tone: "error", message: "Couldn't open a booth session. Please try again." });
+    } finally {
+      setOpeningSession(false);
     }
-    void recordEventOnce("meaningful_conversation");
   }
 
   function chooseMode(mode: "quick" | "full") {
     dispatch({ type: "chooseMode", mode });
     // The mode travels as the funnel event's step, so quick-vs-full stays
     // measurable without the session row retaining anything about the guest.
-    void recordEventOnce("profile_started", mode);
+    void recordEventOnce(session.clientRef, "profile_started", mode);
   }
 
   /**
@@ -296,8 +342,10 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
   async function confirmProfile() {
     const profile = buildProfileFromDraft(session, fx, new Date().toISOString());
     if (!profile) return;
+    const clientRef = operableRef();
+    if (clientRef === null) return;
     try {
-      await boothV2MarkProfileConfirmed({ data: { clientRef: session.clientRef, profile } });
+      await boothV2MarkProfileConfirmed({ data: { clientRef, profile } });
       dispatch({ type: "confirmProfile", profile });
     } catch {
       setToast({
@@ -309,12 +357,16 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
 
   async function syncShortlistAndContinue() {
     dispatch({ type: "continueToContact" });
+    const clientRef = session.clientRef;
+    // Best-effort validation only, so an unopened session just skips it rather
+    // than blocking the guest; the consent step refuses a stale direction.
+    if (clientRef === null) return;
     try {
       // Validation only: proves every selected direction is a real project.
       // The selection is persisted by the consent transaction, not here.
       await boothV2ValidateShortlist({
         data: {
-          clientRef: session.clientRef,
+          clientRef,
           entries: session.shortlist.entries,
           guidePrepares: session.shortlist.guidePrepares,
         },
@@ -333,12 +385,19 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
   async function handleContactSubmit() {
     if (submitting) return;
     if (!session.confirmedProfile) return;
+    if (session.clientRef === null) {
+      setFailedBanner(
+        "This booth session is unavailable. Start a new guest and enter the details again.",
+      );
+      return;
+    }
+    const clientRef = session.clientRef;
     setFailedBanner(null);
     setSubmitting(true);
     try {
       await boothV2CommitConsent({
         data: {
-          clientRef: session.clientRef,
+          clientRef,
           profile: session.confirmedProfile,
           entries: session.shortlist.entries,
           guidePrepares: session.shortlist.guidePrepares,
@@ -357,13 +416,17 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
 
   async function declineContact() {
     dispatch({ type: "declineContact" });
+    const clientRef = session.clientRef;
+    // No server session means nothing was ever persisted and there is nothing
+    // to close — the local state is already being cleared.
+    if (clientRef === null) return;
     // Nothing about the guest was ever persisted before consent, so there is
     // usually nothing to erase; the server still clears anything a corrected
     // earlier consent had stored, deletes any lead for this session, and emits
     // qr_continuation — all in one transaction.
     try {
       await boothV2CompleteSession({
-        data: { clientRef: session.clientRef, outcome: "no_contact_qr" },
+        data: { clientRef, outcome: "no_contact_qr" },
       });
     } catch {
       setToast({ tone: "error", message: "Couldn't close the session. Try again." });
@@ -371,10 +434,10 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
   }
 
   async function startWhatsappVerification() {
+    const clientRef = operableRef();
+    if (clientRef === null) return;
     try {
-      const result = await boothV2StartWhatsappVerification({
-        data: { clientRef: session.clientRef },
-      });
+      const result = await boothV2StartWhatsappVerification({ data: { clientRef } });
       setWaState({
         configured: result.configured,
         waHref: result.waHref,
@@ -387,9 +450,11 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
   }
 
   async function confirmWhatsappVerification() {
+    const clientRef = operableRef();
+    if (clientRef === null) return;
     try {
       const result = await boothV2ConfirmWhatsappVerification({
-        data: { clientRef: session.clientRef, method: "wa_me_host_confirmed" },
+        data: { clientRef, method: "wa_me_host_confirmed" },
       });
       dispatch({ type: "whatsappVerified", at: result.verifiedAt, method: "wa_me_host_confirmed" });
     } catch {
@@ -402,10 +467,12 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
     reserve: BoothGuide | null,
     fallback: string | null,
   ) {
+    const clientRef = operableRef();
+    if (clientRef === null) return;
     try {
       const result = await boothV2AssignGuide({
         data: {
-          clientRef: session.clientRef,
+          clientRef,
           guideId: guide.id,
           reserveGuideId: reserve?.id ?? null,
           fallbackReason: fallback,
@@ -431,10 +498,12 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
   }
 
   async function acknowledgeGuide() {
+    const clientRef = operableRef();
+    if (clientRef === null) return;
     try {
       // The server decides the METHOD from who is actually acting: only the
       // assigned Guide's own account yields "guide_self_confirmed".
-      const result = await boothV2AcknowledgeGuide({ data: { clientRef: session.clientRef } });
+      const result = await boothV2AcknowledgeGuide({ data: { clientRef } });
       dispatch({
         type: "guideAcknowledged",
         at: result.acknowledgedAt,
@@ -446,9 +515,11 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
   }
 
   async function recordFirstContact() {
+    const clientRef = operableRef();
+    if (clientRef === null) return;
     try {
       const result = await boothV2RecordHandoff({
-        data: { clientRef: session.clientRef, firstContactConfirmed: true },
+        data: { clientRef, firstContactConfirmed: true },
       });
       dispatch({
         type: "recordFirstContact",
@@ -462,6 +533,8 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
 
   /** `scheduledAt` is an exact instant (ISO) or null — never free text. */
   async function saveNextStep(nextStep: string, scheduledAt: string | null) {
+    const clientRef = operableRef();
+    if (clientRef === null) return;
     const timezone =
       typeof Intl !== "undefined"
         ? (Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC")
@@ -469,7 +542,7 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
     try {
       await boothV2RecordHandoff({
         data: {
-          clientRef: session.clientRef,
+          clientRef,
           nextStep,
           consultationScheduledAt: scheduledAt,
           consultationTimezone: scheduledAt ? timezone : null,
@@ -491,9 +564,11 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
 
   async function completeContacted() {
     if (!canCompleteContacted(session)) return;
+    const clientRef = operableRef();
+    if (clientRef === null) return;
     try {
       await boothV2CompleteSession({
-        data: { clientRef: session.clientRef, outcome: "contacted_complete" },
+        data: { clientRef, outcome: "contacted_complete" },
       });
       dispatch({ type: "completeContacted" });
     } catch {
@@ -536,7 +611,8 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
             say so, and you can stop at any point.
           </p>
           <PrimaryActionBar
-            primaryLabel="Yes — let's look together"
+            primaryLabel={openingSession ? "Opening…" : "Yes — let's look together"}
+            disabled={openingSession}
             onPrimary={grantPermission}
             secondaryLabel="I'm just browsing on my own"
             // No client-side qr_continuation here: declining the opening
@@ -786,11 +862,15 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
           finished={session.outcome === "no_contact_qr"}
           onFinish={() => {
             dispatch({ type: "completeNoContact" });
+            const clientRef = session.clientRef;
+            // A guest who declined the opening permission has no server session
+            // at all — nothing was persisted, so there is nothing to close.
+            if (clientRef === null) return;
             // The no-contact completion RPC clears everything, deletes any lead
             // and emits qr_continuation in ONE transaction — the browser never
             // asserts the continuation itself.
             void boothV2CompleteSession({
-              data: { clientRef: session.clientRef, outcome: "no_contact_qr" },
+              data: { clientRef, outcome: "no_contact_qr" },
             }).catch(() => undefined);
           }}
           onBack={() => dispatch({ type: "back" })}
@@ -831,7 +911,12 @@ export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}
               <button
                 type="button"
                 onClick={() => {
-                  void recordEventOnce("session_abandoned", screen, "host_cleared_after_warning");
+                  void recordEventOnce(
+                    session.clientRef,
+                    "session_abandoned",
+                    screen,
+                    "host_cleared_after_warning",
+                  );
                   confirmReset();
                 }}
                 className="min-h-[52px] flex-1 rounded-[14px] border border-[#EAE6DE] bg-white px-4 text-[15px] font-[600] text-[#57534A] outline-none hover:bg-[#FBFAF7] focus-visible:ring-2 focus-visible:ring-[#9C7B4C] focus-visible:ring-offset-2"

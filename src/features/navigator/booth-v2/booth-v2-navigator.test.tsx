@@ -64,6 +64,13 @@ vi.mock("@/lib/project-service", () => ({
 
 type Call = { data: Record<string, unknown> };
 
+/**
+ * The reference the SERVER issues (PR #102 corrective pass 5). Nothing in the
+ * browser may produce a client reference, so every operational call the UI
+ * makes has to carry exactly this value.
+ */
+const SERVER_ISSUED_REF = "9d1c7f60-5b2a-4e83-b0d6-77a4c9e15238";
+
 const serverFns = vi.hoisted(() => ({
   getAccess: vi.fn(async () => ({ granted: true as const, hostName: "Host Tester" })),
   getConfig: vi.fn(async () => ({
@@ -72,6 +79,7 @@ const serverFns = vi.hoisted(() => ({
     fx: null,
     hostName: "Host Tester",
   })),
+  createSession: vi.fn(async () => ({ clientRef: SERVER_ISSUED_REF })),
   ensureSession: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
   recordEvent: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
   markProfileConfirmed: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
@@ -134,6 +142,7 @@ const serverFns = vi.hoisted(() => ({
 vi.mock("./booth-v2.functions", () => ({
   boothV2GetAccess: serverFns.getAccess,
   boothV2GetConfig: serverFns.getConfig,
+  boothV2CreateSession: serverFns.createSession,
   boothV2EnsureSession: serverFns.ensureSession,
   boothV2RecordEvent: serverFns.recordEvent,
   boothV2MarkProfileConfirmed: serverFns.markProfileConfirmed,
@@ -417,6 +426,94 @@ describe("BoothV2Navigator — verified handoff to completion", () => {
     await screen.findByText(/WhatsApp verification is unavailable/);
     expect(screen.queryByText(/WhatsApp verified ✓/)).toBeNull();
     expect(button(/Continue to Guide/)).toBeDisabled();
+  });
+});
+
+/**
+ * SERVER-ISSUED SESSION IDENTITY (PR #102 corrective pass 5).
+ *
+ * The browser must not choose, propose or guess the identity of a Booth
+ * session. These assertions pin the whole client half of that: the create call
+ * carries no input, no operational call happens before it succeeds, every later
+ * call replays exactly the reference the server issued, and a failed create is
+ * retryable and records nothing.
+ */
+describe("BoothV2Navigator — server-issued session identity", () => {
+  it("asks the server to create the session, sending no reference of its own", async () => {
+    renderBooth();
+    fireEvent.click(button("Begin"));
+    // Nothing operational may have happened yet: the guest has not started.
+    expect(serverFns.createSession).not.toHaveBeenCalled();
+
+    fireEvent.click(button(/Yes — let's look together/));
+    await screen.findByText(/Which language suits you\?/);
+
+    // Called with NO arguments at all — there is no client reference to send.
+    expect(serverFns.createSession).toHaveBeenCalledTimes(1);
+    expect(serverFns.createSession).toHaveBeenCalledWith();
+    // The old implicit-create path is gone.
+    expect(serverFns.ensureSession).not.toHaveBeenCalled();
+
+    // The first client-observed event already carries the issued reference,
+    // so no event is ever recorded against a session that does not exist.
+    const first = serverFns.recordEvent.mock.calls[0][0] as Call;
+    expect(first.data.event).toBe("meaningful_conversation");
+    expect(first.data.clientRef).toBe(SERVER_ISSUED_REF);
+  });
+
+  it("replays exactly the issued reference on every later operation", async () => {
+    renderBooth();
+    await walkToContact();
+    await fillContactAndSubmit();
+
+    const references = new Set<unknown>();
+    for (const fn of [
+      serverFns.recordEvent,
+      serverFns.markProfileConfirmed,
+      serverFns.validateShortlist,
+      serverFns.commitConsent,
+    ]) {
+      for (const call of fn.mock.calls) references.add((call[0] as Call).data.clientRef);
+    }
+    // One value, and it is the server's — not a UUID the tablet minted.
+    expect([...references]).toEqual([SERVER_ISSUED_REF]);
+  });
+
+  it("stays put, records nothing and stays retryable when the create fails", async () => {
+    serverFns.createSession.mockRejectedValueOnce(new Error("server refused"));
+    renderBooth();
+    fireEvent.click(button("Begin"));
+    fireEvent.click(button(/Yes — let's look together/));
+
+    // A retryable, opaque error — and the guest has not moved on.
+    await screen.findByText(/Couldn't open a booth session/);
+    expect(screen.getByText(/May we look at this together\?/)).toBeInTheDocument();
+    expect(serverFns.recordEvent).not.toHaveBeenCalled();
+
+    // Retrying is all it takes; the second create succeeds and the flow starts.
+    fireEvent.click(button(/Yes — let's look together/));
+    await screen.findByText(/Which language suits you\?/);
+    await waitFor(() => expect(serverFns.recordEvent).toHaveBeenCalledTimes(1));
+    expect((serverFns.recordEvent.mock.calls[0][0] as Call).data.clientRef).toBe(SERVER_ISSUED_REF);
+  });
+
+  it("creates a second session for the next guest rather than reusing the first", async () => {
+    renderBooth();
+    fireEvent.click(button("Begin"));
+    fireEvent.click(button(/Yes — let's look together/));
+    await screen.findByText(/Which language suits you\?/);
+
+    fireEvent.click(button("Start new guest"));
+    await screen.findByText(/Start a new guest session\?/);
+    fireEvent.click(button(/Clear and start new/));
+    await screen.findByText(/Deciding well takes a moment of clarity/);
+
+    // The reset carried no reference forward, so the next guest's session is
+    // created afresh by the server.
+    fireEvent.click(button("Begin"));
+    fireEvent.click(button(/Yes — let's look together/));
+    await screen.findByText(/Which language suits you\?/);
+    expect(serverFns.createSession).toHaveBeenCalledTimes(2);
   });
 });
 

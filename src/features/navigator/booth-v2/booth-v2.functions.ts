@@ -98,6 +98,29 @@ export const boothV2GetConfig = createServerFn({ method: "GET" })
     return runBoothEndpoint("config", () => getBoothConfig(context.actor));
   });
 
+/**
+ * SERVER-ISSUED SESSION IDENTITY (PR #102 corrective pass 5).
+ *
+ * The only endpoint that creates a Booth session, and it deliberately has NO
+ * validator because it accepts NO input: a client reference cannot be supplied,
+ * proposed or influenced from the browser. The database mints the reference, the
+ * Host is the authenticated actor and the booth id is server configuration; the
+ * new reference is returned so the tablet can replay it on later operations.
+ *
+ * One call creates one session and persists nothing about a guest.
+ */
+export const boothV2CreateSession = createServerFn({ method: "POST" })
+  .middleware([requireBoothStaff])
+  .handler(async ({ context }) => {
+    const { createSession, runBoothEndpoint } = await import("./server/service");
+    return runBoothEndpoint("session_create", () => createSession(context.actor));
+  });
+
+/**
+ * Open an EXISTING session. This no longer creates anything: an unknown
+ * reference and a reference owned by another Host produce the identical
+ * `booth_session_unavailable` refusal and neither writes a row.
+ */
 export const boothV2EnsureSession = createServerFn({ method: "POST" })
   .middleware([requireBoothStaff])
   .validator(z.object({ clientRef: clientRefSchema }).strict())

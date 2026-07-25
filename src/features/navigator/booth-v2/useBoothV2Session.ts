@@ -28,15 +28,15 @@ import {
   type BoothV2Session,
 } from "../core/v2";
 
-function newClientRef(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `booth-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
-}
-
+/**
+ * A fresh local session with NO server reference (PR #102 corrective pass 5).
+ * The browser used to mint a `crypto.randomUUID()` here and present it to the
+ * server, which made the tablet the author of a session's identity. It no
+ * longer generates one at all: the reference arrives from
+ * `booth_create_session` and is dispatched in as `sessionCreated`.
+ */
 function initialSession(): BoothV2Session {
-  return createBoothV2Session(newClientRef());
+  return createBoothV2Session();
 }
 
 export interface UseBoothV2Session {
@@ -79,7 +79,10 @@ export function useBoothV2Session(options?: {
     }
     lastActivityRef.current = Date.now();
     setInactivityWarning(false);
-    rawDispatch({ type: "reset", clientRef: newClientRef() });
+    // The next guest starts with NO reference. The server issues one when that
+    // guest's session actually begins — auto-clear and manual reset behave
+    // exactly as before, they simply no longer name the session themselves.
+    rawDispatch({ type: "reset" });
   }, []);
 
   // Hydrate once, client-only, after the SSR-matching first render.

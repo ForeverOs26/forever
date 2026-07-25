@@ -48,6 +48,7 @@ const mocks = vi.hoisted(() => ({
   getAccess: vi.fn(async () => ({ granted: true as const, hostName: "Host Tester" })),
   getConfig: vi.fn(async () => ({})),
   listGuides: vi.fn(async () => []),
+  createSession: vi.fn(async () => ({ clientRef: "ssr-should-never-create" })),
   ensureSession: vi.fn(async () => ({ ok: true as const })),
   recordEvent: vi.fn(async () => ({ ok: true as const })),
 }));
@@ -57,6 +58,7 @@ vi.mock("./booth-v2.functions", () => ({
   boothV2GetAccess: mocks.getAccess,
   boothV2GetConfig: mocks.getConfig,
   boothV2ListGuides: mocks.listGuides,
+  boothV2CreateSession: mocks.createSession,
   boothV2EnsureSession: mocks.ensureSession,
   boothV2RecordEvent: mocks.recordEvent,
   boothV2MarkProfileConfirmed: vi.fn(),
@@ -239,6 +241,7 @@ describe("an SSR request for /booth-v2 while the pilot is NOT enabled", () => {
     expect(mocks.getAccess).not.toHaveBeenCalled();
     expect(mocks.getConfig).not.toHaveBeenCalled();
     expect(mocks.listGuides).not.toHaveBeenCalled();
+    expect(mocks.createSession).not.toHaveBeenCalled();
     expect(mocks.ensureSession).not.toHaveBeenCalled();
     expect(mocks.recordEvent).not.toHaveBeenCalled();
   });

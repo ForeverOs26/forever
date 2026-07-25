@@ -227,6 +227,21 @@ async function concurrencyProbes() {
 }
 
 /**
+ * Seed a booth session with a KNOWN client reference.
+ *
+ * Real sessions are created by booth_create_session, which issues its OWN
+ * random reference (probe 4 below proves that). The probes here need a fixed
+ * reference to contend on, so they insert one directly — fixture setup, never
+ * the operation under test.
+ */
+function seedSession(ref, hostId) {
+  return psqlSql(
+    `INSERT INTO public.booth_sessions (client_ref, host_user_id, host_email, booth_id)` +
+      ` VALUES ('${ref}','${hostId}','host@example.test','probe')`,
+  );
+}
+
+/**
  * Booth V2 consent-commit atomicity and cross-Host ownership probes (PR #102
  * corrective items 4 and 5): two REAL, concurrent psql sessions.
  *
@@ -255,7 +270,7 @@ async function boothConcurrencyProbes() {
     ` '{"name":"Race","phone":"+79990009988","message":"m","source":"booth_v2"}'::jsonb)`;
   const call = (extra = "") => consentCall(REF, HOST_ID, extra);
 
-  psqlSql(`SELECT public.booth_ensure_session('${REF}','${HOST_ID}','host@example.test','probe')`);
+  seedSession(REF, HOST_ID);
 
   const sessionA = psqlSqlAsync(
     `SET ROLE service_role; BEGIN; ${call()}; SELECT pg_sleep(6); COMMIT;`,
@@ -296,9 +311,7 @@ async function boothConcurrencyProbes() {
 
   // --- Probe 2: a DIFFERENT Host, under real lock contention, is refused. ---
   const OWNED_REF = "ref-probe-ownership-1";
-  psqlSql(
-    `SELECT public.booth_ensure_session('${OWNED_REF}','${HOST_ID}','host@example.test','probe')`,
-  );
+  seedSession(OWNED_REF, HOST_ID);
   const ownerHolds = psqlSqlAsync(
     `SET ROLE service_role; BEGIN;` +
       ` SELECT public.booth_lock_owned_session('${OWNED_REF}','${HOST_ID}');` +
@@ -336,9 +349,7 @@ async function boothConcurrencyProbes() {
 
   // --- Probe 3: a failure after the lead write rolls everything back. -------
   const ROLLBACK_REF = "ref-probe-rollback-1";
-  psqlSql(
-    `SELECT public.booth_ensure_session('${ROLLBACK_REF}','${HOST_ID}','host@example.test','probe')`,
-  );
+  seedSession(ROLLBACK_REF, HOST_ID);
   let rolledBack = false;
   try {
     psqlSql(
@@ -362,9 +373,57 @@ async function boothConcurrencyProbes() {
     throw new Error(`a partially applied consent commit survived the rollback:\n${afterRollback}`);
   }
 
+  // --- Probe 4: CONCURRENT server-issued creates (corrective pass 5). -------
+  // Session A opens a transaction, creates a session and holds it open while
+  // session B creates one in a second REAL connection — the two calls genuinely
+  // overlap in time. Each must get its OWN reference and its OWN row: the
+  // server issues identity, so two guests starting at once can never collide,
+  // and neither can end up sharing the other's session.
+  const CREATE_BOOTH = "probe-create-concurrent";
+  const createA = psqlSqlAsync(
+    `SET ROLE service_role; BEGIN;` +
+      ` SELECT public.booth_create_session('${HOST_ID}','host@example.test','${CREATE_BOOTH}');` +
+      ` SELECT pg_sleep(4); COMMIT;`,
+  );
+  await sleep(1000);
+  const createB = await psqlSqlAsync(
+    `SET ROLE service_role;` +
+      ` SELECT public.booth_create_session('${HOST_ID}','host@example.test','${CREATE_BOOTH}');`,
+  );
+  const createAResult = await createA;
+  const refA = leadOf(createAResult.stdout);
+  const refB = leadOf(createB.stdout);
+  if (!refA || !refB) {
+    throw new Error(
+      `a concurrent create did not return a reference: A=${refA} B=${refB}\n` +
+        `${createAResult.stdout}\n${createB.stdout}`,
+    );
+  }
+  if (refA === refB) {
+    throw new Error(`two concurrent creates returned the SAME reference: ${refA}`);
+  }
+  const createdRows = psqlSql(
+    `SELECT count(*) || ':' || count(DISTINCT client_ref)` +
+      ` FROM public.booth_sessions WHERE booth_id='${CREATE_BOOTH}'`,
+  );
+  if (!/\b2:2\b/.test(createdRows)) {
+    throw new Error(`two concurrent creates did not produce two distinct rows:\n${createdRows}`);
+  }
+  // Both are empty operational shells owned by the acting Host — no guest data
+  // was persisted by creating a session.
+  const createdShape = psqlSql(
+    `SELECT count(*) FROM public.booth_sessions WHERE booth_id='${CREATE_BOOTH}'` +
+      ` AND host_user_id='${HOST_ID}' AND outcome='active' AND consultation_consent = FALSE` +
+      ` AND profile IS NULL AND first_name IS NULL AND lead_id IS NULL`,
+  );
+  if (!/\b2\b/.test(createdShape)) {
+    throw new Error(`a created session carried more than the operational shell:\n${createdShape}`);
+  }
+
   console.log(
     `[studio-pg] booth atomicity + ownership probes PASS (consent replay blocked ${bElapsed} ms then returned the same lead;` +
-      ` a different Host contended ${intruderElapsed} ms and was refused; rollback left nothing)`,
+      ` a different Host contended ${intruderElapsed} ms and was refused; rollback left nothing;` +
+      ` two overlapping creates issued two distinct references)`,
   );
 }
 

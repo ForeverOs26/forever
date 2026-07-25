@@ -69,7 +69,7 @@ import {
   BOOTH_SERVER_ONLY_EVENTS,
   isBoothClientObservedEvent,
 } from "../core/v2";
-import { recordFunnelEvent, startWhatsappVerification } from "./server/service";
+import { ensureSession, recordFunnelEvent, startWhatsappVerification } from "./server/service";
 import type { BoothActor } from "./server/access";
 
 const ACTOR: BoothActor = {
@@ -274,7 +274,11 @@ describe("the Booth UI never emits a transition event", () => {
 
   it("routes client events through a client-observed-typed helper", () => {
     const source = navigator();
-    expect(source).toContain("recordEventOnce(event: BoothClientObservedEvent");
+    // The helper takes the SERVER-ISSUED reference first (corrective pass 5)
+    // and still narrows the event to the client-observed subset.
+    expect(source).toMatch(
+      /async function recordEventOnce\(\s*clientRef: string \| null,\s*event: BoothClientObservedEvent,/,
+    );
     expect(source).not.toContain("type BoothFunnelEvent");
   });
 
@@ -282,19 +286,33 @@ describe("the Booth UI never emits a transition event", () => {
     const source = navigator();
     for (const event of Object.keys(TRANSITION_EVENT_OWNERS)) {
       // The event names may appear in prose comments, but never as a recorded
-      // value: no `recordEventOnce("<event>")` and no `event: "<event>"`.
-      expect(`${event}:${source.includes(`recordEventOnce("${event}")`)}`).toBe(`${event}:false`);
+      // value: not as an argument to recordEventOnce, and not as `event: "…"`.
+      const recorded = new RegExp(`recordEventOnce\\([^)]*"${event}"`);
+      expect(`${event}:${recorded.test(source)}`).toBe(`${event}:false`);
       expect(`${event}:${source.includes(`event: "${event}"`)}`).toBe(`${event}:false`);
     }
   });
 
   it("still records the three client-observed events it is entitled to", () => {
     const source = navigator();
-    expect(source).toContain('recordEventOnce("meaningful_conversation")');
-    expect(source).toContain('recordEventOnce("profile_started"');
-    expect(source).toContain('recordEventOnce("session_abandoned"');
+    for (const event of ["meaningful_conversation", "profile_started", "session_abandoned"]) {
+      expect(`${event}:${new RegExp(`recordEventOnce\\([^)]*"${event}"`).test(source)}`).toBe(
+        `${event}:true`,
+      );
+    }
     // Abandonment on the inactivity timer goes through the same endpoint.
     expect(source).toContain('event: "session_abandoned"');
+  });
+
+  it("never records an event before the server has issued the reference", () => {
+    const source = navigator();
+    // Every recorded event carries a reference that came from the server: the
+    // helper refuses a null one, and the first event uses the value the create
+    // call just returned rather than stale React state.
+    expect(source).toContain("if (clientRef === null) return;");
+    expect(source).toContain('recordEventOnce(created.clientRef, "meaningful_conversation")');
+    // The browser generates no reference of its own, anywhere.
+    expect(source).not.toMatch(/crypto\.randomUUID|Math\.random/);
   });
 
   it("leaves the no-contact continuation entirely to the completion RPC", () => {
@@ -401,6 +419,71 @@ describe("a session refusal is not enumerable", () => {
     await start().catch(() => undefined);
 
     expect(logged.join("\n")).toContain("foreign_session");
+  });
+
+  /**
+   * SERVER-ISSUED SESSION IDENTITY (PR #102 corrective pass 5).
+   *
+   * Collapsing the two MESSAGES was never enough on its own: `ensureSession`
+   * still CREATED a session for an unknown reference, so unknown answered with
+   * a success and foreign answered with a refusal. That is a louder difference
+   * than any wording, and it also let an authorized staff account mint empty
+   * sessions from references it invented. Ensure now creates nothing, and the
+   * two outcomes are the same response byte for byte.
+   */
+  it("answers ensure on an unknown and a foreign reference identically", async () => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const client = supabaseAdmin as unknown as {
+      rpc: (fn: string, args: Record<string, unknown>) => Promise<unknown>;
+    };
+    const original = client.rpc;
+    const responses: string[] = [];
+    for (const internal of ["booth_session_not_found", "booth_session_forbidden"]) {
+      client.rpc = async () => ({
+        data: null,
+        error: { message: `plpgsql error: ${internal}` },
+      });
+      const refusal = (await ensureSession(ACTOR, { clientRef: CLIENT_REF }).catch(
+        (error: Error) => error,
+      )) as Error & { code?: string };
+      responses.push(
+        JSON.stringify({
+          constructor: refusal.constructor.name,
+          name: refusal.name,
+          code: refusal.code,
+          message: refusal.message,
+        }),
+      );
+    }
+    client.rpc = original;
+
+    // Unknown and foreign are the SAME response — no field differs.
+    expect(responses[0]).toBe(responses[1]);
+    expect(JSON.parse(responses[0])).toEqual({
+      constructor: "BoothError",
+      name: "booth_session_unavailable",
+      code: "booth_session_unavailable",
+      message: "This booth session is unavailable.",
+    });
+  });
+
+  it("gives ensure nothing it could create a session with", async () => {
+    await ensureSession(ACTOR, { clientRef: CLIENT_REF });
+    // One RPC, carrying only the reference and the acting account. There is no
+    // Host label and no booth id, so there is nothing to insert even if the
+    // database function tried.
+    expect(rpcCalls).toHaveLength(1);
+    expect(rpcCalls[0].fn).toBe("booth_ensure_session");
+    expect(Object.keys(rpcCalls[0].args).sort()).toEqual(["p_actor_user_id", "p_client_ref"]);
+  });
+
+  it("keeps creation out of every operational path in the service source", () => {
+    const source = readFileSync("src/features/navigator/booth-v2/server/service.ts", "utf8");
+    // booth_create_session is called from exactly one place: createSession.
+    const creators = source.match(/"booth_create_session"/g) ?? [];
+    expect(creators).toHaveLength(1);
+    // ...and createSession takes no client reference from anybody.
+    expect(source).toMatch(/export async function createSession\(\s*actor: BoothActor,?\s*\)/);
   });
 
   it("no longer constructs or maps the old enumerable refusals", () => {

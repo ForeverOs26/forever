@@ -266,8 +266,15 @@ export const BOOTH_V2_SESSION_VERSION = 1 as const;
 
 export interface BoothV2Session {
   sessionVersion: typeof BOOTH_V2_SESSION_VERSION;
-  /** Random client reference — idempotency key for every server write. */
-  clientRef: string;
+  /**
+   * The SERVER-ISSUED client reference, or `null` before the server has issued
+   * one (PR #102 corrective pass 5). The browser never generates, proposes or
+   * guesses it: it is minted by `booth_create_session` and arrives through the
+   * `sessionCreated` action. The `null` is deliberate and load-bearing — it is
+   * what makes it impossible to run an operational RPC for a session the server
+   * has not created, because every call site has to narrow it first.
+   */
+  clientRef: string | null;
   screen: BoothV2Screen;
   quickStep: number;
   fullStep: number;
@@ -283,7 +290,12 @@ export interface BoothV2Session {
   recordedEvents: BoothFunnelEvent[];
 }
 
-export function createBoothV2Session(clientRef: string): BoothV2Session {
+/**
+ * A fresh local session. It starts WITHOUT a server reference: local temporary
+ * state may exist before the session is created, but nothing operational can
+ * happen until `sessionCreated` carries the server-issued reference in.
+ */
+export function createBoothV2Session(clientRef: string | null = null): BoothV2Session {
   return {
     sessionVersion: BOOTH_V2_SESSION_VERSION,
     clientRef,
@@ -516,7 +528,10 @@ export type BoothV2Action =
   | { type: "markAbandoned" }
   | { type: "markEventRecorded"; event: BoothFunnelEvent }
   | { type: "replace"; session: BoothV2Session }
-  | { type: "reset"; clientRef: string };
+  /** The server issued this session's reference — the ONLY way one arrives. */
+  | { type: "sessionCreated"; clientRef: string }
+  /** A reset carries no reference: the next guest's is issued by the server. */
+  | { type: "reset" };
 
 export type ContactTextField =
   | "firstName"
@@ -898,8 +913,12 @@ export function boothV2Reducer(session: BoothV2Session, action: BoothV2Action): 
         : { ...session, recordedEvents: [...session.recordedEvents, action.event] };
     case "replace":
       return action.session;
+    case "sessionCreated":
+      // The reference is write-once. A second create must never silently
+      // re-point a session that already has server-issued identity.
+      return session.clientRef === null ? { ...session, clientRef: action.clientRef } : session;
     case "reset":
-      return createBoothV2Session(action.clientRef);
+      return createBoothV2Session();
     default:
       return session;
   }
@@ -963,7 +982,12 @@ export function deserializeBoothV2Session(
     const candidate = parsed.session;
     if (!candidate || typeof candidate !== "object") return null;
     if (candidate.sessionVersion !== BOOTH_V2_SESSION_VERSION) return null;
-    if (typeof candidate.clientRef !== "string" || candidate.clientRef.length === 0) return null;
+    // Either the server has issued a reference for this session, or it has not
+    // yet — nothing in between. A blank or non-string reference is a corrupt
+    // payload, and a browser-invented one could never be honoured anyway.
+    const storedRef = candidate.clientRef;
+    if (storedRef !== null && typeof storedRef !== "string") return null;
+    if (typeof storedRef === "string" && storedRef.length === 0) return null;
     if (!BOOTH_V2_SCREENS.includes(candidate.screen as BoothV2Screen)) return null;
     if (candidate.outcome !== "active") return null; // finished sessions never come back
     if (!candidate.draft || typeof candidate.draft !== "object") return null;
@@ -971,7 +995,7 @@ export function deserializeBoothV2Session(
 
     // Rebuild on a fresh base so missing fields get safe defaults, then
     // re-validate the confirmed profile through its own fail-closed parser.
-    const base = createBoothV2Session(candidate.clientRef);
+    const base = createBoothV2Session(storedRef);
     const session: BoothV2Session = {
       ...base,
       ...candidate,

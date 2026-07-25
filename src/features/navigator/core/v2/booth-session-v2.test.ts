@@ -363,11 +363,60 @@ describe("Serialization is fail-closed and never leaks a previous guest", () => 
 });
 
 describe("Reset and guest-data detection", () => {
-  it("a reset session holds no prior guest data", () => {
-    const session = run(quickDraftSession(), { type: "reset", clientRef: "ref-new-12345678" });
+  it("a reset session holds no prior guest data and no server reference", () => {
+    const session = run(quickDraftSession(), { type: "reset" });
     expect(hasGuestDataV2(session)).toBe(false);
-    expect(session.clientRef).toBe("ref-new-12345678");
+    // The browser does not name the next guest's session (corrective pass 5):
+    // a reset leaves the reference unset until the server issues one.
+    expect(session.clientRef).toBeNull();
     expect(session.sessionVersion).toBe(BOOTH_V2_SESSION_VERSION);
+  });
+
+  it("a fresh session has no reference until the server issues one", () => {
+    const session = createBoothV2Session();
+    expect(session.clientRef).toBeNull();
+    // Local state may exist before creation — that is the whole point of the
+    // null: it lets the tablet hold a draft while making it impossible to run
+    // an operational call for a session the server has not created.
+    expect(hasGuestDataV2(run(session, { type: "begin" }))).toBe(true);
+  });
+
+  it("adopts the reference the server issued", () => {
+    const session = run(createBoothV2Session(), {
+      type: "sessionCreated",
+      clientRef: "5b1f0d2e-3a44-4c9a-9d77-1e8f6a0b2c31",
+    });
+    expect(session.clientRef).toBe("5b1f0d2e-3a44-4c9a-9d77-1e8f6a0b2c31");
+  });
+
+  it("never re-points a session that already has a server-issued reference", () => {
+    // Write-once. A second create must not silently move an in-flight session
+    // onto a different server row.
+    const session = run(
+      createBoothV2Session(),
+      { type: "sessionCreated", clientRef: "first-ref-0001" },
+      { type: "sessionCreated", clientRef: "second-ref-0002" },
+    );
+    expect(session.clientRef).toBe("first-ref-0001");
+  });
+
+  it("rehydrates a session the server had not yet created", () => {
+    const stored = serializeBoothV2Session(
+      run(createBoothV2Session(), { type: "begin" }),
+      new Date(NOW).toISOString(),
+    );
+    const restored = deserializeBoothV2Session(stored, { nowMs: NOW });
+    expect(restored?.clientRef).toBeNull();
+  });
+
+  it("discards a payload whose reference is neither null nor a real string", () => {
+    const envelope = JSON.parse(
+      serializeBoothV2Session(quickDraftSession(), new Date(NOW).toISOString()),
+    );
+    envelope.session.clientRef = "";
+    expect(deserializeBoothV2Session(JSON.stringify(envelope), { nowMs: NOW })).toBeNull();
+    envelope.session.clientRef = 12345;
+    expect(deserializeBoothV2Session(JSON.stringify(envelope), { nowMs: NOW })).toBeNull();
   });
 
   it("funnel events are marked at most once", () => {

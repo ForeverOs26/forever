@@ -29,6 +29,12 @@ const tableReads: string[] = [];
 /** The booth_sessions row the mocked read returns next. */
 const sessionRow: { data: Record<string, unknown> | null } = { data: null };
 
+/** What the database hands back from booth_create_session. */
+const ISSUED_CLIENT_REF = "3f2a91c4-77bd-4f0e-9a1e-5c8d2b6e04af";
+
+/** Flipped by one test to simulate a create that produced no reference. */
+const createReturnsNothing = { value: false };
+
 vi.mock("@/integrations/supabase/client.server", () => {
   const from = (table: string) => {
     tableReads.push(table);
@@ -51,7 +57,10 @@ vi.mock("@/integrations/supabase/client.server", () => {
       from,
       rpc: async (fn: string, args: Record<string, unknown>) => {
         rpcCalls.push({ fn, args });
-        return { data: null, error: null };
+        // booth_create_session is the one RPC whose RETURN VALUE is the
+        // contract: the server-issued client reference.
+        const created = createReturnsNothing.value ? null : ISSUED_CLIENT_REF;
+        return { data: fn === "booth_create_session" ? created : null, error: null };
       },
     },
   };
@@ -59,6 +68,7 @@ vi.mock("@/integrations/supabase/client.server", () => {
 
 import {
   commitConsent,
+  createSession,
   ensureSession,
   markProfileConfirmed,
   validateShortlistSelection,
@@ -142,6 +152,7 @@ beforeEach(() => {
   rpcCalls.length = 0;
   tableReads.length = 0;
   sessionRow.data = null;
+  createReturnsNothing.value = false;
   delete process.env.VITE_PARTNER_DEMO;
   delete process.env.VITE_DEMO_LEAD_MODE;
 });
@@ -169,10 +180,10 @@ describe("nothing about the guest is persisted before consent", () => {
 
   it("confirming the profile never calls a persisting RPC", async () => {
     await markProfileConfirmed(ACTOR, { clientRef: CLIENT_REF, profile: guestProfile() });
-    expect(rpcCalls.map((call) => call.fn).sort()).toEqual([
-      "booth_ensure_session",
-      "booth_mark_profile_confirmed",
-    ]);
+    // Exactly one RPC. The pre-call to booth_ensure_session is gone (corrective
+    // pass 5): the transition RPC already proves existence and ownership, so a
+    // refused operation now touches the database once rather than twice.
+    expect(rpcCalls.map((call) => call.fn)).toEqual(["booth_mark_profile_confirmed"]);
   });
 
   it("still refuses a malformed or tampered profile at the boundary", async () => {
@@ -208,15 +219,36 @@ describe("nothing about the guest is persisted before consent", () => {
     expect(rpcCalls).toEqual([]);
   });
 
-  it("opening a session stores only the operational shell", async () => {
-    await ensureSession(ACTOR, { clientRef: CLIENT_REF });
+  it("creating a session stores only the operational shell and issues the reference", async () => {
+    const created = await createSession(ACTOR);
     expect(rpcCalls).toHaveLength(1);
+    expect(rpcCalls[0].fn).toBe("booth_create_session");
+    // No client reference is sent — the argument does not exist. The Host and
+    // the booth id are the only inputs, and both are server-derived.
     expect(Object.keys(rpcCalls[0].args).sort()).toEqual([
       "p_booth_id",
-      "p_client_ref",
       "p_host_email",
       "p_host_user_id",
     ]);
+    expect(rpcCalls[0].args).not.toHaveProperty("p_client_ref");
+    // The reference comes back FROM the database.
+    expect(created.clientRef).toBe(ISSUED_CLIENT_REF);
+  });
+
+  it("refuses a create that did not return a usable reference", async () => {
+    // A silent success here would hand the tablet a reference it would then
+    // replay against nothing, so it must fail loudly instead.
+    createReturnsNothing.value = true;
+    await expect(createSession(ACTOR)).rejects.toMatchObject({ code: "booth_request_failed" });
+  });
+
+  it("opening an existing session sends only the reference and the actor", async () => {
+    await ensureSession(ACTOR, { clientRef: CLIENT_REF });
+    expect(rpcCalls).toHaveLength(1);
+    expect(rpcCalls[0].fn).toBe("booth_ensure_session");
+    // The creating arguments are gone: ensure cannot bring a session into
+    // existence, so it has no Host label and no booth id to write.
+    expect(Object.keys(rpcCalls[0].args).sort()).toEqual(["p_actor_user_id", "p_client_ref"]);
   });
 });
 
@@ -308,7 +340,7 @@ describe("the consent commit is the one and only persisting operation", () => {
 });
 
 describe("every session RPC carries the acting staff account", () => {
-  it("threads the actor through the consent commit and its session open", async () => {
+  it("threads the actor through the consent commit", async () => {
     await commitConsent(ACTOR, {
       clientRef: CLIENT_REF,
       profile: guestProfile(),
@@ -316,11 +348,16 @@ describe("every session RPC carries the acting staff account", () => {
       guidePrepares: false,
       contact: contact(),
     });
+    expect(rpcCalls.length).toBeGreaterThan(0);
     for (const call of rpcCalls) {
-      const actorArg =
-        call.fn === "booth_ensure_session" ? call.args.p_host_user_id : call.args.p_actor_user_id;
-      expect(`${call.fn}:${actorArg}`).toBe(`${call.fn}:${ACTOR.userId}`);
+      expect(`${call.fn}:${call.args.p_actor_user_id}`).toBe(`${call.fn}:${ACTOR.userId}`);
     }
+  });
+
+  it("takes the Host for a NEW session from the actor, never from the caller", async () => {
+    await createSession(ACTOR);
+    expect(rpcCalls[0].args.p_host_user_id).toBe(ACTOR.userId);
+    expect(rpcCalls[0].args.p_host_email).toBe(ACTOR.email);
   });
 
   it("refuses to read a session that belongs to a different Host", async () => {

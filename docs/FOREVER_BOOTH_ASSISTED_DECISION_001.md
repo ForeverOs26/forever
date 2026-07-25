@@ -18,23 +18,23 @@ functions used the service role. This pass corrects that and the related
 data-integrity and profile-truth defects. **The pilot is not "ready" until the
 architect re-review passes.**
 
-| Defect                                                                  | Correction                                                                                                                                                                                                                                                                                       |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Unauthenticated callers could reach service-role operations             | Every Booth server function now runs behind `requireBoothStaff`: Supabase JWT + an ACTIVE row in the existing `studio_members` staff roster. No second identity system; no self-registration or bootstrap path here.                                                                             |
-| Client-supplied `hostLabel`                                             | Removed. Host identity is derived server-side from the authenticated account and stored as `booth_sessions.host_user_id` (FK to `auth.users`, NOT NULL).                                                                                                                                         |
-| `/booth-v2` compiled and reachable; `noindex` treated as access control | Server-side, DEFAULT-DISABLED `BOOTH_V2_ENABLED`. Route and every endpoint are gated independently; a refusal renders the application's normal not-found boundary. The flag is never read from a client-visible `VITE_*` variable.                                                               |
-| Guide data readable without authorization                               | `booth_guides` is service_role-only and is returned only to an authorized staff caller.                                                                                                                                                                                                          |
-| Check-then-insert lead creation could duplicate on retry                | One `SECURITY DEFINER` RPC (`booth_save_contact_and_lead`) locks the session row and creates-or-returns exactly one lead; `booth_sessions.lead_id` is UNIQUE. Proven by a two-session concurrency probe and a mid-transaction rollback probe.                                                    |
-| Weak database contact contract                                          | All-or-nothing contact bundle + phone/email/non-blank format checks, consent-before-contact, verified-WhatsApp evidence, assignment/acknowledgement/first-contact coherence and attribution, reserve ≠ primary, non-blank next step.                                                             |
-| `consultation_scheduled_for TEXT` ("tomorrow" could complete a handoff) | `consultation_scheduled_at TIMESTAMPTZ` + `consultation_timezone`, validated at the boundary (real instant, not past, not implausible) and entered through a `datetime-local` control.                                                                                                           |
-| Partial no-contact clearing in two updates                              | One transaction clears every personal and operational field, scrubs the profile language, DELETES any lead created for the session, and sets the outcome — backed by a database CHECK.                                                                                                           |
-| Full flow never asked purchase purpose → silently "exploring"           | The Full flow DERIVES it deterministically from the confirmed NAV-001 answers (`derivePurchasePurpose`); Quick still asks it outright.                                                                                                                                                           |
-| `preferredLanguage` always null in the confirmed profile                | Language is captured on its own screen BEFORE the Decision Summary, carried in the profile, mirrored read-only on the contact form, and re-checked server-side; a mismatch is rejected and the database enforces agreement.                                                                      |
-| USD band thresholds reused as amounts in other currencies               | The booth now collects EXPLICIT numeric minimum/maximum plus currency, with "still exploring" as a first-class answer; the approved USD bands remain only in the legacy website adapter.                                                                                                         |
-| Permissive profile parsing                                              | ONE canonical strict schema (`decisionProfileV2Schema`) used by both session hydration and the server: exact enum keys, no unknown keys, budget geometry, canonical-THB arithmetic + provenance, bounded strings/areas/payload, flow completeness.                                               |
-| Silently truncated shortlists                                           | `validateShortlist` rejects a malformed shortlist whole (duplicates, blanks, over-long, >4, guide-prepares conflict); unknown project slugs are refused at the boundary; the database re-checks size and mode coherence.                                                                         |
-| Client marked funnel events before the server confirmed                 | Transition events are emitted SERVER-SIDE inside the RPC that establishes the fact; the few client-observed events use acknowledgement-before-dedupe and stay retryable, with the DB uniqueness keeping them exactly-once.                                                                       |
-| A Host click recorded as the Guide's acknowledgement                    | Acknowledgement and first contact record WHO and BY WHAT METHOD. `guide_self_confirmed` is only possible from the assigned Guide's own linked staff account (enforced in the RPC); anything else is stored and displayed as `host_observed` — "Observed by the Host — not a Guide confirmation". |
+| Defect                                                                  | Correction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unauthenticated callers could reach service-role operations             | Every Booth server function now runs behind `requireBoothStaff`: Supabase JWT + an ACTIVE row in the existing `studio_members` staff roster. No second identity system; no self-registration or bootstrap path here.                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Client-supplied `hostLabel`                                             | Removed. Host identity is derived server-side from the authenticated account and stored as `booth_sessions.host_user_id` (FK to `auth.users`, NOT NULL).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `/booth-v2` compiled and reachable; `noindex` treated as access control | Server-side, DEFAULT-DISABLED `BOOTH_V2_ENABLED`. Route and every endpoint are gated independently; a refusal renders the application's normal not-found boundary. The flag is never read from a client-visible `VITE_*` variable.                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Guide data readable without authorization                               | `booth_guides` is service_role-only and is returned only to an authorized staff caller.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Check-then-insert lead creation could duplicate on retry                | One `SECURITY DEFINER` RPC (`booth_save_contact_and_lead`) locks the session row and creates-or-returns exactly one lead; `booth_sessions.lead_id` is UNIQUE. Proven by a two-session concurrency probe and a mid-transaction rollback probe.                                                                                                                                                                                                                                                                                                                                                                                                |
+| Weak database contact contract                                          | All-or-nothing contact bundle + phone/email/non-blank format checks, consent-before-contact, verified-WhatsApp evidence, assignment/acknowledgement/first-contact coherence and attribution, reserve ≠ primary, non-blank next step.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `consultation_scheduled_for TEXT` ("tomorrow" could complete a handoff) | `consultation_scheduled_at TIMESTAMPTZ` + `consultation_timezone`, validated at the boundary (real instant, not past, not implausible) and entered through a `datetime-local` control.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Partial no-contact clearing in two updates                              | One transaction clears every personal and operational field, scrubs the profile language, DELETES any lead created for the session, and sets the outcome — backed by a database CHECK.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Full flow never asked purchase purpose → silently "exploring"           | The Full flow DERIVES it deterministically from the confirmed NAV-001 answers (`derivePurchasePurpose`); Quick still asks it outright.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `preferredLanguage` always null in the confirmed profile                | Language is captured on its own screen BEFORE the Decision Summary, carried in the profile, mirrored read-only on the contact form, and re-checked server-side; a mismatch is rejected and the database enforces agreement.                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| USD band thresholds reused as amounts in other currencies               | The booth now collects EXPLICIT numeric minimum/maximum plus currency, with "still exploring" as a first-class answer; the approved USD bands remain only in the legacy website adapter.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Permissive profile parsing                                              | ONE canonical strict schema (`decisionProfileV2Schema`) used by both session hydration and the server: exact enum keys, no unknown keys, budget geometry, canonical-THB arithmetic + provenance, bounded strings/areas/payload, flow completeness.                                                                                                                                                                                                                                                                                                                                                                                           |
+| Silently truncated shortlists                                           | `validateShortlist` rejects a malformed shortlist whole (duplicates, blanks, over-long, >4, guide-prepares conflict); unknown project slugs are refused at the boundary; the database re-checks size and mode coherence.                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Client marked funnel events before the server confirmed                 | Transition events are emitted SERVER-SIDE inside the RPC that establishes the fact; the few client-observed events use acknowledgement-before-dedupe and stay retryable, with the DB uniqueness keeping them exactly-once.                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| A Host click recorded as the Guide's acknowledgement                    | Acknowledgement and first contact record WHO and BY WHAT METHOD. The server DERIVES the method from who is actually acting, so a Host click is recorded as `host_observed` — "Observed by the Host — not a Guide confirmation" — and the browser never states a method at all. **Corrected wording (pass 5):** an actor who nonetheless _claims_ `guide_self_confirmed` without being that Guide's own linked staff account is **hard-refused** by the RPC (`booth_ack_actor_mismatch`), not silently downgraded; the refusal writes nothing. Proven against a real database for both an unrelated staff account and the session's own Host. |
 
 > Two claims made in corrective pass 1 did not survive verification and are
 > corrected in pass 2 below: `booth_save_contact_and_lead` returned an existing
@@ -105,7 +105,9 @@ and that a missing, malformed, expired, wrong-scheme or **foreign-key-signed**
 token — and a valid token without the capability — all collapse to the identical
 denial. `booth-route-ssr.test.tsx` renders real SSR output in a real server
 environment and asserts the disabled `/booth-v2` markup is **byte-identical** to a
-genuinely missing URL.
+genuinely missing URL — in that environment, which has no client build manifest.
+Pass 5 corrects how far that generalizes to a production build: see the residuals
+immediately below.
 
 **Measured against a real running server** (`vite dev`, three separate runs):
 
@@ -115,19 +117,45 @@ genuinely missing URL.
 | `false`            | **404**     | Forever — Phuket Property Advisory | absent           | rendered     |
 | `true`             | **200**     | Forever — Booth Mode 2.0 (Pilot)   | present          | not rendered |
 
-**Known, accepted residual (reported, not hidden).** `notFound()` from
+**Known, accepted residuals (reported, not hidden).** `notFound()` from
 `beforeLoad` means the route _matches_ and then refuses, so TanStack Start's SSR
 dehydration serializes a match entry for it. Verified on the real server: a
 disabled `/booth-v2` and a missing URL return the same 404 and the same visible
 document, but the former's hydration payload contains a match keyed on the route
-id with status `notFound` while the latter carries only the root match. An
-attacker reading that script can therefore learn that a route path `/booth-v2` is
-**declared** — and nothing else: not the pilot's name, title, description, fonts
-or purpose, not whether it is enabled, not whether they could reach it, and no
-capability. Eliminating even this would mean not declaring the route at all,
-which is a build-time decision rather than the runtime gate that was specified.
-`booth-route-ssr.test.tsx` pins this residual explicitly so the equivalence claim
-is never read as broader than it is.
+id with status `notFound` while the latter carries only the root match.
+
+**CORRECTED IN PASS 5 — the equivalence is NOT byte-identical full HTML.** A
+production build additionally emits generic `modulepreload` links driven by the
+application build manifest, and the manifest maps `/booth-v2` to its own client
+chunk, so a disabled production response can carry a preload link the missing-URL
+response does not. Measured directly in this repository's own build output:
+`.output/server/_tanstack-start-manifest_v-*.mjs` maps the route id
+`/booth-v2` to `/assets/booth-v2-<hash>.js`, which exists in
+`.output/public/assets/`. The earlier "byte-identical markup" phrasing was
+therefore too strong for a production build and is withdrawn.
+
+What that response still does **not** contain is the part that matters: no Booth
+title, no description, no font links, no Loading state, no staff sign-in form, no
+Booth UI, no configuration, no staff data and no secret. Scanned in the built
+public output: no `BOOTH_V2_ENABLED`, no `service_role`, no `studio_members`, no
+service-role key. What a determined visitor can learn is that a route path
+`/booth-v2` is **declared** and that a chunk exists at that asset URL — and
+nothing about whether the pilot is enabled, whether they could reach it, or what
+capability it needs.
+
+A second, related residual, stated because it is true rather than because it was
+asked for: the Booth client chunk is a static asset, so fetching its URL directly
+returns the guest-facing UI strings it contains. It carries no server
+configuration, no service-role code, no staff roster and no secret — every one of
+those lives behind the authenticated server boundary — but it does reveal that a
+Booth UI exists. Eliminating both residuals would mean not building the route at
+all, which is a build-time decision rather than the runtime gate that was
+specified.
+
+`booth-route-ssr.test.tsx` pins the SSR-level residual explicitly. Note its
+scope honestly: it renders in a test environment with no client build manifest,
+so its byte-identical assertion is about the **SSR markup it produces there**,
+not about the full production HTML a deployed build serves.
 
 **Documented environment limitation.** Docker was unavailable in this
 environment, so the full local Supabase container stack could not be started;
@@ -186,6 +214,71 @@ server re-verify the JWT from the inbound request. Deferring the call changes
 when it is made, not what it proves; `booth-auth-transport.test.ts` is unmodified
 and still passes in full. The opaque denial is preserved: every refusal, and
 every stale or discarded result, still lands on the ordinary not-found boundary.
+
+---
+
+## 0e. Corrective pass 5 (PR #102 — server-issued session identity)
+
+Passes 1–4 stand unchanged. The staging code gate passed except for **one real
+contract defect**, and this pass fixes that boundary and nothing else.
+
+| Defect                                                                                         | Correction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **P1** `ensureSession` CREATED a session for an unknown `client_ref` but REFUSED a foreign one | Creation is now a dedicated operation. `booth_create_session(p_host_user_id, p_host_email, p_booth_id) returns text` takes **no** client reference, mints one with `pg_catalog.gen_random_uuid()`, and returns it. `booth_ensure_session(p_client_ref, p_actor_user_id)` creates nothing: it opens an existing session for its owning Host and refuses an unknown reference and a foreign one identically, changing zero rows either way. The browser no longer generates a reference at all — `BoothV2Session.clientRef` is `string \| null` until the server issues one, so the type itself makes an operational call against a non-existent session unreachable. |
+
+**Why the old shape was a real defect, not a cosmetic one.** Corrective pass 3
+collapsed the two refusal _messages_, but ensure still answered an unknown
+reference with a **success** and a foreign one with a **refusal**. That is a
+louder difference than any wording: an authorized staff account could walk
+references and learn which ones already belong to another Host. The same
+behaviour let that account mint arbitrary empty sessions from references it
+invented, because presenting an unused one simply created it.
+
+**What the correction guarantees, and where each guarantee is proven:**
+
+| Guarantee                                                                         | Evidence                                                                                                                                                                                                |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The reference is a server-side random UUID; the create call carries no input      | `booth.postgres.sql` §13(a) (real PostgreSQL); `booth-consent-boundary.test.ts` asserts the RPC argument set has **no** `p_client_ref`                                                                  |
+| One invocation creates exactly one session, and no guest data is persisted        | `booth.postgres.sql` §13(a) — every guest column is asserted NULL/empty, so `booth_sessions_pre_consent_minimal` holds by construction                                                                  |
+| Two **concurrent** creates return two different references, with no duplicate row | `run-postgres-tests.mjs` probe 4 — two REAL overlapping psql connections, then a `count(*) = count(DISTINCT client_ref) = 2` check                                                                      |
+| The same Host replays operations on its own created session idempotently          | `booth.postgres.sql` §13(c)                                                                                                                                                                             |
+| Host B cannot adopt Host A's reference, and ownership is never transferred        | `booth.postgres.sql` §2 and §13(d); the migration-contract suite proves no function assigns `host_user_id`                                                                                              |
+| Unknown and foreign are byte-identical on the wire                                | `booth-funnel-integrity.test.ts` compares the full serialized error (constructor, name, code, message) for both database exceptions                                                                     |
+| Neither refusal creates a session                                                 | `booth.postgres.sql` §13(e) — `refused_without_creating` counts the **whole** `booth_sessions` table before and after, for ensure, event recording, profile confirmation, consent commit and completion |
+| Terminal-session behaviour is unchanged                                           | `booth.postgres.sql` — ensure still reads a terminal session without mutating it, and a foreign Host is refused there exactly as on an active one                                                       |
+
+**The client flow.** On the guest's "Yes — let's look together" — the moment a
+guest session actually begins — the tablet calls the create endpoint, adopts the
+returned reference, and only then records its first client-observed event.
+Nothing operational runs before that: `recordEventOnce` takes the reference as
+its first argument and returns early on `null`, and every other call site
+narrows through one helper that surfaces a retryable, opaque error. A failed
+create leaves the guest on the permission screen with nothing persisted and the
+button ready to retry. Auto-clear, the inactivity warning and the guarded
+"Start new guest" reset all behave exactly as before — a reset simply carries no
+reference forward, so the next guest's session is created afresh by the server.
+
+**One judgement call, stated plainly.** The brief says "on Start new guest". The
+create is placed at the permission grant rather than at the header's _Start new
+guest_ button, because that button also fires on the inactivity auto-clear and
+after a completed session — creating there (and on every page load, which would
+then also be required) would produce an empty database row per tablet refresh,
+which is the same "arbitrary empty-session creation" this pass exists to close.
+The permission grant **is** the start of a guest session in this flow: it is
+where `meaningful_conversation` is recorded and where the old implicit
+`ensureSession` call lived.
+
+**Also corrected in this pass, from staging observations (§0c/§15 wording):**
+the disabled-route equivalence claim, and the description of what happens when a
+Host claims `guide_self_confirmed`. Both are corrected in place below.
+
+**Removed as dead weight.** Every operational service function used to pre-call
+`ensureSession` before its own RPC. Each of those RPCs already opens the session
+through `booth_lock_owned_session`, which proves existence and ownership before
+any write and raises the same two exceptions the boundary collapses — so once
+ensure stopped creating, the pre-call could only produce an identical refusal one
+round trip earlier. All eight are gone, which also means a rejected operation now
+touches the database exactly once.
 
 ---
 
@@ -347,7 +440,8 @@ Migration `supabase/migrations/20260725150000_booth_v2_pilot.sql` (pending; NOT 
   `consultation_scheduled_at` (TIMESTAMPTZ) + `consultation_timezone`, `next_step`,
   fallback reason, outcome, abandonment step/reason, `booth_id`, server-derived
   `host_user_id` (FK to `auth.users`, NOT NULL — the ownership anchor) + `host_email`,
-  `lead_id` (human-readable mirror, UNIQUE), and a UNIQUE `client_ref` idempotency key.
+  `lead_id` (human-readable mirror, UNIQUE), and a UNIQUE `client_ref` idempotency key
+  that the SERVER issues (§0e) — the browser never chooses or guesses it.
   CHECKs enforce the **consent boundary** (`booth_sessions_pre_consent_minimal` —
   without the consultation consent the row may hold no profile, shortlist, language,
   contact data or lead), the all-or-nothing contact bundle, verified-has-evidence,
@@ -361,6 +455,13 @@ Migration `supabase/migrations/20260725150000_booth_v2_pilot.sql` (pending; NOT 
   goes through it. The assigned Guide's opt-in applies to exactly two functions
   (`booth_acknowledge_guide`, `booth_record_handoff`) and only for their own
   acknowledgement and their own first contact.
+- **Server-issued session identity** (§0e): `booth_create_session(host_user_id,
+host_email, booth_id) returns text` is the ONLY function that inserts into
+  `booth_sessions`. It takes no client reference, mints one with
+  `pg_catalog.gen_random_uuid()`, and has no `ON CONFLICT` clause — a reference it issued
+  must be new. `booth_ensure_session(client_ref, actor)` creates nothing; it delegates
+  straight to the ownership gate, so an unknown reference and a foreign one raise the two
+  distinct internal exceptions the boundary collapses into one, and neither writes a row.
 - `public.studio_members.can_access_booth` (NOT NULL DEFAULT FALSE) — the explicit
   least-privilege Booth capability added to the existing staff roster. Additive only;
   Studio never reads it and no row is granted it by this migration.
@@ -396,19 +497,25 @@ Endpoints, grouped by what they may persist:
 - **Gated, the consent transaction** — `commitConsent`: the FIRST and ONLY write of
   anything about the guest. Profile + shortlist + contact bundle + consent + exactly
   one lead, in one locked transaction; every accepted replay refreshes the linked lead.
-- **Gated, post-consent operations** — `ensureSession`, `recordEvent` (**client-observed
+- **Gated, the one creating operation** — `createSession`: no input at all, no client
+  reference accepted or proposed. The database issues the reference and it is returned to
+  the tablet, which replays it on every later call (§0e).
+- **Gated, post-consent operations** — `ensureSession` (opens an EXISTING session; creates
+  nothing), `recordEvent` (**client-observed
   events only**: the three observations the tablet is the sole witness to; every
   transition event is emitted by the RPC that establishes the fact — §0c, P1),
   start/confirm WhatsApp verification, `assignGuide`, `acknowledgeGuide`,
   `recordHandoff`, `completeSession` (server-side gate + DB CHECK + terminal-freeze
   trigger backstop).
 
-Retries are idempotent via `client_ref` upserts and the funnel uniqueness constraint,
-and every session RPC additionally proves the caller owns the session. A refusal on
-ownership or existence returns ONE non-descriptive answer
+Retries are idempotent via the SERVER-ISSUED `client_ref` and the funnel uniqueness
+constraint, and every session RPC additionally proves the caller owns the session. A
+refusal on ownership or existence returns ONE non-descriptive answer
 (`booth_session_unavailable`, "This booth session is unavailable."), so a valid staff
 caller cannot enumerate other Hosts' sessions; the distinction is logged server-side
-only (§0c, P2). The dev/demo no-write mode (`VITE_PARTNER_DEMO` /
+only (§0c, P2). Since pass 5 that refusal is complete rather than cosmetic: an unknown
+reference no longer succeeds by quietly creating a session, so unknown and foreign are
+indistinguishable in outcome as well as in wording (§0e). The dev/demo no-write mode (`VITE_PARTNER_DEMO` /
 `VITE_DEMO_LEAD_MODE`) short-circuits before any database access, mirroring the
 lead-service rule.
 
@@ -492,11 +599,16 @@ production bundles.
 behave like a hidden page — it behaves like a missing one.** The route's `beforeLoad`
 throws `notFound()` before rendering, so the response is HTTP 404 carrying the
 repository's ordinary not-found boundary with no Booth title, description, font links,
-Loading state, staff sign-in form or client shell, and the rendered document is
-byte-identical to a genuinely unknown URL. The same gate runs on direct SSR requests and
-on in-app navigation. One residual remains and is documented in §0c: the SSR hydration
-payload still shows that a route path `/booth-v2` is declared, though nothing about the
-pilot itself. `noindex` remains as a second line of defence, not as the mechanism.
+Loading state, staff sign-in form or client shell. The same gate runs on direct SSR
+requests and on in-app navigation. `noindex` remains as a second line of defence, not as
+the mechanism.
+
+**The equivalence claim at its true width (corrected in pass 5).** The _visible
+document_ matches a genuinely unknown URL. The _full HTML_ of a production build does
+not necessarily: the application build manifest can add a generic `modulepreload` link to
+the Booth client chunk, and the SSR hydration payload shows that a route path `/booth-v2`
+is declared. Neither discloses a Booth title, description, UI, configuration, staff data
+or secret. Both residuals are documented in §0c.
 
 **To replace `/booth` later (explicit Owner action, not part of this
 task):** apply the migration to production, configure `BOOTH_WHATSAPP_NUMBER` (+
@@ -532,7 +644,9 @@ verify the pilot on `/booth-v2`, then point `src/routes/booth.tsx` at `BoothV2Na
   disabled) produces one identical denial with no token in any log.
 - **Real SSR route boundary** (`booth-route-ssr.test.tsx`): a real server environment and
   real `renderToString` output through the route's own options; the disabled
-  `/booth-v2` markup is byte-identical to a genuinely missing URL, publishes no Booth
+  `/booth-v2` markup is byte-identical to a genuinely missing URL **in that environment,
+  which carries no client build manifest** (a production build adds manifest-driven
+  `modulepreload` links — see §0c), publishes no Booth
   head, runs no loader, and makes exactly one Booth call. The suite also pins the one
   known residual (the dehydrated match entry) so the equivalence claim stays honest.
 - **Real running server** (manual, three runs of `vite dev`): HTTP 404 + the ordinary
@@ -542,11 +656,27 @@ verify the pilot on `/booth-v2`, then point `src/routes/booth.tsx` at `BoothV2Na
   disjoint from the server-only set, the endpoint's real zod schema and the service
   allowlist both refuse every transition event with zero database work, and an unknown vs
   foreign session refusal is indistinguishable on the wire.
+- **Server-issued session identity** (§0e): the migration-contract suite pins that
+  `booth_create_session` accepts no `p_client_ref`, mints
+  `pg_catalog.gen_random_uuid()`, inserts exactly once with no `ON CONFLICT`, and is the
+  ONLY function that inserts into `booth_sessions`; the service suite pins that the
+  create RPC sends no reference and that ensure sends only the reference and the actor;
+  the funnel-integrity suite compares the full serialized refusal for an unknown and a
+  foreign reference; the UI suite proves the tablet creates before it records anything,
+  replays exactly the issued reference everywhere, stays retryable on a failed create,
+  and generates no reference of its own.
 - Real database: `npm run studio:pg-test` applies the full committed migration chain
   (including the booth migration) to a disposable PostgreSQL cluster. It additionally
   proves `booth_record_event` refuses every transition event **before inserting
   anything**, even for a direct `service_role` caller that has bypassed all three
-  application layers, while the legitimate atomic RPCs still emit those events.
+  application layers, while the legitimate atomic RPCs still emit those events. It also
+  runs the pass-5 identity section: the create contract, the same-Host replay, the
+  cross-Host adoption refusal, a Host's `guide_self_confirmed` claim being hard-refused,
+  and — through `refused_without_creating`, which counts the WHOLE `booth_sessions`
+  table — five separate operations proving an unknown reference creates nothing. The
+  runner adds a fourth cross-session probe: two REAL overlapping connections calling
+  `booth_create_session` must return two different references and produce two distinct
+  rows.
 
 ## 17. Known legal-review items (not legal advice)
 

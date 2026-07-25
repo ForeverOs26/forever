@@ -26,7 +26,10 @@
 --  11. THE CLIENT-OBSERVED FUNNEL ALLOWLIST (corrective pass 3, item 3) — a
 --      direct service_role call to booth_record_event carrying any
 --      fact-establishing transition event is refused before anything is
---      inserted, while the legitimate atomic RPCs still emit those events.
+--      inserted, while the legitimate atomic RPCs still emit those events;
+--  12. SERVER-ISSUED SESSION IDENTITY (corrective pass 5) — booth_create_session
+--      is the only way a session comes into existence, it issues its own random
+--      reference, and NO operation creates one for an unknown reference.
 --
 -- ON ITEM 4 (non-enumerable session refusals): the database deliberately KEEPS
 -- its distinct booth_session_not_found / booth_session_forbidden exceptions, and
@@ -92,6 +95,56 @@ BEGIN
 END;
 $$;
 
+/**
+ * Seed a session with a KNOWN client reference.
+ *
+ * Real sessions are created by booth_create_session, which issues its OWN
+ * random reference and therefore cannot produce a deterministic one (section 12
+ * proves that contract end to end). This direct insert exists only so the
+ * ownership and transition assertions below have a fixed client_ref to attack —
+ * it is fixture setup, never the operation under test.
+ */
+CREATE OR REPLACE FUNCTION pg_temp.seed_session(
+  p_client_ref text, p_host uuid, p_host_email text DEFAULT NULL)
+RETURNS void LANGUAGE sql AS $$
+  INSERT INTO public.booth_sessions (client_ref, host_user_id, host_email, booth_id)
+  VALUES (p_client_ref, p_host, NULLIF(btrim(p_host_email), ''), 'pilot-booth');
+$$;
+
+/**
+ * Run a statement that MUST be refused for a client reference no session uses,
+ * and prove it CREATED nothing anywhere: the whole booth_sessions table is
+ * counted before and after, not just one row, so an implicit insert under any
+ * reference would be caught (corrective pass 5).
+ */
+CREATE OR REPLACE FUNCTION pg_temp.refused_without_creating(sql text, needle text)
+RETURNS boolean LANGUAGE plpgsql AS $$
+DECLARE
+  v_sessions_before BIGINT;
+  v_sessions_after BIGINT;
+  v_events_before BIGINT;
+  v_events_after BIGINT;
+  v_leads_before BIGINT;
+  v_leads_after BIGINT;
+BEGIN
+  SELECT count(*) INTO v_sessions_before FROM public.booth_sessions;
+  SELECT count(*) INTO v_events_before FROM public.booth_funnel_events;
+  SELECT count(*) INTO v_leads_before FROM public.leads;
+
+  IF NOT pg_temp.raises(sql, needle) THEN
+    RAISE EXCEPTION 'booth_pg_test_failed: the operation was NOT refused: %', sql;
+  END IF;
+
+  SELECT count(*) INTO v_sessions_after FROM public.booth_sessions;
+  SELECT count(*) INTO v_events_after FROM public.booth_funnel_events;
+  SELECT count(*) INTO v_leads_after FROM public.leads;
+
+  RETURN v_sessions_before = v_sessions_after
+     AND v_events_before = v_events_after
+     AND v_leads_before = v_leads_after;
+END;
+$$;
+
 -- Fixtures: two Host staff accounts, one Guide with a linked staff account, one
 -- Guide without, and an unrelated staff account.
 INSERT INTO auth.users (id, email) VALUES
@@ -143,7 +196,10 @@ SELECT pg_temp.assert_true(
   AND NOT has_function_privilege('authenticated','public.booth_commit_consent(text,uuid,text,jsonb,integer,timestamptz,jsonb,text,jsonb,jsonb)','EXECUTE')
   AND NOT has_function_privilege('anon','public.booth_complete_session(text,uuid,text)','EXECUTE')
   AND NOT has_function_privilege('authenticated','public.booth_complete_session(text,uuid,text)','EXECUTE')
-  AND NOT has_function_privilege('anon','public.booth_ensure_session(text,uuid,text,text)','EXECUTE')
+  AND NOT has_function_privilege('anon','public.booth_create_session(uuid,text,text)','EXECUTE')
+  AND NOT has_function_privilege('authenticated','public.booth_create_session(uuid,text,text)','EXECUTE')
+  AND has_function_privilege('service_role','public.booth_create_session(uuid,text,text)','EXECUTE')
+  AND NOT has_function_privilege('anon','public.booth_ensure_session(text,uuid)','EXECUTE')
   AND NOT has_function_privilege('authenticated','public.booth_lock_owned_session(text,uuid,boolean)','EXECUTE')
   AND NOT has_function_privilege('authenticated','public.booth_assign_guide(text,uuid,uuid,uuid,text)','EXECUTE')
   AND NOT has_function_privilege('authenticated','public.booth_acknowledge_guide(text,uuid,text)','EXECUTE')
@@ -191,8 +247,12 @@ SELECT pg_temp.assert_true(
 -- ---------------------------------------------------------------------------
 -- 2. Session ownership — a client_ref is an idempotency key, not a capability
 -- ---------------------------------------------------------------------------
-SELECT public.booth_ensure_session('ref-own-0005', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth');
-SELECT public.booth_ensure_session('ref-own-0005', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth');
+SELECT pg_temp.seed_session('ref-own-0005', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test');
+
+-- The owning Host may replay ensure as often as it likes: it opens the session
+-- it already owns and writes nothing.
+SELECT public.booth_ensure_session('ref-own-0005', 'b0000000-0000-0000-0000-000000000001');
+SELECT public.booth_ensure_session('ref-own-0005', 'b0000000-0000-0000-0000-000000000001');
 
 SELECT pg_temp.assert_true(
   (SELECT count(*) FROM public.booth_sessions WHERE client_ref='ref-own-0005') = 1,
@@ -200,7 +260,7 @@ SELECT pg_temp.assert_true(
 
 SELECT pg_temp.assert_true(
   pg_temp.refused_without_change(
-    $q$SELECT public.booth_ensure_session('ref-own-0005','b0000000-0000-0000-0000-000000000004','host-b@example.test','pilot-booth')$q$,
+    $q$SELECT public.booth_ensure_session('ref-own-0005','b0000000-0000-0000-0000-000000000004')$q$,
     'booth_session_forbidden', 'ref-own-0005'),
   'a DIFFERENT Host presenting the same client_ref is refused and never adopts the session');
 
@@ -271,7 +331,7 @@ SELECT pg_temp.assert_true(
 -- ---------------------------------------------------------------------------
 -- 3. The consent boundary — nothing about the guest before the acknowledgement
 -- ---------------------------------------------------------------------------
-SELECT public.booth_ensure_session('ref-consent-0008', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth');
+SELECT pg_temp.seed_session('ref-consent-0008', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test');
 SELECT public.booth_mark_profile_confirmed('ref-consent-0008','b0000000-0000-0000-0000-000000000001','full');
 
 SELECT pg_temp.assert_true(
@@ -332,7 +392,7 @@ SELECT pg_temp.assert_true(
 -- ---------------------------------------------------------------------------
 -- 4. The atomic consent commit + the truthful lead mirror
 -- ---------------------------------------------------------------------------
-SELECT public.booth_ensure_session('ref-contract-0001', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth');
+SELECT pg_temp.seed_session('ref-contract-0001', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test');
 SELECT public.booth_mark_profile_confirmed('ref-contract-0001','b0000000-0000-0000-0000-000000000001','quick');
 
 SELECT pg_temp.assert_true(
@@ -429,6 +489,18 @@ SELECT pg_temp.assert_true(
     'booth_session_forbidden'),
   'an unrelated staff account cannot claim a Guide self-acknowledgement');
 
+-- ...and so is the HOST, who legitimately owns the session. A Host claiming the
+-- Guide's OWN confirmation is HARD-REFUSED — it is never quietly downgraded to
+-- 'host_observed', and the refusal writes nothing at all. (The TypeScript
+-- boundary never sends such a claim in the first place: it derives the method
+-- from who is acting. This proves the database refuses it even when the
+-- application layer is bypassed entirely.)
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_change(
+    $q$SELECT public.booth_acknowledge_guide('ref-contract-0001','b0000000-0000-0000-0000-000000000001','guide_self_confirmed')$q$,
+    'booth_ack_actor_mismatch', 'ref-contract-0001'),
+  'a Host claiming guide_self_confirmed is refused outright, never downgraded');
+
 SELECT public.booth_acknowledge_guide('ref-contract-0001','b0000000-0000-0000-0000-000000000002','guide_self_confirmed');
 
 SELECT pg_temp.assert_true(
@@ -521,17 +593,26 @@ SELECT pg_temp.assert_true(
     'booth_session_not_active', 'ref-contract-0001'),
   'a completed session cannot be re-completed with a different outcome');
 
--- booth_ensure_session is the documented read-mostly exception: it returns the
--- existing row (ownership still proven) and mutates nothing.
+-- booth_ensure_session is the documented read-only exception: it returns the
+-- existing row (ownership still proven) and mutates nothing. Terminal-session
+-- behaviour is unchanged by the server-issued-identity correction.
 SELECT pg_temp.assert_true(
-  (SELECT outcome FROM public.booth_ensure_session('ref-contract-0001','b0000000-0000-0000-0000-000000000001','host-a@example.test','pilot-booth'))
+  (SELECT outcome FROM public.booth_ensure_session('ref-contract-0001','b0000000-0000-0000-0000-000000000001'))
     = 'contacted_complete',
   'ensure_session reads a terminal session without mutating it');
+
+-- ...and a foreign Host is still refused on a terminal session, with the same
+-- exception it gets on an active one — the outcome leaks nothing either.
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_change(
+    $q$SELECT public.booth_ensure_session('ref-contract-0001','b0000000-0000-0000-0000-000000000004')$q$,
+    'booth_session_forbidden', 'ref-contract-0001'),
+  'a foreign Host is refused on a TERMINAL session exactly as on an active one');
 
 -- ---------------------------------------------------------------------------
 -- 6. Exactly one lead per session, and the mirror stays consistent on replay
 -- ---------------------------------------------------------------------------
-SELECT public.booth_ensure_session('ref-contract-0002', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth');
+SELECT pg_temp.seed_session('ref-contract-0002', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test');
 
 SELECT pg_temp.assert_true(
   public.booth_commit_consent('ref-contract-0002','b0000000-0000-0000-0000-000000000001','quick',
@@ -575,7 +656,7 @@ SELECT pg_temp.assert_true(
   'no unattached booth lead exists');
 
 -- A booth lead may carry no email; the trusted boundary is its only writer.
-SELECT public.booth_ensure_session('ref-contract-0002b', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth');
+SELECT pg_temp.seed_session('ref-contract-0002b', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test');
 SELECT public.booth_commit_consent('ref-contract-0002b','b0000000-0000-0000-0000-000000000001','quick',
   '{"profileVersion":2,"preferredLanguage":"English"}'::jsonb, 2, now(), '[]'::jsonb, 'none',
   '{"first_name":"NoMail","whatsapp":"+79990002299","preferred_language":"English"}'::jsonb,
@@ -656,7 +737,7 @@ SELECT pg_temp.assert_true(
 -- ---------------------------------------------------------------------------
 -- 8. Guide reassignment resets the previous Guide's evidence
 -- ---------------------------------------------------------------------------
-SELECT public.booth_ensure_session('ref-guide-0006', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth');
+SELECT pg_temp.seed_session('ref-guide-0006', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test');
 SELECT public.booth_commit_consent('ref-guide-0006','b0000000-0000-0000-0000-000000000001','quick',
   '{"profileVersion":2,"preferredLanguage":"English"}'::jsonb, 2, now(), '[]'::jsonb, 'none',
   '{"first_name":"Dee","whatsapp":"+79990004455","preferred_language":"English"}'::jsonb,
@@ -732,7 +813,7 @@ SELECT pg_temp.assert_true(
 -- ---------------------------------------------------------------------------
 -- 9. The assigned Guide's permission is narrow: their OWN two facts, no more
 -- ---------------------------------------------------------------------------
-SELECT public.booth_ensure_session('ref-narrow-0007', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth');
+SELECT pg_temp.seed_session('ref-narrow-0007', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test');
 SELECT public.booth_commit_consent('ref-narrow-0007','b0000000-0000-0000-0000-000000000001','quick',
   '{"profileVersion":2,"preferredLanguage":"English"}'::jsonb, 2, now(), '[]'::jsonb, 'none',
   '{"first_name":"Eve","whatsapp":"+79990005566","preferred_language":"English"}'::jsonb,
@@ -813,7 +894,7 @@ SELECT pg_temp.assert_true(
 -- ---------------------------------------------------------------------------
 -- 10. No-contact continuation retains NOTHING about the guest
 -- ---------------------------------------------------------------------------
-SELECT public.booth_ensure_session('ref-contract-0003', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth');
+SELECT pg_temp.seed_session('ref-contract-0003', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test');
 SELECT public.booth_mark_profile_confirmed('ref-contract-0003','b0000000-0000-0000-0000-000000000001','full');
 SELECT public.booth_commit_consent('ref-contract-0003','b0000000-0000-0000-0000-000000000001','full',
   '{"profileVersion":2,"preferredLanguage":"English","note":"wants a sea view in Bang Tao"}'::jsonb, 2, now(),
@@ -889,7 +970,7 @@ SELECT pg_temp.assert_true(
 -- ---------------------------------------------------------------------------
 -- 11. Funnel events are once-only and abandonment is settled atomically
 -- ---------------------------------------------------------------------------
-SELECT public.booth_ensure_session('ref-contract-0004', 'b0000000-0000-0000-0000-000000000001', NULL, 'pilot-booth');
+SELECT pg_temp.seed_session('ref-contract-0004', 'b0000000-0000-0000-0000-000000000001', NULL);
 SELECT public.booth_record_event('ref-contract-0004','b0000000-0000-0000-0000-000000000001','meaningful_conversation',NULL,NULL);
 SELECT public.booth_record_event('ref-contract-0004','b0000000-0000-0000-0000-000000000001','meaningful_conversation',NULL,NULL);
 SELECT public.booth_record_event('ref-contract-0004','b0000000-0000-0000-0000-000000000001','session_abandoned','contact','inactivity_timeout');
@@ -922,7 +1003,7 @@ SELECT pg_temp.assert_true(
 --      DATABASE must still refuse every fact-establishing transition event,
 --      before inserting anything.
 -- ---------------------------------------------------------------------------
-SELECT public.booth_ensure_session('ref-funnel-0011', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth');
+SELECT pg_temp.seed_session('ref-funnel-0011', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test');
 
 -- (a) Each of the three client-observed events is accepted, once.
 SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000001','meaningful_conversation',NULL,NULL);
@@ -1013,7 +1094,7 @@ SELECT pg_temp.assert_true(
 -- (f) The LEGITIMATE transition path still emits its event. A full session is
 --     driven to a no-contact completion, whose atomic RPC is the only thing
 --     entitled to write qr_continuation.
-SELECT public.booth_ensure_session('ref-funnel-0012', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth');
+SELECT pg_temp.seed_session('ref-funnel-0012', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test');
 SELECT public.booth_commit_consent('ref-funnel-0012','b0000000-0000-0000-0000-000000000001','quick',
   '{"profileVersion":2,"preferredLanguage":"English"}'::jsonb, 2, now(), '[]'::jsonb, 'none',
   '{"first_name":"Gia","whatsapp":"+79990008899","preferred_language":"English"}'::jsonb,
@@ -1054,7 +1135,7 @@ SELECT pg_temp.assert_true(
 -- ---------------------------------------------------------------------------
 -- 12. Shortlist bounds are enforced by the database, at consent
 -- ---------------------------------------------------------------------------
-SELECT public.booth_ensure_session('ref-shortlist-0010', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth');
+SELECT pg_temp.seed_session('ref-shortlist-0010', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test');
 
 SELECT pg_temp.assert_true(
   pg_temp.raises(
@@ -1080,5 +1161,143 @@ SELECT pg_temp.assert_true(
   (SELECT consultation_consent = FALSE AND lead_id IS NULL
      FROM public.booth_sessions WHERE client_ref='ref-shortlist-0010'),
   'a rejected consent commit leaves the session unconsented, with no lead');
+
+-- ---------------------------------------------------------------------------
+-- 13. SERVER-ISSUED SESSION IDENTITY (corrective pass 5)
+--
+--     The browser no longer chooses the identity of a new Booth session, and
+--     nothing creates one implicitly. booth_create_session is the ONE way a row
+--     comes into existence; every other operation refuses an unknown reference
+--     instead of quietly inserting it.
+--
+--     The defect this closes: booth_ensure_session used to INSERT for an
+--     unknown client_ref, so an authorized staff account could tell an unused
+--     reference (silent success) apart from a foreign one (refusal) — and could
+--     mint arbitrary empty sessions from invented references.
+-- ---------------------------------------------------------------------------
+
+-- (a) The reference is minted by the DATABASE, the Host comes from the actor,
+--     one invocation creates exactly one session, and nothing about a guest is
+--     persisted (so booth_sessions_pre_consent_minimal holds by construction).
+DO $$
+DECLARE
+  v_ref TEXT;
+  v_before BIGINT;
+BEGIN
+  SELECT count(*) INTO v_before FROM public.booth_sessions;
+
+  v_ref := public.booth_create_session(
+    'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth');
+
+  PERFORM pg_temp.assert_true(
+    v_ref ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    'booth_create_session issues a random UUID client reference');
+
+  PERFORM pg_temp.assert_true(
+    (SELECT count(*) FROM public.booth_sessions) = v_before + 1,
+    'one invocation of booth_create_session creates exactly ONE session');
+
+  PERFORM pg_temp.assert_true(
+    (SELECT host_user_id = 'b0000000-0000-0000-0000-000000000001'
+        AND host_email = 'host-a@example.test'
+        AND booth_id = 'pilot-booth'
+        AND outcome = 'active'
+       FROM public.booth_sessions WHERE client_ref = v_ref),
+    'the Host and the booth id are taken from the caller-supplied server context');
+
+  PERFORM pg_temp.assert_true(
+    (SELECT profile IS NULL AND profile_version IS NULL AND profile_confirmed_at IS NULL
+        AND flow_mode IS NULL
+        AND jsonb_array_length(shortlist) = 0 AND shortlist_mode = 'none'
+        AND first_name IS NULL AND whatsapp IS NULL AND last_name IS NULL
+        AND email IS NULL AND country IS NULL AND preferred_contact_time IS NULL
+        AND host_note IS NULL AND preferred_language IS NULL
+        AND consultation_consent = FALSE AND consent_recorded_at IS NULL
+        AND marketing_opt_in = FALSE
+        AND whatsapp_verification_state = 'unverified'
+        AND assigned_guide_id IS NULL AND lead_id IS NULL
+       FROM public.booth_sessions WHERE client_ref = v_ref),
+    'a newly created session carries NO guest data at all');
+
+  -- (b) Two sequential creates never collide and never share a reference.
+  PERFORM pg_temp.assert_true(
+    v_ref <> public.booth_create_session(
+      'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth'),
+    'each create issues a DIFFERENT reference');
+
+  -- (c) The same Host replays operations on its OWN created session freely.
+  PERFORM public.booth_ensure_session(v_ref, 'b0000000-0000-0000-0000-000000000001');
+  PERFORM public.booth_record_event(
+    v_ref, 'b0000000-0000-0000-0000-000000000001', 'meaningful_conversation', NULL, NULL);
+  PERFORM public.booth_record_event(
+    v_ref, 'b0000000-0000-0000-0000-000000000001', 'meaningful_conversation', NULL, NULL);
+  PERFORM pg_temp.assert_true(
+    (SELECT count(*) FROM public.booth_funnel_events e
+      JOIN public.booth_sessions s ON s.id = e.session_id
+     WHERE s.client_ref = v_ref) = 1,
+    'the owning Host replays its own session idempotently — no duplicate events');
+
+  -- (d) Host B cannot adopt Host A's server-issued reference.
+  PERFORM pg_temp.assert_true(
+    pg_temp.refused_without_change(
+      format($q$SELECT public.booth_ensure_session(%L,'b0000000-0000-0000-0000-000000000004')$q$, v_ref),
+      'booth_session_forbidden', v_ref),
+    'Host B cannot adopt a reference the server issued to Host A');
+
+  -- A create by Host B makes a NEW session; it never attaches to Host A's.
+  PERFORM pg_temp.assert_true(
+    (SELECT host_user_id FROM public.booth_sessions WHERE client_ref = v_ref)
+      = 'b0000000-0000-0000-0000-000000000001',
+    'ownership of a created session is never transferred');
+END $$;
+
+-- (e) An UNKNOWN reference creates nothing, anywhere, through any operation.
+--     The counts cover the WHOLE table, so an insert under any reference fails
+--     this assertion — this is the exact defect corrective pass 5 closes.
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_creating(
+    $q$SELECT public.booth_ensure_session('ref-never-issued-0001','b0000000-0000-0000-0000-000000000001')$q$,
+    'booth_session_not_found'),
+  'ensure_session on an unknown reference creates NO session');
+
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_creating(
+    $q$SELECT public.booth_record_event('ref-never-issued-0002','b0000000-0000-0000-0000-000000000001','meaningful_conversation',NULL,NULL)$q$,
+    'booth_session_not_found'),
+  'recording an event on an unknown reference creates NO session');
+
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_creating(
+    $q$SELECT public.booth_mark_profile_confirmed('ref-never-issued-0003','b0000000-0000-0000-0000-000000000001','quick')$q$,
+    'booth_session_not_found'),
+  'confirming a profile on an unknown reference creates NO session');
+
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_creating(
+    $q$SELECT public.booth_commit_consent('ref-never-issued-0004','b0000000-0000-0000-0000-000000000001','quick',
+        '{"profileVersion":2,"preferredLanguage":"English"}'::jsonb, 2, now(), '[]'::jsonb, 'none',
+        '{"first_name":"Ghost","whatsapp":"+79990001234","preferred_language":"English"}'::jsonb,
+        '{"name":"Ghost","phone":"+79990001234","message":"m","source":"booth_v2"}'::jsonb)$q$,
+    'booth_session_not_found'),
+  'committing consent on an unknown reference creates NO session and NO lead');
+
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_creating(
+    $q$SELECT public.booth_complete_session('ref-never-issued-0005','b0000000-0000-0000-0000-000000000001','no_contact_qr')$q$,
+    'booth_session_not_found'),
+  'completing an unknown reference creates NO session');
+
+-- (f) The two refusals stay DISTINCT in the database — that is what makes an
+--     ownership bug diagnosable here. They are collapsed into one
+--     indistinguishable wire response at the TypeScript boundary, which
+--     booth-funnel-integrity.test.ts proves byte for byte.
+SELECT pg_temp.assert_true(
+  pg_temp.raises(
+    $q$SELECT public.booth_ensure_session('ref-never-issued-0006','b0000000-0000-0000-0000-000000000001')$q$,
+    'booth_session_not_found')
+  AND pg_temp.raises(
+    $q$SELECT public.booth_ensure_session('ref-own-0005','b0000000-0000-0000-0000-000000000004')$q$,
+    'booth_session_forbidden'),
+  'unknown and foreign remain separately diagnosable inside the database');
 
 SELECT 'ALL BOOTH POSTGRES ASSERTIONS PASSED' AS result;
