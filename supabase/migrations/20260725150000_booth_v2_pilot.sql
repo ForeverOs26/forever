@@ -77,7 +77,10 @@
 --   3. booth_sessions — the authoritative structured record, with the consent
 --      boundary, the ownership column, the truthful completion gates, the
 --      no-contact minimization gate and a UNIQUE lead link.
---   4. booth_funnel_events — once-only structured pilot events.
+--   4. booth_funnel_events — once-only structured pilot events, split by who
+--      may establish them: booth_record_event accepts ONLY the three
+--      client-observed events, and every transition event is emitted by the RPC
+--      that performs the transition.
 --   5. The terminal-immutability trigger.
 --   6. Atomic SECURITY DEFINER RPCs (service_role EXECUTE only, search_path='')
 --      so consent, verification, assignment, handoff and completion are single
@@ -434,6 +437,13 @@ ALTER TABLE public.booth_sessions ENABLE ROW LEVEL SECURITY;
 
 -- ----------------------------------------------------------------------------
 -- 4. booth_funnel_events — once-only structured pilot events
+--
+--    The CHECK below is the COMPLETE vocabulary, which is not the same thing as
+--    the set a browser may record. Only three of these are client-observed
+--    (meaningful_conversation, profile_started, session_abandoned) and only
+--    those three are reachable through booth_record_event; the remainder are
+--    fact-establishing transitions written by booth_emit_event from inside the
+--    RPC that performs the transition. See booth_record_event's allowlist.
 -- ----------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS public.booth_funnel_events (
@@ -633,9 +643,22 @@ BEGIN
 END;
 $$;
 
--- Record a client-observed funnel event (and settle abandonment) atomically.
--- A terminal session accepts ONLY an exact replay of the event its own
--- outcome already established; that replay is a no-op thanks to the once-only
+-- Record a CLIENT-OBSERVED funnel event (and settle abandonment) atomically.
+--
+-- THIS FUNCTION IS THE BROWSER'S EVENT ENTRY POINT, AND IT ACCEPTS ONLY THE
+-- THREE EVENTS THE TABLET IS THE SOLE WITNESS TO (PR #102 corrective pass 3,
+-- item 3). Every fact-establishing transition event — profile_confirmed,
+-- whatsapp_verified, guide_assigned, guide_acknowledged, guide_contacted,
+-- consultation_booked, qr_continuation, viewing_booked — is emitted through
+-- booth_emit_event by the RPC that performs the transition, in the same
+-- transaction as the fact itself. Presenting one of them here is refused as the
+-- FIRST statement of the function, before the session row is even located, so a
+-- rejected call — including a direct service_role call that has bypassed every
+-- application layer — cannot insert an event, settle an outcome, or touch any
+-- session row.
+--
+-- A terminal session accepts ONLY an exact replay of the event its own outcome
+-- already established; that replay is a no-op thanks to the once-only
 -- constraint, so no funnel transition inconsistent with the terminal state can
 -- ever be recorded.
 CREATE OR REPLACE FUNCTION public.booth_record_event(
@@ -653,13 +676,19 @@ AS $$
 DECLARE
   v_session public.booth_sessions;
 BEGIN
+  -- The client-observed allowlist, enforced before anything is read or written.
+  IF p_event IS NULL OR p_event NOT IN (
+    'meaningful_conversation',
+    'profile_started',
+    'session_abandoned'
+  ) THEN
+    RAISE EXCEPTION 'booth_event_not_client_observed';
+  END IF;
+
   SELECT * INTO v_session FROM public.booth_lock_owned_session(p_client_ref, p_actor_user_id);
 
   IF v_session.outcome <> 'active' THEN
-    IF NOT (
-      (v_session.outcome = 'abandoned' AND p_event = 'session_abandoned')
-      OR (v_session.outcome = 'no_contact_qr' AND p_event = 'qr_continuation')
-    ) THEN
+    IF v_session.outcome <> 'abandoned' OR p_event <> 'session_abandoned' THEN
       RAISE EXCEPTION 'booth_session_not_active';
     END IF;
     RETURN TRUE; -- idempotent replay of the terminal state's own event

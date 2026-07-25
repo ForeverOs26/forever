@@ -22,7 +22,18 @@
 --   7. the assigned Guide's narrow self-action permission;
 --   8. terminal immutability;
 --   9. no-contact total data minimization;
---  10. once-only funnel events and atomic abandonment.
+--  10. once-only funnel events and atomic abandonment;
+--  11. THE CLIENT-OBSERVED FUNNEL ALLOWLIST (corrective pass 3, item 3) — a
+--      direct service_role call to booth_record_event carrying any
+--      fact-establishing transition event is refused before anything is
+--      inserted, while the legitimate atomic RPCs still emit those events.
+--
+-- ON ITEM 4 (non-enumerable session refusals): the database deliberately KEEPS
+-- its distinct booth_session_not_found / booth_session_forbidden exceptions, and
+-- section 2 asserts against them, because they are what makes an ownership bug
+-- diagnosable here. Collapsing them into ONE indistinguishable wire response
+-- happens at the TypeScript server boundary and is proven in
+-- src/features/navigator/booth-v2/booth-funnel-integrity.test.ts.
 -- No production connection.
 -- ============================================================================
 
@@ -901,6 +912,144 @@ SELECT pg_temp.assert_true(
     $q$SELECT public.booth_mark_profile_confirmed('ref-contract-0004','b0000000-0000-0000-0000-000000000001','quick')$q$,
     'booth_session_not_active', 'ref-contract-0004'),
   'an abandoned session refuses further state transitions');
+
+-- ---------------------------------------------------------------------------
+-- 11b. THE CLIENT-OBSERVED FUNNEL ALLOWLIST (corrective pass 3, item 3)
+--
+--      booth_record_event is the browser's event entry point. These calls are
+--      made as service_role — i.e. they have already bypassed the TypeScript
+--      type, the endpoint's zod validator and the service allowlist — and the
+--      DATABASE must still refuse every fact-establishing transition event,
+--      before inserting anything.
+-- ---------------------------------------------------------------------------
+SELECT public.booth_ensure_session('ref-funnel-0011', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth');
+
+-- (a) Each of the three client-observed events is accepted, once.
+SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000001','meaningful_conversation',NULL,NULL);
+SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000001','profile_started','quick',NULL);
+SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000001','meaningful_conversation',NULL,NULL);
+SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000001','profile_started','quick',NULL);
+
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.booth_funnel_events e
+     JOIN public.booth_sessions s ON s.id=e.session_id
+    WHERE s.client_ref='ref-funnel-0011') = 2,
+  'each allowed client event is recorded once and replays idempotently');
+
+-- (b) EVERY transition event is refused, and changes ZERO rows. The helper
+--     captures the whole session row plus the event and lead counts before and
+--     after, so "changed nothing" is proven rather than asserted.
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_change(
+    $q$SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000001','profile_confirmed',NULL,NULL)$q$,
+    'booth_event_not_client_observed', 'ref-funnel-0011'),
+  'a client-observed call cannot fabricate profile_confirmed');
+
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_change(
+    $q$SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000001','whatsapp_verified',NULL,NULL)$q$,
+    'booth_event_not_client_observed', 'ref-funnel-0011'),
+  'a client-observed call cannot fabricate whatsapp_verified');
+
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_change(
+    $q$SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000001','guide_assigned',NULL,NULL)$q$,
+    'booth_event_not_client_observed', 'ref-funnel-0011'),
+  'a client-observed call cannot fabricate guide_assigned');
+
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_change(
+    $q$SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000001','guide_acknowledged',NULL,NULL)$q$,
+    'booth_event_not_client_observed', 'ref-funnel-0011'),
+  'a client-observed call cannot fabricate guide_acknowledged');
+
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_change(
+    $q$SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000001','guide_contacted',NULL,NULL)$q$,
+    'booth_event_not_client_observed', 'ref-funnel-0011'),
+  'a client-observed call cannot fabricate guide_contacted');
+
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_change(
+    $q$SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000001','consultation_booked',NULL,NULL)$q$,
+    'booth_event_not_client_observed', 'ref-funnel-0011'),
+  'a client-observed call cannot fabricate consultation_booked');
+
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_change(
+    $q$SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000001','qr_continuation',NULL,NULL)$q$,
+    'booth_event_not_client_observed', 'ref-funnel-0011'),
+  'a client-observed call cannot fabricate qr_continuation');
+
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_change(
+    $q$SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000001','viewing_booked',NULL,NULL)$q$,
+    'booth_event_not_client_observed', 'ref-funnel-0011'),
+  'a client-observed call cannot fabricate the reserved viewing_booked event');
+
+-- (c) An unknown name is refused by the same guard, not by the table CHECK.
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_change(
+    $q$SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000001','totally_made_up',NULL,NULL)$q$,
+    'booth_event_not_client_observed', 'ref-funnel-0011'),
+  'an unknown event name is refused by the allowlist before the table CHECK');
+
+-- (d) A NULL event is refused too.
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_change(
+    $q$SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000001',NULL,NULL,NULL)$q$,
+    'booth_event_not_client_observed', 'ref-funnel-0011'),
+  'a NULL event is refused');
+
+-- (e) The refusal is decided BEFORE ownership, so it cannot be used as an
+--     ownership oracle either: a foreign Host presenting a transition event
+--     learns only that the event is not client-observable.
+SELECT pg_temp.assert_true(
+  pg_temp.raises(
+    $q$SELECT public.booth_record_event('ref-funnel-0011','b0000000-0000-0000-0000-000000000004','whatsapp_verified',NULL,NULL)$q$,
+    'booth_event_not_client_observed'),
+  'the allowlist is checked before ownership, so it leaks no ownership signal');
+
+-- (f) The LEGITIMATE transition path still emits its event. A full session is
+--     driven to a no-contact completion, whose atomic RPC is the only thing
+--     entitled to write qr_continuation.
+SELECT public.booth_ensure_session('ref-funnel-0012', 'b0000000-0000-0000-0000-000000000001', 'host-a@example.test', 'pilot-booth');
+SELECT public.booth_commit_consent('ref-funnel-0012','b0000000-0000-0000-0000-000000000001','quick',
+  '{"profileVersion":2,"preferredLanguage":"English"}'::jsonb, 2, now(), '[]'::jsonb, 'none',
+  '{"first_name":"Gia","whatsapp":"+79990008899","preferred_language":"English"}'::jsonb,
+  '{"name":"Gia","phone":"+79990008899","message":"m","source":"booth_v2"}'::jsonb);
+SELECT public.booth_set_whatsapp_state('ref-funnel-0012','b0000000-0000-0000-0000-000000000001','verified','wa_me_host_confirmed');
+SELECT public.booth_assign_guide('ref-funnel-0012','b0000000-0000-0000-0000-000000000001','b1000000-0000-0000-0000-000000000001',NULL,NULL);
+SELECT public.booth_acknowledge_guide('ref-funnel-0012','b0000000-0000-0000-0000-000000000002','guide_self_confirmed');
+SELECT public.booth_record_handoff('ref-funnel-0012','b0000000-0000-0000-0000-000000000001','host_observed',
+  now() + interval '2 days','Asia/Bangkok','send options');
+
+SELECT pg_temp.assert_true(
+  (SELECT array_agg(e.event ORDER BY e.event) FROM public.booth_funnel_events e
+     JOIN public.booth_sessions s ON s.id=e.session_id
+    WHERE s.client_ref='ref-funnel-0012')
+  = ARRAY['consultation_booked','guide_acknowledged','guide_assigned','guide_contacted','profile_confirmed','whatsapp_verified'],
+  'every transition event is emitted by the RPC that establishes its fact');
+
+SELECT public.booth_complete_session('ref-funnel-0012','b0000000-0000-0000-0000-000000000001','no_contact_qr');
+
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.booth_funnel_events e
+     JOIN public.booth_sessions s ON s.id=e.session_id
+    WHERE s.client_ref='ref-funnel-0012' AND e.event='qr_continuation') = 1,
+  'the atomic no-contact completion still emits qr_continuation exactly once');
+
+-- (g) And a browser cannot replay it against the now-terminal session either.
+SELECT pg_temp.assert_true(
+  pg_temp.refused_without_change(
+    $q$SELECT public.booth_record_event('ref-funnel-0012','b0000000-0000-0000-0000-000000000001','qr_continuation',NULL,NULL)$q$,
+    'booth_event_not_client_observed', 'ref-funnel-0012'),
+  'a terminal no-contact session no longer accepts a client qr_continuation replay');
+
+-- (h) No duplicate ever appears: the once-only constraint plus the allowlist.
+SELECT pg_temp.assert_true(
+  (SELECT count(*) = count(DISTINCT (session_id, event)) FROM public.booth_funnel_events),
+  'no session carries a duplicate funnel event anywhere in the suite');
 
 -- ---------------------------------------------------------------------------
 -- 12. Shortlist bounds are enforced by the database, at consent

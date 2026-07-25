@@ -332,8 +332,12 @@ describe("every session RPC carries the acting staff account", () => {
     };
     const { startWhatsappVerification } = await import("./server/service");
     process.env.BOOTH_WHATSAPP_NUMBER = "+10000000000";
+    // Refused as the single non-enumerable session refusal: corrective pass 3
+    // item 4 collapsed "belongs to another Host" and "does not exist" into one
+    // answer, so this caller cannot learn that the session exists at all.
+    // booth-funnel-integrity.test.ts proves the two are indistinguishable.
     await expect(startWhatsappVerification(ACTOR, { clientRef: CLIENT_REF })).rejects.toMatchObject(
-      { code: "booth_session_forbidden" },
+      { code: "booth_session_unavailable" },
     );
   });
 });

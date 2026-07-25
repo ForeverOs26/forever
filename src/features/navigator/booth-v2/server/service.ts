@@ -23,6 +23,18 @@
  * check lives inside the locked SECURITY DEFINER functions, not only here, so
  * knowing a client_ref is never authorization.
  *
+ * NON-ENUMERABLE REFUSALS (corrective pass 3, item 4). Ownership and existence
+ * now collapse to ONE wire response — see boothSessionUnavailable — so a valid
+ * staff caller cannot walk client_refs to discover which ones belong to someone
+ * else. The database keeps its distinct internal exceptions for diagnosis; only
+ * the boundary normalizes them.
+ *
+ * FUNNEL INTEGRITY (corrective pass 3, item 3). recordFunnelEvent accepts only
+ * the three CLIENT-OBSERVED events. Every fact-establishing transition event is
+ * emitted by the atomic RPC that performs the transition, so a Host can no
+ * longer assert a verification, an assignment, an acknowledgement, a first
+ * contact, a booking or a QR continuation that did not happen.
+ *
  * State transitions go through the atomic SECURITY DEFINER RPCs added by
  * 20260725150000_booth_v2_pilot.sql: each one locks the session row and
  * performs the whole transition — including its funnel events — in a single
@@ -43,6 +55,7 @@ import {
   buildBoothV2Summary,
   buildWaMeHref,
   hasBoothContactErrors,
+  isBoothClientObservedEvent,
   isBoothFunnelEvent,
   MAX_SHORTLIST,
   parseFxRateConfig,
@@ -81,13 +94,35 @@ function redactForLog(text: string): string {
     .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+/g, "[jwt]");
 }
 
+/**
+ * NON-ENUMERABLE SESSION REFUSAL (PR #102 corrective pass 3, item 4).
+ *
+ * "This booth session no longer exists." and "This booth session belongs to
+ * another Host." are two different answers, and the difference is itself
+ * information: a valid staff caller could walk client_refs and learn which ones
+ * exist under someone else's account. Both internal outcomes therefore leave
+ * the server as ONE response with ONE code and ONE message, and the operational
+ * distinction is written only to the sanitized server log.
+ *
+ * The database keeps its separate `booth_session_not_found` /
+ * `booth_session_forbidden` exceptions — the PostgreSQL suite asserts against
+ * them — but neither reaches the wire.
+ */
+const SESSION_UNAVAILABLE_CODE = "booth_session_unavailable";
+const SESSION_UNAVAILABLE_MESSAGE = "This booth session is unavailable.";
+const NON_ENUMERABLE_SESSION_CODES = ["booth_session_not_found", "booth_session_forbidden"];
+
+/** The single external refusal; `internal` is logged, never returned. */
+function boothSessionUnavailable(internal: string): BoothError {
+  console.error(`[booth-v2] session refused (${internal})`);
+  return new BoothError(SESSION_UNAVAILABLE_CODE, SESSION_UNAVAILABLE_MESSAGE);
+}
+
 /** Stable safe codes the RPCs raise; anything else collapses to a generic. */
 const RPC_ERROR_MESSAGES: Record<string, string> = {
-  booth_session_not_found: "This booth session no longer exists.",
   booth_session_not_active: "This booth session has already been closed.",
   booth_session_terminal_immutable: "This booth session has already been closed.",
-  // Deliberately says nothing about who DOES own the session.
-  booth_session_forbidden: "This booth session belongs to another Host.",
+  booth_event_not_client_observed: "That funnel event cannot be recorded from the booth.",
   booth_profile_required: "Confirm the Decision Profile before saving contact details.",
   booth_contact_required: "Save the guest's contact details first.",
   booth_guide_required: "Assign a Guide before recording this.",
@@ -100,6 +135,11 @@ const RPC_ERROR_MESSAGES: Record<string, string> = {
 
 function mapRpcError(error: { message?: string } | null): never {
   const raw = error?.message ?? "";
+  // Ownership and existence collapse together, BEFORE the descriptive table, so
+  // no wire response can distinguish an unknown session from a foreign one.
+  for (const code of NON_ENUMERABLE_SESSION_CODES) {
+    if (raw.includes(code)) throw boothSessionUnavailable(code);
+  }
   for (const [code, message] of Object.entries(RPC_ERROR_MESSAGES)) {
     if (raw.includes(code)) throw new BoothError(code, message);
   }
@@ -198,8 +238,9 @@ async function readSessionForActor(
     .eq("client_ref", clientRef)
     .maybeSingle();
   if (error) mapRpcError(error);
-  if (!data)
-    throw new BoothError("booth_session_not_found", "This booth session no longer exists.");
+  // An unknown client_ref and a client_ref owned by someone else produce the
+  // SAME refusal — see boothSessionUnavailable.
+  if (!data) throw boothSessionUnavailable("read:not_found");
   if (data.host_user_id === actor.userId) return data;
 
   if (options.allowAssignedGuide === true && data.assigned_guide_id !== null) {
@@ -212,7 +253,7 @@ async function readSessionForActor(
     if (guide?.staff_user_id === actor.userId) return data;
   }
 
-  throw new BoothError("booth_session_forbidden", "This booth session belongs to another Host.");
+  throw boothSessionUnavailable("read:foreign_session");
 }
 
 /**
@@ -237,12 +278,18 @@ export async function ensureSession(
 }
 
 /**
- * Client-observed funnel events only (conversation started, profile started,
- * abandonment, QR continuation) — all non-personal. Every transition event —
- * profile confirmed, WhatsApp verified, Guide assigned/acknowledged, first
- * contact, consultation booked, no-contact continuation — is emitted
- * server-side by the RPC that establishes the fact, so a lost client call
- * cannot lose those metrics.
+ * CLIENT-OBSERVED funnel events only — conversation started, profile started,
+ * abandonment. All three are non-personal, and none of them asserts a state
+ * transition.
+ *
+ * Every transition event — profile confirmed, WhatsApp verified, Guide
+ * assigned/acknowledged, first contact, consultation booked, no-contact QR
+ * continuation — is emitted server-side by the RPC that establishes the fact,
+ * inside the same transaction. That means a lost client call cannot lose those
+ * metrics, AND a client call cannot invent them: this allowlist is the second
+ * of four independent refusals (type, zod validator, this service check, and
+ * `booth_record_event` in the database), and it runs BEFORE any session is
+ * opened, so a rejected call performs no database work whatsoever.
  */
 export async function recordFunnelEvent(
   actor: BoothActor,
@@ -250,6 +297,12 @@ export async function recordFunnelEvent(
 ): Promise<{ ok: true }> {
   if (!isBoothFunnelEvent(input.event)) {
     throw new BoothError("booth_invalid_event", "Unknown funnel event.");
+  }
+  if (!isBoothClientObservedEvent(input.event)) {
+    throw new BoothError(
+      "booth_event_not_client_observed",
+      "That funnel event cannot be recorded from the booth.",
+    );
   }
   if (isBoothDemoNoWriteMode()) return { ok: true };
   await ensureSession(actor, { clientRef: input.clientRef });
