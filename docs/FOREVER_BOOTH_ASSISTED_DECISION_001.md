@@ -72,6 +72,72 @@ the migration remains unapplied everywhere except the disposable local harness.
 
 ---
 
+## 0c. Corrective pass 3 (PR #102 architect final review)
+
+Passes 1 and 2 stand unchanged. This pass closes the remaining **runtime** and
+**funnel-integrity** boundaries: the credential actually reaching the server, the
+disabled route actually behaving like a missing one, the funnel actually
+recording facts, and a refusal actually revealing nothing.
+
+| Defect                                                                                              | Correction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **P0** `requireBoothStaff` had only a `.server()` stage, so a signed-in Host's token never arrived  | The middleware now has a `.client()` transport stage of its own: it reads the browser session through the existing Supabase client (`getSession()`, which refreshes an expired session first) and attaches `Authorization: Bearer <access_token>` via `next({ headers })`. The token travels in that header **only** — never in function data, a query string, a log, custom storage, React state or an error message; any transport failure attaches nothing and stays silent so the server's single opaque denial is what the caller sees. The `.server()` stage still re-verifies the JWT from the inbound request on every call and derives the actor from the database, so attaching a token is never itself authorization. |
+| **P1** `/booth-v2` matched, published Booth metadata and rendered the Gate before checking the flag | Enablement moved to the route load boundary. `beforeLoad` calls the server-only availability boundary and throws TanStack `notFound()` while the pilot is off; the router then caps head execution at the root not-found boundary and stops loading further matches. A disabled deployment therefore returns the repository's ordinary not-found response with **no** Booth title, description, font links, Loading state, sign-in form or client shell, and makes exactly one Booth call (the availability probe). `head` is additionally gated on this route's own loader data. `BoothV2Gate` no longer decides enablement at all — it handles authentication and authorization only.                                          |
+| **P1** `boothV2RecordEvent` accepted the whole funnel vocabulary, so transitions were forgeable     | The vocabulary is split. Client-observed: `meaningful_conversation`, `profile_started`, `session_abandoned` — observations the tablet is the sole witness to, none asserting a transition. Everything else is server-only and emitted by the atomic RPC that establishes the fact (`profile_confirmed`→profile-confirmation, `whatsapp_verified`→WhatsApp, `guide_assigned`→assignment, `guide_acknowledged`→acknowledgement, `guide_contacted`/`consultation_booked`→handoff, `qr_continuation`→no-contact completion; `viewing_booked` is reserved and unemitted). Enforced independently at four layers: the TypeScript type, the endpoint's zod validator, the service allowlist, and `booth_record_event` itself.           |
+| **P2** A foreign session answered differently from an unknown one, allowing enumeration             | `booth_session_not_found` and `booth_session_forbidden` now collapse to one wire response — code `booth_session_unavailable`, message "This booth session is unavailable." — so a valid staff caller cannot walk `client_ref`s to discover which ones belong to someone else. The database keeps its distinct internal exceptions (the PostgreSQL suite asserts against them) and the operational distinction is written to the sanitized server log only.                                                                                                                                                                                                                                                                       |
+
+**Two client-side `qr_continuation` emissions were removed.** Declining the
+opening permission is not a continuation, and the no-contact finish already goes
+through `booth_complete_session`, which clears everything, deletes any lead and
+emits the event in one transaction. The metric now records what happened rather
+than what the browser claimed.
+
+**How the transport claim is evidenced.** `booth-auth-transport.test.ts` stands up
+a disposable local Supabase-compatible auth service on a throwaway loopback port
+issuing **real** ES256 JWTs over a per-run P-256 keypair with a matching JWKS,
+signs in with the repository's own browser client, and calls the gated function
+through the **real** TanStack client transport (`createClientRpc` →
+`serverFnFetcher` → `fetch`) across a **real** HTTP hop into the **real**
+`requestHandler`, where the **real** `requireBoothStaff.server` stage verifies the
+signature against the published key. It proves the header carries the session
+token, the server resolves the right user, the session refreshes when expired,
+and that a missing, malformed, expired, wrong-scheme or **foreign-key-signed**
+token — and a valid token without the capability — all collapse to the identical
+denial. `booth-route-ssr.test.tsx` renders real SSR output in a real server
+environment and asserts the disabled `/booth-v2` markup is **byte-identical** to a
+genuinely missing URL.
+
+**Measured against a real running server** (`vite dev`, three separate runs):
+
+| `BOOTH_V2_ENABLED` | HTTP status | `<title>` served                   | Booth head/fonts | 404 boundary |
+| ------------------ | ----------- | ---------------------------------- | ---------------- | ------------ |
+| unset (default)    | **404**     | Forever — Phuket Property Advisory | absent           | rendered     |
+| `false`            | **404**     | Forever — Phuket Property Advisory | absent           | rendered     |
+| `true`             | **200**     | Forever — Booth Mode 2.0 (Pilot)   | present          | not rendered |
+
+**Known, accepted residual (reported, not hidden).** `notFound()` from
+`beforeLoad` means the route _matches_ and then refuses, so TanStack Start's SSR
+dehydration serializes a match entry for it. Verified on the real server: a
+disabled `/booth-v2` and a missing URL return the same 404 and the same visible
+document, but the former's hydration payload contains a match keyed on the route
+id with status `notFound` while the latter carries only the root match. An
+attacker reading that script can therefore learn that a route path `/booth-v2` is
+**declared** — and nothing else: not the pilot's name, title, description, fonts
+or purpose, not whether it is enabled, not whether they could reach it, and no
+capability. Eliminating even this would mean not declaring the route at all,
+which is a build-time decision rather than the runtime gate that was specified.
+`booth-route-ssr.test.tsx` pins this residual explicitly so the equivalence claim
+is never read as broader than it is.
+
+**Documented environment limitation.** Docker was unavailable in this
+environment, so the full local Supabase container stack could not be started;
+the disposable auth service substitutes for its two auth surfaces, and the
+service-role `studio_members` read is the single mocked boundary in that suite.
+The authorization half is proven against a real database by
+`npm run studio:pg-test`.
+
+---
+
 ## 1. Diagnosis of the current implementation
 
 The pre-existing Booth Mode (`/booth`, `src/features/navigator/booth/*`) implements only
@@ -267,9 +333,11 @@ Migration `supabase/migrations/20260725150000_booth_v2_pilot.sql` (pending; NOT 
 Endpoints, grouped by what they may persist:
 
 - **Ungated, and the only one** — `getRouteAvailability`: a single boolean saying
-  whether this deployment enabled the pilot. No session, no database read, no actor.
-  It exists so a disabled deployment can render the ordinary not-found boundary to a
-  signed-out visitor rather than a Forever Booth login form (§0b, item 9).
+  whether this deployment enabled the pilot. No session, no database read, no actor,
+  and no Booth-attached credential. It is called from the route's `beforeLoad`, which
+  throws `notFound()` while the pilot is off, so a disabled deployment returns the
+  ordinary not-found response to every visitor before any Booth metadata or markup is
+  produced (§0c, P1).
 - **Gated, non-persisting** — `getAccess`, `getConfig`, `listGuides`,
   `markProfileConfirmed` (re-runs the canonical strict parser server-side and records
   only the flow mode + the non-personal `profile_confirmed` funnel fact),
@@ -277,23 +345,41 @@ Endpoints, grouped by what they may persist:
 - **Gated, the consent transaction** — `commitConsent`: the FIRST and ONLY write of
   anything about the guest. Profile + shortlist + contact bundle + consent + exactly
   one lead, in one locked transaction; every accepted replay refreshes the linked lead.
-- **Gated, post-consent operations** — `ensureSession`, `recordEvent`, start/confirm
-  WhatsApp verification, `assignGuide`, `acknowledgeGuide`, `recordHandoff`,
-  `completeSession` (server-side gate + DB CHECK + terminal-freeze trigger backstop).
+- **Gated, post-consent operations** — `ensureSession`, `recordEvent` (**client-observed
+  events only**: the three observations the tablet is the sole witness to; every
+  transition event is emitted by the RPC that establishes the fact — §0c, P1),
+  start/confirm WhatsApp verification, `assignGuide`, `acknowledgeGuide`,
+  `recordHandoff`, `completeSession` (server-side gate + DB CHECK + terminal-freeze
+  trigger backstop).
 
 Retries are idempotent via `client_ref` upserts and the funnel uniqueness constraint,
-and every session RPC additionally proves the caller owns the session. The dev/demo
-no-write mode (`VITE_PARTNER_DEMO` / `VITE_DEMO_LEAD_MODE`) short-circuits before any
-database access, mirroring the lead-service rule.
+and every session RPC additionally proves the caller owns the session. A refusal on
+ownership or existence returns ONE non-descriptive answer
+(`booth_session_unavailable`, "This booth session is unavailable."), so a valid staff
+caller cannot enumerate other Hosts' sessions; the distinction is logged server-side
+only (§0c, P2). The dev/demo no-write mode (`VITE_PARTNER_DEMO` /
+`VITE_DEMO_LEAD_MODE`) short-circuits before any database access, mirroring the
+lead-service rule.
 
-The booth tablet is operated by an AUTHENTICATED Host: `booth-auth.ts` verifies the
-request identity itself (`server/auth.ts`) rather than chaining the shared
-Supabase-auth middleware, whose distinct errors could not be normalized, and then
-requires an active `studio_members` row plus the explicit `can_access_booth`
-capability. Every refusal — missing header, malformed or expired token, non-member,
-inactive member, missing capability, disabled pilot — collapses to the single
-`booth_access_denied`; the reason is logged server-side only. Host identity is a real
-authenticated credential and is the ownership anchor for every session transition.
+The booth tablet is operated by an AUTHENTICATED Host, and `booth-auth.ts` owns **both
+halves** of that:
+
+- `.client()` — the browser attaches the Host's own Supabase access token as
+  `Authorization: Bearer <access_token>` through `next({ headers })`, reading it via
+  `getSession()` (which refreshes an expired session first). The token exists nowhere
+  else: not in function data, a query string, a log, custom storage, React state or an
+  error message. Any transport failure attaches nothing and stays silent.
+- `.server()` — the JWT is re-verified from the inbound request on every call
+  (`server/auth.ts`) rather than chaining the shared Supabase-auth middleware, whose
+  distinct errors could not be normalized, and the actor is then required to hold an
+  active `studio_members` row plus the explicit `can_access_booth` capability. Attaching
+  a token is never itself authorization.
+
+Every refusal — missing header, wrong scheme, malformed, expired or foreign-key-signed
+token, non-member, inactive member, missing capability, disabled pilot — collapses to
+the single `booth_access_denied`; the reason is logged server-side only. Host identity
+is a real authenticated credential and is the ownership anchor for every session
+transition.
 
 ## 11. WhatsApp verification (manual pilot)
 
@@ -333,7 +419,13 @@ acknowledgement timer and the 5-minute first-contact SLA.
 ## 14. Funnel events and pilot metrics
 
 Eleven structured events (see `core/v2/funnel.ts`), each at most once per session
-(client dedupe + DB UNIQUE). Abandonment records step + reason only — no conversation
+(client dedupe + DB UNIQUE), **split by who may establish them**. Only three are
+client-observed (`meaningful_conversation`, `profile_started`,
+`session_abandoned`) and only those three are reachable through
+`boothV2RecordEvent` / `booth_record_event`; every fact-establishing transition
+event is emitted by the atomic RPC that performs the transition, so the
+scorecard's transition counts cannot be inflated by the browser (see §0c).
+Abandonment records step + reason only — no conversation
 content, no device metadata, no external analytics. Pilot measurement queries live in
 `docs/FOREVER_BOOTH_PILOT_SCORECARD.md` (+ `scripts/booth/pilot-summary.sql`): Quick vs
 Full, completion step, valid-WhatsApp rate, 5-minute Guide contact, consultation
@@ -343,7 +435,19 @@ bookings, abandonment reasons. No conversion targets are invented anywhere.
 
 `/booth-v2` ships alongside an untouched `/booth`; both are `noindex`, out of public
 navigation and the sitemap, and build together without importing demo/staging data into
-production bundles. **To replace `/booth` later (explicit Owner action, not part of this
+production bundles.
+
+**While `BOOTH_V2_ENABLED` is not exactly `"true"` (the default), `/booth-v2` does not
+behave like a hidden page — it behaves like a missing one.** The route's `beforeLoad`
+throws `notFound()` before rendering, so the response is HTTP 404 carrying the
+repository's ordinary not-found boundary with no Booth title, description, font links,
+Loading state, staff sign-in form or client shell, and the rendered document is
+byte-identical to a genuinely unknown URL. The same gate runs on direct SSR requests and
+on in-app navigation. One residual remains and is documented in §0c: the SSR hydration
+payload still shows that a route path `/booth-v2` is declared, though nothing about the
+pilot itself. `noindex` remains as a second line of defence, not as the mechanism.
+
+**To replace `/booth` later (explicit Owner action, not part of this
 task):** apply the migration to production, configure `BOOTH_WHATSAPP_NUMBER` (+
 optionally `BOOTH_FX_RATES_JSON`, `BOOTH_ID`), enter real Guides into `booth_guides`,
 verify the pilot on `/booth-v2`, then point `src/routes/booth.tsx` at `BoothV2Navigator`
@@ -367,8 +471,31 @@ verify the pilot on `/booth-v2`, then point `src/routes/booth.tsx` at `BoothV2Na
 - Website regression: the untouched legacy suites (`navigator-core`, `session`,
   `matching`, `results-parity`, `shells`, lead-service, contact-form) all still pass,
   plus an explicit `validateLead` website-contract test.
+- **Real credential transport** (`booth-auth-transport.test.ts`): a disposable local
+  Supabase-compatible auth service issuing real ES256 JWTs + JWKS, a real sign-in through
+  the repository's browser client, the real TanStack client RPC path, a real HTTP hop, and
+  the real server middleware verifying the real signature. Proves the header carries the
+  token, the server resolves the right user, expired sessions refresh, the public probe
+  carries no credential, and every failure mode (missing / malformed / wrong scheme /
+  expired / foreign-key-signed / valid-but-uncapable / inactive / non-member / pilot
+  disabled) produces one identical denial with no token in any log.
+- **Real SSR route boundary** (`booth-route-ssr.test.tsx`): a real server environment and
+  real `renderToString` output through the route's own options; the disabled
+  `/booth-v2` markup is byte-identical to a genuinely missing URL, publishes no Booth
+  head, runs no loader, and makes exactly one Booth call. The suite also pins the one
+  known residual (the dehydrated match entry) so the equivalence claim stays honest.
+- **Real running server** (manual, three runs of `vite dev`): HTTP 404 + the ordinary
+  title with the flag unset and with it `false`; HTTP 200 + the Booth head with it
+  `true`. Recorded in §0c.
+- **Funnel integrity** (`booth-funnel-integrity.test.ts`): the client-observed subset is
+  disjoint from the server-only set, the endpoint's real zod schema and the service
+  allowlist both refuse every transition event with zero database work, and an unknown vs
+  foreign session refusal is indistinguishable on the wire.
 - Real database: `npm run studio:pg-test` applies the full committed migration chain
-  (including the booth migration) to a disposable PostgreSQL cluster.
+  (including the booth migration) to a disposable PostgreSQL cluster. It additionally
+  proves `booth_record_event` refuses every transition event **before inserting
+  anything**, even for a direct `service_role` caller that has bypassed all three
+  application layers, while the legitimate atomic RPCs still emit those events.
 
 ## 17. Known legal-review items (not legal advice)
 

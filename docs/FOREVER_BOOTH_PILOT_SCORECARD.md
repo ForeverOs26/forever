@@ -25,6 +25,26 @@ Two weeks **or** 100 `meaningful_conversation` events, whichever comes first.
 | Abandonment step/reason  | `session_abandoned` events + `abandonment_step/reason` |
 | Viewings (later)         | `viewing_booked` events, when recorded                 |
 
+### Which of these the browser could influence
+
+Every metric above except three is a **server-established** fact: the event is
+written by the same atomic RPC that performs the transition, and
+`booth_record_event` refuses a transition event outright — including for a direct
+`service_role` caller (corrective pass 3, item 3). Only
+
+- `meaningful_conversation`
+- `profile_started`
+- `session_abandoned` (with its step and reason)
+
+are client-observed, because the tablet is genuinely the only witness to them. So
+`profile_confirmed`, `whatsapp_verified`, `guide_assigned`,
+`guide_acknowledged`, `guide_contacted`, `consultation_booked` and
+`qr_continuation` counts cannot be inflated by the Host or by a UI bug; the three
+observed counts can only be **under**-reported (a lost call leaves the event
+retryable) and never fabricated beyond a Host claiming a conversation started.
+`viewing_booked` is reserved and nothing emits it yet, so it reads as zero rather
+than as an unrecorded unknown.
+
 ## Queries (service-role only; run internally, never from a browser)
 
 ```sql
@@ -75,6 +95,10 @@ The consent boundary deliberately limits this scorecard, and that limit is the p
   never profiled retrospectively.
 - Quick-vs-Full share therefore comes from the `profile_confirmed` event's `step`, not
   from a stored profile.
+- `qr_continuation` counts the moment a guest **finished** on the QR screen, which is
+  when the atomic no-contact completion runs. Declining the opening permission is not
+  counted as a continuation, so this number is lower than "guests who declined" and
+  should not be read as that.
 
 Any question that would need pre-consent guest data cannot be answered from this
 pilot, and should not be — answering it would mean storing what the guest did not
