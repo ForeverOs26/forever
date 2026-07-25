@@ -62,19 +62,34 @@ vi.mock("@/lib/project-service", () => ({
   }),
 }));
 
+type Call = { data: Record<string, unknown> };
+
 const serverFns = vi.hoisted(() => ({
-  getConfig: vi.fn(async () => ({ boothId: "test-booth", whatsappConfigured: true, fx: null })),
-  ensureSession: vi.fn(async () => ({ ok: true })),
-  recordEvent: vi.fn(async () => ({ ok: true })),
-  confirmProfile: vi.fn(async () => ({ ok: true })),
-  setShortlist: vi.fn(async () => ({ ok: true })),
-  saveContact: vi.fn(async () => ({ ok: true })),
-  startWhatsapp: vi.fn(async () => ({
-    configured: true,
-    waHref: "https://wa.me/000?text=test",
-    sessionCode: "TESTCODE",
+  getAccess: vi.fn(async () => ({ granted: true as const, hostName: "Host Tester" })),
+  getConfig: vi.fn(async () => ({
+    boothId: "test-booth",
+    whatsappConfigured: true,
+    fx: null,
+    hostName: "Host Tester",
   })),
-  confirmWhatsapp: vi.fn(async () => ({ ok: true, verifiedAt: "2026-07-25T10:00:00.000Z" })),
+  ensureSession: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
+  recordEvent: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
+  confirmProfile: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
+  setShortlist: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
+  saveContact: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
+  startWhatsapp: vi.fn(
+    async (_input: {
+      data: Record<string, unknown>;
+    }): Promise<{ configured: boolean; waHref: string | null; sessionCode: string | null }> => ({
+      configured: true,
+      waHref: "https://wa.me/000?text=test",
+      sessionCode: "TESTCODE",
+    }),
+  ),
+  confirmWhatsapp: vi.fn(async (_input: { data: Record<string, unknown> }) => ({
+    ok: true,
+    verifiedAt: "2026-07-25T10:00:00.000Z",
+  })),
   listGuides: vi.fn(async () => [
     {
       id: "11111111-1111-1111-1111-111111111111",
@@ -82,6 +97,7 @@ const serverFns = vi.hoisted(() => ({
       languages: ["Русский", "English"],
       specializations: [],
       onDuty: true,
+      hasStaffAccount: false,
     },
     {
       id: "22222222-2222-2222-2222-222222222222",
@@ -89,15 +105,34 @@ const serverFns = vi.hoisted(() => ({
       languages: ["English"],
       specializations: [],
       onDuty: true,
+      hasStaffAccount: false,
     },
   ]),
-  assignGuide: vi.fn(async () => ({ ok: true, assignedAt: "2026-07-25T10:01:00.000Z" })),
-  acknowledgeGuide: vi.fn(async () => ({ ok: true, acknowledgedAt: "2026-07-25T10:02:00.000Z" })),
-  recordHandoff: vi.fn(async () => ({ ok: true })),
-  completeSession: vi.fn(async () => ({ ok: true })),
+  assignGuide: vi.fn(async (_input: { data: Record<string, unknown> }) => ({
+    ok: true,
+    assignedAt: "2026-07-25T10:01:00.000Z",
+  })),
+  acknowledgeGuide: vi.fn(async (_input: { data: Record<string, unknown> }) => ({
+    ok: true,
+    acknowledgedAt: "2026-07-25T10:02:00.000Z",
+    method: "host_observed" as const,
+  })),
+  recordHandoff: vi.fn(
+    async (_input: {
+      data: Record<string, unknown>;
+    }): Promise<{
+      ok: true;
+      firstContactMethod: "guide_self_confirmed" | "host_observed" | null;
+    }> => ({
+      ok: true,
+      firstContactMethod: null,
+    }),
+  ),
+  completeSession: vi.fn(async (_input: { data: Record<string, unknown> }) => ({ ok: true })),
 }));
 
 vi.mock("./booth-v2.functions", () => ({
+  boothV2GetAccess: serverFns.getAccess,
   boothV2GetConfig: serverFns.getConfig,
   boothV2EnsureSession: serverFns.ensureSession,
   boothV2RecordEvent: serverFns.recordEvent,
@@ -131,22 +166,31 @@ function renderBooth() {
 }
 
 /** Walk from Welcome through a completed Quick Profile to the Decision Summary. */
-function walkQuickToSummary() {
+async function walkQuickToSummary() {
   fireEvent.click(button("Begin"));
   fireEvent.click(button(/Yes — let's look together/));
+  // Language is captured BEFORE the summary so the confirmed profile owns it.
+  await screen.findByText(/Which language suits you\?/);
+  fireEvent.click(screen.getByText("Русский"));
+  fireEvent.click(button("Continue"));
   fireEvent.click(screen.getByText(/Quick — about a minute/).closest("button")!);
   fireEvent.click(screen.getByText("For living & lifestyle"));
   fireEvent.click(button("Continue"));
-  fireEvent.click(screen.getByText("$250k–500k"));
+  // An explicit numeric budget in the guest's own currency — no USD-shaped
+  // band is reused for another currency.
+  fireEvent.click(button("EUR"));
+  fireEvent.change(screen.getByLabelText(/From \(EUR\)/), { target: { value: "250000" } });
+  fireEvent.change(screen.getByLabelText(/Up to \(EUR\)/), { target: { value: "500000" } });
   fireEvent.click(button("Continue"));
   fireEvent.click(screen.getByText("Condominium"));
   fireEvent.click(button("Continue"));
   fireEvent.click(screen.getByText("3–6 months"));
   fireEvent.click(button("See my summary"));
+  await screen.findByText(/This is your initial Decision Profile/);
 }
 
 async function walkToContact() {
-  walkQuickToSummary();
+  await walkQuickToSummary();
   fireEvent.click(button(/This is right — continue/));
   await screen.findByText(/Initial directions based on what we know/);
   fireEvent.click(button(/Continue — stay in touch/));
@@ -157,9 +201,6 @@ async function fillContactAndSubmit() {
   fireEvent.change(screen.getByLabelText(/First name/), { target: { value: "Anna" } });
   fireEvent.change(screen.getByLabelText(/WhatsApp \/ phone/), {
     target: { value: "+79990001122" },
-  });
-  fireEvent.change(screen.getByLabelText(/Preferred language/), {
-    target: { value: "Русский" },
   });
   fireEvent.click(screen.getByLabelText(/I agree that Forever saves my Decision Profile/));
   fireEvent.click(button("Save and continue"));
@@ -178,7 +219,7 @@ afterEach(() => {
 describe("BoothV2Navigator — Quick flow", () => {
   it("reaches a factual Decision Summary without concerns, email, or surname", async () => {
     renderBooth();
-    walkQuickToSummary();
+    await walkQuickToSummary();
     expect(screen.getByText(/This is your initial Decision Profile/)).toBeInTheDocument();
     expect(screen.getByText(/It is not a sales recommendation yet/)).toBeInTheDocument();
     // The universal archetype must not appear.
@@ -189,7 +230,7 @@ describe("BoothV2Navigator — Quick flow", () => {
 
   it("shows truthful initial directions — never 'matching your preferences'", async () => {
     renderBooth();
-    walkQuickToSummary();
+    await walkQuickToSummary();
     fireEvent.click(button(/This is right — continue/));
     await screen.findByText(/Initial directions based on what we know/);
     expect(screen.queryByText(/matching your preferences/i)).toBeNull();
@@ -205,10 +246,10 @@ describe("BoothV2Navigator — Quick flow", () => {
 
   it("records profile_started exactly once", async () => {
     renderBooth();
-    walkQuickToSummary();
+    await walkQuickToSummary();
     fireEvent.click(button("Back"));
     const calls = serverFns.recordEvent.mock.calls.filter(
-      (call) => (call[0] as { data: { event: string } }).data.event === "profile_started",
+      (call) => ((call[0] as Call).data.event as string) === "profile_started",
     );
     expect(calls).toHaveLength(1);
   });
@@ -222,9 +263,8 @@ describe("BoothV2Navigator — contact & consent", () => {
     fireEvent.change(screen.getByLabelText(/WhatsApp \/ phone/), {
       target: { value: "+79990001122" },
     });
-    fireEvent.change(screen.getByLabelText(/Preferred language/), {
-      target: { value: "Русский" },
-    });
+    // The language came from the profile step and is shown, not re-asked.
+    expect(screen.getByText("Preferred language").parentElement).toHaveTextContent("Русский");
     // No consent yet → blocked, nothing saved.
     fireEvent.click(button("Save and continue"));
     expect(
@@ -259,9 +299,6 @@ describe("BoothV2Navigator — contact & consent", () => {
     fireEvent.change(screen.getByLabelText(/WhatsApp \/ phone/), {
       target: { value: "+79990001122" },
     });
-    fireEvent.change(screen.getByLabelText(/Preferred language/), {
-      target: { value: "Русский" },
-    });
     fireEvent.click(screen.getByLabelText(/I agree that Forever saves my Decision Profile/));
     fireEvent.click(button("Save and continue"));
     fireEvent.click(button("Saving…"));
@@ -278,10 +315,13 @@ describe("BoothV2Navigator — contact & consent", () => {
     await screen.findByText(/Continue in your own time/);
     expect(screen.getByText(/Nothing about you is stored/)).toBeInTheDocument();
     expect(serverFns.saveContact).not.toHaveBeenCalled();
-    const qrEvents = serverFns.recordEvent.mock.calls.filter(
-      (call) => (call[0] as { data: { event: string } }).data.event === "qr_continuation",
+    // The no-contact outcome (clearing + lead deletion + qr_continuation) is
+    // ONE server transaction, not a best-effort client event.
+    await waitFor(() =>
+      expect(serverFns.completeSession).toHaveBeenCalledWith({
+        data: expect.objectContaining({ outcome: "no_contact_qr" }),
+      }),
     );
-    expect(qrEvents).toHaveLength(1);
   });
 });
 
@@ -308,8 +348,10 @@ describe("BoothV2Navigator — verified handoff to completion", () => {
     await screen.findByText(/Guide Anna has been notified/);
     expect(screen.getByText(/Acknowledgement target/)).toBeInTheDocument();
     expect(screen.getByText(/First-contact SLA/)).toBeInTheDocument();
-    fireEvent.click(button(/Host: Guide confirmed — mark acknowledged/));
+    fireEvent.click(button(/Host: record that the Guide acknowledged \(observation\)/));
     await screen.findByText(/Acknowledged ✓/);
+    // The screen never implies the Guide replied when the Host observed it.
+    expect(screen.getByText(/Observed by the Host — not a Guide confirmation/)).toBeInTheDocument();
     fireEvent.click(button(/Continue — record the next step/));
 
     // Completion is blocked until a next step AND a time (or live message) exist.
@@ -318,8 +360,9 @@ describe("BoothV2Navigator — verified handoff to completion", () => {
     fireEvent.change(screen.getByLabelText(/^Next step/), {
       target: { value: "30-minute consultation" },
     });
+    // An exact instant, not free text.
     fireEvent.change(screen.getByLabelText(/Exact consultation \/ contact time/), {
-      target: { value: "Tomorrow 14:00" },
+      target: { value: "2030-01-01T14:00" },
     });
     fireEvent.click(button("Save next step"));
     await waitFor(() => expect(serverFns.recordHandoff).toHaveBeenCalled());
@@ -336,10 +379,21 @@ describe("BoothV2Navigator — verified handoff to completion", () => {
     expect(serverFns.completeSession).toHaveBeenCalledWith({
       data: expect.objectContaining({ outcome: "contacted_complete" }),
     });
-    const verifiedEvents = serverFns.recordEvent.mock.calls.filter(
-      (call) => (call[0] as { data: { event: string } }).data.event === "whatsapp_verified",
+    // Transition events are emitted server-side by the operation that
+    // establishes the fact — the client never posts them separately.
+    const clientEvents = serverFns.recordEvent.mock.calls.map(
+      (call) => (call[0] as Call).data.event as string,
     );
-    expect(verifiedEvents).toHaveLength(1);
+    expect(clientEvents).not.toContain("whatsapp_verified");
+    expect(clientEvents).not.toContain("guide_assigned");
+    expect(clientEvents).not.toContain("consultation_booked");
+    // The consultation time reached the server as an exact ISO instant.
+    const handoffWithTime = serverFns.recordHandoff.mock.calls
+      .map((call) => (call[0] as Call).data as { consultationScheduledAt?: string | null })
+      .find((data) => data.consultationScheduledAt);
+    expect(handoffWithTime?.consultationScheduledAt).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+    );
   });
 
   it("fails closed when WhatsApp is unconfigured — never claims verification", async () => {
@@ -360,14 +414,20 @@ describe("BoothV2Navigator — verified handoff to completion", () => {
 describe("BoothV2Navigator — privacy", () => {
   it("guarded reset leaves no prior guest data for the next guest", async () => {
     renderBooth();
-    walkQuickToSummary();
+    await walkQuickToSummary();
     fireEvent.click(button("Start new guest"));
     await screen.findByText(/Start a new guest session\?/);
     fireEvent.click(button(/Clear and start new/));
     await screen.findByText(/Deciding well takes a moment of clarity/);
-    // Walk forward again: previous answers are gone.
+    // Walk forward again: every previous answer is gone, starting with the
+    // language the previous guest chose.
     fireEvent.click(button("Begin"));
     fireEvent.click(button(/Yes — let's look together/));
+    await screen.findByText(/Which language suits you\?/);
+    const previousLanguage = screen.getByText("Русский").closest("button")!;
+    expect(previousLanguage).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(previousLanguage);
+    fireEvent.click(button("Continue"));
     fireEvent.click(screen.getByText(/Quick — about a minute/).closest("button")!);
     const lifestyleCard = screen.getByText("For living & lifestyle").closest("button")!;
     expect(lifestyleCard).toHaveAttribute("aria-checked", "false");

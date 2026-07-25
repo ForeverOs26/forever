@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import type { Property } from "@/lib/data";
@@ -28,6 +28,7 @@ import {
 } from "../core";
 import {
   BOOTH_BUDGET_CURRENCIES,
+  BOOTH_CONTACT_LANGUAGES,
   FULL_NAV_STEPS,
   GUIDE_ACK_TARGET_SECONDS,
   GUIDE_CONTACT_SLA_SECONDS,
@@ -36,13 +37,17 @@ import {
   QUICK_STEPS,
   WHATSAPP_UNAVAILABLE_MESSAGE,
   buildProfileFromDraft,
+  derivePurchasePurpose,
   canCompleteContacted,
   contactedCompletionBlockers,
+  draftBudget,
+  draftBudgetAnswered,
   evaluateDirections,
   fullProfileComplete,
   hasGuestDataV2,
   quickProfileComplete,
   suggestGuides,
+  validateBudgetRange,
   visibleDirections,
   type BedroomPreference,
   type BoothBudgetCurrency,
@@ -128,28 +133,19 @@ const READINESS_OPTIONS = [
   { key: "unsure", label: "Not sure yet" },
 ] as const;
 
-/** Budget band labels in the guest's chosen currency. The USD labels are the
- * approved NAV-001 labels; other currencies show the same band boundaries in
- * that currency — the guest's own statement, never a conversion. */
-function bandLabelFor(band: BudgetKey, currency: BoothBudgetCurrency): string {
-  if (currency === "USD") return budgetLabel(band);
-  switch (band) {
-    case "lt_250k":
-      return `Under 250k ${currency}`;
-    case "250_500k":
-      return `250k–500k ${currency}`;
-    case "500k_1m":
-      return `500k–1M ${currency}`;
-    case "1m_2_5m":
-      return `1M–2.5M ${currency}`;
-    case "gt_2_5m":
-      return `2.5M+ ${currency}`;
-    case "exploring":
-      return "Still exploring";
+/** The guest's own numeric statement, echoed exactly — never converted. */
+function formatStatedBudget(draft: BoothV2Session["draft"]): string {
+  const currency = draft.budgetCurrency;
+  const format = (value: number) => `${value.toLocaleString("en-US")} ${currency}`;
+  if (draft.budgetMinimum !== null && draft.budgetMaximum !== null) {
+    return `${format(draft.budgetMinimum)} – ${format(draft.budgetMaximum)}`;
   }
+  if (draft.budgetMaximum !== null) return `Up to ${format(draft.budgetMaximum)}`;
+  if (draft.budgetMinimum !== null) return `From ${format(draft.budgetMinimum)}`;
+  return "Not stated";
 }
 
-export function BoothV2Navigator() {
+export function BoothV2Navigator({ hostName }: { hostName?: string | null } = {}) {
   const [resetOpen, setResetOpen] = useState(false);
   const [toast, setToast] = useState<BoothToastState | null>(null);
   const [failedBanner, setFailedBanner] = useState<string | null>(null);
@@ -201,19 +197,47 @@ export function BoothV2Navigator() {
     retry: 1,
   });
 
+  // The language is a PROFILE fact captured before the summary; the contact
+  // form only mirrors it, so the two can never disagree (the server rejects a
+  // mismatch outright).
+  useEffect(() => {
+    const language = session.draft.preferredLanguage ?? "";
+    if (session.screen === "contact" && session.contact.preferredLanguage !== language) {
+      dispatch({ type: "setContactField", field: "preferredLanguage", value: language });
+    }
+  }, [
+    session.screen,
+    session.draft.preferredLanguage,
+    session.contact.preferredLanguage,
+    dispatch,
+  ]);
+
   const directions = useMemo(
     () =>
       session.confirmedProfile ? evaluateDirections(session.confirmedProfile, projects) : null,
     [session.confirmedProfile, projects],
   );
 
-  /** Fire a funnel event exactly once per session (client dedupe + DB unique). */
-  function recordEventOnce(event: BoothFunnelEvent, step?: string, reason?: string) {
+  /**
+   * Client-observed funnel events only, with acknowledgement BEFORE dedupe:
+   * the event is marked recorded only after the server confirms persistence,
+   * so a transient network failure leaves it retryable instead of silently
+   * lost. Every transition event (profile confirmed, WhatsApp verified, Guide
+   * assigned/acknowledged, first contact, consultation booked, no-contact
+   * continuation) is emitted server-side by the operation that establishes
+   * the fact and is not routed through here at all.
+   */
+  async function recordEventOnce(event: BoothFunnelEvent, step?: string, reason?: string) {
     if (session.recordedEvents.includes(event)) return;
-    dispatch({ type: "markEventRecorded", event });
-    void boothV2RecordEvent({
-      data: { clientRef: session.clientRef, event, step, reason },
-    }).catch(() => undefined);
+    try {
+      await boothV2RecordEvent({
+        data: { clientRef: session.clientRef, event, step, reason },
+      });
+      dispatch({ type: "markEventRecorded", event });
+    } catch {
+      // Left unmarked on purpose: the next attempt retries it, and the
+      // database's (session_id, event) uniqueness keeps it exactly-once.
+    }
   }
 
   function handleStartNewGuest() {
@@ -239,30 +263,35 @@ export function BoothV2Navigator() {
     }
   }
 
-  function grantPermission() {
+  async function grantPermission() {
     dispatch({ type: "grantPermission" });
-    void boothV2EnsureSession({ data: { clientRef: session.clientRef } }).catch(() => undefined);
-    recordEventOnce("meaningful_conversation");
+    try {
+      await boothV2EnsureSession({ data: { clientRef: session.clientRef } });
+    } catch {
+      setToast({ tone: "error", message: "Couldn't open a booth session. Try again." });
+      return;
+    }
+    void recordEventOnce("meaningful_conversation");
   }
 
   function chooseMode(mode: "quick" | "full") {
     dispatch({ type: "chooseMode", mode });
-    recordEventOnce("profile_started");
+    void recordEventOnce("profile_started");
   }
 
   async function confirmProfile() {
     const profile = buildProfileFromDraft(session, fx, new Date().toISOString());
     if (!profile) return;
-    dispatch({ type: "confirmProfile", profile });
-    recordEventOnce("profile_confirmed");
     try {
-      await boothV2ConfirmProfile({
-        data: { clientRef: session.clientRef, profile },
-      });
+      // The server confirms the profile (and emits profile_confirmed inside
+      // the same transaction) BEFORE the tablet moves on, so the structured
+      // record and the screen can never disagree.
+      await boothV2ConfirmProfile({ data: { clientRef: session.clientRef, profile } });
+      dispatch({ type: "confirmProfile", profile });
     } catch {
       setToast({
         tone: "error",
-        message: "Profile saved on this tablet, but syncing failed — it will retry on contact.",
+        message: "We couldn't save the Decision Profile. Please try again.",
       });
     }
   }
@@ -312,12 +341,17 @@ export function BoothV2Navigator() {
     }
   }
 
-  function declineContact() {
+  async function declineContact() {
     dispatch({ type: "declineContact" });
-    recordEventOnce("qr_continuation");
-    void boothV2CompleteSession({
-      data: { clientRef: session.clientRef, outcome: "no_contact_qr" },
-    }).catch(() => undefined);
+    // The server clears every stored field, deletes any lead created for this
+    // session, and emits qr_continuation — all in one transaction.
+    try {
+      await boothV2CompleteSession({
+        data: { clientRef: session.clientRef, outcome: "no_contact_qr" },
+      });
+    } catch {
+      setToast({ tone: "error", message: "Couldn't close the session. Try again." });
+    }
   }
 
   async function startWhatsappVerification() {
@@ -342,7 +376,6 @@ export function BoothV2Navigator() {
         data: { clientRef: session.clientRef, method: "wa_me_host_confirmed" },
       });
       dispatch({ type: "whatsappVerified", at: result.verifiedAt, method: "wa_me_host_confirmed" });
-      recordEventOnce("whatsapp_verified");
     } catch {
       setToast({ tone: "error", message: "Couldn't record the verification. Try again." });
     }
@@ -365,13 +398,17 @@ export function BoothV2Navigator() {
       dispatch({
         type: "guideAssigned",
         at: result.assignedAt,
-        guide: { id: guide.id, displayName: guide.displayName, languages: guide.languages },
+        guide: {
+          id: guide.id,
+          displayName: guide.displayName,
+          languages: guide.languages,
+          hasStaffAccount: guide.hasStaffAccount === true,
+        },
         reserve: reserve
           ? { id: reserve.id, displayName: reserve.displayName, languages: reserve.languages }
           : null,
         fallbackReason: fallback,
       });
-      recordEventOnce("guide_assigned");
     } catch {
       setToast({ tone: "error", message: "Couldn't assign the Guide. Try again." });
     }
@@ -379,9 +416,14 @@ export function BoothV2Navigator() {
 
   async function acknowledgeGuide() {
     try {
+      // The server decides the METHOD from who is actually acting: only the
+      // assigned Guide's own account yields "guide_self_confirmed".
       const result = await boothV2AcknowledgeGuide({ data: { clientRef: session.clientRef } });
-      dispatch({ type: "guideAcknowledged", at: result.acknowledgedAt });
-      recordEventOnce("guide_acknowledged");
+      dispatch({
+        type: "guideAcknowledged",
+        at: result.acknowledgedAt,
+        method: result.method,
+      });
     } catch {
       setToast({ tone: "error", message: "Couldn't record the acknowledgement. Try again." });
     }
@@ -389,31 +431,45 @@ export function BoothV2Navigator() {
 
   async function recordFirstContact() {
     try {
-      await boothV2RecordHandoff({
+      const result = await boothV2RecordHandoff({
         data: { clientRef: session.clientRef, firstContactConfirmed: true },
       });
-      dispatch({ type: "recordFirstContact", at: new Date().toISOString() });
-      recordEventOnce("guide_contacted");
+      dispatch({
+        type: "recordFirstContact",
+        at: new Date().toISOString(),
+        method: result.firstContactMethod ?? "host_observed",
+      });
     } catch {
       setToast({ tone: "error", message: "Couldn't record the live contact. Try again." });
     }
   }
 
-  async function saveNextStep(nextStep: string, consultationTime: string) {
-    const time = consultationTime.trim();
+  /** `scheduledAt` is an exact instant (ISO) or null — never free text. */
+  async function saveNextStep(nextStep: string, scheduledAt: string | null) {
+    const timezone =
+      typeof Intl !== "undefined"
+        ? (Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC")
+        : "UTC";
     try {
       await boothV2RecordHandoff({
         data: {
           clientRef: session.clientRef,
           nextStep,
-          consultationScheduledFor: time.length > 0 ? time : null,
+          consultationScheduledAt: scheduledAt,
+          consultationTimezone: scheduledAt ? timezone : null,
         },
       });
       dispatch({ type: "setNextStep", value: nextStep });
-      dispatch({ type: "setConsultationTime", value: time.length > 0 ? time : null });
-      if (time.length > 0) recordEventOnce("consultation_booked");
+      dispatch({
+        type: "setConsultationTime",
+        at: scheduledAt,
+        timezone: scheduledAt ? timezone : null,
+      });
     } catch {
-      setToast({ tone: "error", message: "Couldn't save the next step. Try again." });
+      setToast({
+        tone: "error",
+        message: "Couldn't save the next step — check the consultation time and try again.",
+      });
     }
   }
 
@@ -433,7 +489,11 @@ export function BoothV2Navigator() {
   }
 
   return (
-    <BoothV2Shell screen={screen} onStartNewGuest={handleStartNewGuest}>
+    <BoothV2Shell
+      screen={screen}
+      hostName={hostName ?? configQuery.data?.hostName ?? null}
+      onStartNewGuest={handleStartNewGuest}
+    >
       {screen === "welcome" ? (
         <Panel>
           <SectionHeading
@@ -465,8 +525,32 @@ export function BoothV2Navigator() {
             secondaryLabel="I'm just browsing on my own"
             onSecondary={() => {
               dispatch({ type: "declinePermission" });
-              recordEventOnce("qr_continuation");
+              void recordEventOnce("qr_continuation");
             }}
+            sticky={false}
+          />
+        </Panel>
+      ) : null}
+
+      {screen === "language" ? (
+        <Panel>
+          <SectionHeading eyebrow="So we understand each other" title="Which language suits you?" />
+          <p className="mb-5 max-w-[560px] text-[14px] leading-relaxed text-[#57534A]">
+            We capture this now so your Decision Profile — and the Guide we introduce you to — match
+            the language you are most comfortable in.
+          </p>
+          <ChoiceGroup
+            ariaLabel="Preferred language"
+            items={BOOTH_CONTACT_LANGUAGES.map((language) => ({ key: language, title: language }))}
+            selectedKeys={draft.preferredLanguage ? [draft.preferredLanguage] : []}
+            onToggle={(key) => dispatch({ type: "setPreferredLanguage", value: key })}
+          />
+          <PrimaryActionBar
+            primaryLabel="Continue"
+            disabled={!draft.preferredLanguage}
+            onPrimary={() => dispatch({ type: "continueToModeSelection" })}
+            secondaryLabel="Back"
+            onSecondary={() => dispatch({ type: "back" })}
             sticky={false}
           />
         </Panel>
@@ -619,6 +703,7 @@ export function BoothV2Navigator() {
           </p>
           <BoothV2ContactForm
             contact={contact}
+            onChangeLanguage={() => dispatch({ type: "editSection", target: "language" })}
             submitting={submitting}
             failedBanner={failedBanner}
             onFieldChange={(field, value) => dispatch({ type: "setContactField", field, value })}
@@ -683,7 +768,7 @@ export function BoothV2Navigator() {
         <NoContactView
           finished={session.outcome === "no_contact_qr"}
           onFinish={() => {
-            recordEventOnce("qr_continuation");
+            void recordEventOnce("qr_continuation");
             dispatch({ type: "completeNoContact" });
             void boothV2CompleteSession({
               data: { clientRef: session.clientRef, outcome: "no_contact_qr" },
@@ -727,7 +812,7 @@ export function BoothV2Navigator() {
               <button
                 type="button"
                 onClick={() => {
-                  recordEventOnce("session_abandoned", screen, "host_cleared_after_warning");
+                  void recordEventOnce("session_abandoned", screen, "host_cleared_after_warning");
                   confirmReset();
                 }}
                 className="min-h-[52px] flex-1 rounded-[14px] border border-[#EAE6DE] bg-white px-4 text-[15px] font-[600] text-[#57534A] outline-none hover:bg-[#FBFAF7] focus-visible:ring-2 focus-visible:ring-[#9C7B4C] focus-visible:ring-offset-2"
@@ -763,7 +848,7 @@ function QuickProfileView({
     step === "purpose"
       ? draft.purchasePurpose !== null
       : step === "budget"
-        ? draft.budgetBand !== null
+        ? draftBudgetAnswered(draft)
         : step === "property_type"
           ? draft.propertyType !== null
           : draft.nav.timeline !== null;
@@ -828,6 +913,12 @@ function QuickProfileView({
   );
 }
 
+/**
+ * Explicit numeric budget in the guest's OWN currency. The approved NAV-001
+ * USD bands are never reused as amounts in another currency — that would be a
+ * commercially misleading pseudo-conversion — so the booth asks for real
+ * numbers and treats "still exploring" as a first-class answer.
+ */
 function BudgetPicker({
   session,
   dispatch,
@@ -836,6 +927,15 @@ function BudgetPicker({
   dispatch: (action: BoothV2Action) => void;
 }) {
   const { draft } = session;
+  const uid = useId();
+  const error = draft.budgetExploring ? null : validateBudgetRange(draftBudget(draft));
+  const parseAmount = (raw: string): number | null => {
+    const cleaned = raw.replace(/[\s,]/g, "");
+    if (cleaned.length === 0) return null;
+    const value = Number(cleaned);
+    return Number.isFinite(value) ? value : Number.NaN;
+  };
+
   return (
     <div>
       <div
@@ -860,18 +960,75 @@ function BudgetPicker({
           </button>
         ))}
       </div>
-      <ChoiceGroup
-        ariaLabel="Budget range"
-        items={BUDGET_OPTIONS.map((o) => ({
-          key: o.key,
-          title: bandLabelFor(o.key, draft.budgetCurrency),
-        }))}
-        selectedKeys={draft.budgetBand ? [draft.budgetBand] : []}
-        onToggle={(key) => dispatch({ type: "setBudgetBand", value: key as BudgetKey })}
-      />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor={uid + "-min"} className="text-[13px] font-[600] text-[#3A362E]">
+            From ({draft.budgetCurrency})
+          </label>
+          <input
+            id={uid + "-min"}
+            inputMode="numeric"
+            disabled={draft.budgetExploring}
+            value={draft.budgetMinimum === null ? "" : String(draft.budgetMinimum)}
+            onChange={(event) =>
+              dispatch({
+                type: "setBudgetAmounts",
+                minimum: parseAmount(event.target.value),
+                maximum: draft.budgetMaximum,
+              })
+            }
+            className="min-h-[50px] rounded-[13px] border border-[#EAE6DE] bg-white px-4 text-[15px] text-[#2A2820] outline-none focus:border-[#D8D2C6] focus-visible:ring-2 focus-visible:ring-[#9C7B4C] focus-visible:ring-offset-2 disabled:bg-[#F6F4EF] disabled:text-[#B0AB9F]"
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor={uid + "-max"} className="text-[13px] font-[600] text-[#3A362E]">
+            Up to ({draft.budgetCurrency})
+          </label>
+          <input
+            id={uid + "-max"}
+            inputMode="numeric"
+            disabled={draft.budgetExploring}
+            value={draft.budgetMaximum === null ? "" : String(draft.budgetMaximum)}
+            onChange={(event) =>
+              dispatch({
+                type: "setBudgetAmounts",
+                minimum: draft.budgetMinimum,
+                maximum: parseAmount(event.target.value),
+              })
+            }
+            className="min-h-[50px] rounded-[13px] border border-[#EAE6DE] bg-white px-4 text-[15px] text-[#2A2820] outline-none focus:border-[#D8D2C6] focus-visible:ring-2 focus-visible:ring-[#9C7B4C] focus-visible:ring-offset-2 disabled:bg-[#F6F4EF] disabled:text-[#B0AB9F]"
+          />
+        </div>
+      </div>
+
+      {error ? (
+        <p role="alert" className="mt-2 text-[12.5px] text-[#C96F52]">
+          {error === "range_inverted"
+            ? "The lower amount must not exceed the upper amount."
+            : error === "amount_invalid"
+              ? "Enter a plain number, or leave the field empty."
+              : "Enter at least one amount, or choose \u201cstill exploring\u201d."}
+        </p>
+      ) : null}
+
+      <button
+        type="button"
+        aria-pressed={draft.budgetExploring}
+        onClick={() => dispatch({ type: "setBudgetExploring", value: !draft.budgetExploring })}
+        className={[
+          "mt-4 w-full rounded-[15px] border px-[18px] py-[17px] text-left text-[15.5px] font-[500] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[#9C7B4C] focus-visible:ring-offset-2",
+          draft.budgetExploring
+            ? "border-[1.5px] border-[#17150F] bg-[#F3EFE7] font-[600] text-[#17150F]"
+            : "border border-[#EAE6DE] bg-white text-[#3A362E] hover:bg-[#FBFAF7]",
+        ].join(" ")}
+      >
+        Still exploring — no budget yet
+      </button>
+
       <p className="mt-3 text-[12.5px] text-[#8A857A]">
-        Your budget stays in {draft.budgetCurrency}. We only compare it with THB prices when a
-        dated, source-identified exchange rate is configured — never with an invented rate.
+        Your budget is recorded exactly as you state it, in {draft.budgetCurrency}. We only compare
+        it with THB prices when a dated, source-identified exchange rate is configured — never with
+        an invented rate.
       </p>
     </div>
   );
@@ -899,7 +1056,7 @@ function FullNavView({
       : step === "success"
         ? nav.goals.length > 0
         : step === "budget_timeline"
-          ? draft.budgetBand !== null && nav.timeline !== null
+          ? draftBudgetAnswered(draft) && nav.timeline !== null
           : nav.concerns.length > 0;
 
   return (
@@ -1102,8 +1259,11 @@ function DecisionSummaryView({
 }) {
   const { draft, flowMode } = session;
   const edit = (target: EditTarget) => () => dispatch({ type: "editSection", target });
+  // Quick asks the purpose; Full derives it from the NAV-001 answers.
+  const purposeKey = flowMode === "full" ? derivePurchasePurpose(draft.nav) : draft.purchasePurpose;
   const purposeLabel =
-    PURPOSE_OPTIONS.find((o) => o.key === draft.purchasePurpose)?.label ?? "Not stated";
+    (PURPOSE_OPTIONS.find((o) => o.key === purposeKey)?.label ?? "Not stated") +
+    (flowMode === "full" ? " · from your answers" : "");
   const complete = flowMode === "quick" ? quickProfileComplete(draft) : fullProfileComplete(draft);
 
   return (
@@ -1119,15 +1279,20 @@ function DecisionSummaryView({
         <SummaryRow
           label="Budget"
           value={
-            draft.budgetBand
-              ? `${bandLabelFor(draft.budgetBand, draft.budgetCurrency)}${
+            draft.budgetExploring
+              ? "Still exploring"
+              : `${formatStatedBudget(draft)}${
                   fx || draft.budgetCurrency === "THB"
                     ? ""
                     : " · THB comparison off (no dated verified rate)"
                 }`
-              : "Still exploring"
           }
           onEdit={edit("budget_timeline")}
+        />
+        <SummaryRow
+          label="Preferred language"
+          value={draft.preferredLanguage ?? "Not stated"}
+          onEdit={edit("language")}
         />
         <SummaryRow
           label="Timeline"
@@ -1590,6 +1755,13 @@ function HandoffWaitingView({
                 ? `${formatClock(elapsed)} / ${formatClock(GUIDE_ACK_TARGET_SECONDS)}`
                 : "—"}
           </p>
+          {acknowledged ? (
+            <p className="mt-1 text-[12px] text-[#8A857A]">
+              {guide.acknowledgedMethod === "guide_self_confirmed"
+                ? "Confirmed by the Guide's own account"
+                : "Observed by the Host — not a Guide confirmation"}
+            </p>
+          ) : null}
         </div>
         <div className="rounded-[15px] border border-[#EAE6DE] bg-white px-5 py-4">
           <p className="text-[11.5px] font-[700] uppercase tracking-[0.14em] text-[#8A857A]">
@@ -1609,7 +1781,9 @@ function HandoffWaitingView({
           onClick={onAcknowledge}
           className="mt-5 min-h-[52px] w-fit rounded-[14px] border border-[#EAE6DE] bg-white px-6 text-[15px] font-[600] text-[#2C5B3F] outline-none hover:bg-[#FBFAF7] focus-visible:ring-2 focus-visible:ring-[#9C7B4C] focus-visible:ring-offset-2"
         >
-          Host: Guide confirmed — mark acknowledged
+          {guide.assigned?.hasStaffAccount
+            ? "Record acknowledgement"
+            : "Host: record that the Guide acknowledged (observation)"}
         </button>
       ) : null}
 
@@ -1627,6 +1801,25 @@ function HandoffWaitingView({
 
 /* ---------- Next step + completion ---------- */
 
+/** ISO instant → the local wall-clock value a datetime-local input expects. */
+function toLocalInputValue(iso: string | null): string {
+  if (!iso) return "";
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return (
+    `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}` +
+    `T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`
+  );
+}
+
+/** Local wall-clock value → an exact ISO instant, or null when unusable. */
+function fromLocalInputValue(value: string): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
 function NextStepView({
   session,
   onRecordFirstContact,
@@ -1636,12 +1829,16 @@ function NextStepView({
 }: {
   session: BoothV2Session;
   onRecordFirstContact: () => void;
-  onSave: (nextStep: string, consultationTime: string) => Promise<void>;
+  onSave: (nextStep: string, scheduledAt: string | null) => Promise<void>;
   onComplete: () => void;
   onBack: () => void;
 }) {
   const [nextStep, setNextStep] = useState(session.handoff.nextStep ?? "");
-  const [time, setTime] = useState(session.handoff.consultationScheduledFor ?? "");
+  // <input type="datetime-local"> works in local wall-clock time; the exact
+  // instant is resolved to ISO on save and stored as a real timestamp.
+  const [time, setTime] = useState(() =>
+    toLocalInputValue(session.handoff.consultationScheduledAt),
+  );
   const blockers = contactedCompletionBlockers(session);
   const liveConfirmed = session.handoff.firstContactConfirmedAt !== null;
 
@@ -1673,11 +1870,14 @@ function NextStepView({
           </label>
           <input
             id="booth-consultation-time"
+            type="datetime-local"
             value={time}
             onChange={(event) => setTime(event.target.value)}
-            placeholder="e.g. Tomorrow 14:00 (Phuket time)"
             className="min-h-[50px] rounded-[13px] border border-[#EAE6DE] bg-white px-4 text-[15px] text-[#2A2820] outline-none focus:border-[#D8D2C6] focus-visible:ring-2 focus-visible:ring-[#9C7B4C] focus-visible:ring-offset-2"
           />
+          <p className="text-[12px] text-[#8A857A]">
+            An exact date and time — free text such as “tomorrow” cannot complete a handoff.
+          </p>
         </div>
 
         <button
@@ -1698,7 +1898,7 @@ function NextStepView({
 
         <button
           type="button"
-          onClick={() => void onSave(nextStep, time)}
+          onClick={() => void onSave(nextStep, fromLocalInputValue(time))}
           disabled={nextStep.trim().length === 0}
           className={[
             "min-h-[52px] rounded-[14px] px-6 text-[15px] font-[600] outline-none focus-visible:ring-2 focus-visible:ring-[#9C7B4C] focus-visible:ring-offset-2",
@@ -1758,7 +1958,7 @@ function CompletionView({
         </li>
         <li className="text-[15px] text-[#2C5B3F]">
           ✓ Next step: {handoff.nextStep}
-          {handoff.consultationScheduledFor ? ` · ${handoff.consultationScheduledFor}` : ""}
+          {handoff.consultationScheduledAt ? ` · ${handoff.consultationScheduledAt}` : ""}
           {handoff.firstContactConfirmedAt ? " · live Guide message confirmed" : ""}
         </li>
       </ul>

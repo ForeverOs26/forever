@@ -5,6 +5,7 @@ import type { BoothV2Screen } from "../core/v2";
 const STAGE_LABEL: Record<BoothV2Screen, string> = {
   welcome: "Welcome",
   permission: "Permission",
+  language: "Language",
   mode_selection: "Choosing the pace",
   quick_profile: "Quick profile",
   full_nav_questions: "Decision Profile",
@@ -25,6 +26,7 @@ const STAGE_LABEL: Record<BoothV2Screen, string> = {
 const STAGE_ORDER: BoothV2Screen[] = [
   "welcome",
   "permission",
+  "language",
   "mode_selection",
   "quick_profile",
   "full_nav_questions",
@@ -55,10 +57,13 @@ function stageProgress(screen: BoothV2Screen): number {
  */
 export function BoothV2Shell({
   screen,
+  hostName,
   onStartNewGuest,
   children,
 }: {
   screen: BoothV2Screen;
+  /** The authenticated Host, resolved server-side — never client-supplied. */
+  hostName?: string | null;
   onStartNewGuest: () => void;
   children: ReactNode;
 }) {
@@ -75,6 +80,11 @@ export function BoothV2Shell({
             <span className="rounded-full border border-[#E3DED4] bg-[#FBFAF7] px-2.5 py-1 text-[10.5px] font-[700] uppercase tracking-[0.14em] text-[#9C7B4C]">
               Booth 2.0 · Host
             </span>
+            {hostName ? (
+              <span className="hidden text-[12px] font-[600] text-[#57534A] sm:inline">
+                {hostName}
+              </span>
+            ) : null}
           </div>
 
           <div className="ml-auto flex items-center gap-4">

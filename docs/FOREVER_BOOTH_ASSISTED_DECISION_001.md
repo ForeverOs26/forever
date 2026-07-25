@@ -1,11 +1,47 @@
 # FOREVER-BOOTH-ASSISTED-DECISION-001 — Architecture Record
 
-Booth Mode 2.0: the pilot-ready **Forever Assisted Decision Concierge**.
+Booth Mode 2.0: the **Forever Assisted Decision Concierge** (pilot build, under
+architect review — see §0 for the corrective pass and what is still open).
 
 - Base: `main` @ `a9d275fc678065ef70b331aee20f24f1c4f030e6` (PR #100 merge commit, verified merged).
 - Branch: `claude/forever-booth-assisted-decision-001`.
 - Research basis: «НЕЗАВИСИМОЕ ИССЛЕДОВАНИЕ — Оптимальная модель взаимодействия с гостем на бутсе», v1.0, 25 July 2026 (task brief used as the authoritative summary).
 - Factory autonomy: **A0** (unchanged). Production: **untouched** — no deploy, no migration application, no production data access.
+
+---
+
+## 0. Corrective pass 1 (PR #102 architect review)
+
+The first build shipped the product architecture but an unacceptable trust
+boundary: the booth was treated as an anonymous kiosk while its server
+functions used the service role. This pass corrects that and the related
+data-integrity and profile-truth defects. **The pilot is not "ready" until the
+architect re-review passes.**
+
+| Defect                                                                  | Correction                                                                                                                                                                                                                                                                                       |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Unauthenticated callers could reach service-role operations             | Every Booth server function now runs behind `requireBoothStaff`: Supabase JWT + an ACTIVE row in the existing `studio_members` staff roster. No second identity system; no self-registration or bootstrap path here.                                                                             |
+| Client-supplied `hostLabel`                                             | Removed. Host identity is derived server-side from the authenticated account and stored as `booth_sessions.host_user_id` (FK to `auth.users`, NOT NULL).                                                                                                                                         |
+| `/booth-v2` compiled and reachable; `noindex` treated as access control | Server-side, DEFAULT-DISABLED `BOOTH_V2_ENABLED`. Route and every endpoint are gated independently; a refusal renders the application's normal not-found boundary. The flag is never read from a client-visible `VITE_*` variable.                                                               |
+| Guide data readable without authorization                               | `booth_guides` is service_role-only and is returned only to an authorized staff caller.                                                                                                                                                                                                          |
+| Check-then-insert lead creation could duplicate on retry                | One `SECURITY DEFINER` RPC (`booth_save_contact_and_lead`) locks the session row and creates-or-returns exactly one lead; `booth_sessions.lead_id` is UNIQUE. Proven by a two-session concurrency probe and a mid-transaction rollback probe.                                                    |
+| Weak database contact contract                                          | All-or-nothing contact bundle + phone/email/non-blank format checks, consent-before-contact, verified-WhatsApp evidence, assignment/acknowledgement/first-contact coherence and attribution, reserve ≠ primary, non-blank next step.                                                             |
+| `consultation_scheduled_for TEXT` ("tomorrow" could complete a handoff) | `consultation_scheduled_at TIMESTAMPTZ` + `consultation_timezone`, validated at the boundary (real instant, not past, not implausible) and entered through a `datetime-local` control.                                                                                                           |
+| Partial no-contact clearing in two updates                              | One transaction clears every personal and operational field, scrubs the profile language, DELETES any lead created for the session, and sets the outcome — backed by a database CHECK.                                                                                                           |
+| Full flow never asked purchase purpose → silently "exploring"           | The Full flow DERIVES it deterministically from the confirmed NAV-001 answers (`derivePurchasePurpose`); Quick still asks it outright.                                                                                                                                                           |
+| `preferredLanguage` always null in the confirmed profile                | Language is captured on its own screen BEFORE the Decision Summary, carried in the profile, mirrored read-only on the contact form, and re-checked server-side; a mismatch is rejected and the database enforces agreement.                                                                      |
+| USD band thresholds reused as amounts in other currencies               | The booth now collects EXPLICIT numeric minimum/maximum plus currency, with "still exploring" as a first-class answer; the approved USD bands remain only in the legacy website adapter.                                                                                                         |
+| Permissive profile parsing                                              | ONE canonical strict schema (`decisionProfileV2Schema`) used by both session hydration and the server: exact enum keys, no unknown keys, budget geometry, canonical-THB arithmetic + provenance, bounded strings/areas/payload, flow completeness.                                               |
+| Silently truncated shortlists                                           | `validateShortlist` rejects a malformed shortlist whole (duplicates, blanks, over-long, >4, guide-prepares conflict); unknown project slugs are refused at the boundary; the database re-checks size and mode coherence.                                                                         |
+| Client marked funnel events before the server confirmed                 | Transition events are emitted SERVER-SIDE inside the RPC that establishes the fact; the few client-observed events use acknowledgement-before-dedupe and stay retryable, with the DB uniqueness keeping them exactly-once.                                                                       |
+| A Host click recorded as the Guide's acknowledgement                    | Acknowledgement and first contact record WHO and BY WHAT METHOD. `guide_self_confirmed` is only possible from the assigned Guide's own linked staff account (enforced in the RPC); anything else is stored and displayed as `host_observed` — "Observed by the Host — not a Guide confirmation". |
+
+**Remaining pilot limitations (documented, not defects):** the tablet is
+operated by an authenticated Host on behalf of the guest, so guest-facing
+screens carry no separate guest identity; Guide acknowledgement is truthful but
+manual (no WhatsApp API); `studio_members` grants booth access to any active
+staff member (a booth-specific role is a post-pilot decision); and the
+migration remains unapplied everywhere except the disposable local harness.
 
 ---
 

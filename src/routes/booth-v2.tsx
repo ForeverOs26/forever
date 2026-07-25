@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { BoothV2Navigator } from "@/features/navigator/booth-v2";
+import { BoothV2Gate } from "@/features/navigator/booth-v2";
 
 /**
  * Booth Mode 2.0 — the Forever Assisted Decision Concierge (pilot).
@@ -35,5 +35,5 @@ export const Route = createFileRoute("/booth-v2")({
 });
 
 function BoothV2Route() {
-  return <BoothV2Navigator />;
+  return <BoothV2Gate />;
 }

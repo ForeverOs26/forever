@@ -25,8 +25,11 @@ If yes → tap **Yes — let's look together**. If no → see §4.
 > full version, which also looks at why Phuket and what you're unsure about. Which suits
 > you?"
 
-- Quick: purpose, budget (their currency), condo/villa, timeline. Then straight to the
-  summary and contact.
+Before either flow, the tablet asks which **language** suits the guest — that answer
+becomes part of their Decision Profile and drives which Guide we introduce.
+
+- Quick: purpose, budget (their currency, as **actual numbers** they state — or "still
+  exploring"), condo/villa, timeline. Then straight to the summary and contact.
 - Full: the four NAV-001 questions plus property type, bedrooms, areas (or "help me
   choose"), readiness.
 
@@ -83,6 +86,12 @@ warmly — the QR continuation is a success, not a failure.
 
 - Target: the assigned Guide acknowledges within **2 minutes** and makes first contact
   within **5 minutes** (the screen shows both timers).
+- **Acknowledgement is recorded truthfully.** When you press the button, the system
+  stores it as _"observed by the Host"_ — not as the Guide's own confirmation — unless
+  the assigned Guide is signed in with their own account. Never tell a guest the Guide
+  "confirmed" when what happened is that you saw it.
+- The consultation time is an **exact date and time**. "Tomorrow" or "later this week"
+  cannot complete a handoff; agree a real slot or confirm the Guide's live message.
 - Close with a concrete next step: an exact consultation time, or the Guide's live
   message confirmed on the guest's phone.
 - The session is complete only when the completion screen shows all four checkmarks.
@@ -98,6 +107,9 @@ not confirmed; that a session is "complete" when the screen says it is not.
 
 ## 12. Opening checklist (start of shift)
 
+- [ ] Signed in to the tablet with YOUR own Forever staff account. The booth
+      cannot be operated without it, and every session is recorded against the
+      signed-in Host. Never share an account or leave one signed in unattended.
 - [ ] Tablet on `/booth-v2`, welcome screen showing, previous session cleared.
 - [ ] Official WhatsApp number configured (verification screen reachable) — if not,
       note it and inform the coordinator.

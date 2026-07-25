@@ -77,6 +77,7 @@ export function BoothV2ContactForm({
   submitting,
   failedBanner,
   onFieldChange,
+  onChangeLanguage,
   onConsentChange,
   onMarketingChange,
   onSubmit,
@@ -86,6 +87,9 @@ export function BoothV2ContactForm({
   submitting: boolean;
   failedBanner: string | null;
   onFieldChange: (field: ContactTextField, value: string) => void;
+  /** Returns to the language step — the language is a profile fact, not a
+   *  contact field, so changing it re-opens the confirmed profile. */
+  onChangeLanguage: () => void;
   onConsentChange: (value: boolean) => void;
   onMarketingChange: (value: boolean) => void;
   onSubmit: () => void;
@@ -134,32 +138,30 @@ export function BoothV2ContactForm({
           autoComplete="tel"
           error={errors.whatsapp}
         />
+        {/* The language was chosen before the Decision Summary and is part of
+            the confirmed profile — shown here as a fact, changed only by
+            re-opening that step so the two records stay one truth. */}
         <div className="flex flex-col gap-1.5">
-          <label htmlFor={`${uid}-language`} className="text-[13px] font-[600] text-[#3A362E]">
+          <span className="text-[13px] font-[600] text-[#3A362E]">
             Preferred language<span className="text-[#9C7B4C]"> *</span>
-          </label>
-          <select
-            id={`${uid}-language`}
-            value={contact.preferredLanguage}
-            required
-            aria-invalid={errors.preferredLanguage ? true : undefined}
-            aria-describedby={errors.preferredLanguage ? `${uid}-language-error` : undefined}
-            onChange={(event) => onFieldChange("preferredLanguage", event.target.value)}
+          </span>
+          <div
             className={[
-              "min-h-[50px] rounded-[13px] border bg-white px-4 text-[15px] text-[#2A2820] outline-none transition-colors",
-              "focus-visible:ring-2 focus-visible:ring-[#9C7B4C] focus-visible:ring-offset-2",
-              errors.preferredLanguage
-                ? "border-[1.5px] border-[#C96F52]"
-                : "border-[#EAE6DE] focus:border-[#D8D2C6]",
+              "flex min-h-[50px] items-center justify-between gap-3 rounded-[13px] border bg-[#FBFAF7] px-4",
+              errors.preferredLanguage ? "border-[1.5px] border-[#C96F52]" : "border-[#EAE6DE]",
             ].join(" ")}
           >
-            <option value="">Choose…</option>
-            {BOOTH_CONTACT_LANGUAGES.map((language) => (
-              <option key={language} value={language}>
-                {language}
-              </option>
-            ))}
-          </select>
+            <span className="text-[15px] text-[#2A2820]">
+              {contact.preferredLanguage || "Not chosen yet"}
+            </span>
+            <button
+              type="button"
+              onClick={onChangeLanguage}
+              className="rounded-[10px] border border-[#EAE6DE] bg-white px-3 py-1.5 text-[12.5px] font-[600] text-[#3A362E] outline-none hover:bg-[#FBFAF7] focus-visible:ring-2 focus-visible:ring-[#9C7B4C] focus-visible:ring-offset-2"
+            >
+              Change
+            </button>
+          </div>
           {errors.preferredLanguage ? (
             <p id={`${uid}-language-error`} className="text-[12.5px] text-[#C96F52]">
               {errors.preferredLanguage}
