@@ -35,7 +35,12 @@ import {
   STUDIO_WORKFLOWS,
   type StartJobInput,
   type StartJobResult,
+  type StudioArchiveConfirmInput,
+  type StudioArchiveConfirmResult,
+  type StudioArchivePlanInput,
+  type StudioArchivePlanResult,
   type StudioInviteResult,
+  type StudioJobProgress,
   type StudioJobResult,
   type StudioListingDetail,
   type StudioOverview,
@@ -67,6 +72,14 @@ import {
   publicJobPrefix,
   type GatheredMaterials,
 } from "./extraction";
+import {
+  buildJobProgress,
+  composeArchiveMaterials,
+  confirmArchiveUpload,
+  planArchiveUpload,
+  runArchiveSlice,
+  type ComposedArchiveMaterials,
+} from "./large-archive";
 import { assertNotPartnerDemo, assertOwner } from "./membership";
 
 export const MAX_JOB_FILES = 60;
@@ -114,6 +127,11 @@ interface StudioJobPrincipals {
   authorization: StudioActor;
   /** Signed-in account/background context that executes this attempt. */
   execution: StudioActor;
+  /**
+   * How this attempt was initiated — a signed-in session call or the
+   * scheduled background runner. Audit truthfulness only, never authorization.
+   */
+  executionVia?: "session" | "scheduled_runner";
 }
 
 async function resolveJobPrincipals(
@@ -152,6 +170,7 @@ function jobPrincipalAuditMetadata(
     authorization_principal_role: principals.authorization.role,
     executed_by_id: principals.execution.userId,
     executed_by_role: principals.execution.role,
+    executed_via: principals.executionVia ?? "session",
     resumed_by_owner:
       principals.execution.role === "owner" &&
       principals.execution.userId !== principals.source.userId,
@@ -422,6 +441,78 @@ export async function processUploadJob(
   return claimAndProcess(deps, actor, job, true);
 }
 
+// ---------------------------------------------------------------------------
+// Large-archive uploads: plan (resumable part targets) / confirm / progress
+// ---------------------------------------------------------------------------
+
+async function requireJobAccess(
+  deps: StudioDeps,
+  actor: StudioActor,
+  jobId: string,
+): Promise<StudioJobRow> {
+  const job = await deps.data.getJob(jobId);
+  if (!job) throw new StudioAccessError("job_not_found");
+  assertObjectAccess(actor, job.created_by);
+  return job;
+}
+
+export async function planJobArchiveUpload(
+  deps: StudioDeps,
+  actor: StudioActor,
+  input: StudioArchivePlanInput,
+): Promise<StudioArchivePlanResult> {
+  assertNotPartnerDemo(deps);
+  const job = await requireJobAccess(deps, actor, input.jobId);
+  // Same pre-authorization as processing: a denied known target must not
+  // allocate private staging parts or signed targets as a side channel.
+  await assertKnownProjectTargetAccess(
+    deps,
+    actor,
+    job.project_slug,
+    job.facts.projectFacts as StudioProjectFacts | undefined,
+  );
+  const plan = await planArchiveUpload(deps, job, input);
+  await recordAuditSafely(deps, {
+    actor_id: actor.userId,
+    actor_email: actor.email,
+    action: "studio_archive_planned",
+    table_name: "studio_archives",
+    record_id: plan.archiveId,
+    metadata: { job_id: job.id, parts: plan.partCount, resumed: plan.presentParts.length > 0 },
+  });
+  return plan;
+}
+
+export async function confirmJobArchiveUpload(
+  deps: StudioDeps,
+  actor: StudioActor,
+  input: StudioArchiveConfirmInput,
+): Promise<StudioArchiveConfirmResult> {
+  assertNotPartnerDemo(deps);
+  const job = await requireJobAccess(deps, actor, input.jobId);
+  const result = await confirmArchiveUpload(deps, job, input);
+  if (result.accepted) {
+    await recordAuditSafely(deps, {
+      actor_id: actor.userId,
+      actor_email: actor.email,
+      action: "studio_archive_accepted",
+      table_name: "studio_archives",
+      record_id: result.archiveId,
+      metadata: { job_id: job.id },
+    });
+  }
+  return result;
+}
+
+export async function getJobProgress(
+  deps: StudioDeps,
+  actor: StudioActor,
+  jobId: string,
+): Promise<StudioJobProgress> {
+  const job = await requireJobAccess(deps, actor, jobId);
+  return buildJobProgress(deps, job);
+}
+
 /**
  * Automatic durable resume. Called on every dashboard poll (and safe for a
  * scheduled worker/cron to call) to pick up explicitly-ready received,
@@ -452,6 +543,133 @@ export async function resumeDueJobs(
     }
   }
   return { resumed: results.filter((r) => r.status === "published").length, results };
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled background runner (no browser session, no user token)
+// ---------------------------------------------------------------------------
+
+/** Slice advancements one scheduled invocation may perform (bounded work). */
+export const SCHEDULED_TICK_MAX_SLICES = 12;
+
+export interface StudioScheduledTickResult {
+  /** Explicitly processing-requested jobs the tick saw as due. */
+  due: number;
+  /** Claim-scoped slice advancements performed. */
+  advanced: number;
+  published: number;
+  failed: number;
+  /** Jobs skipped pre-claim (claim lost, membership change, malformed row). */
+  skipped: number;
+}
+
+/**
+ * Execution principals for a SCHEDULED attempt: authorization is (as always)
+ * the job creator's CURRENT active membership, and the attempt executes under
+ * that same membership's authority — the Owner/Trusted Publisher upload
+ * remains the publication authorization; the scheduler adds none of its own.
+ * Audit metadata records executed_via=scheduled_runner truthfully.
+ */
+async function resolveScheduledJobPrincipals(
+  deps: StudioDeps,
+  job: StudioJobRow,
+): Promise<StudioJobPrincipals> {
+  if (!job.created_by) throw new StudioAccessError("studio_membership_required");
+  const membership = await deps.data.getMembership(job.created_by);
+  if (!membership?.is_active) throw new StudioAccessError("studio_membership_required");
+  const authorization: StudioActor = {
+    userId: membership.user_id,
+    email: membership.email,
+    role: membership.role,
+    displayName: membership.display_name,
+  };
+  return {
+    source: { userId: job.created_by, email: job.creator_email, role: job.creator_role },
+    authorization,
+    execution: authorization,
+    executionVia: "scheduled_runner",
+  };
+}
+
+/**
+ * One scheduled background tick. Invoked by the Cloudflare Cron Trigger
+ * through the Worker's `scheduled()` export (Nitro cloudflare-module preset)
+ * via the `cloudflare:scheduled` runtime hook — see scheduled.plugin.ts.
+ * Runs with server-only credentials; there is NO HTTP endpoint, NO user Auth
+ * token, and NO browser session involved.
+ *
+ * Claims ONLY explicitly processing-requested jobs (studio_list_due_jobs
+ * enforces processing_requested_at + a currently active source membership
+ * before its LIMIT), uses the ordinary single-winner claim (never
+ * requestJobProcessing — the runner never marks readiness itself), advances
+ * bounded claim-scoped slices, and stops at its per-invocation slice budget.
+ * A per-job failure is isolated; the tick itself never throws.
+ */
+export async function runScheduledStudioTick(
+  deps: StudioDeps,
+  options: { maxJobs?: number; maxSlices?: number } = {},
+): Promise<StudioScheduledTickResult> {
+  const result: StudioScheduledTickResult = {
+    due: 0,
+    advanced: 0,
+    published: 0,
+    failed: 0,
+    skipped: 0,
+  };
+  if (deps.partnerDemoActive()) return result;
+  const maxJobs = options.maxJobs ?? RESUME_BATCH;
+  const maxSlices = options.maxSlices ?? SCHEDULED_TICK_MAX_SLICES;
+  let slices = 0;
+
+  const due = await deps.data.listDueJobs(STALE_PROCESSING_SECONDS, maxJobs, undefined);
+  result.due = due.length;
+
+  for (const job of due) {
+    let current: StudioJobRow = job;
+    for (;;) {
+      if (slices >= maxSlices) return result;
+      try {
+        const principals = await resolveScheduledJobPrincipals(deps, current);
+        await assertKnownProjectTargetAccess(
+          deps,
+          principals.authorization,
+          current.project_slug,
+          current.facts.projectFacts as StudioProjectFacts | undefined,
+        );
+        if (current.status === "published" && current.result_summary) break;
+        const token = deps.newToken();
+        const claimed = await deps.data.claimJob(current.id, token, STALE_PROCESSING_SECONDS);
+        if (!claimed) {
+          result.skipped += 1;
+          break;
+        }
+        slices += 1;
+        result.advanced += 1;
+        const outcome = await processClaimedJob(deps, principals.execution, claimed, token, {
+          ...principals,
+        });
+        if (outcome.status === "published") {
+          result.published += 1;
+          break;
+        }
+        if (outcome.status !== "processing") {
+          result.failed += 1;
+          break;
+        }
+        // The slice released the claim with work remaining — continue this
+        // job immediately (still inside the tick's slice budget).
+        const refreshed = await deps.data.getJob(current.id);
+        if (!refreshed) break;
+        current = refreshed;
+      } catch (error) {
+        result.skipped += 1;
+        // Same redaction rule as automatic resume: never log job fields.
+        logStudioFailure("scheduled_tick_job_skipped", error);
+        break;
+      }
+    }
+  }
+  return result;
 }
 
 async function claimAndProcess(
@@ -516,33 +734,80 @@ async function removeGroupedByBucket(
 }
 
 /**
- * Post-commit hygiene by the winning attempt: remove every other attempt's
- * token-scoped public objects for this job (orphans of stale, failed, or
- * crashed attempts). The winner's own prefix is never touched; failures here
+ * Post-commit hygiene by the winning attempt: remove every token-scoped
+ * public object of this job that is NOT referenced by the committed
+ * publication — i.e. not among the winner's own uploads and not owned by a
+ * durably settled archive-entry row (entries published by earlier slices
+ * under earlier claim tokens are page media and must survive). Failures here
  * are logged and never affect the committed publication.
  */
-async function cleanupForeignAttemptObjects(
+async function cleanupUnreferencedJobObjects(
   deps: StudioDeps,
   jobId: string,
-  token: string,
+  referenced: ReadonlySet<string>,
 ): Promise<void> {
-  const mine = attemptPrefixFromToken(token);
   const prefix = publicJobPrefix(jobId);
   for (const bucket of PUBLIC_MEDIA_BUCKETS) {
     try {
       const children = await deps.storage.listNames(bucket, prefix);
       for (const child of children) {
-        if (child === mine) continue;
         const inner = await deps.storage.listNames(bucket, `${prefix}/${child}`);
         const paths = inner.size
           ? [...inner].map((name) => `${prefix}/${child}/${name}`)
           : [`${prefix}/${child}`];
-        await deps.storage.remove(bucket, paths);
+        const orphans = paths.filter((path) => !referenced.has(`${bucket}/${path}`));
+        if (orphans.length) await deps.storage.remove(bucket, orphans);
       }
     } catch (error) {
       logStudioFailure("orphan_cleanup_deferred", error);
     }
   }
+}
+
+/** Keys of every public object the committed publication references. */
+function referencedObjectKeys(
+  materials: GatheredMaterials,
+  archiveObjects: Array<{ bucket: string; path: string }>,
+): Set<string> {
+  const keys = new Set<string>();
+  for (const object of materials.publicObjects) keys.add(`${object.bucket}/${object.path}`);
+  for (const object of archiveObjects) keys.add(`${object.bucket}/${object.path}`);
+  return keys;
+}
+
+/**
+ * Merge durable large-archive outcomes into the attempt's gathered materials.
+ * Archives settle first in strict deterministic order, so their adopted
+ * price list / facts win over a same-upload ordinary file; media appends
+ * after the ordinary items with continuous sort order.
+ */
+function mergeComposedIntoMaterials(
+  materials: GatheredMaterials,
+  composed: ComposedArchiveMaterials,
+): void {
+  const base = materials.media.length;
+  for (const item of composed.media) {
+    materials.media.push({ ...item, sort_order: (item.sort_order ?? 0) + base });
+  }
+  materials.photoUrls.push(...composed.photoUrls);
+  if (!materials.firstPhotoUrl) materials.firstPhotoUrl = composed.firstPhotoUrl;
+  if (!materials.firstBrochureUrl) materials.firstBrochureUrl = composed.firstBrochureUrl;
+  if (composed.priceList) {
+    if (materials.priceList) {
+      materials.warnings.push({
+        entity: "price",
+        code: "price_list_duplicate_ignored",
+        severity: "warning",
+        message:
+          "The price list extracted from an uploaded archive was applied; a separately uploaded price list was retained but not applied.",
+      });
+    }
+    materials.priceList = composed.priceList;
+    materials.priceListSource = composed.priceListSource;
+  }
+  if (composed.factFields && !materials.factFields) materials.factFields = composed.factFields;
+  if (composed.derivedName && !materials.derivedName) materials.derivedName = composed.derivedName;
+  materials.warnings.push(...composed.warnings);
 }
 
 /**
@@ -588,11 +853,49 @@ export async function processClaimedJob(
   // this attempt's public objects belong to the published page and must
   // never be removed, and the job must never be reported as failed.
   const commitState = { committed: false };
+  const heartbeat = makeHeartbeat(deps, claimed.id, token);
+  // Public objects owned by durably settled archive entries (any attempt).
+  // They are page media once publication commits and are NEVER cleanup
+  // candidates; they are populated only after every archive is terminal.
+  let archiveObjects: Array<{ bucket: string; path: string }> = [];
   try {
+    // Large-archive lane first: advance one bounded, claim-scoped slice of
+    // part verification / directory indexing / entry routing. When budgets
+    // end the slice with work remaining, release the claim so the very next
+    // poll — from this browser, any signed-in Studio session, or a scheduled
+    // caller — claims and continues from the durable entry checkpoints.
+    const slice = await runArchiveSlice(deps, claimed, token, heartbeat);
+    if (slice.pendingWork) {
+      await deps.data.releaseJobIfClaimed(claimed.id, token);
+      return {
+        jobId: claimed.id,
+        status: "processing",
+        workflow: claimed.workflow,
+        pagePath: null,
+        projectSlug: claimed.project_slug,
+        listingId: claimed.listing_id,
+        publicStatus: null,
+        counts: null,
+        warnings: [],
+        errorCode: null,
+        error: null,
+        retryable: true,
+        progress: await buildJobProgress(deps, { ...claimed, status: "processing" }),
+      };
+    }
+    // Every archive is terminal: compose the durable entry outcomes into
+    // publishable materials, then verify and gather the ordinary files.
+    let composed: ComposedArchiveMaterials | undefined;
+    if (slice.archiveCount > 0) {
+      composed = await composeArchiveMaterials(deps, claimed, 0);
+      archiveObjects = composed.referencedPublicObjects;
+    }
     materials = await gatherMaterials(deps, claimed, {
       token,
-      heartbeat: makeHeartbeat(deps, claimed.id, token),
+      heartbeat,
+      seedHashes: composed?.settledHashes,
     });
+    if (composed) mergeComposedIntoMaterials(materials, composed);
     // Persist the observed file records (size, sha256, media class, status).
     // Claim-checked: a stale worker must not overwrite a newer claim's data.
     const stillClaimed = await deps.data.updateJobIfClaimed(claimed.id, token, {
@@ -607,8 +910,24 @@ export async function processClaimedJob(
     }
     const result =
       claimed.workflow === "resale_listing"
-        ? await finalizeResale(deps, principals, claimed, materials, token, commitState)
-        : await finalizeProject(deps, principals, claimed, materials, token, commitState);
+        ? await finalizeResale(
+            deps,
+            principals,
+            claimed,
+            materials,
+            token,
+            commitState,
+            archiveObjects,
+          )
+        : await finalizeProject(
+            deps,
+            principals,
+            claimed,
+            materials,
+            token,
+            commitState,
+            archiveObjects,
+          );
     return result;
   } catch (error) {
     const safe = toSafeError(error, mapFailureCode(error));
@@ -708,6 +1027,7 @@ async function finalizeProject(
   materials: GatheredMaterials,
   token: string,
   commitState: { committed: boolean },
+  archiveObjects: Array<{ bucket: string; path: string }> = [],
 ): Promise<StudioJobResult> {
   const suppliedAt = job.created_at;
   const manual = manualProjectFields(
@@ -817,13 +1137,19 @@ async function finalizeProject(
 
   if (summary.replayed) {
     // Another attempt already published this job; our token-scoped copies
-    // are orphans (the page references the winner's paths). Remove only ours.
+    // are orphans (the page references the winner's paths). Remove only ours
+    // — never the durably settled archive-entry objects, which the winner's
+    // publication references.
     await removeGroupedByBucket(deps, materials.publicObjects);
   } else {
-    // We won: sweep other attempts' orphaned public objects, then audit.
-    // Both are post-commit hygiene — non-destructive to the publication and
-    // non-fatal on failure.
-    await cleanupForeignAttemptObjects(deps, job.id, token);
+    // We won: sweep every job object the publication does not reference
+    // (foreign attempts' orphans), then audit. Both are post-commit hygiene —
+    // non-destructive to the publication and non-fatal on failure.
+    await cleanupUnreferencedJobObjects(
+      deps,
+      job.id,
+      referencedObjectKeys(materials, archiveObjects),
+    );
     await recordAuditSafely(deps, {
       actor_id: principals.execution.userId,
       actor_email: principals.execution.email,
@@ -882,6 +1208,7 @@ async function finalizeResale(
   materials: GatheredMaterials,
   token: string,
   commitState: { committed: boolean },
+  archiveObjects: Array<{ bucket: string; path: string }> = [],
 ): Promise<StudioJobResult> {
   const suppliedAt = job.created_at;
   const facts = (job.facts.resaleFacts ?? {}) as StudioResaleFacts;
@@ -991,7 +1318,11 @@ async function finalizeResale(
   if (published.replayed) {
     await removeGroupedByBucket(deps, materials.publicObjects);
   } else {
-    await cleanupForeignAttemptObjects(deps, job.id, token);
+    await cleanupUnreferencedJobObjects(
+      deps,
+      job.id,
+      referencedObjectKeys(materials, archiveObjects),
+    );
     await recordAuditSafely(deps, {
       actor_id: principals.execution.userId,
       actor_email: principals.execution.email,

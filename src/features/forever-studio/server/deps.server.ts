@@ -36,6 +36,9 @@ import { sanitizePriceList } from "@/intake/sanitize";
 import { extractStudioArchive } from "./archive";
 import type {
   PriceListPdfExtraction,
+  StudioArchiveEntryOutcome,
+  StudioArchiveEntryRow,
+  StudioArchiveRow,
   StudioAuditEntry,
   StudioData,
   StudioDeps,
@@ -378,6 +381,102 @@ function createStudioData(): StudioData {
       const result = await admin.from("audit_log").insert(entry);
       must(result, "audit_log insert failed");
     },
+
+    // --- Large-archive durable inventory -----------------------------------
+
+    async createArchive(row: StudioArchiveRow) {
+      const result = await admin.from("studio_archives").insert(row);
+      must(result, "studio_archives insert failed");
+    },
+    async getArchive(id) {
+      const result = await admin.from("studio_archives").select("*").eq("id", id).maybeSingle();
+      return must(result, "studio_archives read failed") as StudioArchiveRow | null;
+    },
+    async listJobArchives(jobId) {
+      const result = await admin
+        .from("studio_archives")
+        .select("*")
+        .eq("job_id", jobId)
+        .order("ordinal", { ascending: true })
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true });
+      return (must(result, "studio_archives list failed") ?? []) as StudioArchiveRow[];
+    },
+    async updateArchivePreProcessing(id, fromStatuses, patch) {
+      // Compare-and-set on the current status: a concurrent transition (or a
+      // processing claim that has already taken over) matches zero rows.
+      const result = await admin
+        .from("studio_archives")
+        .update(patch)
+        .eq("id", id)
+        .in("status", fromStatuses)
+        .select("id");
+      const rows = must(result, "studio_archives update failed") as Array<{ id: string }> | null;
+      return (rows ?? []).length > 0;
+    },
+    async updateArchiveIfClaimed(jobId, token, archiveId, patch) {
+      const { data, error } = await admin.rpc("studio_update_archive_claimed", {
+        p_job_id: jobId,
+        p_token: token,
+        p_archive_id: archiveId,
+        p_patch: patch,
+      });
+      if (error) throw new Error(`studio_update_archive_claimed failed: ${error.message}`);
+      return Boolean(data);
+    },
+    async insertArchiveEntriesIfClaimed(jobId, token, entries) {
+      if (!entries.length) return true;
+      const { data, error } = await admin.rpc("studio_index_archive_entries", {
+        p_job_id: jobId,
+        p_token: token,
+        p_archive_id: entries[0].archive_id,
+        p_entries: entries.map((entry) => ({
+          entry_index: entry.entry_index,
+          entry_name: entry.entry_name,
+          display_label: entry.display_label,
+          category: entry.category,
+          compressed_size: entry.compressed_size,
+          uncompressed_size: entry.uncompressed_size,
+        })),
+      });
+      if (error) throw new Error(`studio_index_archive_entries failed: ${error.message}`);
+      return Boolean(data);
+    },
+    async listArchiveEntries(archiveId, states) {
+      let query = admin.from("studio_archive_entries").select("*").eq("archive_id", archiveId);
+      if (states?.length) query = query.in("state", states);
+      const result = await query.order("entry_index", { ascending: true });
+      return (must(result, "studio_archive_entries list failed") ?? []) as StudioArchiveEntryRow[];
+    },
+    async listJobArchiveEntries(jobId, states) {
+      let query = admin.from("studio_archive_entries").select("*").eq("job_id", jobId);
+      if (states?.length) query = query.in("state", states);
+      const result = await query.order("entry_index", { ascending: true });
+      return (must(result, "studio_archive_entries list failed") ?? []) as StudioArchiveEntryRow[];
+    },
+    async settleArchiveEntryIfClaimed(
+      jobId: string,
+      token: string,
+      entryId: string,
+      outcome: StudioArchiveEntryOutcome,
+    ) {
+      const { data, error } = await admin.rpc("studio_settle_archive_entry", {
+        p_job_id: jobId,
+        p_token: token,
+        p_entry_id: entryId,
+        p_outcome: outcome,
+      });
+      if (error) throw new Error(`studio_settle_archive_entry failed: ${error.message}`);
+      return Boolean(data);
+    },
+    async releaseJobIfClaimed(jobId, token) {
+      const { data, error } = await admin.rpc("studio_release_job", {
+        p_job_id: jobId,
+        p_token: token,
+      });
+      if (error) throw new Error(`studio_release_job failed: ${error.message}`);
+      return Boolean(data);
+    },
   };
 }
 
@@ -455,8 +554,40 @@ function createStudioStorage(): StudioStorage {
       if (error) throw new Error(`storage list failed (${bucket}): ${error.message}`);
       return new Set((data ?? []).map((item) => item.name));
     },
+    async listObjects(bucket, prefix) {
+      const { data, error } = await admin.storage.from(bucket).list(prefix, { limit: 1000 });
+      if (error) throw new Error(`storage list failed (${bucket}): ${error.message}`);
+      return (data ?? [])
+        .filter((item) => (item.metadata as { size?: number } | null)?.size != null)
+        .map((item) => ({
+          name: item.name,
+          size: (item.metadata as { size?: number }).size ?? 0,
+        }));
+    },
     statObject: statObjectImpl,
     hashObject: hashObjectImpl,
+    async readObjectStream(bucket, path, onChunk) {
+      // Same raw-response stream as hashObjectImpl: chunk-bounded, the object
+      // is never materialized in one buffer.
+      const { data, error } = await admin.storage.from(bucket).download(path).asStream();
+      if (error || !data) return null;
+      let size = 0;
+      try {
+        const reader = data.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            const chunk = Buffer.from(value);
+            size += chunk.length;
+            await onChunk(chunk);
+          }
+        }
+      } catch {
+        return null;
+      }
+      return size;
+    },
     async downloadWithin(bucket, path, maxBytes) {
       const stat = await statObjectImpl(bucket, path);
       if (!stat) return null;

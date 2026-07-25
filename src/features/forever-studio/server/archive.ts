@@ -20,6 +20,7 @@
 import type { ProgressiveWarning } from "@/features/forever-ingestion/batch-types";
 import {
   DEFAULT_ZIP_LIMITS,
+  findEndOfCentralDirectory,
   readZipEntries,
   readZipEntryData,
   rejectZip64,
@@ -117,6 +118,19 @@ export async function extractStudioArchive(
     return { expanded: false, warnings };
   }
 
+  // Each entry's payload (+ descriptor) must end before the NEXT entry's
+  // local header — and the last one before the central directory.
+  const centralDirectoryOffset = input.buffer.readUInt32LE(
+    findEndOfCentralDirectory(input.buffer) + 16,
+  );
+  const sortedOffsets = entries.map((e) => e.localHeaderOffset).sort((a, b) => a - b);
+  const dataEndLimitFor = (entry: (typeof entries)[number]): number => {
+    for (const offset of sortedOffsets) {
+      if (offset > entry.localHeaderOffset) return offset;
+    }
+    return centralDirectoryOffset;
+  };
+
   // One entry at a time: decompress, verify CRC + declared size, hand over,
   // release. The running total re-checks the expansion budget with ACTUAL
   // bytes as defense in depth over the declared-size validation above.
@@ -125,7 +139,7 @@ export async function extractStudioArchive(
     if (entry.isDirectory) continue;
     let data: Buffer;
     try {
-      data = readZipEntryData(input.buffer, entry, limits);
+      data = readZipEntryData(input.buffer, entry, limits, dataEndLimitFor(entry));
       totalExpanded += data.length;
       if (totalExpanded > limits.maxTotalBytes) {
         warnings.push(

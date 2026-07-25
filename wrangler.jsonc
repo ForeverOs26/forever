@@ -1,0 +1,14 @@
+// Repository wrangler config fragment. Nitro's cloudflare-module preset reads
+// this at build time (readWranglerConfig) and merges it into the generated
+// .output/server/wrangler.json deploy config. DEPLOY CONFIGURATION ONLY —
+// nothing in this repository deploys it.
+{
+  "triggers": {
+    // Studio scheduled runner: every 5 minutes the platform invokes the
+    // Worker's scheduled() export (no browser session, no HTTP endpoint, no
+    // user token), which fires the cloudflare:scheduled Nitro hook and runs
+    // one bounded Studio continuation tick. Idle cost is a single due-jobs
+    // query. See src/features/forever-studio/server/scheduled.plugin.ts.
+    "crons": ["*/5 * * * *"]
+  }
+}

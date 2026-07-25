@@ -20,7 +20,11 @@ import {
 } from "../studio.functions";
 import { resalePagePath, type StudioResaleFacts } from "../studio-types";
 import { STUDIO_OVERVIEW_KEY } from "./StudioDashboard";
-import { StudioRouteDenied } from "./StudioRouteDenied";
+import {
+  isStudioRouteDenial,
+  StudioRouteDenied,
+  StudioRouteUnavailable,
+} from "./StudioRouteDenied";
 
 export function StudioResaleEditor(props: { listingId: string }) {
   const queryClient = useQueryClient();
@@ -63,7 +67,13 @@ export function StudioResaleEditor(props: { listingId: string }) {
   });
 
   if (detailQuery.isError) {
-    return <StudioRouteDenied />;
+    // Only a server-proven denial settles as denied; a transient fetch or
+    // lookup failure (offline, flaky reconnect) stays retryable.
+    return isStudioRouteDenial(detailQuery.error) ? (
+      <StudioRouteDenied />
+    ) : (
+      <StudioRouteUnavailable onRetry={() => void detailQuery.refetch()} />
+    );
   }
   if (detailQuery.isPending) {
     return <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>;

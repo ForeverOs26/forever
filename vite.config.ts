@@ -5,6 +5,7 @@
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import type { NitroConfig } from "nitro/types";
 import type { Plugin } from "vite";
 
 const PARTNER_DEMO_HEALTH_PATH = "/__forever_partner_demo_health";
@@ -40,6 +41,16 @@ function partnerDemoHealthPlugin(): Plugin {
   };
 }
 
+// Nitro runtime plugin: registers the Studio scheduled runner on the Worker's
+// `scheduled()` export (cloudflare:scheduled hook). The cron cadence itself
+// lives in wrangler.jsonc (`triggers.crons`), merged by Nitro at build time.
+// The lovable wrapper forwards this object verbatim to `nitro()` from
+// `nitro/vite`; its declared option surface is deliberately narrower than the
+// runtime one, hence `satisfies NitroConfig` + the assertion.
+const nitroRuntimeOptions = {
+  plugins: ["./src/features/forever-studio/server/scheduled.plugin.ts"],
+} satisfies NitroConfig;
+
 export default defineConfig({
   vite: {
     plugins: [partnerDemoHealthPlugin()],
@@ -49,4 +60,5 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  nitro: nitroRuntimeOptions as { preset?: string },
 });

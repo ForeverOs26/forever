@@ -23,7 +23,11 @@ import {
 } from "../studio.functions";
 import { projectPagePath, type StudioProjectFacts } from "../studio-types";
 import { STUDIO_OVERVIEW_KEY } from "./StudioDashboard";
-import { StudioRouteDenied } from "./StudioRouteDenied";
+import {
+  isStudioRouteDenial,
+  StudioRouteDenied,
+  StudioRouteUnavailable,
+} from "./StudioRouteDenied";
 
 export function StudioProjectEditor(props: { slug: string }) {
   const queryClient = useQueryClient();
@@ -68,7 +72,13 @@ export function StudioProjectEditor(props: { slug: string }) {
   });
 
   if (detailQuery.isError) {
-    return <StudioRouteDenied />;
+    // Only a server-proven denial settles as denied; a transient fetch or
+    // lookup failure (offline, flaky reconnect) stays retryable.
+    return isStudioRouteDenial(detailQuery.error) ? (
+      <StudioRouteDenied />
+    ) : (
+      <StudioRouteUnavailable onRetry={() => void detailQuery.refetch()} />
+    );
   }
   if (detailQuery.isPending) {
     return <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>;

@@ -99,10 +99,88 @@ export const studioProcessJob = createServerFn({ method: "POST" })
     );
   });
 
+const archivePlanSchema = z
+  .object({
+    jobId: z.string().uuid(),
+    fileName: z.string().min(1).max(300),
+    declaredSize: z.number().int().positive(),
+    // The exact ordered per-part SHA-256 manifest (every byte of the file
+    // hashed part-by-part): the resume identity, so different archives can
+    // never attach to each other's stored parts no matter where they differ.
+    // Recorded privately; never a substitute for server verification of the
+    // actual stored bytes.
+    partSha256: z
+      .array(z.string().regex(/^[a-f0-9]{64}$/))
+      .min(1)
+      .max(64),
+  })
+  .strip();
+
+const archiveConfirmSchema = z
+  .object({
+    jobId: z.string().uuid(),
+    archiveId: z.string().uuid(),
+    partSha256: z
+      .array(z.string().regex(/^[a-f0-9]{64}$/))
+      .min(1)
+      .max(64),
+  })
+  .strip();
+
 /**
- * Automatic durable resume. Safe to call on every dashboard poll and from a
- * scheduled worker/cron: it claims and completes explicitly-ready received,
- * retryable-failed, and stale-processing jobs without another decision.
+ * Register (or resume) one large-archive chunked upload for an owned job:
+ * returns the fixed part geometry, which parts are already stored, and fresh
+ * signed targets for the parts that still need bytes.
+ */
+export const studioPlanArchiveUpload = createServerFn({ method: "POST" })
+  .middleware([requireStudioMember])
+  .validator(archivePlanSchema)
+  .handler(async ({ data, context }) => {
+    const { planJobArchiveUpload } = await import("./server/service");
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("archive_plan", () =>
+      planJobArchiveUpload(context.deps, context.actor, data),
+    );
+  });
+
+/**
+ * Confirm one chunked upload. STORAGE acceptance requires every stored part
+ * to exist with exactly the planned size (the browser's claim is never
+ * trusted) — that makes the archive safely stored, NOT verified. The
+ * recorded per-part SHA-256 claims are verified against the actual stored
+ * bytes by the first processing slices; the archive is byte-verified only
+ * after every part matches, and no UI may say otherwise.
+ */
+export const studioConfirmArchiveUpload = createServerFn({ method: "POST" })
+  .middleware([requireStudioMember])
+  .validator(archiveConfirmSchema)
+  .handler(async ({ data, context }) => {
+    const { confirmJobArchiveUpload } = await import("./server/service");
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("archive_confirm", () =>
+      confirmJobArchiveUpload(context.deps, context.actor, data),
+    );
+  });
+
+/** Durable, public-safe processing progress for one owned job. */
+export const studioGetJobProgress = createServerFn({ method: "GET" })
+  .middleware([requireStudioMember])
+  .validator(z.object({ jobId: z.string().uuid() }))
+  .handler(async ({ data, context }) => {
+    const { getJobProgress } = await import("./server/service");
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("job_progress", () =>
+      getJobProgress(context.deps, context.actor, data.jobId),
+    );
+  });
+
+/**
+ * Automatic durable resume from a signed-in Studio session (dashboard poll).
+ * The BACKGROUND continuation path is separate and needs no session at all:
+ * the Cloudflare Cron Trigger fires the Worker's scheduled() export, which
+ * runs runScheduledStudioTick with server-only credentials (see
+ * server/scheduled.plugin.ts) — this endpoint is a convenience accelerator,
+ * not the guarantee.
  */
 export const studioResumePending = createServerFn({ method: "POST" })
   .middleware([requireStudioMember])

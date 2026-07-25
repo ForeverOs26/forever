@@ -1161,4 +1161,2548 @@ SELECT pg_temp.assert_true(
     ='private-developer@example.com',
   'service_role can execute private-column queries');
 RESET ROLE;
+
+-- ===========================================================================
+-- LARGE ARCHIVES (FOREVER-STUDIO-LARGE-ARCHIVE-001)
+-- Durable inventory tables, claim-checked + ownership-proved slice functions,
+-- the DB-enforced lifecycle transition matrix, and cross-job adversarial
+-- proofs. Every write below runs against the REAL migration SQL.
+-- ===========================================================================
+
+-- Suite mirrors of the server's digest derivations (deriveManifestSha256 and
+-- the composite digest-of-part-digests), so fixtures carry REAL identities the
+-- trigger's cryptographic manifest binding accepts.
+CREATE OR REPLACE FUNCTION pg_temp.archive_manifest_sha256(
+  p_declared BIGINT, p_part_size INTEGER, p_digests TEXT[]
+) RETURNS TEXT LANGUAGE sql AS $$
+  SELECT encode(sha256(
+    convert_to('forever-upload-part-manifest-v2','UTF8')
+    || int8send(p_declared)
+    || int4send(p_part_size)
+    || int4send(COALESCE(array_length(p_digests,1),0))
+    || COALESCE((SELECT string_agg(decode(d,'hex'), ''::bytea ORDER BY ord)
+                 FROM unnest(p_digests) WITH ORDINALITY AS t(d, ord)), ''::bytea)
+  ), 'hex');
+$$;
+
+CREATE OR REPLACE FUNCTION pg_temp.archive_composite_sha256(p_digests TEXT[])
+RETURNS TEXT LANGUAGE sql AS $$
+  SELECT encode(sha256(convert_to(array_to_string(p_digests,''), 'UTF8')), 'hex');
+$$;
+
+-- Row snapshots (modulo updated_at) used to PROVE rejected operations changed
+-- nothing — neither the target archive nor its entry rows.
+CREATE OR REPLACE FUNCTION pg_temp.archive_row(p_id UUID) RETURNS JSONB
+LANGUAGE sql AS $$
+  SELECT to_jsonb(a) - 'updated_at' FROM public.studio_archives a WHERE a.id = p_id;
+$$;
+
+CREATE OR REPLACE FUNCTION pg_temp.entry_rows(p_archive UUID) RETURNS JSONB
+LANGUAGE sql AS $$
+  SELECT COALESCE(jsonb_agg(to_jsonb(e) ORDER BY e.entry_index), '[]'::jsonb)
+  FROM public.studio_archive_entries e WHERE e.archive_id = p_archive;
+$$;
+
+CREATE OR REPLACE FUNCTION pg_temp.assert_archive_unchanged(
+  p_id UUID, p_expected JSONB, p_context TEXT
+) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  IF pg_temp.archive_row(p_id) IS DISTINCT FROM p_expected THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: % mutated archive %', p_context, p_id;
+  END IF;
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- LA-1. Internal-only posture of the archive tables
+-- ---------------------------------------------------------------------------
+SELECT pg_temp.assert_true(
+  (SELECT bool_and(relrowsecurity) FROM pg_class
+   WHERE oid IN ('public.studio_archives'::regclass,
+                 'public.studio_archive_entries'::regclass)),
+  'archive tables have RLS enabled');
+
+SELECT pg_temp.assert_true(
+  NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public'
+              AND tablename IN ('studio_archives','studio_archive_entries')),
+  'archive tables have zero policies');
+
+SELECT pg_temp.assert_true(
+  NOT has_table_privilege('anon','public.studio_archives','SELECT')
+  AND NOT has_table_privilege('authenticated','public.studio_archives','SELECT')
+  AND NOT has_table_privilege('anon','public.studio_archive_entries','SELECT')
+  AND NOT has_table_privilege('authenticated','public.studio_archive_entries','SELECT')
+  AND has_table_privilege('service_role','public.studio_archives','INSERT'),
+  'archive tables are service-role only');
+
+-- The child inventory is READ-ONLY for the application: service_role keeps
+-- SELECT but has NO direct INSERT/UPDATE/DELETE/TRUNCATE — every mutation
+-- flows through the SECURITY DEFINER RPCs.
+SELECT pg_temp.assert_true(
+  has_table_privilege('service_role','public.studio_archive_entries','SELECT')
+  AND NOT has_table_privilege('service_role','public.studio_archive_entries','INSERT')
+  AND NOT has_table_privilege('service_role','public.studio_archive_entries','UPDATE')
+  AND NOT has_table_privilege('service_role','public.studio_archive_entries','DELETE')
+  AND NOT has_table_privilege('service_role','public.studio_archive_entries','TRUNCATE'),
+  'the entry inventory is SELECT-only for the application role');
+
+-- Exactly the two entry-mutating RPCs are SECURITY DEFINER, both with the
+-- pinned empty search_path.
+SELECT pg_temp.assert_true(
+  (SELECT bool_and(p.prosecdef AND p.proconfig::text LIKE '%search_path=%')
+   FROM pg_proc p
+   WHERE p.oid IN ('public.studio_index_archive_entries(uuid,uuid,uuid,jsonb)'::regprocedure,
+                   'public.studio_settle_archive_entry(uuid,uuid,uuid,jsonb)'::regprocedure))
+  AND NOT (SELECT bool_or(p.prosecdef) FROM pg_proc p
+           WHERE p.oid IN ('public.studio_release_job(uuid,uuid)'::regprocedure,
+                           'public.studio_update_archive_claimed(uuid,uuid,uuid,jsonb)'::regprocedure,
+                           'public.studio_job_archive_entry_counts(uuid)'::regprocedure)),
+  'exactly the entry-mutating RPCs are SECURITY DEFINER with a pinned search_path');
+
+SELECT pg_temp.assert_true(
+  has_function_privilege('service_role','public.studio_release_job(uuid,uuid)','EXECUTE')
+  AND has_function_privilege('service_role','public.studio_update_archive_claimed(uuid,uuid,uuid,jsonb)','EXECUTE')
+  AND has_function_privilege('service_role','public.studio_index_archive_entries(uuid,uuid,uuid,jsonb)','EXECUTE')
+  AND has_function_privilege('service_role','public.studio_settle_archive_entry(uuid,uuid,uuid,jsonb)','EXECUTE')
+  AND has_function_privilege('service_role','public.studio_job_archive_entry_counts(uuid)','EXECUTE')
+  AND NOT has_function_privilege('anon','public.studio_release_job(uuid,uuid)','EXECUTE')
+  AND NOT has_function_privilege('authenticated','public.studio_settle_archive_entry(uuid,uuid,uuid,jsonb)','EXECUTE'),
+  'archive slice functions are service-role only');
+
+-- ---------------------------------------------------------------------------
+-- LA-2. Schema constraints: manifest identity, initial status, legacy states
+-- ---------------------------------------------------------------------------
+INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status)
+VALUES ('60000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000001','owner','new_development','received');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_request_job_processing(
+     '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',900))=1,
+  'archive test job is claimed by its worker token');
+
+-- The archive is planned with its COMPLETE per-part manifest bound up front —
+-- and its manifest identity is the REAL digest over that manifest, because the
+-- lifecycle guard cryptographically verifies the binding on every row version.
+INSERT INTO public.studio_archives(
+  id,job_id,ordinal,file_name,manifest_sha256,declared_size,part_size,part_count,status,parts)
+VALUES ('61000000-0000-0000-0000-000000000001',
+        '60000000-0000-0000-0000-000000000001',0,'dossier.zip',
+        pg_temp.archive_manifest_sha256(16777216,8388608,ARRAY[repeat('d',64),repeat('e',64)]),
+        16777216,8388608,2,'planned',
+        ('[{"index":0,"size":null,"declaredSha256":"' || repeat('d',64)
+         || '","sha256":null,"verified":false},'
+         || '{"index":1,"size":null,"declaredSha256":"' || repeat('e',64)
+         || '","sha256":null,"verified":false}]')::jsonb);
+
+DO $$
+BEGIN
+  -- Malformed manifest identity is rejected by the column CHECK (the parts
+  -- manifest itself is well-formed so the guard defers to the CHECK).
+  BEGIN
+    INSERT INTO public.studio_archives(
+      id,job_id,ordinal,file_name,manifest_sha256,declared_size,part_size,part_count,status,parts)
+    VALUES ('61000000-0000-0000-0000-00000000000f',
+            '60000000-0000-0000-0000-000000000001',1,'badmanifest.zip',
+            'not-a-digest',16777216,8388608,2,'planned',
+            ('[{"index":0,"size":null,"declaredSha256":"' || repeat('d',64)
+             || '","sha256":null,"verified":false},'
+             || '{"index":1,"size":null,"declaredSha256":"' || repeat('e',64)
+             || '","sha256":null,"verified":false}]')::jsonb);
+    RAISE EXCEPTION 'expected_bad_manifest_rejection_absent';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  -- A WELL-FORMED but WRONG manifest identity is rejected by the guard's
+  -- cryptographic binding: a fabricated manifest can never plan an archive.
+  BEGIN
+    INSERT INTO public.studio_archives(
+      id,job_id,ordinal,file_name,manifest_sha256,declared_size,part_size,part_count,status,parts)
+    VALUES ('61000000-0000-0000-0000-00000000000c',
+            '60000000-0000-0000-0000-000000000001',1,'forgedmanifest.zip',
+            repeat('a',64),16777216,8388608,2,'planned',
+            ('[{"index":0,"size":null,"declaredSha256":"' || repeat('d',64)
+             || '","sha256":null,"verified":false},'
+             || '{"index":1,"size":null,"declaredSha256":"' || repeat('e',64)
+             || '","sha256":null,"verified":false}]')::jsonb);
+    RAISE EXCEPTION 'expected_forged_manifest_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_manifest_binding_violation%' THEN RAISE; END IF;
+  END;
+  -- A retired ambiguous status value is rejected (the lifecycle guard fires
+  -- before the CHECK constraint; both layers forbid it).
+  BEGIN
+    INSERT INTO public.studio_archives(
+      id,job_id,ordinal,file_name,manifest_sha256,declared_size,part_size,part_count,status)
+    VALUES ('61000000-0000-0000-0000-00000000000e',
+            '60000000-0000-0000-0000-000000000001',1,'legacy.zip',
+            repeat('b',64),16777216,8388608,2,'uploaded');
+    RAISE EXCEPTION 'expected_legacy_status_rejection_absent';
+  EXCEPTION
+    WHEN check_violation THEN NULL;
+    WHEN OTHERS THEN
+      IF SQLERRM NOT LIKE 'studio_archive_invalid_initial_status%' THEN RAISE; END IF;
+  END;
+  -- The lifecycle guard forbids inserting an archive past 'planned'.
+  BEGIN
+    INSERT INTO public.studio_archives(
+      id,job_id,ordinal,file_name,manifest_sha256,declared_size,part_size,part_count,status)
+    VALUES ('61000000-0000-0000-0000-00000000000d',
+            '60000000-0000-0000-0000-000000000001',1,'skipstart.zip',
+            repeat('c',64),16777216,8388608,2,'byte_verified');
+    RAISE EXCEPTION 'expected_initial_status_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_invalid_initial_status%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- LA-3. Lifecycle walk under the live claim — every valid transition, with
+--       the trigger demanding real state evidence at each gate
+-- ---------------------------------------------------------------------------
+-- A stale token can neither index nor patch (unchanged contract).
+SELECT pg_temp.assert_true(
+  NOT public.studio_index_archive_entries(
+    '60000000-0000-0000-0000-000000000001','dddddddd-0000-0000-0000-00000000000d',
+    '61000000-0000-0000-0000-000000000001',
+    '[{"entry_index":0,"entry_name":"photos/a.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":10,"uncompressed_size":10}]'::jsonb),
+  'a stale token cannot insert inventory');
+SELECT pg_temp.assert_true(
+  NOT public.studio_update_archive_claimed(
+    '60000000-0000-0000-0000-000000000001','dddddddd-0000-0000-0000-00000000000d',
+    '61000000-0000-0000-0000-000000000001','{"status":"rejected"}'::jsonb),
+  'a stale token cannot patch archive state');
+
+-- planned -> uploaded_unverified (storage acceptance evidence: sizes).
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    '61000000-0000-0000-0000-000000000001',
+    ('{"status":"uploaded_unverified","observed_size":16777216,'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":null,"verified":false},'
+     || '{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+     || '","sha256":null,"verified":false}]}')::jsonb),
+  'planned -> uploaded_unverified is a valid transition');
+
+-- Skipping straight to byte_verified is forbidden by the matrix.
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.studio_update_archive_claimed(
+      '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+      '61000000-0000-0000-0000-000000000001','{"status":"byte_verified"}'::jsonb);
+    RAISE EXCEPTION 'expected_skip_transition_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_invalid_transition%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+SELECT pg_temp.assert_true(
+  (SELECT status='uploaded_unverified' FROM public.studio_archives
+   WHERE id='61000000-0000-0000-0000-000000000001'),
+  'a forbidden transition changed nothing');
+
+-- uploaded_unverified -> byte_verifying.
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    '61000000-0000-0000-0000-000000000001','{"status":"byte_verifying"}'::jsonb),
+  'uploaded_unverified -> byte_verifying is a valid transition');
+
+DO $$
+BEGIN
+  -- byte_verified with ONE unverified part is refused.
+  BEGIN
+    PERFORM public.studio_update_archive_claimed(
+      '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+      '61000000-0000-0000-0000-000000000001',
+      ('{"status":"byte_verified","archive_sha256":"' || repeat('9',64) || '",'
+       || '"composite_sha256":"' || pg_temp.archive_composite_sha256(ARRAY[repeat('d',64),repeat('e',64)]) || '",'
+       || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+       || '","sha256":"' || repeat('d',64) || '","verified":true},'
+       || '{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+       || '","sha256":null,"verified":false}]}')::jsonb);
+    RAISE EXCEPTION 'expected_partial_evidence_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_byte_verification_evidence_missing%' THEN RAISE; END IF;
+  END;
+  -- byte_verified with a server hash that does not MATCH the plan-time claim
+  -- is refused: the client-declared and server-observed digests must agree.
+  BEGIN
+    PERFORM public.studio_update_archive_claimed(
+      '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+      '61000000-0000-0000-0000-000000000001',
+      ('{"status":"byte_verified","archive_sha256":"' || repeat('9',64) || '",'
+       || '"composite_sha256":"' || pg_temp.archive_composite_sha256(ARRAY[repeat('1',64),repeat('e',64)]) || '",'
+       || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+       || '","sha256":"' || repeat('1',64) || '","verified":true},'
+       || '{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+       || '","sha256":"' || repeat('e',64) || '","verified":true}]}')::jsonb);
+    RAISE EXCEPTION 'expected_claim_mismatch_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_byte_verification_evidence_missing%' THEN RAISE; END IF;
+  END;
+  -- byte_verified without the exact archive SHA-256 is refused.
+  BEGIN
+    PERFORM public.studio_update_archive_claimed(
+      '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+      '61000000-0000-0000-0000-000000000001',
+      ('{"status":"byte_verified",'
+       || '"composite_sha256":"' || pg_temp.archive_composite_sha256(ARRAY[repeat('d',64),repeat('e',64)]) || '",'
+       || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+       || '","sha256":"' || repeat('d',64) || '","verified":true},'
+       || '{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+       || '","sha256":"' || repeat('e',64) || '","verified":true}]}')::jsonb);
+    RAISE EXCEPTION 'expected_missing_archive_sha_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_byte_verification_evidence_missing%' THEN RAISE; END IF;
+  END;
+  -- byte_verified with a WRONG composite digest is refused: the digest of the
+  -- ordered per-part digests is recomputed by the database, never trusted.
+  BEGIN
+    PERFORM public.studio_update_archive_claimed(
+      '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+      '61000000-0000-0000-0000-000000000001',
+      ('{"status":"byte_verified","archive_sha256":"' || repeat('9',64)
+       || '","composite_sha256":"' || repeat('8',64) || '",'
+       || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+       || '","sha256":"' || repeat('d',64) || '","verified":true},'
+       || '{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+       || '","sha256":"' || repeat('e',64) || '","verified":true}]}')::jsonb);
+    RAISE EXCEPTION 'expected_wrong_composite_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_byte_verification_evidence_missing%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+-- byte_verifying -> byte_verified with COMPLETE evidence: every part server-
+-- verified with a hash EQUAL to its plan-time claim, the recomputed composite,
+-- and the exact archive SHA-256.
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    '61000000-0000-0000-0000-000000000001',
+    ('{"status":"byte_verified","archive_sha256":"' || repeat('9',64)
+     || '","composite_sha256":"' || pg_temp.archive_composite_sha256(ARRAY[repeat('d',64),repeat('e',64)]) || '",'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":"' || repeat('d',64) || '","verified":true},'
+     || '{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+     || '","sha256":"' || repeat('e',64) || '","verified":true}]}')::jsonb),
+  'byte_verifying -> byte_verified succeeds with complete part evidence');
+SELECT pg_temp.assert_true(
+  (SELECT status='byte_verified' AND archive_sha256=repeat('9',64)
+      AND composite_sha256=pg_temp.archive_composite_sha256(ARRAY[repeat('d',64),repeat('e',64)])
+   FROM public.studio_archives WHERE id='61000000-0000-0000-0000-000000000001'),
+  'the byte-verified evidence (including the exact archive SHA-256) is durable');
+
+-- The claim holder inserts the inventory; a re-run fills nothing twice.
+SELECT pg_temp.assert_true(
+  public.studio_index_archive_entries(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    '61000000-0000-0000-0000-000000000001',
+    '[{"entry_index":0,"entry_name":"photos/a.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":10,"uncompressed_size":10},
+      {"entry_index":1,"entry_name":"video/b.mp4","display_label":"entry 2 (video)","category":"video","compressed_size":20,"uncompressed_size":20}]'::jsonb),
+  'the claim holder inserts the inventory');
+SELECT pg_temp.assert_true(
+  public.studio_index_archive_entries(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    '61000000-0000-0000-0000-000000000001',
+    '[{"entry_index":0,"entry_name":"photos/a.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":10,"uncompressed_size":10}]'::jsonb)
+  AND (SELECT count(*) FROM public.studio_archive_entries
+       WHERE archive_id='61000000-0000-0000-0000-000000000001')=2,
+  're-indexing is idempotent (exact replay proven equivalent, no duplicates)');
+
+-- processing_entries with a WRONG entry_count is refused by the trigger.
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.studio_update_archive_claimed(
+      '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+      '61000000-0000-0000-0000-000000000001',
+      '{"status":"processing_entries","entry_count":1,"total_uncompressed":30}'::jsonb);
+    RAISE EXCEPTION 'expected_inventory_mismatch_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_inventory_incomplete%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+-- byte_verified -> processing_entries with the true inventory numbers.
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    '61000000-0000-0000-0000-000000000001',
+    '{"status":"processing_entries","entry_count":2,"total_uncompressed":30}'::jsonb),
+  'byte_verified -> processing_entries succeeds with the durable inventory');
+
+-- ---------------------------------------------------------------------------
+-- LA-4. Cross-job archive ownership — a VALID claim on job B can touch
+--       nothing that belongs to job A
+-- ---------------------------------------------------------------------------
+INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status)
+VALUES ('60000000-0000-0000-0000-000000000002',
+        '00000000-0000-0000-0000-000000000001','owner','new_development','received');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_request_job_processing(
+     '60000000-0000-0000-0000-000000000002','bbbbbbbb-0000-0000-0000-0000000000b2',900))=1,
+  'job B is claimed by its own worker token');
+
+-- Job B cannot index entries into job A's archive (FALSE, zero rows).
+SELECT pg_temp.assert_true(
+  NOT public.studio_index_archive_entries(
+    '60000000-0000-0000-0000-000000000002','bbbbbbbb-0000-0000-0000-0000000000b2',
+    '61000000-0000-0000-0000-000000000001',
+    '[{"entry_index":7,"entry_name":"stolen.bin","display_label":"entry 8 (document)","category":"document","compressed_size":1,"uncompressed_size":1}]'::jsonb),
+  'job B cannot index entries into job A''s archive');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_archive_entries
+   WHERE archive_id='61000000-0000-0000-0000-000000000001')=2,
+  'the cross-job index attempt inserted nothing');
+
+-- Job B cannot patch job A's archive state.
+SELECT pg_temp.assert_true(
+  NOT public.studio_update_archive_claimed(
+    '60000000-0000-0000-0000-000000000002','bbbbbbbb-0000-0000-0000-0000000000b2',
+    '61000000-0000-0000-0000-000000000001','{"status":"rejected"}'::jsonb)
+  AND (SELECT status='processing_entries' FROM public.studio_archives
+       WHERE id='61000000-0000-0000-0000-000000000001'),
+  'job B cannot patch job A''s archive');
+
+-- Job B cannot settle job A's entries.
+SELECT pg_temp.assert_true(
+  NOT public.studio_settle_archive_entry(
+    '60000000-0000-0000-0000-000000000002','bbbbbbbb-0000-0000-0000-0000000000b2',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+      AND archive_id='61000000-0000-0000-0000-000000000001'),
+    '{"state":"failed","outcomeCode":"stolen","attempt":"b2","processedAt":"2026-07-24T00:00:00Z"}'::jsonb)
+  AND (SELECT state='pending' FROM public.studio_archive_entries WHERE entry_index=0
+       AND archive_id='61000000-0000-0000-0000-000000000001'),
+  'job B cannot settle job A''s entries');
+
+-- The composite FK rejects a cross-job (archive_id, job_id) pair outright.
+-- A forged cross-job (archive A, job B) entry row is unrepresentable: the
+-- entry guard raises before the composite FK would independently reject it.
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO public.studio_archive_entries(
+      archive_id,job_id,entry_index,entry_name,display_label,category,
+      compressed_size,uncompressed_size)
+    VALUES ('61000000-0000-0000-0000-000000000001',
+            '60000000-0000-0000-0000-000000000002',
+            50,'forged.bin','entry 51 (document)','document',1,1);
+    RAISE EXCEPTION 'expected_cross_job_rejection_absent';
+  EXCEPTION
+    WHEN foreign_key_violation THEN NULL;
+    WHEN OTHERS THEN
+      IF SQLERRM NOT LIKE 'studio_archive_entry_cross_job%' THEN RAISE; END IF;
+  END;
+  -- Even the TRUE (archive_id, job_id) pair cannot be inserted directly any
+  -- more once the archive left the indexing phase (it is processing_entries
+  -- here): representability of the true pair is proven by every successful
+  -- claim-checked indexing call, not by ad-hoc DML.
+  BEGIN
+    INSERT INTO public.studio_archive_entries(
+      id,archive_id,job_id,entry_index,entry_name,display_label,category,
+      compressed_size,uncompressed_size)
+    VALUES ('62000000-0000-0000-0000-0000000000aa',
+            '61000000-0000-0000-0000-000000000001',
+            '60000000-0000-0000-0000-000000000001',
+            60,'legit.bin','entry 61 (document)','document',1,1);
+    RAISE EXCEPTION 'expected_late_direct_insert_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_insert_phase%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- LA-5. Pending-only, claim-checked settlement (settled outcomes immutable)
+-- ---------------------------------------------------------------------------
+SELECT pg_temp.assert_true(
+  NOT public.studio_settle_archive_entry(
+    '60000000-0000-0000-0000-000000000001','dddddddd-0000-0000-0000-00000000000d',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+      AND archive_id='61000000-0000-0000-0000-000000000001'),
+    '{"state":"published_public","outcomeCode":null,"attempt":"stale","processedAt":"2026-07-24T00:00:00Z"}'::jsonb),
+  'a stale token cannot settle an entry');
+
+SELECT pg_temp.assert_true(
+  public.studio_settle_archive_entry(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+      AND archive_id='61000000-0000-0000-0000-000000000001'),
+    '{"state":"published_public","outcomeCode":null,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","observedSize":10,"publicBucket":"project-images","publicPath":"studio/x/att/00-a.jpg","publicUrl":"https://cdn/x.jpg","mediaType":"gallery","attempt":"cccccccc0000","processedAt":"2026-07-24T00:00:00Z"}'::jsonb),
+  'the claim holder settles a pending entry');
+
+-- completed with a pending entry left is refused by the trigger.
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.studio_update_archive_claimed(
+      '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+      '61000000-0000-0000-0000-000000000001','{"status":"completed"}'::jsonb);
+    RAISE EXCEPTION 'expected_pending_completion_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_completed_with_pending_entries%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+-- The private evidence manifest persists durably on a retained settlement.
+SELECT pg_temp.assert_true(
+  public.studio_settle_archive_entry(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=1
+      AND archive_id='61000000-0000-0000-0000-000000000001'),
+    ('{"state":"retained_private","outcomeCode":"entry_over_size_limit",'
+     || '"sha256":"' || repeat('b',64) || '","observedSize":20,'
+     || '"evidence":{"bucket":"studio-uploads","prefix":"jobs/j/evidence/a/00001",'
+     || '"partSize":8388608,"partCount":1,'
+     || '"parts":[{"index":0,"size":20,"sha256":"' || repeat('c',64) || '"}],'
+     || '"totalSize":20,"crc32Verified":true},'
+     || '"attempt":"cccccccc0000","processedAt":"2026-07-24T00:00:00Z"}')::jsonb),
+  'the claim holder settles a retained entry with its evidence manifest');
+SELECT pg_temp.assert_true(
+  (SELECT evidence->>'prefix'='jobs/j/evidence/a/00001'
+      AND (evidence->>'partCount')::int=1
+      AND (evidence->'parts'->0->>'sha256')=repeat('c',64)
+      AND (evidence->>'crc32Verified')::boolean
+   FROM public.studio_archive_entries WHERE entry_index=1
+     AND archive_id='61000000-0000-0000-0000-000000000001'),
+  'the evidence manifest is durable and structured');
+
+SELECT pg_temp.assert_true(
+  NOT public.studio_settle_archive_entry(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+      AND archive_id='61000000-0000-0000-0000-000000000001'),
+    '{"state":"failed","outcomeCode":"rewrite","attempt":"late","processedAt":"2026-07-24T00:00:01Z"}'::jsonb),
+  'a settled entry never re-settles, even under the live claim');
+SELECT pg_temp.assert_true(
+  (SELECT state FROM public.studio_archive_entries WHERE entry_index=0
+    AND archive_id='61000000-0000-0000-0000-000000000001')='published_public',
+  'the settled outcome remains immutable');
+
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_job_archive_entry_counts(
+     '60000000-0000-0000-0000-000000000001'))=2,
+  'entry counts aggregate by state');
+
+-- With every entry settled, processing_entries -> completed succeeds …
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    '61000000-0000-0000-0000-000000000001','{"status":"completed"}'::jsonb),
+  'processing_entries -> completed succeeds once every entry settled');
+
+-- … and completed is TERMINAL: no regression, not even to rejected.
+DO $$
+DECLARE v_target TEXT;
+BEGIN
+  FOREACH v_target IN ARRAY ARRAY['processing_entries','byte_verified','rejected'] LOOP
+    BEGIN
+      PERFORM public.studio_update_archive_claimed(
+        '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+        '61000000-0000-0000-0000-000000000001',
+        jsonb_build_object('status', v_target));
+      RAISE EXCEPTION 'expected_completed_regression_rejection_absent: %', v_target;
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM NOT LIKE 'studio_archive_invalid_transition%' THEN RAISE; END IF;
+    END;
+  END LOOP;
+END;
+$$;
+
+-- The archive identity is immutable even for direct service-role SQL.
+DO $$
+BEGIN
+  BEGIN
+    UPDATE public.studio_archives SET declared_size = declared_size + 1
+    WHERE id='61000000-0000-0000-0000-000000000001';
+    RAISE EXCEPTION 'expected_identity_mutation_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_identity_immutable%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archives SET manifest_sha256 = repeat('f',64)
+    WHERE id='61000000-0000-0000-0000-000000000001';
+    RAISE EXCEPTION 'expected_manifest_mutation_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_identity_immutable%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- LA-6. Rejection lane and terminal 'rejected' on a second archive
+-- ---------------------------------------------------------------------------
+INSERT INTO public.studio_archives(
+  id,job_id,ordinal,file_name,manifest_sha256,declared_size,part_size,part_count,status,parts)
+VALUES ('61000000-0000-0000-0000-000000000002',
+        '60000000-0000-0000-0000-000000000001',1,'reject-lane.zip',
+        pg_temp.archive_manifest_sha256(8388608,8388608,ARRAY[repeat('7',64)]),
+        8388608,8388608,1,'planned',
+        ('[{"index":0,"size":null,"declaredSha256":"' || repeat('7',64)
+         || '","sha256":null,"verified":false}]')::jsonb);
+
+-- planned -> rejected is legal (e.g. incomplete upload at processing time).
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+    '61000000-0000-0000-0000-000000000002',
+    '{"status":"rejected","error_code":"archive_upload_incomplete"}'::jsonb),
+  'planned -> rejected is a valid transition');
+
+-- rejected is TERMINAL.
+DO $$
+DECLARE v_target TEXT;
+BEGIN
+  FOREACH v_target IN ARRAY ARRAY['planned','uploaded_unverified','byte_verifying',
+                                  'byte_verified','processing_entries','completed'] LOOP
+    BEGIN
+      PERFORM public.studio_update_archive_claimed(
+        '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+        '61000000-0000-0000-0000-000000000002',
+        jsonb_build_object('status', v_target));
+      RAISE EXCEPTION 'expected_rejected_regression_rejection_absent: %', v_target;
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM NOT LIKE 'studio_archive_invalid_transition%' THEN RAISE; END IF;
+    END;
+  END LOOP;
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- LA-7. Malformed JSON patches and outcomes fail safely, changing nothing
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_before JSONB;
+  v_patch JSONB;
+BEGIN
+  SELECT to_jsonb(a) INTO v_before FROM public.studio_archives a
+  WHERE id='61000000-0000-0000-0000-000000000002';
+
+  FOREACH v_patch IN ARRAY ARRAY[
+    '{"status":"bogus_state"}'::jsonb,
+    '{"status":42}'::jsonb,
+    '{"observed_size":"16777216"}'::jsonb,
+    '{"observed_size":1.5}'::jsonb,
+    '{"entry_count":"2"}'::jsonb,
+    '{"total_uncompressed":true}'::jsonb,
+    '{"parts":{"index":0}}'::jsonb,
+    '{"archive_sha256":"nothex"}'::jsonb,
+    '{"composite_sha256":123}'::jsonb,
+    '{"extracted":[1,2]}'::jsonb,
+    '{"error_code":7}'::jsonb
+  ] LOOP
+    BEGIN
+      PERFORM public.studio_update_archive_claimed(
+        '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+        '61000000-0000-0000-0000-000000000002', v_patch);
+      RAISE EXCEPTION 'expected_malformed_patch_rejection_absent: %', v_patch::text;
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM NOT LIKE 'studio_archive_patch_invalid%' THEN RAISE; END IF;
+    END;
+  END LOOP;
+
+  IF (SELECT to_jsonb(a) FROM public.studio_archives a
+      WHERE id='61000000-0000-0000-0000-000000000002') IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: malformed patches mutated archive state';
+  END IF;
+
+  -- Malformed settlement outcomes are refused before any write (including a
+  -- MISSING state key, which must never neutralize the type check).
+  FOREACH v_patch IN ARRAY ARRAY[
+    '{"attempt":"x","processedAt":"2026-07-24T00:00:00Z"}'::jsonb,
+    '{"state":"pending","attempt":"x","processedAt":"2026-07-24T00:00:00Z"}'::jsonb,
+    '{"state":"exploded","attempt":"x","processedAt":"2026-07-24T00:00:00Z"}'::jsonb,
+    '{"state":"failed","sha256":"nothex","attempt":"x","processedAt":"2026-07-24T00:00:00Z"}'::jsonb,
+    '{"state":"failed","observedSize":"20","attempt":"x","processedAt":"2026-07-24T00:00:00Z"}'::jsonb,
+    '{"state":"failed","processedAt":"not-a-time","attempt":"x"}'::jsonb,
+    '{"state":"failed","evidence":"not-an-object","attempt":"x","processedAt":"2026-07-24T00:00:00Z"}'::jsonb
+  ] LOOP
+    BEGIN
+      PERFORM public.studio_settle_archive_entry(
+        '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+        (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+          AND archive_id='61000000-0000-0000-0000-000000000001'),
+        v_patch);
+      RAISE EXCEPTION 'expected_malformed_outcome_rejection_absent: %', v_patch::text;
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM NOT LIKE 'studio_archive_outcome_invalid%' THEN RAISE; END IF;
+    END;
+  END LOOP;
+
+  -- A malformed inventory payload is refused before any insert.
+  BEGIN
+    PERFORM public.studio_index_archive_entries(
+      '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c',
+      '61000000-0000-0000-0000-000000000001',
+      '[{"entry_index":"zero","entry_name":"x","display_label":"x","category":"photo","compressed_size":1,"uncompressed_size":1}]'::jsonb);
+    RAISE EXCEPTION 'expected_malformed_entries_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entries_invalid%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- LA-8. Slice release: prompt continuation without the stale window
+-- ---------------------------------------------------------------------------
+SELECT pg_temp.assert_true(
+  NOT public.studio_release_job(
+    '60000000-0000-0000-0000-000000000001','dddddddd-0000-0000-0000-00000000000d'),
+  'a stale token cannot release the job');
+SELECT pg_temp.assert_true(
+  public.studio_release_job(
+    '60000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c'),
+  'the claim holder releases the slice');
+SELECT pg_temp.assert_true(
+  (SELECT status='received' AND processing_token IS NULL AND processing_requested_at IS NOT NULL
+   FROM public.studio_upload_jobs WHERE id='60000000-0000-0000-0000-000000000001'),
+  'release restores received with readiness preserved');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_claim_job(
+     '60000000-0000-0000-0000-000000000001','eeeeeeee-0000-0000-0000-00000000000e',900))=1,
+  'a released job is immediately claimable by the next poll');
+
+-- ---------------------------------------------------------------------------
+-- LA-9. Job deletion cascades the durable inventory
+-- ---------------------------------------------------------------------------
+DELETE FROM public.studio_upload_jobs
+WHERE id IN ('60000000-0000-0000-0000-000000000001','60000000-0000-0000-0000-000000000002');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_archives
+    WHERE job_id='60000000-0000-0000-0000-000000000001')=0
+  AND (SELECT count(*) FROM public.studio_archive_entries
+    WHERE job_id='60000000-0000-0000-0000-000000000001')=0,
+  'deleting a job cascades its archives and entries');
+
+-- ---------------------------------------------------------------------------
+-- LA-10. ADVERSARIAL LIFECYCLE-EVIDENCE SUITE
+--
+-- Proves the database-enforced trust boundary against a worker HOLDING A
+-- LIVE, VALID processing claim: same-state updates cannot tamper with
+-- verified evidence, fabricated manifests cannot satisfy any state,
+-- transitions cannot smuggle rewritten evidence, and terminal states are
+-- strict no-ops. Every rejected operation additionally PROVES the target
+-- archive row, its entry rows, and unrelated rows are byte-identical after
+-- the attempt.
+-- ---------------------------------------------------------------------------
+INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status)
+VALUES ('70000000-0000-0000-0000-00000000000a',
+        '00000000-0000-0000-0000-000000000001','owner','new_development','received'),
+       ('70000000-0000-0000-0000-00000000000b',
+        '00000000-0000-0000-0000-000000000001','owner','new_development','received');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_request_job_processing(
+     '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',900))=1
+  AND (SELECT count(*) FROM public.studio_request_job_processing(
+     '70000000-0000-0000-0000-00000000000b','7c000000-0000-0000-0000-00000000000b',900))=1,
+  'LA-10 jobs A and B are claimed by their own worker tokens');
+
+-- ARC1: the full happy walk (adversarial test 1 — valid byte_verified
+-- creation) used as the tamper target afterwards.
+INSERT INTO public.studio_archives(
+  id,job_id,ordinal,file_name,manifest_sha256,declared_size,part_size,part_count,status,parts)
+VALUES ('71000000-0000-0000-0000-0000000000a1',
+        '70000000-0000-0000-0000-00000000000a',0,'target.zip',
+        pg_temp.archive_manifest_sha256(16777216,8388608,ARRAY[repeat('d',64),repeat('e',64)]),
+        16777216,8388608,2,'planned',
+        ('[{"index":0,"size":null,"declaredSha256":"' || repeat('d',64)
+         || '","sha256":null,"verified":false},'
+         || '{"index":1,"size":null,"declaredSha256":"' || repeat('e',64)
+         || '","sha256":null,"verified":false}]')::jsonb);
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    '71000000-0000-0000-0000-0000000000a1',
+    ('{"status":"uploaded_unverified","observed_size":16777216,'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":null,"verified":false},'
+     || '{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+     || '","sha256":null,"verified":false}]}')::jsonb),
+  'ARC1 accepts its stored parts');
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    '71000000-0000-0000-0000-0000000000a1','{"status":"byte_verifying"}'::jsonb),
+  'ARC1 enters byte_verifying');
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    '71000000-0000-0000-0000-0000000000a1',
+    ('{"status":"byte_verified","archive_sha256":"' || repeat('9',64)
+     || '","composite_sha256":"' || pg_temp.archive_composite_sha256(ARRAY[repeat('d',64),repeat('e',64)]) || '",'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":"' || repeat('d',64) || '","verified":true},'
+     || '{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+     || '","sha256":"' || repeat('e',64) || '","verified":true}]}')::jsonb),
+  'adversarial 1: valid byte_verified creation under the live claim');
+
+-- Adversarial 2: a same-state byte_verified no-op is accepted and changes
+-- nothing but the update timestamp.
+DO $$
+DECLARE v_before JSONB;
+BEGIN
+  v_before := pg_temp.archive_row('71000000-0000-0000-0000-0000000000a1');
+  IF NOT public.studio_update_archive_claimed(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    '71000000-0000-0000-0000-0000000000a1','{"status":"byte_verified"}'::jsonb) THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: same-state byte_verified no-op refused';
+  END IF;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '71000000-0000-0000-0000-0000000000a1', v_before, 'same-state no-op');
+END;
+$$;
+
+-- Adversarial 3-5: same-state tampering with parts / archive_sha256 /
+-- observed_size while byte_verified — refused by BOTH layers (the RPC
+-- whitelist reduction and the trigger's evidence freeze), changing nothing.
+DO $$
+DECLARE
+  v_before JSONB;
+  v_patch JSONB;
+  v_tampered CONSTANT TEXT :=
+    '[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+    || '","sha256":"' || repeat('f',64) || '","verified":true},'
+    || '{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+    || '","sha256":"' || repeat('e',64) || '","verified":true}]';
+BEGIN
+  v_before := pg_temp.archive_row('71000000-0000-0000-0000-0000000000a1');
+  -- RPC layer: evidence fields cannot even be presented after verification.
+  FOREACH v_patch IN ARRAY ARRAY[
+    ('{"parts":' || v_tampered || '}')::jsonb,
+    ('{"archive_sha256":"' || repeat('0',64) || '"}')::jsonb,
+    '{"observed_size":16777216}'::jsonb,
+    ('{"composite_sha256":"' || repeat('0',64) || '"}')::jsonb
+  ] LOOP
+    BEGIN
+      PERFORM public.studio_update_archive_claimed(
+        '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+        '71000000-0000-0000-0000-0000000000a1', v_patch);
+      RAISE EXCEPTION 'expected_verified_patch_rejection_absent: %', v_patch::text;
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM NOT LIKE 'studio_archive_patch_forbidden%' THEN RAISE; END IF;
+    END;
+  END LOOP;
+  -- Trigger layer: even direct service-role SQL cannot rewrite the evidence.
+  BEGIN
+    UPDATE public.studio_archives SET parts = v_tampered::jsonb
+    WHERE id='71000000-0000-0000-0000-0000000000a1';
+    RAISE EXCEPTION 'expected_parts_freeze_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_verified_evidence_immutable: parts%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archives SET archive_sha256 = repeat('0',64)
+    WHERE id='71000000-0000-0000-0000-0000000000a1';
+    RAISE EXCEPTION 'expected_archive_sha_freeze_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_verified_evidence_immutable: archive_sha256%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archives SET observed_size = 16777215
+    WHERE id='71000000-0000-0000-0000-0000000000a1';
+    RAISE EXCEPTION 'expected_observed_freeze_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_verified_evidence_immutable: observed_size%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archives SET composite_sha256 = repeat('0',64)
+    WHERE id='71000000-0000-0000-0000-0000000000a1';
+    RAISE EXCEPTION 'expected_composite_freeze_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_verified_evidence_immutable: composite_sha256%' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '71000000-0000-0000-0000-0000000000a1', v_before, 'byte_verified tamper battery');
+END;
+$$;
+
+-- Adversarial 6: manifest identity tampering while byte_verified — the
+-- identity column is immutable and the frozen parts manifest cannot be
+-- re-declared, so the identity binding can never be re-pointed.
+DO $$
+DECLARE v_before JSONB;
+BEGIN
+  v_before := pg_temp.archive_row('71000000-0000-0000-0000-0000000000a1');
+  BEGIN
+    UPDATE public.studio_archives
+    SET manifest_sha256 = pg_temp.archive_manifest_sha256(
+          16777216,8388608,ARRAY[repeat('1',64),repeat('2',64)])
+    WHERE id='71000000-0000-0000-0000-0000000000a1';
+    RAISE EXCEPTION 'expected_identity_swap_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_identity_immutable%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archives
+    SET parts = ('[{"index":0,"size":8388608,"declaredSha256":"' || repeat('1',64)
+                 || '","sha256":"' || repeat('1',64) || '","verified":true},'
+                 || '{"index":1,"size":8388608,"declaredSha256":"' || repeat('2',64)
+                 || '","sha256":"' || repeat('2',64) || '","verified":true}]')::jsonb
+    WHERE id='71000000-0000-0000-0000-0000000000a1';
+    RAISE EXCEPTION 'expected_declared_manifest_rewrite_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_verified_evidence_immutable: parts%' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '71000000-0000-0000-0000-0000000000a1', v_before, 'identity tamper battery');
+END;
+$$;
+
+-- Adversarial 7: byte_verified -> processing_entries with valid evidence.
+SELECT pg_temp.assert_true(
+  public.studio_index_archive_entries(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    '71000000-0000-0000-0000-0000000000a1',
+    '[{"entry_index":0,"entry_name":"photos/a.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":10,"uncompressed_size":10},
+      {"entry_index":1,"entry_name":"docs/b.pdf","display_label":"entry 2 (document)","category":"document","compressed_size":20,"uncompressed_size":20}]'::jsonb),
+  'adversarial 7: the claim holder indexes the durable inventory');
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    '71000000-0000-0000-0000-0000000000a1',
+    '{"status":"processing_entries","entry_count":2,"total_uncompressed":30}'::jsonb),
+  'adversarial 7: byte_verified -> processing_entries with valid evidence');
+
+-- Indexing is phase-gated: inventory rows can no longer be recorded once the
+-- archive left byte_verified, so the transitioned entry count is undilutable
+-- through any RPC.
+DO $$
+DECLARE
+  v_before JSONB;
+  v_entries JSONB;
+BEGIN
+  v_before := pg_temp.archive_row('71000000-0000-0000-0000-0000000000a1');
+  v_entries := pg_temp.entry_rows('71000000-0000-0000-0000-0000000000a1');
+  BEGIN
+    PERFORM public.studio_index_archive_entries(
+      '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+      '71000000-0000-0000-0000-0000000000a1',
+      '[{"entry_index":9,"entry_name":"late.bin","display_label":"entry 10 (document)","category":"document","compressed_size":1,"uncompressed_size":1}]'::jsonb);
+    RAISE EXCEPTION 'expected_late_index_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entries_invalid: archive_state%' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '71000000-0000-0000-0000-0000000000a1', v_before, 'late index attempt');
+  IF pg_temp.entry_rows('71000000-0000-0000-0000-0000000000a1') IS DISTINCT FROM v_entries THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: late index attempt mutated entry rows';
+  END IF;
+END;
+$$;
+
+-- Adversarial 13-15: same-state tampering while processing_entries — parts,
+-- archive hash, and the recorded inventory numbers are all frozen.
+DO $$
+DECLARE
+  v_before JSONB;
+  v_entries JSONB;
+BEGIN
+  v_before := pg_temp.archive_row('71000000-0000-0000-0000-0000000000a1');
+  v_entries := pg_temp.entry_rows('71000000-0000-0000-0000-0000000000a1');
+  BEGIN
+    UPDATE public.studio_archives
+    SET parts = ('[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+                 || '","sha256":"' || repeat('f',64) || '","verified":true},'
+                 || '{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+                 || '","sha256":"' || repeat('e',64) || '","verified":true}]')::jsonb
+    WHERE id='71000000-0000-0000-0000-0000000000a1';
+    RAISE EXCEPTION 'expected_processing_parts_tamper_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_verified_evidence_immutable: parts%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archives SET archive_sha256 = repeat('1',64)
+    WHERE id='71000000-0000-0000-0000-0000000000a1';
+    RAISE EXCEPTION 'expected_processing_hash_tamper_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_verified_evidence_immutable: archive_sha256%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archives SET entry_count = 5
+    WHERE id='71000000-0000-0000-0000-0000000000a1';
+    RAISE EXCEPTION 'expected_entry_count_tamper_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_verified_evidence_immutable: inventory%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM public.studio_update_archive_claimed(
+      '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+      '71000000-0000-0000-0000-0000000000a1','{"entry_count":5}'::jsonb);
+    RAISE EXCEPTION 'expected_entry_count_patch_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_patch_forbidden: inventory%' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '71000000-0000-0000-0000-0000000000a1', v_before, 'processing tamper battery');
+  IF pg_temp.entry_rows('71000000-0000-0000-0000-0000000000a1') IS DISTINCT FROM v_entries THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: processing tamper battery mutated entry rows';
+  END IF;
+END;
+$$;
+
+-- Adversarial 16: inventory belonging to another job stays unrepresentable at
+-- the constraint layer (composite FK), whatever the caller.
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO public.studio_archive_entries(
+      archive_id,job_id,entry_index,entry_name,display_label,category,
+      compressed_size,uncompressed_size)
+    VALUES ('71000000-0000-0000-0000-0000000000a1',
+            '70000000-0000-0000-0000-00000000000b',
+            40,'foreign.bin','entry 41 (document)','document',1,1);
+    RAISE EXCEPTION 'expected_foreign_inventory_rejection_absent';
+  EXCEPTION
+    WHEN foreign_key_violation THEN NULL;
+    WHEN OTHERS THEN
+      IF SQLERRM NOT LIKE 'studio_archive_entry_cross_job%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+-- Adversarial 17: processing_entries -> completed with a pending entry left.
+DO $$
+DECLARE v_before JSONB;
+BEGIN
+  v_before := pg_temp.archive_row('71000000-0000-0000-0000-0000000000a1');
+  BEGIN
+    PERFORM public.studio_update_archive_claimed(
+      '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+      '71000000-0000-0000-0000-0000000000a1','{"status":"completed"}'::jsonb);
+    RAISE EXCEPTION 'expected_pending_completion_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_completed_with_pending_entries%' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '71000000-0000-0000-0000-0000000000a1', v_before, 'pending completion attempt');
+END;
+$$;
+
+-- Adversarial 18: inventory dilution. The entry guard now makes the diluted
+-- state UNREPRESENTABLE — a direct insert into a processing archive raises —
+-- and the parent completion gate still re-counts the durable rows as defense
+-- in depth (proven below through a deliberately disabled-trigger window that
+-- simulates sub-trigger corruption).
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO public.studio_archive_entries(
+      id,archive_id,job_id,entry_index,entry_name,display_label,category,
+      compressed_size,uncompressed_size)
+    VALUES ('72000000-0000-0000-0000-0000000000ee',
+            '71000000-0000-0000-0000-0000000000a1',
+            '70000000-0000-0000-0000-00000000000a',
+            99,'diluted.bin','entry 100 (document)','document',1,1);
+    RAISE EXCEPTION 'expected_dilution_insert_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_insert_phase%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+SELECT pg_temp.assert_true(
+  public.studio_settle_archive_entry(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+      AND archive_id='71000000-0000-0000-0000-0000000000a1'),
+    ('{"state":"published_public","outcomeCode":null,"sha256":"' || repeat('a',64)
+     || '","observedSize":10,"publicBucket":"project-images","publicPath":"studio/a/att/00-a.jpg",'
+     || '"publicUrl":"https://cdn/a.jpg","mediaType":"gallery","attempt":"7c000000",'
+     || '"processedAt":"2026-07-24T00:00:00Z"}')::jsonb)
+  AND public.studio_settle_archive_entry(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=1
+      AND archive_id='71000000-0000-0000-0000-0000000000a1'),
+    '{"state":"failed","outcomeCode":"entry_expansion_failed","attempt":"7c000000","processedAt":"2026-07-24T00:00:00Z"}'::jsonb),
+  'the claim holder settles both real entries');
+-- Defense in depth: simulate sub-trigger corruption by disabling the entry
+-- guard, planting an extra row, and proving the PARENT completion gate still
+-- re-counts the durable rows and refuses. (Superuser-only maintenance — the
+-- application can never do this: it holds no direct DML privilege at all.)
+ALTER TABLE public.studio_archive_entries DISABLE TRIGGER studio_archive_entries_guard;
+INSERT INTO public.studio_archive_entries(
+  id,archive_id,job_id,entry_index,entry_name,display_label,category,
+  compressed_size,uncompressed_size)
+VALUES ('72000000-0000-0000-0000-0000000000ee',
+        '71000000-0000-0000-0000-0000000000a1',
+        '70000000-0000-0000-0000-00000000000a',
+        99,'diluted.bin','entry 100 (document)','document',1,1);
+ALTER TABLE public.studio_archive_entries ENABLE TRIGGER studio_archive_entries_guard;
+DO $$
+DECLARE v_before JSONB;
+BEGIN
+  v_before := pg_temp.archive_row('71000000-0000-0000-0000-0000000000a1');
+  BEGIN
+    PERFORM public.studio_update_archive_claimed(
+      '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+      '71000000-0000-0000-0000-0000000000a1','{"status":"completed"}'::jsonb);
+    RAISE EXCEPTION 'expected_diluted_completion_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_inventory_incomplete%' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '71000000-0000-0000-0000-0000000000a1', v_before, 'diluted completion attempt');
+END;
+$$;
+ALTER TABLE public.studio_archive_entries DISABLE TRIGGER studio_archive_entries_guard;
+DELETE FROM public.studio_archive_entries
+WHERE id='72000000-0000-0000-0000-0000000000ee';
+ALTER TABLE public.studio_archive_entries ENABLE TRIGGER studio_archive_entries_guard;
+
+-- Adversarial 19: valid processing_entries -> completed.
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    '71000000-0000-0000-0000-0000000000a1','{"status":"completed"}'::jsonb),
+  'adversarial 19: valid completion once every entry settled');
+
+-- Adversarial 20-21: completed is a strict no-op terminal — evidence,
+-- artifacts, and error codes are all frozen, and no earlier state is
+-- reachable by RPC or direct SQL.
+DO $$
+DECLARE
+  v_before JSONB;
+  v_entries JSONB;
+  v_patch JSONB;
+BEGIN
+  v_before := pg_temp.archive_row('71000000-0000-0000-0000-0000000000a1');
+  v_entries := pg_temp.entry_rows('71000000-0000-0000-0000-0000000000a1');
+  BEGIN
+    UPDATE public.studio_archives SET extracted = '{"forged":true}'::jsonb
+    WHERE id='71000000-0000-0000-0000-0000000000a1';
+    RAISE EXCEPTION 'expected_completed_extracted_tamper_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_terminal_immutable%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archives SET error_code = 'forged'
+    WHERE id='71000000-0000-0000-0000-0000000000a1';
+    RAISE EXCEPTION 'expected_completed_error_code_tamper_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_terminal_immutable%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archives SET entry_count = 0, total_uncompressed = 0
+    WHERE id='71000000-0000-0000-0000-0000000000a1';
+    RAISE EXCEPTION 'expected_completed_inventory_tamper_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_terminal_immutable%' THEN RAISE; END IF;
+  END;
+  FOREACH v_patch IN ARRAY ARRAY[
+    '{"extracted":{"forged":true}}'::jsonb,
+    '{"error_code":"forged"}'::jsonb
+  ] LOOP
+    BEGIN
+      PERFORM public.studio_update_archive_claimed(
+        '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+        '71000000-0000-0000-0000-0000000000a1', v_patch);
+      RAISE EXCEPTION 'expected_completed_patch_rejection_absent: %', v_patch::text;
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM NOT LIKE 'studio_archive_patch_forbidden: terminal%' THEN RAISE; END IF;
+    END;
+  END LOOP;
+  -- completed -> any earlier state (RPC and direct SQL).
+  BEGIN
+    PERFORM public.studio_update_archive_claimed(
+      '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+      '71000000-0000-0000-0000-0000000000a1','{"status":"processing_entries"}'::jsonb);
+    RAISE EXCEPTION 'expected_completed_regression_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_invalid_transition%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archives SET status = 'byte_verified'
+    WHERE id='71000000-0000-0000-0000-0000000000a1';
+    RAISE EXCEPTION 'expected_completed_sql_regression_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_invalid_transition%' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '71000000-0000-0000-0000-0000000000a1', v_before, 'completed tamper battery');
+  IF pg_temp.entry_rows('71000000-0000-0000-0000-0000000000a1') IS DISTINCT FROM v_entries THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: completed tamper battery mutated entry rows';
+  END IF;
+END;
+$$;
+
+-- A settled entry of a completed archive can never re-settle (pending-only +
+-- the processing-phase gate both refuse).
+SELECT pg_temp.assert_true(
+  NOT public.studio_settle_archive_entry(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+      AND archive_id='71000000-0000-0000-0000-0000000000a1'),
+    '{"state":"failed","outcomeCode":"rewrite","attempt":"late","processedAt":"2026-07-24T00:00:01Z"}'::jsonb),
+  'a completed archive''s settled entry never re-settles');
+
+-- ARC2: evidence-gate negatives at the byte_verified boundary (adversarial
+-- 8-12 evidence shapes) and fabricated-transition attempts.
+INSERT INTO public.studio_archives(
+  id,job_id,ordinal,file_name,manifest_sha256,declared_size,part_size,part_count,status,parts)
+VALUES ('71000000-0000-0000-0000-0000000000a2',
+        '70000000-0000-0000-0000-00000000000a',1,'gate.zip',
+        pg_temp.archive_manifest_sha256(16777216,8388608,ARRAY[repeat('d',64),repeat('e',64)]),
+        16777216,8388608,2,'planned',
+        ('[{"index":0,"size":null,"declaredSha256":"' || repeat('d',64)
+         || '","sha256":null,"verified":false},'
+         || '{"index":1,"size":null,"declaredSha256":"' || repeat('e',64)
+         || '","sha256":null,"verified":false}]')::jsonb);
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    '71000000-0000-0000-0000-0000000000a2',
+    ('{"status":"uploaded_unverified","observed_size":16777216,'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":null,"verified":false},'
+     || '{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+     || '","sha256":null,"verified":false}]}')::jsonb),
+  'ARC2 accepts its stored parts');
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    '71000000-0000-0000-0000-0000000000a2','{"status":"byte_verifying"}'::jsonb),
+  'ARC2 reaches byte_verifying under the live claim');
+
+DO $$
+DECLARE
+  v_before JSONB;
+  v_parts JSONB;
+  v_label TEXT;
+  v_cases JSONB;
+  v_case JSONB;
+BEGIN
+  v_before := pg_temp.archive_row('71000000-0000-0000-0000-0000000000a2');
+  -- Each malformed evidence shape is refused at the byte_verified gate:
+  --   8. one verified=false part
+  --   9. reordered part indexes
+  --  10. duplicate part index
+  --  11. missing part (array shorter than the bound manifest)
+  --  12. wrong final-part size
+  v_cases := jsonb_build_array(
+    jsonb_build_object('label','unverified part','error','studio_archive_byte_verification_evidence_missing%','parts',
+      ('[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+       || '","sha256":"' || repeat('d',64) || '","verified":true},'
+       || '{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+       || '","sha256":null,"verified":false}]')::jsonb),
+    jsonb_build_object('label','reordered indexes','error','studio_archive_manifest_binding_violation%','parts',
+      ('[{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+       || '","sha256":"' || repeat('e',64) || '","verified":true},'
+       || '{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+       || '","sha256":"' || repeat('d',64) || '","verified":true}]')::jsonb),
+    jsonb_build_object('label','duplicate index','error','studio_archive_manifest_binding_violation%','parts',
+      ('[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+       || '","sha256":"' || repeat('d',64) || '","verified":true},'
+       || '{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+       || '","sha256":"' || repeat('d',64) || '","verified":true}]')::jsonb),
+    jsonb_build_object('label','missing part','error','studio_archive_manifest_binding_violation%','parts',
+      ('[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+       || '","sha256":"' || repeat('d',64) || '","verified":true}]')::jsonb),
+    jsonb_build_object('label','wrong final-part size','error','studio_archive_manifest_binding_violation%','parts',
+      ('[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+       || '","sha256":"' || repeat('d',64) || '","verified":true},'
+       || '{"index":1,"size":1234,"declaredSha256":"' || repeat('e',64)
+       || '","sha256":"' || repeat('e',64) || '","verified":true}]')::jsonb)
+  );
+  FOR v_case IN SELECT jsonb_array_elements(v_cases) LOOP
+    v_label := v_case->>'label';
+    v_parts := v_case->'parts';
+    BEGIN
+      PERFORM public.studio_update_archive_claimed(
+        '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+        '71000000-0000-0000-0000-0000000000a2',
+        jsonb_build_object(
+          'status','byte_verified',
+          'archive_sha256', repeat('9',64),
+          'composite_sha256', pg_temp.archive_composite_sha256(ARRAY[repeat('d',64),repeat('e',64)]),
+          'parts', v_parts));
+      RAISE EXCEPTION 'expected_gate_rejection_absent: %', v_label;
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM NOT LIKE (v_case->>'error') THEN RAISE; END IF;
+    END;
+  END LOOP;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '71000000-0000-0000-0000-0000000000a2', v_before, 'byte_verified gate battery');
+END;
+$$;
+
+-- ARC2 then legitimately byte-verifies, and fabricated transitions into
+-- processing_entries carrying tampered evidence are refused in one statement.
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    '71000000-0000-0000-0000-0000000000a2',
+    ('{"status":"byte_verified","archive_sha256":"' || repeat('8',64)
+     || '","composite_sha256":"' || pg_temp.archive_composite_sha256(ARRAY[repeat('d',64),repeat('e',64)]) || '",'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":"' || repeat('d',64) || '","verified":true},'
+     || '{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+     || '","sha256":"' || repeat('e',64) || '","verified":true}]}')::jsonb),
+  'ARC2 byte-verifies with complete evidence');
+DO $$
+DECLARE
+  v_before JSONB;
+  v_parts JSONB;
+  v_case JSONB;
+BEGIN
+  v_before := pg_temp.archive_row('71000000-0000-0000-0000-0000000000a2');
+  -- Adversarial 8-12 as SINGLE-STATEMENT fabricated transitions: status +
+  -- rewritten parts together. The evidence freeze refuses them atomically.
+  FOR v_case IN SELECT jsonb_array_elements(jsonb_build_array(
+    ('[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":"' || repeat('d',64) || '","verified":true},'
+     || '{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+     || '","sha256":null,"verified":false}]')::jsonb,
+    ('[{"index":1,"size":8388608,"declaredSha256":"' || repeat('e',64)
+     || '","sha256":"' || repeat('e',64) || '","verified":true},'
+     || '{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":"' || repeat('d',64) || '","verified":true}]')::jsonb,
+    ('[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":"' || repeat('d',64) || '","verified":true},'
+     || '{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":"' || repeat('d',64) || '","verified":true}]')::jsonb,
+    ('[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":"' || repeat('d',64) || '","verified":true}]')::jsonb,
+    ('[{"index":0,"size":8388608,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":"' || repeat('d',64) || '","verified":true},'
+     || '{"index":1,"size":1234,"declaredSha256":"' || repeat('e',64)
+     || '","sha256":"' || repeat('e',64) || '","verified":true}]')::jsonb
+  )) LOOP
+    v_parts := v_case;
+    BEGIN
+      UPDATE public.studio_archives
+      SET status = 'processing_entries', parts = v_parts,
+          entry_count = 0, total_uncompressed = 0
+      WHERE id='71000000-0000-0000-0000-0000000000a2';
+      RAISE EXCEPTION 'expected_fabricated_transition_rejection_absent';
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM NOT LIKE 'studio_archive_verified_evidence_immutable%' THEN RAISE; END IF;
+    END;
+  END LOOP;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '71000000-0000-0000-0000-0000000000a2', v_before, 'fabricated transition battery');
+END;
+$$;
+
+-- Adversarial 26: a stale token can neither patch, index, nor settle.
+SELECT pg_temp.assert_true(
+  public.studio_index_archive_entries(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    '71000000-0000-0000-0000-0000000000a2',
+    '[{"entry_index":0,"entry_name":"x.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":5,"uncompressed_size":5}]'::jsonb),
+  'ARC2 inventory is indexed while byte_verified');
+DO $$
+DECLARE
+  v_before JSONB;
+  v_entries JSONB;
+BEGIN
+  v_before := pg_temp.archive_row('71000000-0000-0000-0000-0000000000a2');
+  v_entries := pg_temp.entry_rows('71000000-0000-0000-0000-0000000000a2');
+  IF public.studio_update_archive_claimed(
+       '70000000-0000-0000-0000-00000000000a','deadbeef-0000-0000-0000-000000000000',
+       '71000000-0000-0000-0000-0000000000a2','{"status":"rejected"}'::jsonb) THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: stale token patched an archive';
+  END IF;
+  IF public.studio_index_archive_entries(
+       '70000000-0000-0000-0000-00000000000a','deadbeef-0000-0000-0000-000000000000',
+       '71000000-0000-0000-0000-0000000000a2',
+       '[{"entry_index":7,"entry_name":"y.jpg","display_label":"entry 8 (photo)","category":"photo","compressed_size":5,"uncompressed_size":5}]'::jsonb) THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: stale token indexed inventory';
+  END IF;
+  IF public.studio_settle_archive_entry(
+       '70000000-0000-0000-0000-00000000000a','deadbeef-0000-0000-0000-000000000000',
+       (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+         AND archive_id='71000000-0000-0000-0000-0000000000a2'),
+       '{"state":"failed","outcomeCode":"steal","attempt":"x","processedAt":"2026-07-24T00:00:00Z"}'::jsonb) THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: stale token settled an entry';
+  END IF;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '71000000-0000-0000-0000-0000000000a2', v_before, 'stale token battery');
+  IF pg_temp.entry_rows('71000000-0000-0000-0000-0000000000a2') IS DISTINCT FROM v_entries THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: stale token battery mutated entry rows';
+  END IF;
+END;
+$$;
+
+-- The settlement phase gate: even the LIVE claim holder cannot settle an
+-- entry while its parent archive is only byte_verified (not yet processing).
+SELECT pg_temp.assert_true(
+  NOT public.studio_settle_archive_entry(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+      AND archive_id='71000000-0000-0000-0000-0000000000a2'),
+    '{"state":"failed","outcomeCode":"early","attempt":"x","processedAt":"2026-07-24T00:00:00Z"}'::jsonb)
+  AND (SELECT state='pending' FROM public.studio_archive_entries WHERE entry_index=0
+       AND archive_id='71000000-0000-0000-0000-0000000000a2'),
+  'settlement is phase-gated to processing_entries');
+
+-- Adversarial 27: a valid claim on job B can touch nothing of job A's.
+DO $$
+DECLARE
+  v_before JSONB;
+  v_entries JSONB;
+BEGIN
+  v_before := pg_temp.archive_row('71000000-0000-0000-0000-0000000000a2');
+  v_entries := pg_temp.entry_rows('71000000-0000-0000-0000-0000000000a2');
+  IF public.studio_update_archive_claimed(
+       '70000000-0000-0000-0000-00000000000b','7c000000-0000-0000-0000-00000000000b',
+       '71000000-0000-0000-0000-0000000000a2','{"status":"rejected"}'::jsonb) THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: job B patched job A''s archive';
+  END IF;
+  IF public.studio_index_archive_entries(
+       '70000000-0000-0000-0000-00000000000b','7c000000-0000-0000-0000-00000000000b',
+       '71000000-0000-0000-0000-0000000000a2',
+       '[{"entry_index":8,"entry_name":"z.jpg","display_label":"entry 9 (photo)","category":"photo","compressed_size":5,"uncompressed_size":5}]'::jsonb) THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: job B indexed into job A''s archive';
+  END IF;
+  IF public.studio_settle_archive_entry(
+       '70000000-0000-0000-0000-00000000000b','7c000000-0000-0000-0000-00000000000b',
+       (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+         AND archive_id='71000000-0000-0000-0000-0000000000a2'),
+       '{"state":"failed","outcomeCode":"steal","attempt":"b","processedAt":"2026-07-24T00:00:00Z"}'::jsonb) THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: job B settled job A''s entry';
+  END IF;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '71000000-0000-0000-0000-0000000000a2', v_before, 'cross-job battery');
+  IF pg_temp.entry_rows('71000000-0000-0000-0000-0000000000a2') IS DISTINCT FROM v_entries THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: cross-job battery mutated entry rows';
+  END IF;
+END;
+$$;
+
+-- ARC3 (adversarial 22): rejected is a strict no-op terminal too.
+INSERT INTO public.studio_archives(
+  id,job_id,ordinal,file_name,manifest_sha256,declared_size,part_size,part_count,status,parts)
+VALUES ('71000000-0000-0000-0000-0000000000a3',
+        '70000000-0000-0000-0000-00000000000a',2,'reject.zip',
+        pg_temp.archive_manifest_sha256(8388608,8388608,ARRAY[repeat('7',64)]),
+        8388608,8388608,1,'planned',
+        ('[{"index":0,"size":null,"declaredSha256":"' || repeat('7',64)
+         || '","sha256":null,"verified":false}]')::jsonb);
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+    '71000000-0000-0000-0000-0000000000a3',
+    '{"status":"rejected","error_code":"archive_upload_incomplete"}'::jsonb),
+  'ARC3 is rejected under the live claim');
+DO $$
+DECLARE v_before JSONB;
+BEGIN
+  v_before := pg_temp.archive_row('71000000-0000-0000-0000-0000000000a3');
+  BEGIN
+    UPDATE public.studio_archives SET error_code = 'rewritten'
+    WHERE id='71000000-0000-0000-0000-0000000000a3';
+    RAISE EXCEPTION 'expected_rejected_error_code_tamper_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_terminal_immutable%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archives
+    SET parts = ('[{"index":0,"size":8388608,"declaredSha256":"' || repeat('7',64)
+                 || '","sha256":"' || repeat('7',64) || '","verified":true}]')::jsonb
+    WHERE id='71000000-0000-0000-0000-0000000000a3';
+    RAISE EXCEPTION 'expected_rejected_parts_tamper_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_terminal_immutable%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM public.studio_update_archive_claimed(
+      '70000000-0000-0000-0000-00000000000a','7c000000-0000-0000-0000-00000000000a',
+      '71000000-0000-0000-0000-0000000000a3','{"error_code":"rewritten"}'::jsonb);
+    RAISE EXCEPTION 'expected_rejected_patch_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_patch_forbidden: terminal%' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '71000000-0000-0000-0000-0000000000a3', v_before, 'rejected tamper battery');
+END;
+$$;
+
+-- ARC4 (adversarial 23-25): malformed parts JSON, an object instead of an
+-- array, and malformed numeric fields all fail atomically at ANY state.
+INSERT INTO public.studio_archives(
+  id,job_id,ordinal,file_name,manifest_sha256,declared_size,part_size,part_count,status,parts)
+VALUES ('71000000-0000-0000-0000-0000000000a4',
+        '70000000-0000-0000-0000-00000000000a',3,'malformed.zip',
+        pg_temp.archive_manifest_sha256(16777216,8388608,ARRAY[repeat('d',64),repeat('e',64)]),
+        16777216,8388608,2,'planned',
+        ('[{"index":0,"size":null,"declaredSha256":"' || repeat('d',64)
+         || '","sha256":null,"verified":false},'
+         || '{"index":1,"size":null,"declaredSha256":"' || repeat('e',64)
+         || '","sha256":null,"verified":false}]')::jsonb);
+DO $$
+DECLARE
+  v_before JSONB;
+  v_parts JSONB;
+BEGIN
+  v_before := pg_temp.archive_row('71000000-0000-0000-0000-0000000000a4');
+  FOREACH v_parts IN ARRAY ARRAY[
+    '{"index":0}'::jsonb,                        -- object instead of array
+    '[1,2]'::jsonb,                              -- scalar elements
+    ('[{"index":0.5,"size":null,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":null,"verified":false},'
+     || '{"index":1,"size":null,"declaredSha256":"' || repeat('e',64)
+     || '","sha256":null,"verified":false}]')::jsonb,  -- fractional index
+    ('[{"index":0,"size":1.5,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":null,"verified":false},'
+     || '{"index":1,"size":null,"declaredSha256":"' || repeat('e',64)
+     || '","sha256":null,"verified":false}]')::jsonb,  -- fractional size
+    ('[{"index":0,"size":null,"declaredSha256":"nothex",'
+     || '"sha256":null,"verified":false},'
+     || '{"index":1,"size":null,"declaredSha256":"' || repeat('e',64)
+     || '","sha256":null,"verified":false}]')::jsonb,  -- malformed claim digest
+    ('[{"index":0,"size":null,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":null,"verified":false,"extra":1},'
+     || '{"index":1,"size":null,"declaredSha256":"' || repeat('e',64)
+     || '","sha256":null,"verified":false}]')::jsonb,  -- unknown part field
+    ('[{"index":0,"size":null,"declaredSha256":"' || repeat('1',64)
+     || '","sha256":null,"verified":false},'
+     || '{"index":1,"size":null,"declaredSha256":"' || repeat('2',64)
+     || '","sha256":null,"verified":false}]')::jsonb,  -- identity digest mismatch
+    ('[{"size":null,"declaredSha256":"' || repeat('d',64)
+     || '","sha256":null,"verified":false},'
+     || '{"index":1,"size":null,"declaredSha256":"' || repeat('e',64)
+     || '","sha256":null,"verified":false}]')::jsonb,  -- MISSING index key
+    ('[{"index":0,"size":null,"sha256":null,"verified":false},'
+     || '{"index":1,"size":null,"declaredSha256":"' || repeat('e',64)
+     || '","sha256":null,"verified":false}]')::jsonb   -- MISSING declared digest
+  ] LOOP
+    BEGIN
+      UPDATE public.studio_archives SET parts = v_parts
+      WHERE id='71000000-0000-0000-0000-0000000000a4';
+      RAISE EXCEPTION 'expected_malformed_parts_rejection_absent: %', v_parts::text;
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM NOT LIKE 'studio_archive_manifest_binding_violation%' THEN RAISE; END IF;
+    END;
+  END LOOP;
+  -- A wrong observed size is impossible in ANY state.
+  BEGIN
+    UPDATE public.studio_archives SET observed_size = 123
+    WHERE id='71000000-0000-0000-0000-0000000000a4';
+    RAISE EXCEPTION 'expected_wrong_observed_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_manifest_binding_violation: observed_size%' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '71000000-0000-0000-0000-0000000000a4', v_before, 'malformed parts battery');
+END;
+$$;
+
+-- Unrelated rows stayed untouched through the whole adversarial battery.
+SELECT pg_temp.assert_true(
+  (SELECT status='completed' FROM public.studio_archives
+    WHERE id='71000000-0000-0000-0000-0000000000a1')
+  AND (SELECT count(*) FROM public.studio_archive_entries
+    WHERE archive_id='71000000-0000-0000-0000-0000000000a1')=2
+  AND (SELECT count(*) FROM public.studio_archives
+    WHERE job_id='70000000-0000-0000-0000-00000000000a')=4
+  AND (SELECT count(*) FROM public.studio_archives
+    WHERE job_id='70000000-0000-0000-0000-00000000000b')=0,
+  'unrelated archives and entries survived the adversarial battery unchanged');
+
+-- ---------------------------------------------------------------------------
+-- LA-11. CHILD INVENTORY MUTATION BOUNDARY
+--
+-- Proves the completed state stays trustworthy WITHOUT any parent UPDATE:
+-- the durable inventory can be created only during the indexing phase,
+-- settled exactly once during processing, and never inserted into, updated,
+-- or deleted afterwards — by ANY caller. Privilege probes run under
+-- SET ROLE service_role to prove the REAL application boundary (SELECT-only
+-- on the table; mutations only through the SECURITY DEFINER RPCs), and the
+-- cascade probes prove the exact PostgreSQL teardown behavior rather than
+-- assuming it.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION pg_temp.job_row(p_id UUID) RETURNS JSONB
+LANGUAGE sql AS $$
+  SELECT to_jsonb(j) - 'updated_at' FROM public.studio_upload_jobs j WHERE j.id = p_id;
+$$;
+
+-- Baseline snapshot of UNRELATED rows (job A's completed archive from LA-10):
+-- re-checked byte-for-byte at the end of this section.
+CREATE TEMP TABLE la11_baseline AS
+SELECT pg_temp.archive_row('71000000-0000-0000-0000-0000000000a1') AS unrelated_archive,
+       pg_temp.entry_rows('71000000-0000-0000-0000-0000000000a1') AS unrelated_entries,
+       pg_temp.job_row('70000000-0000-0000-0000-00000000000a') AS unrelated_job;
+
+INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status)
+VALUES ('80000000-0000-0000-0000-00000000000c',
+        '00000000-0000-0000-0000-000000000001','owner','new_development','received'),
+       ('80000000-0000-0000-0000-00000000000d',
+        '00000000-0000-0000-0000-000000000001','owner','new_development','received');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_request_job_processing(
+     '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',900))=1
+  AND (SELECT count(*) FROM public.studio_request_job_processing(
+     '80000000-0000-0000-0000-00000000000d','8c000000-0000-0000-0000-00000000000d',900))=1,
+  'LA-11 jobs C and D are claimed by their own worker tokens');
+
+-- CA1: the main lane — a 4-entry inventory exercising every settlement kind.
+INSERT INTO public.studio_archives(
+  id,job_id,ordinal,file_name,manifest_sha256,declared_size,part_size,part_count,status,parts)
+VALUES ('81000000-0000-0000-0000-0000000000c1',
+        '80000000-0000-0000-0000-00000000000c',0,'main.zip',
+        pg_temp.archive_manifest_sha256(8388608,8388608,ARRAY[repeat('7',64)]),
+        8388608,8388608,1,'planned',
+        ('[{"index":0,"size":null,"declaredSha256":"' || repeat('7',64)
+         || '","sha256":null,"verified":false}]')::jsonb);
+
+-- LA-11.2a: insert BEFORE the indexing phase (parent still planned).
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO public.studio_archive_entries(
+      archive_id,job_id,entry_index,entry_name,display_label,category,
+      compressed_size,uncompressed_size)
+    VALUES ('81000000-0000-0000-0000-0000000000c1',
+            '80000000-0000-0000-0000-00000000000c',
+            0,'early.jpg','entry 1 (photo)','photo',1,1);
+    RAISE EXCEPTION 'expected_preplanned_insert_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_insert_phase: planned%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c1',
+    ('{"status":"uploaded_unverified","observed_size":8388608,'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('7',64)
+     || '","sha256":null,"verified":false}]}')::jsonb),
+  'CA1 accepts its stored part');
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c1','{"status":"byte_verifying"}'::jsonb),
+  'CA1 enters byte_verifying');
+
+-- LA-11.2b: insert before the indexing phase (parent byte_verifying).
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO public.studio_archive_entries(
+      archive_id,job_id,entry_index,entry_name,display_label,category,
+      compressed_size,uncompressed_size)
+    VALUES ('81000000-0000-0000-0000-0000000000c1',
+            '80000000-0000-0000-0000-00000000000c',
+            0,'early.jpg','entry 1 (photo)','photo',1,1);
+    RAISE EXCEPTION 'expected_preverified_insert_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_insert_phase: byte_verifying%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c1',
+    ('{"status":"byte_verified","archive_sha256":"' || repeat('9',64)
+     || '","composite_sha256":"' || pg_temp.archive_composite_sha256(ARRAY[repeat('7',64)]) || '",'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('7',64)
+     || '","sha256":"' || repeat('7',64) || '","verified":true}]}')::jsonb),
+  'CA1 byte-verifies with complete evidence');
+
+-- LA-11.1: the LEGITIMATE multi-batch inventory flow, executed UNDER THE REAL
+-- APPLICATION ROLE (SET ROLE service_role): two claim-checked batches plus an
+-- idempotent re-run of the first batch (interrupted-batch resume).
+SET ROLE service_role;
+SELECT pg_temp.assert_true(
+  public.studio_index_archive_entries(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c1',
+    '[{"entry_index":0,"entry_name":"photos/a.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":10,"uncompressed_size":10},
+      {"entry_index":1,"entry_name":"video/b.mp4","display_label":"entry 2 (video)","category":"video","compressed_size":20,"uncompressed_size":20}]'::jsonb),
+  'service_role indexes batch 1 through the definer RPC');
+SELECT pg_temp.assert_true(
+  public.studio_index_archive_entries(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c1',
+    '[{"entry_index":2,"entry_name":"docs/c.pdf","display_label":"entry 3 (document)","category":"document","compressed_size":5,"uncompressed_size":5},
+      {"entry_index":3,"entry_name":"misc/d.bin","display_label":"entry 4 (document)","category":"document","compressed_size":7,"uncompressed_size":7}]'::jsonb),
+  'service_role indexes batch 2 through the definer RPC');
+SELECT pg_temp.assert_true(
+  public.studio_index_archive_entries(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c1',
+    '[{"entry_index":0,"entry_name":"photos/a.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":10,"uncompressed_size":10}]'::jsonb),
+  'an interrupted batch re-run is idempotent under service_role');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_archive_entries
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c1')=4,
+  'service_role reads the 4-row inventory (SELECT retained)');
+
+-- LA-11.6/7/8: the application role has NO direct DML on the inventory.
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO public.studio_archive_entries(
+      archive_id,job_id,entry_index,entry_name,display_label,category,
+      compressed_size,uncompressed_size)
+    VALUES ('81000000-0000-0000-0000-0000000000c1',
+            '80000000-0000-0000-0000-00000000000c',
+            9,'smuggled.bin','entry 10 (document)','document',1,1);
+    RAISE EXCEPTION 'expected_service_role_insert_denial_absent';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    UPDATE public.studio_archive_entries SET outcome_code='forged'
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c1';
+    RAISE EXCEPTION 'expected_service_role_update_denial_absent';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM public.studio_archive_entries
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c1';
+    RAISE EXCEPTION 'expected_service_role_delete_denial_absent';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END;
+$$;
+
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c1',
+    '{"status":"processing_entries","entry_count":4,"total_uncompressed":42}'::jsonb),
+  'CA1 transitions to processing_entries under service_role');
+
+-- LA-11.9-12: all four legitimate settlements, under the application role.
+SELECT pg_temp.assert_true(
+  public.studio_settle_archive_entry(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+      AND archive_id='81000000-0000-0000-0000-0000000000c1'),
+    ('{"state":"published_public","outcomeCode":null,"sha256":"' || repeat('a',64)
+     || '","observedSize":10,"publicBucket":"project-images","publicPath":"studio/c/att/00-a.jpg",'
+     || '"publicUrl":"https://cdn/c0.jpg","mediaType":"gallery","attempt":"8c000000",'
+     || '"processedAt":"2026-07-24T00:00:00Z"}')::jsonb),
+  'pending -> published_public settles');
+SELECT pg_temp.assert_true(
+  public.studio_settle_archive_entry(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=1
+      AND archive_id='81000000-0000-0000-0000-0000000000c1'),
+    ('{"state":"retained_private","outcomeCode":"entry_over_size_limit",'
+     || '"sha256":"' || repeat('b',64) || '","observedSize":20,'
+     || '"evidence":{"bucket":"studio-uploads","prefix":"jobs/c/evidence/1/00001",'
+     || '"partSize":8388608,"partCount":1,'
+     || '"parts":[{"index":0,"size":20,"sha256":"' || repeat('c',64) || '"}],'
+     || '"totalSize":20,"crc32Verified":true},'
+     || '"attempt":"8c000000","processedAt":"2026-07-24T00:00:00Z"}')::jsonb),
+  'pending -> retained_private settles with its evidence manifest');
+SELECT pg_temp.assert_true(
+  public.studio_settle_archive_entry(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=2
+      AND archive_id='81000000-0000-0000-0000-0000000000c1'),
+    ('{"state":"skipped_duplicate","outcomeCode":"duplicate_content_skipped",'
+     || '"sha256":"' || repeat('a',64) || '","observedSize":5,'
+     || '"attempt":"8c000000","processedAt":"2026-07-24T00:00:00Z"}')::jsonb),
+  'pending -> skipped_duplicate settles');
+SELECT pg_temp.assert_true(
+  public.studio_settle_archive_entry(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=3
+      AND archive_id='81000000-0000-0000-0000-0000000000c1'),
+    '{"state":"failed","outcomeCode":"entry_integrity_failed","attempt":"8c000000","processedAt":"2026-07-24T00:00:00Z"}'::jsonb),
+  'pending -> failed settles');
+RESET ROLE;
+
+-- LA-11.13-15 (+26 pre-completion): terminal outcomes, identity fields, and
+-- public locations are frozen even for owner-level SQL while the parent is
+-- still processing.
+DO $$
+DECLARE
+  v_entries JSONB;
+BEGIN
+  v_entries := pg_temp.entry_rows('81000000-0000-0000-0000-0000000000c1');
+  BEGIN
+    UPDATE public.studio_archive_entries SET outcome_code = 'rewritten'
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c1' AND entry_index=0;
+    RAISE EXCEPTION 'expected_terminal_rewrite_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_terminal_immutable%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archive_entries SET state = 'pending', processed_at = NULL
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c1' AND entry_index=3;
+    RAISE EXCEPTION 'expected_terminal_regression_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_terminal_immutable%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archive_entries SET entry_name = 'renamed.jpg'
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c1' AND entry_index=0;
+    RAISE EXCEPTION 'expected_identity_update_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_identity_immutable%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archive_entries SET public_path = 'studio/c/att/evil.jpg'
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c1' AND entry_index=0;
+    RAISE EXCEPTION 'expected_public_path_rewrite_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_terminal_immutable%' THEN RAISE; END IF;
+  END;
+  IF pg_temp.entry_rows('81000000-0000-0000-0000-0000000000c1') IS DISTINCT FROM v_entries THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: terminal tamper battery mutated entry rows';
+  END IF;
+END;
+$$;
+
+-- LA-11.20: entries of a PROCESSING archive cannot be deleted directly.
+DO $$
+BEGIN
+  BEGIN
+    DELETE FROM public.studio_archive_entries
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c1' AND entry_index=3;
+    RAISE EXCEPTION 'expected_processing_delete_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_delete_forbidden%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+-- CA1 completes with its full, all-terminal, exactly counted inventory.
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c1','{"status":"completed"}'::jsonb),
+  'CA1 completes once every entry is terminal');
+
+-- LA-11.4/21/23/24/25/26: after completion the inventory is COMPLETELY
+-- frozen without any parent UPDATE — no insert (pending OR terminal), no
+-- delete of a counted row, no replace-in-one-transaction, no evidence or
+-- public-location rewrite. Each attempt proves parent + entries unchanged.
+DO $$
+DECLARE
+  v_arc JSONB;
+  v_entries JSONB;
+BEGIN
+  v_arc := pg_temp.archive_row('81000000-0000-0000-0000-0000000000c1');
+  v_entries := pg_temp.entry_rows('81000000-0000-0000-0000-0000000000c1');
+  -- 4/23: neither a pending nor a pre-terminalized row can be inserted.
+  BEGIN
+    INSERT INTO public.studio_archive_entries(
+      archive_id,job_id,entry_index,entry_name,display_label,category,
+      compressed_size,uncompressed_size)
+    VALUES ('81000000-0000-0000-0000-0000000000c1',
+            '80000000-0000-0000-0000-00000000000c',
+            7,'late.bin','entry 8 (document)','document',1,1);
+    RAISE EXCEPTION 'expected_completed_insert_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_insert_phase: completed%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    INSERT INTO public.studio_archive_entries(
+      archive_id,job_id,entry_index,entry_name,display_label,category,
+      compressed_size,uncompressed_size,state,outcome_code,processed_at)
+    VALUES ('81000000-0000-0000-0000-0000000000c1',
+            '80000000-0000-0000-0000-00000000000c',
+            8,'terminal.bin','entry 9 (document)','document',1,1,
+            'failed','forged','2026-07-24T00:00:00Z');
+    RAISE EXCEPTION 'expected_terminal_row_insert_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_insert_phase: completed%' THEN RAISE; END IF;
+  END;
+  -- 21/24: no counted row can be deleted.
+  BEGIN
+    DELETE FROM public.studio_archive_entries
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c1' AND entry_index=0;
+    RAISE EXCEPTION 'expected_completed_delete_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_delete_forbidden%' THEN RAISE; END IF;
+  END;
+  -- 25: replacing one completed row with another in ONE transaction dies on
+  -- the first statement and leaves nothing behind.
+  BEGIN
+    DELETE FROM public.studio_archive_entries
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c1' AND entry_index=2;
+    INSERT INTO public.studio_archive_entries(
+      archive_id,job_id,entry_index,entry_name,display_label,category,
+      compressed_size,uncompressed_size)
+    VALUES ('81000000-0000-0000-0000-0000000000c1',
+            '80000000-0000-0000-0000-00000000000c',
+            2,'replacement.pdf','entry 3 (document)','document',5,5);
+    RAISE EXCEPTION 'expected_replace_transaction_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_delete_forbidden%' THEN RAISE; END IF;
+  END;
+  -- 26: terminal evidence / public locations cannot change after completion.
+  BEGIN
+    UPDATE public.studio_archive_entries
+    SET public_path = 'studio/c/att/hijacked.jpg', public_url = 'https://cdn/hijack.jpg'
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c1' AND entry_index=0;
+    RAISE EXCEPTION 'expected_completed_public_rewrite_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_update_phase: completed%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archive_entries SET evidence = '{"forged":true}'::jsonb
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c1' AND entry_index=1;
+    RAISE EXCEPTION 'expected_completed_evidence_rewrite_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_update_phase: completed%' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '81000000-0000-0000-0000-0000000000c1', v_arc, 'completed child-mutation battery');
+  IF pg_temp.entry_rows('81000000-0000-0000-0000-0000000000c1') IS DISTINCT FROM v_entries THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: completed child-mutation battery mutated entries';
+  END IF;
+END;
+$$;
+
+-- CA2: the byte_verified / rejected lane (+ shape, range, cross-job, stale).
+INSERT INTO public.studio_archives(
+  id,job_id,ordinal,file_name,manifest_sha256,declared_size,part_size,part_count,status,parts)
+VALUES ('81000000-0000-0000-0000-0000000000c2',
+        '80000000-0000-0000-0000-00000000000c',1,'gate2.zip',
+        pg_temp.archive_manifest_sha256(8388608,8388608,ARRAY[repeat('6',64)]),
+        8388608,8388608,1,'planned',
+        ('[{"index":0,"size":null,"declaredSha256":"' || repeat('6',64)
+         || '","sha256":null,"verified":false}]')::jsonb);
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c2',
+    ('{"status":"uploaded_unverified","observed_size":8388608,'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('6',64)
+     || '","sha256":null,"verified":false}]}')::jsonb),
+  'CA2 accepts its stored part');
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c2','{"status":"byte_verifying"}'::jsonb),
+  'CA2 enters byte_verifying');
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c2',
+    ('{"status":"byte_verified","archive_sha256":"' || repeat('8',64)
+     || '","composite_sha256":"' || pg_temp.archive_composite_sha256(ARRAY[repeat('6',64)]) || '",'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('6',64)
+     || '","sha256":"' || repeat('6',64) || '","verified":true}]}')::jsonb),
+  'CA2 byte-verifies');
+SELECT pg_temp.assert_true(
+  public.studio_index_archive_entries(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c2',
+    '[{"entry_index":0,"entry_name":"only.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":5,"uncompressed_size":5}]'::jsonb),
+  'CA2 indexes its single entry');
+
+-- Insert-shape violations during the LEGAL phase: a new row must be pending
+-- and outcome-free; with the planned inventory size recorded, indexes must
+-- stay in range.
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO public.studio_archive_entries(
+      archive_id,job_id,entry_index,entry_name,display_label,category,
+      compressed_size,uncompressed_size,state,outcome_code,processed_at)
+    VALUES ('81000000-0000-0000-0000-0000000000c2',
+            '80000000-0000-0000-0000-00000000000c',
+            5,'born-terminal.bin','entry 6 (document)','document',1,1,
+            'published_public','forged','2026-07-24T00:00:00Z');
+    RAISE EXCEPTION 'expected_born_terminal_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_insert_not_pending%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    INSERT INTO public.studio_archive_entries(
+      archive_id,job_id,entry_index,entry_name,display_label,category,
+      compressed_size,uncompressed_size,sha256,attempt)
+    VALUES ('81000000-0000-0000-0000-0000000000c2',
+            '80000000-0000-0000-0000-00000000000c',
+            5,'preloaded.bin','entry 6 (document)','document',1,1,
+            repeat('e',64),'sneaky');
+    RAISE EXCEPTION 'expected_outcome_carrying_insert_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_insert_carries_outcome%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c2',
+    '{"entry_count":1,"total_uncompressed":5}'::jsonb),
+  'CA2 records its planned inventory size while still byte_verified');
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO public.studio_archive_entries(
+      archive_id,job_id,entry_index,entry_name,display_label,category,
+      compressed_size,uncompressed_size)
+    VALUES ('81000000-0000-0000-0000-0000000000c2',
+            '80000000-0000-0000-0000-00000000000c',
+            7,'out-of-range.bin','entry 8 (document)','document',1,1);
+    RAISE EXCEPTION 'expected_out_of_range_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_index_out_of_range%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+-- LA-11.19: entries of a byte_verified archive cannot be deleted directly.
+DO $$
+BEGIN
+  BEGIN
+    DELETE FROM public.studio_archive_entries
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c2';
+    RAISE EXCEPTION 'expected_verified_delete_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_delete_forbidden%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+-- LA-11.18: settlement outside processing_entries — the RPC refuses (FALSE),
+-- and even owner-level SQL hits the update phase gate.
+SELECT pg_temp.assert_true(
+  NOT public.studio_settle_archive_entry(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+      AND archive_id='81000000-0000-0000-0000-0000000000c2'),
+    '{"state":"failed","outcomeCode":"early","attempt":"x","processedAt":"2026-07-24T00:00:00Z"}'::jsonb),
+  'the RPC refuses settlement while the parent is only byte_verified');
+DO $$
+BEGIN
+  BEGIN
+    UPDATE public.studio_archive_entries
+    SET state='failed', outcome_code='early', processed_at='2026-07-24T00:00:00Z'
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c2' AND entry_index=0;
+    RAISE EXCEPTION 'expected_early_settlement_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_update_phase: byte_verified%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+-- LA-11.16/17: a valid claim on job D — and a stale token on job C — can
+-- touch none of job C's inventory.
+DO $$
+DECLARE v_entries JSONB;
+BEGIN
+  v_entries := pg_temp.entry_rows('81000000-0000-0000-0000-0000000000c2');
+  IF public.studio_index_archive_entries(
+       '80000000-0000-0000-0000-00000000000d','8c000000-0000-0000-0000-00000000000d',
+       '81000000-0000-0000-0000-0000000000c2',
+       '[{"entry_index":3,"entry_name":"steal.jpg","display_label":"entry 4 (photo)","category":"photo","compressed_size":1,"uncompressed_size":1}]'::jsonb) THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: job D indexed into job C''s archive';
+  END IF;
+  IF public.studio_settle_archive_entry(
+       '80000000-0000-0000-0000-00000000000d','8c000000-0000-0000-0000-00000000000d',
+       (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+         AND archive_id='81000000-0000-0000-0000-0000000000c2'),
+       '{"state":"failed","outcomeCode":"steal","attempt":"d","processedAt":"2026-07-24T00:00:00Z"}'::jsonb) THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: job D settled job C''s entry';
+  END IF;
+  IF public.studio_settle_archive_entry(
+       '80000000-0000-0000-0000-00000000000c','deadbeef-0000-0000-0000-000000000000',
+       (SELECT id FROM public.studio_archive_entries WHERE entry_index=0
+         AND archive_id='81000000-0000-0000-0000-0000000000c2'),
+       '{"state":"failed","outcomeCode":"stale","attempt":"s","processedAt":"2026-07-24T00:00:00Z"}'::jsonb) THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: a stale token settled job C''s entry';
+  END IF;
+  IF pg_temp.entry_rows('81000000-0000-0000-0000-0000000000c2') IS DISTINCT FROM v_entries THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: cross-job/stale battery mutated entry rows';
+  END IF;
+END;
+$$;
+
+-- CA2 transitions, then is REJECTED — its inventory freezes exactly like a
+-- completed one.
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c2',
+    '{"status":"processing_entries","entry_count":1,"total_uncompressed":5}'::jsonb),
+  'CA2 transitions to processing_entries');
+-- LA-11.3: insert during processing_entries.
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO public.studio_archive_entries(
+      archive_id,job_id,entry_index,entry_name,display_label,category,
+      compressed_size,uncompressed_size)
+    VALUES ('81000000-0000-0000-0000-0000000000c2',
+            '80000000-0000-0000-0000-00000000000c',
+            0,'mid-processing.bin','entry 1 (document)','document',1,1);
+    RAISE EXCEPTION 'expected_processing_insert_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_insert_phase: processing_entries%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c2',
+    '{"status":"rejected","error_code":"archive_rejected_unsafe"}'::jsonb),
+  'CA2 is rejected mid-processing');
+
+-- LA-11.5/22: after rejection — no insert, no update, no delete.
+DO $$
+DECLARE v_entries JSONB;
+BEGIN
+  v_entries := pg_temp.entry_rows('81000000-0000-0000-0000-0000000000c2');
+  BEGIN
+    INSERT INTO public.studio_archive_entries(
+      archive_id,job_id,entry_index,entry_name,display_label,category,
+      compressed_size,uncompressed_size)
+    VALUES ('81000000-0000-0000-0000-0000000000c2',
+            '80000000-0000-0000-0000-00000000000c',
+            0,'post-reject.bin','entry 1 (document)','document',1,1);
+    RAISE EXCEPTION 'expected_rejected_insert_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_insert_phase: rejected%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.studio_archive_entries
+    SET state='failed', outcome_code='late', processed_at='2026-07-24T00:00:00Z'
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c2' AND entry_index=0;
+    RAISE EXCEPTION 'expected_rejected_update_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_update_phase: rejected%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    DELETE FROM public.studio_archive_entries
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c2';
+    RAISE EXCEPTION 'expected_rejected_delete_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entry_delete_forbidden%' THEN RAISE; END IF;
+  END;
+  IF pg_temp.entry_rows('81000000-0000-0000-0000-0000000000c2') IS DISTINCT FROM v_entries THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: rejected child battery mutated entry rows';
+  END IF;
+END;
+$$;
+
+-- CA4: the legitimate ZERO-ENTRY archive flow is untouched by the boundary.
+INSERT INTO public.studio_archives(
+  id,job_id,ordinal,file_name,manifest_sha256,declared_size,part_size,part_count,status,parts)
+VALUES ('81000000-0000-0000-0000-0000000000c4',
+        '80000000-0000-0000-0000-00000000000c',2,'empty.zip',
+        pg_temp.archive_manifest_sha256(8388608,8388608,ARRAY[repeat('5',64)]),
+        8388608,8388608,1,'planned',
+        ('[{"index":0,"size":null,"declaredSha256":"' || repeat('5',64)
+         || '","sha256":null,"verified":false}]')::jsonb);
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c4',
+    ('{"status":"uploaded_unverified","observed_size":8388608,'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('5',64)
+     || '","sha256":null,"verified":false}]}')::jsonb),
+  'CA4 accepts its stored part');
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c4','{"status":"byte_verifying"}'::jsonb),
+  'CA4 enters byte_verifying');
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c4',
+    ('{"status":"byte_verified","archive_sha256":"' || repeat('4',64)
+     || '","composite_sha256":"' || pg_temp.archive_composite_sha256(ARRAY[repeat('5',64)]) || '",'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('5',64)
+     || '","sha256":"' || repeat('5',64) || '","verified":true}]}')::jsonb),
+  'CA4 byte-verifies');
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c4',
+    '{"status":"processing_entries","entry_count":0,"total_uncompressed":0}'::jsonb),
+  'a truthful zero-entry archive transitions with entry_count = 0');
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c4','{"status":"completed"}'::jsonb),
+  'the zero-entry archive completes');
+
+-- LA-11.27: deleting an ARCHIVE still cascades its entries (the guard's
+-- delete gate sees the parent row already gone in this statement's snapshot).
+INSERT INTO public.studio_archives(
+  id,job_id,ordinal,file_name,manifest_sha256,declared_size,part_size,part_count,status,parts)
+VALUES ('81000000-0000-0000-0000-0000000000c3',
+        '80000000-0000-0000-0000-00000000000c',3,'cascade.zip',
+        pg_temp.archive_manifest_sha256(8388608,8388608,ARRAY[repeat('3',64)]),
+        8388608,8388608,1,'planned',
+        ('[{"index":0,"size":null,"declaredSha256":"' || repeat('3',64)
+         || '","sha256":null,"verified":false}]')::jsonb);
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c3',
+    ('{"status":"uploaded_unverified","observed_size":8388608,'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('3',64)
+     || '","sha256":null,"verified":false}]}')::jsonb),
+  'CA3 accepts its stored part');
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c3','{"status":"byte_verifying"}'::jsonb),
+  'CA3 enters byte_verifying');
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c3',
+    ('{"status":"byte_verified","archive_sha256":"' || repeat('2',64)
+     || '","composite_sha256":"' || pg_temp.archive_composite_sha256(ARRAY[repeat('3',64)]) || '",'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('3',64)
+     || '","sha256":"' || repeat('3',64) || '","verified":true}]}')::jsonb),
+  'CA3 byte-verifies');
+SELECT pg_temp.assert_true(
+  public.studio_index_archive_entries(
+    '80000000-0000-0000-0000-00000000000c','8c000000-0000-0000-0000-00000000000c',
+    '81000000-0000-0000-0000-0000000000c3',
+    '[{"entry_index":0,"entry_name":"gone.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":5,"uncompressed_size":5}]'::jsonb),
+  'CA3 indexes one entry');
+DELETE FROM public.studio_archives WHERE id='81000000-0000-0000-0000-0000000000c3';
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_archive_entries
+    WHERE archive_id='81000000-0000-0000-0000-0000000000c3')=0,
+  'deleting an archive cascades its entries through the delete guard');
+
+-- LA-11.28: deleting the JOB still cascades archives AND entries — whichever
+-- of the two job→entries cascade paths PostgreSQL fires first, the deleted
+-- job row is already invisible to the guard.
+DELETE FROM public.studio_upload_jobs WHERE id='80000000-0000-0000-0000-00000000000c';
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_archives
+    WHERE job_id='80000000-0000-0000-0000-00000000000c')=0
+  AND (SELECT count(*) FROM public.studio_archive_entries
+    WHERE job_id='80000000-0000-0000-0000-00000000000c')=0,
+  'deleting the job cascades archives and entries through the delete guard');
+DELETE FROM public.studio_upload_jobs WHERE id='80000000-0000-0000-0000-00000000000d';
+
+-- LA-11.29: unrelated job A rows (completed archive + settled entries + the
+-- job itself) are byte-identical after the entire child-boundary battery.
+SELECT pg_temp.assert_true(
+  (SELECT unrelated_archive FROM la11_baseline)
+    IS NOT DISTINCT FROM pg_temp.archive_row('71000000-0000-0000-0000-0000000000a1')
+  AND (SELECT unrelated_entries FROM la11_baseline)
+    IS NOT DISTINCT FROM pg_temp.entry_rows('71000000-0000-0000-0000-0000000000a1')
+  AND (SELECT unrelated_job FROM la11_baseline)
+    IS NOT DISTINCT FROM pg_temp.job_row('70000000-0000-0000-0000-00000000000a'),
+  'unrelated job/archive/entry rows survived the child-boundary battery unchanged');
+DROP TABLE la11_baseline;
+
+-- ---------------------------------------------------------------------------
+-- LA-12. EXACT INVENTORY REPLAY (studio_index_archive_entries)
+--
+-- Blind conflict success is gone: an indexing call returns TRUE only after
+-- proving every requested index exists with EXACTLY the submitted immutable
+-- inventory identity (archive_id, job_id, entry_index, entry_name,
+-- display_label, category, compressed_size, uncompressed_size). Divergent
+-- existing rows, duplicate payload indexes, unknown keys, and malformed
+-- values all fail atomically BEFORE any row changes. The replay/conflict
+-- core runs under SET ROLE service_role through the real SECURITY DEFINER
+-- function. (Scenarios 23/24 — truly CONCURRENT exact and conflicting
+-- replays across two live sessions — run in scripts/studio/
+-- run-postgres-tests.mjs after this suite, since one psql session cannot
+-- overlap two transactions.)
+-- ---------------------------------------------------------------------------
+CREATE TEMP TABLE la12_baseline AS
+SELECT pg_temp.archive_row('71000000-0000-0000-0000-0000000000a1') AS unrelated_archive,
+       pg_temp.entry_rows('71000000-0000-0000-0000-0000000000a1') AS unrelated_entries,
+       pg_temp.job_row('70000000-0000-0000-0000-00000000000a') AS unrelated_job;
+
+INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status)
+VALUES ('90000000-0000-0000-0000-00000000000e',
+        '00000000-0000-0000-0000-000000000001','owner','new_development','received'),
+       ('90000000-0000-0000-0000-00000000000f',
+        '00000000-0000-0000-0000-000000000001','owner','new_development','received');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_request_job_processing(
+     '90000000-0000-0000-0000-00000000000e','9e000000-0000-0000-0000-00000000000e',900))=1
+  AND (SELECT count(*) FROM public.studio_request_job_processing(
+     '90000000-0000-0000-0000-00000000000f','9e000000-0000-0000-0000-00000000000f',900))=1,
+  'LA-12 jobs E and F are claimed by their own worker tokens');
+
+INSERT INTO public.studio_archives(
+  id,job_id,ordinal,file_name,manifest_sha256,declared_size,part_size,part_count,status,parts)
+VALUES ('91000000-0000-0000-0000-0000000000e1',
+        '90000000-0000-0000-0000-00000000000e',0,'replay.zip',
+        pg_temp.archive_manifest_sha256(8388608,8388608,ARRAY[repeat('7',64)]),
+        8388608,8388608,1,'planned',
+        ('[{"index":0,"size":null,"declaredSha256":"' || repeat('7',64)
+         || '","sha256":null,"verified":false}]')::jsonb);
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '90000000-0000-0000-0000-00000000000e','9e000000-0000-0000-0000-00000000000e',
+    '91000000-0000-0000-0000-0000000000e1',
+    ('{"status":"uploaded_unverified","observed_size":8388608,'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('7',64)
+     || '","sha256":null,"verified":false}]}')::jsonb),
+  'EA1 accepts its stored part');
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '90000000-0000-0000-0000-00000000000e','9e000000-0000-0000-0000-00000000000e',
+    '91000000-0000-0000-0000-0000000000e1','{"status":"byte_verifying"}'::jsonb),
+  'EA1 enters byte_verifying');
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '90000000-0000-0000-0000-00000000000e','9e000000-0000-0000-0000-00000000000e',
+    '91000000-0000-0000-0000-0000000000e1',
+    ('{"status":"byte_verified","archive_sha256":"' || repeat('9',64)
+     || '","composite_sha256":"' || pg_temp.archive_composite_sha256(ARRAY[repeat('7',64)]) || '",'
+     || '"parts":[{"index":0,"size":8388608,"declaredSha256":"' || repeat('7',64)
+     || '","sha256":"' || repeat('7',64) || '","verified":true}]}')::jsonb),
+  'EA1 byte-verifies');
+
+-- LA-12.1/2: valid new batch, then EXACT full replay — TRUE both times, the
+-- replay inserting zero rows and changing zero rows (ids and timestamps
+-- byte-identical). All under the real application role.
+SET ROLE service_role;
+SELECT pg_temp.assert_true(
+  public.studio_index_archive_entries(
+    '90000000-0000-0000-0000-00000000000e','9e000000-0000-0000-0000-00000000000e',
+    '91000000-0000-0000-0000-0000000000e1',
+    '[{"entry_index":0,"entry_name":"photos/a.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":10,"uncompressed_size":10},
+      {"entry_index":1,"entry_name":"video/b.mp4","display_label":"entry 2 (video)","category":"video","compressed_size":20,"uncompressed_size":20}]'::jsonb),
+  'LA-12.1: a valid new batch indexes');
+DO $$
+DECLARE v_before JSONB;
+BEGIN
+  v_before := pg_temp.entry_rows('91000000-0000-0000-0000-0000000000e1');
+  IF NOT public.studio_index_archive_entries(
+    '90000000-0000-0000-0000-00000000000e','9e000000-0000-0000-0000-00000000000e',
+    '91000000-0000-0000-0000-0000000000e1',
+    '[{"entry_index":0,"entry_name":"photos/a.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":10,"uncompressed_size":10},
+      {"entry_index":1,"entry_name":"video/b.mp4","display_label":"entry 2 (video)","category":"video","compressed_size":20,"uncompressed_size":20}]'::jsonb) THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: exact full replay refused';
+  END IF;
+  IF pg_temp.entry_rows('91000000-0000-0000-0000-0000000000e1') IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: exact replay mutated existing rows';
+  END IF;
+END;
+$$;
+
+-- LA-12.3/4: exact replay after an interrupted partial insertion, and a
+-- partial exact replay carrying new rows — existing rows are accepted
+-- byte-identically, only the missing rows are inserted.
+SELECT pg_temp.assert_true(
+  public.studio_index_archive_entries(
+    '90000000-0000-0000-0000-00000000000e','9e000000-0000-0000-0000-00000000000e',
+    '91000000-0000-0000-0000-0000000000e1',
+    '[{"entry_index":3,"entry_name":"docs/c.pdf","display_label":"entry 4 (document)","category":"document","compressed_size":5,"uncompressed_size":5}]'::jsonb),
+  'LA-12.3a: the interrupted partial batch lands its first row');
+DO $$
+DECLARE v_row3 JSONB;
+BEGIN
+  SELECT to_jsonb(e) INTO v_row3 FROM public.studio_archive_entries e
+   WHERE e.archive_id='91000000-0000-0000-0000-0000000000e1' AND e.entry_index=3;
+  IF NOT public.studio_index_archive_entries(
+    '90000000-0000-0000-0000-00000000000e','9e000000-0000-0000-0000-00000000000e',
+    '91000000-0000-0000-0000-0000000000e1',
+    '[{"entry_index":3,"entry_name":"docs/c.pdf","display_label":"entry 4 (document)","category":"document","compressed_size":5,"uncompressed_size":5},
+      {"entry_index":4,"entry_name":"misc/d.bin","display_label":"entry 5 (document)","category":"document","compressed_size":7,"uncompressed_size":7}]'::jsonb) THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: interrupted-batch replay refused';
+  END IF;
+  IF (SELECT to_jsonb(e) FROM public.studio_archive_entries e
+      WHERE e.archive_id='91000000-0000-0000-0000-0000000000e1' AND e.entry_index=3)
+     IS DISTINCT FROM v_row3 THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: replay mutated the pre-existing row';
+  END IF;
+  IF (SELECT count(*) FROM public.studio_archive_entries
+      WHERE archive_id='91000000-0000-0000-0000-0000000000e1' AND entry_index=4)<>1 THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: replay did not insert the missing row';
+  END IF;
+END;
+$$;
+SELECT pg_temp.assert_true(
+  public.studio_index_archive_entries(
+    '90000000-0000-0000-0000-00000000000e','9e000000-0000-0000-0000-00000000000e',
+    '91000000-0000-0000-0000-0000000000e1',
+    '[{"entry_index":0,"entry_name":"photos/a.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":10,"uncompressed_size":10},
+      {"entry_index":1,"entry_name":"video/b.mp4","display_label":"entry 2 (video)","category":"video","compressed_size":20,"uncompressed_size":20},
+      {"entry_index":5,"entry_name":"misc/e.bin","display_label":"entry 6 (document)","category":"document","compressed_size":3,"uncompressed_size":3}]'::jsonb)
+  ,'LA-12.4: partial exact replay plus a new row succeeds');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_archive_entries
+    WHERE archive_id='91000000-0000-0000-0000-0000000000e1')=5,
+  'LA-12: the inventory holds exactly the five distinct indexed rows');
+
+-- LA-12.5/6: divergent existing rows fail the whole batch atomically — the
+-- conflicting row is never healed, and a NEW row in the same mixed batch is
+-- never left behind.
+DO $$
+DECLARE
+  v_entries JSONB;
+  v_archive JSONB;
+BEGIN
+  v_entries := pg_temp.entry_rows('91000000-0000-0000-0000-0000000000e1');
+  v_archive := pg_temp.archive_row('91000000-0000-0000-0000-0000000000e1');
+  BEGIN
+    PERFORM public.studio_index_archive_entries(
+      '90000000-0000-0000-0000-00000000000e','9e000000-0000-0000-0000-00000000000e',
+      '91000000-0000-0000-0000-0000000000e1',
+      '[{"entry_index":0,"entry_name":"photos/EVIL.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":10,"uncompressed_size":10}]'::jsonb);
+    RAISE EXCEPTION 'expected_single_conflict_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entries_conflict%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM public.studio_index_archive_entries(
+      '90000000-0000-0000-0000-00000000000e','9e000000-0000-0000-0000-00000000000e',
+      '91000000-0000-0000-0000-0000000000e1',
+      '[{"entry_index":1,"entry_name":"video/b.mp4","display_label":"entry 2 (video)","category":"video","compressed_size":20,"uncompressed_size":20},
+        {"entry_index":3,"entry_name":"docs/c.pdf","display_label":"entry 4 (FORGED)","category":"document","compressed_size":5,"uncompressed_size":5},
+        {"entry_index":6,"entry_name":"misc/new.bin","display_label":"entry 7 (document)","category":"document","compressed_size":1,"uncompressed_size":1}]'::jsonb);
+    RAISE EXCEPTION 'expected_mixed_conflict_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entries_conflict%' THEN RAISE; END IF;
+  END;
+  IF (SELECT count(*) FROM public.studio_archive_entries
+      WHERE archive_id='91000000-0000-0000-0000-0000000000e1' AND entry_index=6)<>0 THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: mixed conflict left its new row behind';
+  END IF;
+  IF pg_temp.entry_rows('91000000-0000-0000-0000-0000000000e1') IS DISTINCT FROM v_entries THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: conflict battery mutated entry rows';
+  END IF;
+  PERFORM pg_temp.assert_archive_unchanged(
+    '91000000-0000-0000-0000-0000000000e1', v_archive, 'conflict battery');
+END;
+$$;
+
+-- LA-12.7-19: malformed payloads all fail atomically BEFORE any lock or
+-- write — duplicate indexes (identical AND different), unknown keys,
+-- missing/NULL fields, non-integral/negative/textual numerics, scalar
+-- elements, an object payload, and an oversized batch.
+DO $$
+DECLARE
+  v_entries JSONB;
+  v_payload JSONB;
+BEGIN
+  v_entries := pg_temp.entry_rows('91000000-0000-0000-0000-0000000000e1');
+  FOREACH v_payload IN ARRAY ARRAY[
+    -- 7. duplicate identical entry_index inside one payload
+    '[{"entry_index":7,"entry_name":"dup.bin","display_label":"entry 8 (document)","category":"document","compressed_size":1,"uncompressed_size":1},
+      {"entry_index":7,"entry_name":"dup.bin","display_label":"entry 8 (document)","category":"document","compressed_size":1,"uncompressed_size":1}]'::jsonb,
+    -- 8. duplicate entry_index with DIFFERENT data
+    '[{"entry_index":8,"entry_name":"one.bin","display_label":"entry 9 (document)","category":"document","compressed_size":1,"uncompressed_size":1},
+      {"entry_index":8,"entry_name":"two.bin","display_label":"entry 9 (document)","category":"document","compressed_size":1,"uncompressed_size":1}]'::jsonb,
+    -- 9. unknown payload key
+    '[{"entry_index":9,"entry_name":"x.bin","display_label":"entry 10 (document)","category":"document","compressed_size":1,"uncompressed_size":1,"sneaky":1}]'::jsonb,
+    -- 10. missing required key (category absent)
+    '[{"entry_index":9,"entry_name":"x.bin","display_label":"entry 10 (document)","compressed_size":1,"uncompressed_size":1}]'::jsonb,
+    -- 11. NULL required value
+    '[{"entry_index":9,"entry_name":null,"display_label":"entry 10 (document)","category":"document","compressed_size":1,"uncompressed_size":1}]'::jsonb,
+    -- 12. fractional entry_index
+    '[{"entry_index":9.5,"entry_name":"x.bin","display_label":"entry 10 (document)","category":"document","compressed_size":1,"uncompressed_size":1}]'::jsonb,
+    -- 13. negative entry_index
+    '[{"entry_index":-1,"entry_name":"x.bin","display_label":"entry 10 (document)","category":"document","compressed_size":1,"uncompressed_size":1}]'::jsonb,
+    -- 14. fractional compressed_size
+    '[{"entry_index":9,"entry_name":"x.bin","display_label":"entry 10 (document)","category":"document","compressed_size":1.5,"uncompressed_size":1}]'::jsonb,
+    -- 15. negative uncompressed_size
+    '[{"entry_index":9,"entry_name":"x.bin","display_label":"entry 10 (document)","category":"document","compressed_size":1,"uncompressed_size":-5}]'::jsonb,
+    -- 16. text instead of numeric
+    '[{"entry_index":9,"entry_name":"x.bin","display_label":"entry 10 (document)","category":"document","compressed_size":"10","uncompressed_size":1}]'::jsonb,
+    -- 17. scalar array element
+    '[1]'::jsonb,
+    -- 18. object instead of array
+    '{"entry_index":9}'::jsonb,
+    -- empty text field (forbidden)
+    '[{"entry_index":9,"entry_name":"","display_label":"entry 10 (document)","category":"document","compressed_size":1,"uncompressed_size":1}]'::jsonb,
+    -- oversized text field
+    ('[{"entry_index":9,"entry_name":"' || repeat('n',513) || '","display_label":"entry 10 (document)","category":"document","compressed_size":1,"uncompressed_size":1}]')::jsonb,
+    -- out-of-range entry_index
+    '[{"entry_index":4000000,"entry_name":"x.bin","display_label":"entry 10 (document)","category":"document","compressed_size":1,"uncompressed_size":1}]'::jsonb,
+    -- 19. oversized batch (501 elements)
+    (SELECT jsonb_agg(jsonb_build_object(
+       'entry_index', g, 'entry_name', 'bulk-'||g,
+       'display_label', 'entry '||(g+1)||' (document)', 'category', 'document',
+       'compressed_size', 1, 'uncompressed_size', 1))
+     FROM generate_series(0, 500) AS g)
+  ] LOOP
+    BEGIN
+      PERFORM public.studio_index_archive_entries(
+        '90000000-0000-0000-0000-00000000000e','9e000000-0000-0000-0000-00000000000e',
+        '91000000-0000-0000-0000-0000000000e1', v_payload);
+      RAISE EXCEPTION 'expected_malformed_batch_rejection_absent: %',
+        left(v_payload::text, 120);
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM NOT LIKE 'studio_archive_entries_invalid%' THEN RAISE; END IF;
+    END;
+  END LOOP;
+  IF pg_temp.entry_rows('91000000-0000-0000-0000-0000000000e1') IS DISTINCT FROM v_entries THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: malformed batch battery mutated entry rows';
+  END IF;
+END;
+$$;
+
+-- LA-12.20/21: a valid claim on job F, and a stale token on job E, change
+-- nothing (FALSE — before any write).
+DO $$
+DECLARE v_entries JSONB;
+BEGIN
+  v_entries := pg_temp.entry_rows('91000000-0000-0000-0000-0000000000e1');
+  IF public.studio_index_archive_entries(
+       '90000000-0000-0000-0000-00000000000f','9e000000-0000-0000-0000-00000000000f',
+       '91000000-0000-0000-0000-0000000000e1',
+       '[{"entry_index":9,"entry_name":"steal.bin","display_label":"entry 10 (document)","category":"document","compressed_size":1,"uncompressed_size":1}]'::jsonb) THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: job F indexed into job E''s archive';
+  END IF;
+  IF public.studio_index_archive_entries(
+       '90000000-0000-0000-0000-00000000000e','deadbeef-0000-0000-0000-000000000000',
+       '91000000-0000-0000-0000-0000000000e1',
+       '[{"entry_index":9,"entry_name":"stale.bin","display_label":"entry 10 (document)","category":"document","compressed_size":1,"uncompressed_size":1}]'::jsonb) THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: a stale token indexed inventory';
+  END IF;
+  IF pg_temp.entry_rows('91000000-0000-0000-0000-0000000000e1') IS DISTINCT FROM v_entries THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: cross-job/stale indexing mutated entry rows';
+  END IF;
+END;
+$$;
+RESET ROLE;
+
+-- LA-12.22: once the inventory is finalized, even an EXACT replay is
+-- phase-refused — nothing can be indexed after processing begins.
+SELECT pg_temp.assert_true(
+  public.studio_update_archive_claimed(
+    '90000000-0000-0000-0000-00000000000e','9e000000-0000-0000-0000-00000000000e',
+    '91000000-0000-0000-0000-0000000000e1',
+    '{"status":"processing_entries","entry_count":5,"total_uncompressed":45}'::jsonb),
+  'EA1 finalizes its 5-row inventory');
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.studio_index_archive_entries(
+      '90000000-0000-0000-0000-00000000000e','9e000000-0000-0000-0000-00000000000e',
+      '91000000-0000-0000-0000-0000000000e1',
+      '[{"entry_index":0,"entry_name":"photos/a.jpg","display_label":"entry 1 (photo)","category":"photo","compressed_size":10,"uncompressed_size":10}]'::jsonb);
+    RAISE EXCEPTION 'expected_post_finalization_replay_rejection_absent';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'studio_archive_entries_invalid: archive_state%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+DELETE FROM public.studio_upload_jobs
+WHERE id IN ('90000000-0000-0000-0000-00000000000e','90000000-0000-0000-0000-00000000000f');
+SELECT pg_temp.assert_true(
+  (SELECT count(*) FROM public.studio_archive_entries
+    WHERE job_id='90000000-0000-0000-0000-00000000000e')=0,
+  'LA-12 teardown cascades through the delete guard');
+
+-- LA-12: unrelated job A rows are byte-identical after the replay battery.
+SELECT pg_temp.assert_true(
+  (SELECT unrelated_archive FROM la12_baseline)
+    IS NOT DISTINCT FROM pg_temp.archive_row('71000000-0000-0000-0000-0000000000a1')
+  AND (SELECT unrelated_entries FROM la12_baseline)
+    IS NOT DISTINCT FROM pg_temp.entry_rows('71000000-0000-0000-0000-0000000000a1')
+  AND (SELECT unrelated_job FROM la12_baseline)
+    IS NOT DISTINCT FROM pg_temp.job_row('70000000-0000-0000-0000-00000000000a'),
+  'unrelated job/archive/entry rows survived the replay battery unchanged');
+DROP TABLE la12_baseline;
+
 SELECT 'ALL STUDIO POSTGRES ASSERTIONS PASSED' AS result;

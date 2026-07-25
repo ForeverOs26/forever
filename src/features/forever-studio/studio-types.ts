@@ -208,6 +208,11 @@ export interface StudioJobResult {
   error: string | null;
   /** Whether an automatic or manual retry can still succeed. */
   retryable: boolean;
+  /**
+   * Present while a large-archive job is mid-processing: the slice completed,
+   * the claim was released, and the caller should poll again to continue.
+   */
+  progress?: StudioJobProgress | null;
 }
 
 export interface StudioSessionInfo {
@@ -314,6 +319,164 @@ export interface StudioInviteResult {
 export interface StudioResumeResult {
   resumed: number;
   results: StudioJobResult[];
+}
+
+// ---------------------------------------------------------------------------
+// Large-archive intake (FOREVER-STUDIO-LARGE-ARCHIVE-001)
+// ---------------------------------------------------------------------------
+
+/**
+ * Server-defined chunked-upload geometry. The browser slices a large archive
+ * into fixed-size parts and uploads each through its own short-lived signed
+ * URL; the server verifies the stored bytes of every part before the archive
+ * is accepted. Values are returned by the plan endpoint — never client-chosen.
+ */
+export const ARCHIVE_PART_BYTES = 8 * 1024 * 1024; // 8 MiB
+/** Product ceiling for one ZIP archive routed through the large-archive lane. */
+export const LARGE_ARCHIVE_MAX_BYTES = 300 * 1024 * 1024; // 300 MiB
+/** Archives above the legacy inline limit MUST use the chunked lane. */
+export const LARGE_ARCHIVE_MIN_BYTES = 16 * 1024 * 1024; // legacy inline cap
+export const MAX_ARCHIVES_PER_JOB = 8;
+/** Initial per-job source-material budget (declared bytes, all files+archives). */
+export const JOB_SOURCE_BUDGET_BYTES = 1024 * 1024 * 1024; // 1 GiB
+
+/**
+ * Truthful archive lifecycle. Each name states exactly what has been proven
+ * about the stored bytes at that point — "stored" is never called "verified":
+ *
+ *   planned             part plan registered; parts still uploading
+ *   uploaded_unverified every part exists with the planned size; NO stored
+ *                       byte has been hash-verified yet
+ *   byte_verifying      slice-driven per-part streamed SHA-256 verification
+ *                       of the actual stored bytes is in progress
+ *   byte_verified       EVERY stored part hash-verified against its recorded
+ *                       claim ("Archive byte verification passed")
+ *   processing_entries  entry inventory persisted durably; entries routing
+ *   completed           every entry settled
+ *   rejected            safety/verification rejection; original retained
+ *                       privately
+ */
+export type StudioArchiveStatus =
+  | "planned"
+  | "uploaded_unverified"
+  | "byte_verifying"
+  | "byte_verified"
+  | "processing_entries"
+  | "completed"
+  | "rejected";
+
+export type StudioArchiveEntryState =
+  | "pending"
+  | "published_public"
+  | "retained_private"
+  | "skipped_duplicate"
+  | "failed";
+
+/** One signed part-upload target (private staging bucket, server-chosen path). */
+export interface StudioArchivePartTarget {
+  index: number;
+  bucket: string;
+  path: string;
+  token: string;
+}
+
+export interface StudioArchivePlanInput {
+  jobId: string;
+  fileName: string;
+  declaredSize: number;
+  /**
+   * The exact ordered per-part SHA-256 manifest (one lowercase hex digest per
+   * fixed-size upload part, computed sequentially over EVERY byte of the
+   * file — see computeUploadPartManifest). Resume identity: re-planning
+   * resumes an existing archive ONLY when the complete manifest matches
+   * digest-for-digest, so two different archives can never attach to each
+   * other's stored parts regardless of filename, byte size, or where the
+   * bytes differ. Never a substitute for server verification of the actual
+   * stored bytes; stored privately, never projected.
+   */
+  partSha256: string[];
+}
+
+// --- Upload part manifest (resume identity) ---------------------------------
+
+/**
+ * Domain/version separator folded into the server-derived manifest identity
+ * digest so it can never collide with a plain file hash or the RETIRED v1
+ * sampled fingerprint (which hashed only four bounded windows and therefore
+ * could not distinguish same-size files differing outside the samples — that
+ * contract is removed; every part is now fully hashed).
+ */
+export const UPLOAD_MANIFEST_DOMAIN = "forever-upload-part-manifest-v2";
+
+/** Fixed part count implied by a declared size (last part may be short). */
+export function archivePartCountForSize(declaredSize: number): number {
+  return Math.max(1, Math.ceil(declaredSize / ARCHIVE_PART_BYTES));
+}
+
+/** Upper bound on parts per archive (300 MiB ceiling / 8 MiB parts). */
+export const MAX_ARCHIVE_PARTS = Math.ceil(LARGE_ARCHIVE_MAX_BYTES / ARCHIVE_PART_BYTES);
+
+/**
+ * Plan response. `presentParts` lists indexes already stored with the planned
+ * size (resume support); `parts` holds fresh signed targets for every part
+ * that still needs bytes. Re-planning the same (name, size) returns the SAME
+ * archive so an interrupted upload resumes instead of duplicating.
+ */
+export interface StudioArchivePlanResult {
+  archiveId: string;
+  partSize: number;
+  partCount: number;
+  presentParts: number[];
+  parts: StudioArchivePartTarget[];
+}
+
+export interface StudioArchiveConfirmInput {
+  jobId: string;
+  archiveId: string;
+  /** Client-computed per-part SHA-256 claims (recorded, then server-verified). */
+  partSha256: string[];
+}
+
+export interface StudioArchiveConfirmResult {
+  archiveId: string;
+  accepted: boolean;
+  /** Parts absent or with a wrong stored size; re-upload via fresh targets. */
+  missingParts: StudioArchivePartTarget[];
+}
+
+/** Public-safe per-archive progress (labels never expose original filenames). */
+export interface StudioArchiveProgress {
+  archiveId: string;
+  /** Neutral display label ("Archive 1") — original names stay private. */
+  label: string;
+  status: StudioArchiveStatus;
+  partCount: number;
+  /** Parts durably stored with their planned size (server-observed). */
+  uploadedParts: number;
+  /** Parts whose ACTUAL stored bytes hash-verified against their claims. */
+  verifiedParts: number;
+  entryCount: number | null;
+  entriesProcessed: number;
+  entriesPublished: number;
+  entriesRetained: number;
+  entriesSkipped: number;
+  entriesFailed: number;
+  warningCode: string | null;
+}
+
+export interface StudioJobProgress {
+  jobId: string;
+  status: StudioJobStatus;
+  archives: StudioArchiveProgress[];
+  /** Aggregate entry counts across every archive of the job. */
+  discovered: number;
+  processed: number;
+  published: number;
+  retained: number;
+  skippedDuplicates: number;
+  failed: number;
+  pending: number;
+  warnings: StudioWarningSummary[];
 }
 
 /** Public page path helpers shared by UI and server result summaries. */

@@ -35,6 +35,7 @@ const CLIENT_REACHABLE = [
   "src/features/forever-studio/components/StudioLogin.tsx",
   "src/features/forever-studio/components/StudioShell.tsx",
   "src/features/forever-studio/components/useStudioSession.ts",
+  "src/features/forever-studio/components/archive-upload.ts",
 ];
 
 describe("Studio bundle boundary", () => {

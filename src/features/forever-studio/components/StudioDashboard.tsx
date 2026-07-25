@@ -24,7 +24,11 @@ import {
   type StudioWorkflow,
 } from "../studio-types";
 import { useStudioSession } from "./useStudioSession";
-import { StudioRouteDenied } from "./StudioRouteDenied";
+import {
+  isStudioRouteDenial,
+  StudioRouteDenied,
+  StudioRouteUnavailable,
+} from "./StudioRouteDenied";
 
 export const STUDIO_OVERVIEW_KEY = ["studio", "overview"] as const;
 
@@ -96,7 +100,13 @@ export function StudioDashboard() {
     return <p className="py-16 text-center text-sm text-muted-foreground">Loading Studio…</p>;
   }
   if (overview.isError) {
-    return <StudioRouteDenied />;
+    // Only a server-proven denial settles as denied; a transient fetch or
+    // lookup failure (offline, flaky reconnect) stays retryable.
+    return isStudioRouteDenial(overview.error) ? (
+      <StudioRouteDenied />
+    ) : (
+      <StudioRouteUnavailable onRetry={() => void overview.refetch()} />
+    );
   }
 
   const data = overview.data;
