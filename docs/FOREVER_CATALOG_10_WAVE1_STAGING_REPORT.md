@@ -161,7 +161,16 @@ DRAFT_PAYLOAD_VALID|slug=garden-of-eden|sha256=49f4c999…|buildings=0|units=0|p
 DRAFT_PAYLOAD_VALID|slug=the-title-sierra|sha256=317755bc…|buildings=2|units=180|prices=180|media=0|documents=0|warnings=14
 ```
 
-### 5.1 Coralina — reused unchanged
+### 5.1 Coralina — local canonical payload reused unchanged; staging presence query-unverified
+
+"Reused" here means exactly one thing: the **local canonical payload** at
+`forever-data/projects/coralina/progressive/payload.json` was re-validated and
+carried forward unchanged. It does **not** mean an existing Coralina record was
+found in staging and adopted. **No staging row was read, matched, or reused,
+because no staging query was possible.** Whether Coralina exists in
+`forever-staging` remains **query-unverified**; §4 classifies it as absent on
+repository evidence alone, and that classification must be confirmed by the
+duplicate check in §9 before this package is loaded.
 
 The canonical package was re-validated and reproduces its recorded hashes
 exactly. Nothing was regenerated; re-deriving it would only risk drift.
