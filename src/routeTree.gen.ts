@@ -16,6 +16,7 @@ import { Route as OffersRouteImport } from './routes/offers'
 import { Route as NavigatorRouteImport } from './routes/navigator'
 import { Route as DiscoveryRouteImport } from './routes/discovery'
 import { Route as ContactRouteImport } from './routes/contact'
+import { Route as BoothV2RouteImport } from './routes/booth-v2'
 import { Route as BoothRouteImport } from './routes/booth'
 import { Route as AreasRouteImport } from './routes/areas'
 import { Route as AdvisoryRouteImport } from './routes/advisory'
@@ -66,6 +67,11 @@ const DiscoveryRoute = DiscoveryRouteImport.update({
 const ContactRoute = ContactRouteImport.update({
   id: '/contact',
   path: '/contact',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BoothV2Route = BoothV2RouteImport.update({
+  id: '/booth-v2',
+  path: '/booth-v2',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BoothRoute = BoothRouteImport.update({
@@ -155,6 +161,7 @@ export interface FileRoutesByFullPath {
   '/advisory': typeof AdvisoryRoute
   '/areas': typeof AreasRoute
   '/booth': typeof BoothRoute
+  '/booth-v2': typeof BoothV2Route
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
   '/navigator': typeof NavigatorRoute
@@ -180,6 +187,7 @@ export interface FileRoutesByTo {
   '/advisory': typeof AdvisoryRoute
   '/areas': typeof AreasRoute
   '/booth': typeof BoothRoute
+  '/booth-v2': typeof BoothV2Route
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
   '/navigator': typeof NavigatorRoute
@@ -205,6 +213,7 @@ export interface FileRoutesById {
   '/advisory': typeof AdvisoryRoute
   '/areas': typeof AreasRoute
   '/booth': typeof BoothRoute
+  '/booth-v2': typeof BoothV2Route
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
   '/navigator': typeof NavigatorRoute
@@ -232,6 +241,7 @@ export interface FileRouteTypes {
     | '/advisory'
     | '/areas'
     | '/booth'
+    | '/booth-v2'
     | '/contact'
     | '/discovery'
     | '/navigator'
@@ -257,6 +267,7 @@ export interface FileRouteTypes {
     | '/advisory'
     | '/areas'
     | '/booth'
+    | '/booth-v2'
     | '/contact'
     | '/discovery'
     | '/navigator'
@@ -281,6 +292,7 @@ export interface FileRouteTypes {
     | '/advisory'
     | '/areas'
     | '/booth'
+    | '/booth-v2'
     | '/contact'
     | '/discovery'
     | '/navigator'
@@ -307,6 +319,7 @@ export interface RootRouteChildren {
   AdvisoryRoute: typeof AdvisoryRoute
   AreasRoute: typeof AreasRoute
   BoothRoute: typeof BoothRoute
+  BoothV2Route: typeof BoothV2Route
   ContactRoute: typeof ContactRoute
   DiscoveryRoute: typeof DiscoveryRoute
   NavigatorRoute: typeof NavigatorRoute
@@ -371,6 +384,13 @@ declare module '@tanstack/react-router' {
       path: '/contact'
       fullPath: '/contact'
       preLoaderRoute: typeof ContactRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/booth-v2': {
+      id: '/booth-v2'
+      path: '/booth-v2'
+      fullPath: '/booth-v2'
+      preLoaderRoute: typeof BoothV2RouteImport
       parentRoute: typeof rootRouteImport
     }
     '/booth': {
@@ -513,6 +533,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdvisoryRoute: AdvisoryRoute,
   AreasRoute: AreasRoute,
   BoothRoute: BoothRoute,
+  BoothV2Route: BoothV2Route,
   ContactRoute: ContactRoute,
   DiscoveryRoute: DiscoveryRoute,
   NavigatorRoute: NavigatorRoute,
