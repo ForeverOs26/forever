@@ -139,7 +139,7 @@ unpublished by construction, deterministic, and free of invented values.
 | Project                         | Slug               | Buildings | Units | Prices | Media | Docs | Warnings |
 | ------------------------------- | ------------------ | --------: | ----: | -----: | ----: | ---: | -------: |
 | The Title Coralina Kamala       | `coralina`         |         8 |   198 |    198 |     0 |    0 |        6 |
-| Rainpalm Villas                 | `rainpalm-villas`  |         0 |    21 |  **0** |     0 |    0 |       10 |
+| Rainpalm Villas                 | `rainpalm-villas`  |         0 |    21 |  **0** |     0 |    0 |        7 |
 | Garden of Eden (Park Residence) | `garden-of-eden`   |         0 |     0 |      0 |     0 |    0 |       13 |
 | The Title Sierra                | `the-title-sierra` |         2 |   180 |    180 |     0 |    0 |       14 |
 
@@ -148,22 +148,24 @@ Payload digests and idempotency keys:
 | Slug               | `payload.json` SHA-256                                             | `batch_fingerprint`                                                |
 | ------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
 | `coralina`         | `2d5613a35705b251f20208aa4273038c2d8001bebe5d2c5bab5e55cb653e6605` | `9ceb05d2daa5c2a174d37d4d92fb49c4bc39294fa1b5ab402a10ab526230631c` |
-| `rainpalm-villas`  | `ef6058f45b614c9ba73c015160ff58cb8ecbcf8bd455508fa5e30dd92a234750` | `bfe02898ca6851c93fb2b55d3ae99e84ad1e7c4443251d0a98072bd8ea2290c4` |
-| `garden-of-eden`   | `afaaefea90e96b7faf1c89a3739c690918bfe5338d1fc14f235179caee111861` | `ee405fcc82f1d8bbcbf75f3e629b6d05a05ab68e4e0335c02081291bf0e214d3` |
-| `the-title-sierra` | `5be54c396bd46789b01b723a664fd236346597de9851b5cb80df82f20d0c63d6` | `43fcc38a971b384b483a3b1eae8d44cc8af9283695e9998e77b8a6a972ef6198` |
+| `rainpalm-villas`  | `4e5f5d4d56eab887097247e5165b4acdd08c0c31e2346fef1b0d1085ca7c5ed2` | `8f84fbecbf31daf2648f879181b3cc4302e1eab7a33530d6e194b09b2ff21a4e` |
+| `garden-of-eden`   | `c8a5156779a7f92fbb3d1359f18276a59f3f8d5b02c9ce011b7ecd8307ea370a` | `de458b059155e971d6bdbe99c521e0009a15ca552d901d12ea02c054fceefbca` |
+| `the-title-sierra` | `7cb81e154ab13d22df500209c5edb5ec87bfeadd733488c252053c62ed79c9a7` | `4a3e9c17fb826a8f42ae32f17cac9a30f92a00a19efdf5b0e2872fb12d625b29` |
 
 All four pass the canonical offline validator:
 
 ```text
 DRAFT_PAYLOAD_VALID|slug=coralina|sha256=2d5613a3…|buildings=8|units=198|prices=198|media=0|documents=0|warnings=6
-DRAFT_PAYLOAD_VALID|slug=rainpalm-villas|sha256=ef6058f4…|buildings=0|units=21|prices=0|media=0|documents=0|warnings=10
-DRAFT_PAYLOAD_VALID|slug=garden-of-eden|sha256=afaaefea…|buildings=0|units=0|prices=0|media=0|documents=0|warnings=13
-DRAFT_PAYLOAD_VALID|slug=the-title-sierra|sha256=5be54c39…|buildings=2|units=180|prices=180|media=0|documents=0|warnings=14
+DRAFT_PAYLOAD_VALID|slug=rainpalm-villas|sha256=4e5f5d4d…|buildings=0|units=21|prices=0|media=0|documents=0|warnings=7
+DRAFT_PAYLOAD_VALID|slug=garden-of-eden|sha256=c8a51567…|buildings=0|units=0|prices=0|media=0|documents=0|warnings=13
+DRAFT_PAYLOAD_VALID|slug=the-title-sierra|sha256=7cb81e15…|buildings=2|units=180|prices=180|media=0|documents=0|warnings=14
 ```
 
-> **Corrective pass (FOREVER-CATALOG-10-003).** The three authored payloads were
-> rebuilt after a source-integrity review. Four defects were fixed, and the
-> hashes above are the corrected ones. See §12.
+> **Owner Upload Trust Policy applied (FOREVER-CATALOG-10-004).** The three
+> authored payloads were rebuilt under the trust policy for initial ingestion:
+> Owner-supplied packages are accepted sources, provenance is `owner_provided`,
+> and Rainpalm carries one soft price-version warning instead of four forensic
+> ones. The hashes above are the ones that policy produced. See §12.
 
 ### 5.1 Coralina — local canonical payload reused unchanged; staging presence query-unverified
 
@@ -209,84 +211,43 @@ So the canonical prices are not stale; the fresher document is an inventory
 correction of one unit. This stays a separate Owner freshness decision and was
 not applied. The canonical package was not modified.
 
-### 5.2 Rainpalm Villas — structural draft, prices deferred
+### 5.2 Rainpalm Villas — accepted structural draft, prices deferred
 
-Built exactly to §4. The verified structural layer is present; the price layer
-is absent by decision, not by omission.
+The Owner-approved Rainpalm package is the official initial working source. The
+draft is accepted, not provisional and not weak.
 
-Every value is read from an Owner source that the build resolves and verifies at
-runtime. The retired Fast Intake v1 package is **not** evidence for any business
-fact — it is used only as a deterministic cross-check.
+| Item       | Value                                                                               |
+| ---------- | ----------------------------------------------------------------------------------- |
+| Identity   | `Rainpalm Villas`, developer raw `Tonsai Company`, `Bang Tao, Phuket`, `Pool Villa` |
+| Units      | 21, each with code, type, bedrooms, bathrooms and size                              |
+| Prices     | 0 — deferred, see below                                                             |
+| Provenance | `owner_provided` / `owner_uploaded_project_material` / confidence 1                 |
+| Status     | `publish: false`                                                                    |
 
-Sources resolved and digest-verified on every run, including `--check`:
+Unit code, type, bedrooms, bathrooms and size all come from the same row of the
+same document, so each unit carries **one** `metadata.source` record naming that
+row rather than five identical provenance objects.
 
-| Source                     | Role                             | SHA-256                                                            |      Bytes |
-| -------------------------- | -------------------------------- | ------------------------------------------------------------------ | ---------: |
-| `project-facts.json`       | project identity                 | `1e47032269fe2cd48ed93f436075915a05e1be7380d2afc58ce793e55d5c795b` |      1,315 |
-| `price-list.json`          | 21-unit inventory                | `6ce4a187711f1fdcc26eed84689a0ef0f7a461262a4630b895c251781d10a73f` |     43,890 |
-| `For PDF Presentation.pdf` | document the identity facts cite | `9887f0ffe03cf294eefd60b15a99578c11fb08981a86dc40b6909f663d30df38` | 10,664,808 |
+**Prices are inactive for exactly one reason: the package holds four price-list
+versions.** No single current schedule can be selected yet. That ambiguity does
+not block the project or its units — it is recorded as one soft warning:
 
-- **Identity is fully document-backed.** `project-facts.json` states the name,
-  developer raw name, location, area, type and short description, each citing
-  `For PDF Presentation.pdf` with a page reference — and that PDF resolves and
-  verifies. The chain is complete, so these fields keep `developer_provided`
-  provenance.
-- **Unit structure is not.** Every field of `price-list.json` — code, type,
-  bedrooms, bathrooms, size and availability — cites
-  `Копия Rainpalm - Price List（for In house)-1.pdf`, which this build **proves
-  absent** on every run. The 21 units are therefore carried at `extracted`
-  confidence 0.5 against `operator_intake`, with a per-field note naming the
-  dangling citation. They are explicitly _not_ labelled developer-provided.
-- All 21 units carry identifier, type, bedrooms, bathrooms and size, each with
-  its own `field_provenance` entry.
-- **0 prices.** The 14-price payload was not carried over.
-- The retired package is retained unchanged as
-  `forever-data/projects/rainpalm-villas/progressive/payload.fast-intake-v1.json`
-  (SHA-256 `c95fb84744d9c067a003284be3fd8de5a2a84a2f9cf03a36b2c78b72d283a9b7`).
-  The build re-derives all 21 units from source and then asserts, field by
-  field, that the unit set and every type, bedroom, bathroom and size value
-  match it. A divergence aborts the build. That check passes, which is what
-  proves the rebuild changed provenance and not facts.
+```text
+multiple_price_list_versions (severity: info)
+```
 
-`authoritative_price_list_unresolved` is recorded as required, carrying all four
-conflicting documents. Each is resolved and digest-verified during the build, so
-the digests below are observed, not remembered:
+The warning carries all four versions with their filenames, digests and sizes;
+states that prices activate once the Owner selects the current version or a
+newer developer price list arrives; and notes that availability is deferred
+alongside prices because it moves with the price list. Nothing was averaged,
+merged or selected by filename.
 
-| Document                                                    | SHA-256                                                            | Bytes  | Extractable prices |
-| ----------------------------------------------------------- | ------------------------------------------------------------------ | ------ | -----------------: |
-| `Rainpalm - Price List（for In house).pdf`                  | `08b4ceb9a71c7dc292cbfec6bf5d34c419687e6097c2d75e25b865ed0a459faf` | 77,942 |                 14 |
-| `Rainpalm - Price List（for In house) update 04.2025.pdf`   | `4ddee05fe5063bd8548ca8d2833c20bb4ca9b6b81a23aee8f21b065e1b5260b6` | 77,091 |                  9 |
-| `Rainpalm - Price List（for In house) update 4_12_2025.pdf` | `ac1c213b547d00d5c620cf152a0855c350cb4e193d302ac370ede971f8ae9535` | 78,944 |                 21 |
-| `Rainpalm - Price List new.pdf`                             | `772c02f01d030a56dd03512298bb881ccf3d0b7764bd665877a4f6a9ddaf4441` | 78,261 |                 14 |
+The retired Fast Intake v1 package is retained as
+`forever-data/projects/rainpalm-villas/progressive/payload.fast-intake-v1.json`
+for history. Media and documents are 0: media rows need a hosted URL and no
+Storage upload was performed.
 
-None of them states an issue date inside the document. Nothing was averaged,
-merged, or selected by filename.
-
-Two further warnings were added rather than glossed over:
-
-- `cited_source_file_absent` — the verified `price-list.json` cites
-  `Копия Rainpalm - Price List（for In house)-1.pdf` for every unit field, and
-  the retired package cited it for every price. The build walks all configured
-  source roots on each run and aborts with `cited_source_reappeared` if the file
-  turns up, so this warning can never go quietly stale. A second citation,
-  `Rainpalm Legal and Ownership.pdf (1)-1.pdf`, is absent for the same reason —
-  the real file has no `-1` — and is proven absent alongside it.
-- `availability_unverified` plus a unit-level `availability_conflict` for D4.
-  Availability was deliberately **not** imported: every availability value in
-  `price-list.json` cites the absent document, and D4 reads `Available` there
-  but `Reserved` in the one price document with a qualified extraction chain.
-  All 21 units will carry the schema default, and that default must not be read
-  as a verified availability state.
-
-The seven `price_missing` warnings from the original package were dropped. They
-each said a named unit had no price "so the price row was omitted", which in a
-zero-price draft would falsely imply the other fourteen units do have prices.
-
-Media and documents are 0. Media rows require a hosted URL and no Storage upload
-was performed; `media_not_ingested` records the dossier contents, including that
-the 598 MB video exceeds the 300 MiB intake limit.
-
-**RAINPALM STRUCTURAL DRAFT READY — PRICE UPDATE REQUIRED.**
+**RAINPALM STRUCTURAL DRAFT ACCEPTED — PRICE VERSION SELECTION PENDING.**
 
 ### 5.3 Garden of Eden (Park Residence) — highest honest draft
 
@@ -305,18 +266,16 @@ everything it does not state is absent and warning-marked.
 
 Notable decisions:
 
-- **Developer is not merely unresolved — it is unstated.** Both decks are agency
-  investment presentations produced by SunThai Property, not developer material.
-  No raw developer name was preserved, because there is none to preserve.
-- **Provenance reflects the secondary source.** Because the documents are agency
-  presentations, no Garden of Eden field may claim developer or official
-  standing. Every field carries `status: "extracted"`,
-  `source_type: "agency_investment_presentation"`, `confidence: 0.5` and
-  `source_date: "2026-01"`, with a note stating that no developer or official
-  confirmation is implied. A build-time assertion fails the whole run if any
-  field is ever labelled `developer_provided`, `official_source`,
-  `official_project_material`, `official_project_price_list`, or given
-  confidence 1.
+- **Developer is unstated.** Neither deck names a developer, so no raw developer
+  name was preserved — there is none to preserve. `developer_unresolved` records
+  it. This does not block the draft and no separate developer confirmation is
+  required before creating one.
+- **Provenance is `owner_provided`.** The decks are an Owner-supplied project
+  package, so under the trust policy every field carries
+  `status: "owner_provided"`, `source_type: "owner_uploaded_project_material"`,
+  `confidence: 1` and `source_date: "2026-01"`. Confidence 1 means the
+  extraction is faithful to the package, not that the package has been
+  independently audited.
 - `completion_date` stays NULL. `Q4-2027` is a quarter, not a date; resolving it
   to a day would be invention. The stated quarter is kept in
   `completion_quarter_only`.
@@ -411,7 +370,7 @@ why the draft state enforces this structurally.
 | Project            | Warnings                                                                                                                                                                                                                                                                                                                                                          |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `coralina`         | `developer_unresolved`, `location_unresolved`, `coordinates_missing`, `construction_status_missing`, `media_processing_deferred`, `document_processing_deferred`                                                                                                                                                                                                  |
-| `rainpalm-villas`  | `country_missing`, `coordinates_missing`, `construction_status_missing`, `developer_unresolved`, `location_unresolved`, **`authoritative_price_list_unresolved`**, `cited_source_file_absent`, `availability_unverified`, `availability_conflict`, `media_not_ingested`                                                                                           |
+| `rainpalm-villas`  | `country_missing`, `coordinates_missing`, `construction_status_missing`, `developer_unresolved`, `location_unresolved`, **`multiple_price_list_versions`**, `media_not_ingested`                                                                                                                                                                                  |
 | `garden-of-eden`   | `developer_unresolved`, `location_unresolved`, `country_missing`, `coordinates_missing`, `construction_status_missing`, `completion_quarter_only`, `building_inventory_missing`, `unit_types_missing`, `price_list_missing`, `investment_projections_not_prices`, `stated_facts_not_modelled`, `media_not_ingested`, `source_date_recorded`                       |
 | `the-title-sierra` | `developer_unresolved`, `location_missing`, `country_missing`, `project_type_missing`, `coordinates_missing`, `construction_status_missing`, `bathrooms_missing`, `building_inventory_partial`, `unit_type_code_inconsistent`, `price_currency_document_level_only`, `internal_use_only_source`, `brochure_missing`, `media_not_ingested`, `source_date_recorded` |
 
@@ -431,30 +390,24 @@ All four payloads self-verify: recomputing the fingerprint from the committed
 content reproduces the declared `batch_fingerprint` in every case, which is the
 check `src/intake/validate-draft.ts` performs and the PowerShell path does not.
 
-**Source identity is pinned, and the promise is now tested.** Every document
-whose digest appears in a payload or in this report is resolved by filename
-across `FOREVER_WAVE1_SOURCE_ROOTS` and verified by **both** SHA-256 and byte
-length — on a normal build and on `--check` alike. Eleven documents are pinned:
-two Sierra, two Garden of Eden, and seven Rainpalm (identity facts, unit
-inventory, the cited presentation, and the four conflicting price lists).
+**Source identity is pinned for reproducibility, not as an audit.** Eleven
+documents are pinned by filename, SHA-256 and byte length — two Sierra, two
+Garden of Eden, seven Rainpalm — so a given Owner package rebuilds to the same
+payload every time. Each is resolved by filename across
+`FOREVER_WAVE1_SOURCE_ROOTS` on a normal build and on `--check` alike.
 
-`scripts/catalog/test-wave1-source-integrity.mjs` proves the fail-closed
-behaviour against a disposable mirror of the Owner sources, writing no payload
-and touching no database:
+The digest picks the intended copy of the selected package. It is deliberately
+**not** a cross-folder conflict system: several folders holding a file of the
+same name is normal and never blocks a project. If no copy matches the pin, the
+package has moved on — the build takes the newest candidate, records a soft
+`source_version_changed` notice, and continues. Only a file that cannot be found
+or read stops the build.
 
-| Test                                         | Expected                  | Result |
-| -------------------------------------------- | ------------------------- | ------ |
-| Control — intact mirror                      | clean rebuild             | PASS   |
-| A pinned document is removed                 | `source_missing`          | PASS   |
-| A pinned document is edited                  | `source_digest_mismatch`  | PASS   |
-| A different document takes a pinned filename | `source_digest_mismatch`  | PASS   |
-| The absent cited document reappears          | `cited_source_reappeared` | PASS   |
-| Final control — mirror restored              | clean rebuild             | PASS   |
-
-The last case matters most: if
-`Копия Rainpalm - Price List（for In house)-1.pdf` ever appears, the build stops
-for review rather than shipping a payload whose absence warning has quietly
-become false.
+The earlier forensic negative-test harness, whose only purpose was cross-folder
+source-conflict handling, has been removed along with the hard blockers it
+tested. The build-time audits that remain cover the hard-blocker list in §12.6:
+draft-only status, duplicate unit codes, unparseable numerics, Rainpalm's
+zero-price contract, and Sierra's code-only buildings.
 
 **Idempotent replay — proven from the contract, not from a run.** A second
 identical import creates zero duplicate business rows, guaranteed at three
@@ -590,112 +543,138 @@ Non-blocking, needed before any publication:
 8. A location statement for The Title Sierra in a text-extractable document.
 9. A decision on the Coralina `CKF406` / `CKD508` inventory difference.
 
-## 12. Source-integrity corrective pass (FOREVER-CATALOG-10-003)
+## 12. Owner Upload Trust Policy (FOREVER-CATALOG-10-004)
 
-A review of PR #104 at head `3a430eb` found four defects. All are fixed; the
-three authored payloads were rebuilt and their hashes in §5 updated. Coralina is
-untouched — it was not rebuilt in either pass.
+The Owner set the product rule for initial ingestion: it must be simple and
+permissive. This section supersedes the source-forensics framing of the two
+earlier passes, and the payload hashes in §5 are the ones this policy produced.
 
-### 12.1 Gitignore exposure closed
+### 12.1 The policy
 
-The first pass un-ignored the whole `rainpalm-villas/intake/` and
-`rainpalm-villas/sip/` directories to keep already-tracked evidence visible.
-That also made any _newly added_ file under those paths trackable, including
-source documents and media.
+A project package the Owner deliberately supplies — ZIP, brochure, price list,
+master plan, floor plans, images, spreadsheets, presentations — **is** the
+official working source for the initial unpublished draft. The first import is
+not a forensic source audit. It prioritises speed and completeness.
 
-Both broad rules are removed. Exactly four payload files are allowed through;
-every surrounding directory is re-ignored. Files tracked from an earlier commit
-stay tracked — `.gitignore` does not untrack — but nothing new can join them
-without a deliberate rule.
+Facts faithfully extracted from an approved package are recorded as:
 
-Proven with sentinel paths that do not exist in the tree:
+| Field         | Value                             |
+| ------------- | --------------------------------- |
+| `status`      | `owner_provided`                  |
+| `source_type` | `owner_uploaded_project_material` |
+| `confidence`  | `1`                               |
 
-| Sentinel                                                        | Ignored by                                 |
-| --------------------------------------------------------------- | ------------------------------------------ |
-| `rainpalm-villas/intake/SENTINEL-new-evidence.json`             | `forever-data/projects/rainpalm-villas/*`  |
-| `rainpalm-villas/sip/SENTINEL-qualification.json`               | `forever-data/projects/rainpalm-villas/*`  |
-| `rainpalm-villas/source/price-list/SENTINEL-Rainpalm-price.pdf` | `forever-data/projects/rainpalm-villas/*`  |
-| `rainpalm-villas/source/SENTINEL-master-plan.jpg`               | `forever-data/projects/rainpalm-villas/*`  |
-| `rainpalm-villas/progressive/SENTINEL-scratch.json`             | `.../progressive/*`                        |
-| `garden-of-eden/source/SENTINEL-deck.pdf`                       | `forever-data/projects/garden-of-eden/*`   |
-| `the-title-sierra/source/SENTINEL-pricelist.pdf`                | `forever-data/projects/the-title-sierra/*` |
+`owner_provided` is the existing status in
+`src/features/forever-ingestion/provenance.ts` for direct first-party Owner
+input; nothing new was invented. Confidence 1 records that the extraction is
+faithful to the package — not that the package has been independently audited.
+No second document is required for an initial draft.
 
-All four intended payloads remain un-ignored. The sentinels were deleted after
-the check and never committed.
+### 12.2 What changed from the previous pass
 
-### 12.2 Garden of Eden provenance corrected
+| Area                             | Before                                                                                                                                 | Now                                                      |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Garden of Eden provenance        | `extracted` / `agency_investment_presentation` / 0.5                                                                                   | `owner_provided` / `owner_uploaded_project_material` / 1 |
+| Rainpalm unit provenance         | `extracted` / `operator_intake` / 0.5, repeated per field                                                                              | `owner_provided` / 1, **one row-level source record**    |
+| Rainpalm price warnings          | 4 warnings incl. `authoritative_price_list_unresolved`, `cited_source_file_absent`, `availability_unverified`, `availability_conflict` | 1 soft `multiple_price_list_versions`                    |
+| Rainpalm warning count           | 10                                                                                                                                     | 7                                                        |
+| Same-name file in another folder | hard build failure                                                                                                                     | soft `source_version_changed` notice                     |
+| Cited-but-absent document        | hard build failure (`cited_source_reappeared`)                                                                                         | not modelled — belongs to later inspection               |
+| Forensic negative-test harness   | `scripts/catalog/test-wave1-source-integrity.mjs`                                                                                      | removed                                                  |
 
-The first pass labelled Garden of Eden fields `developer_provided` /
-`official_project_material` / confidence `1`. The documents are SunThai Property
-**agency investment presentations**, so that overstated their standing.
+Unit code, unit type, bedrooms, bathrooms and size come from the same row of the
+same document, so they now share one `metadata.source` record instead of five
+identical provenance objects. Sierra units and buildings use the same shape.
 
-|               | Before                      | After                                                        |
-| ------------- | --------------------------- | ------------------------------------------------------------ |
-| `status`      | `developer_provided`        | `extracted`                                                  |
-| `source_type` | `official_project_material` | `agency_investment_presentation`                             |
-| `confidence`  | `1`                         | `0.5`                                                        |
-| `source_date` | —                           | `2026-01`                                                    |
-| `note`        | —                           | states that no developer or official confirmation is implied |
+### 12.3 Rainpalm — accepted structural draft
 
-`extracted` and the 0..1 confidence scale come from the existing vocabulary in
-`src/features/forever-ingestion/provenance.ts`; no new status was invented. The
-project name is unchanged and still exactly what the deck states. All warnings
-that developer, country, canonical location, units and prices remain unresolved
-are retained. A build-time assertion now fails the entire run if any Garden
-field is labelled `developer_provided`, `official_source`,
-`official_project_material`, `official_project_price_list`, or given confidence 1.
+The Rainpalm Owner package is the official initial working source. The draft
+carries project identity, 21 units with codes, types, bedrooms, bathrooms and
+sizes, and `publish: false`.
 
-### 12.3 Rainpalm structure made genuinely source-backed
+**The structural layer is not classified as weak, provisional or
+non-document-backed.** It is an accepted Owner-supplied structure.
 
-The first pass verified only the retained Fast Intake JSON and copied its unit
-structure, while reporting four price-document digests it never resolved. The
-documented promise did not match the behaviour.
+Prices remain at zero for one reason only: the package holds four price-list
+versions, so no single current schedule can be selected yet. That ambiguity does
+not block the project or the units. One soft warning records it:
 
-Now the build resolves and verifies seven Rainpalm documents on every run,
-`--check` included: `project-facts.json`, `price-list.json`,
-`For PDF Presentation.pdf` and the four conflicting price lists. Identity comes
-from `project-facts.json`; the 21 units come from `price-list.json`. The retired
-package is demoted to a cross-check — the build re-derives every unit from
-source and aborts if the unit set or any type, bedroom, bathroom or size value
-diverges from it.
+```text
+multiple_price_list_versions (severity: info)
+```
 
-The honest finding this surfaced: **the unit structure was never
-document-backed.** Every field of `price-list.json` cites the absent
-`Копия Rainpalm - Price List（for In house)-1.pdf`, so the structural layer has
-the same broken citation as the price layer. Those fields are now `extracted` /
-`operator_intake` / 0.5 with a per-field note, not developer-provided. Identity
-is unaffected: its citations resolve to the verified presentation PDF.
+It states that prices and availability stay inactive, that the 21-unit structure
+is accepted and unaffected, and that prices activate once the Owner selects the
+current version or a newer developer price list arrives. All four versions are
+preserved side by side; none was averaged, merged or chosen by filename.
+Availability is deferred with prices because it moves with the price list.
 
-Absence is proven rather than remembered — both dangling citations are searched
-for on every run, and the build refuses to continue if either appears. Prices
-stay at 0, availability is still not imported,
-`authoritative_price_list_unresolved` and the D4 conflict are retained, and the
-draft stays unpublished.
+### 12.4 Garden of Eden and Sierra
 
-### 12.4 Sierra derived building names removed
+Both Owner-supplied packages are accepted initial project sources with
+`owner_provided` provenance. No separate developer confirmation is required
+before creating an unpublished draft.
 
-The Tower column supplies the codes `A` and `C`. It does not supply names, so
-the generated `Tower A` / `Tower C` labels — and their `developer_provided`
-provenance — are gone. Buildings now carry `building_code` and its provenance
-only. A build-time assertion fails the run if a `name` ever returns.
+Missing data still stays missing and is warning-marked — Garden of Eden has no
+units, buildings or prices; Sierra has no location, developer or property type —
+but none of that blocks the draft, and nothing was invented to fill a gap.
+Sierra buildings keep a source-backed `building_code` and no derived name.
 
-### 12.5 Validation
+### 12.5 Same-name files are not a blocker
 
-| Check                                                    | Result                                                                                                                                                      |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Builder, normal run                                      | pass — three payloads written                                                                                                                               |
-| Builder, `--check`                                       | pass — all `UNCHANGED`, exit 0                                                                                                                              |
-| Two consecutive rebuilds byte-identical                  | yes                                                                                                                                                         |
-| Canonical offline validator, all four payloads           | `DRAFT_PAYLOAD_VALID` ×4                                                                                                                                    |
-| Fingerprint self-verification, all four                  | 4/4 recompute correctly                                                                                                                                     |
-| Source-integrity negative tests                          | 6/6 pass                                                                                                                                                    |
-| Provenance audits (Garden, Sierra, Rainpalm, draft-only) | pass                                                                                                                                                        |
-| `git check-ignore -v` sentinels                          | 7/7 ignored; 4/4 payloads allowed                                                                                                                           |
-| Absolute Owner-path scan of staged content               | clean                                                                                                                                                       |
-| Credential/secret scan of staged content                 | clean                                                                                                                                                       |
-| `git diff --check`                                       | clean                                                                                                                                                       |
-| Prettier, builder and edited docs                        | formatted                                                                                                                                                   |
-| ESLint                                                   | **not run** — `node_modules` is not installed in this worktree and `eslint.config.js` cannot resolve `@eslint/js`. Pre-existing, unrelated to this change.  |
-| GitHub CI checks on PR #104                              | **none configured.** The repository runs no CI workflow against this PR, so there is no passing status to report. An empty check list is not a green build. |
+The selected Owner package is the source boundary. Several folders holding a
+file of the same name is normal. The pinned SHA-256 picks the intended copy for
+reproducibility; if no copy matches the pin, the build takes the newest
+candidate, records a soft `source_version_changed` notice, and continues. Only a
+file that cannot be found or read stops the build.
 
-No database was contacted in either pass.
+### 12.6 Hard blockers for an initial import
+
+Only these stop a draft. Everything else is a warning or stays absent.
+
+| Blocker                                          | Enforced by                                                       |
+| ------------------------------------------------ | ----------------------------------------------------------------- |
+| File cannot be read                              | `source_unreadable` in the source resolver                        |
+| Package cannot be associated with a project      | builder requires a slug and name                                  |
+| Payload fails the schema                         | canonical validator and the ingestion RPC                         |
+| Duplicate project slug                           | RPC `project_slug_exists`; importer `draft_import_duplicate_slug` |
+| Duplicate unit code in one payload               | `duplicate_unit_code` audit                                       |
+| Numeric value cannot be parsed                   | `unit_value_unparseable` / `price_value_unparseable` audits       |
+| Executable or secret material would be committed | `.gitignore` allowlist plus the pre-commit scans                  |
+| Database target cannot be proven to be staging   | §2, and the import target guard                                   |
+
+### 12.7 Later Inspection / Update workflow — not implemented here
+
+Deep verification moves to a future workflow, to run after a Forever broker
+visits the project or a newer official package arrives. It will:
+
+- compare the new package with the existing project;
+- detect duplicate units;
+- detect changed prices and availability;
+- preserve prior values and their source dates;
+- flag conflicts for review;
+- update only after that review.
+
+None of it is implemented in this PR. Recording it here fixes where the
+verification burden belongs: on the update path, not on first ingestion.
+
+### 12.8 Validation
+
+| Check                                                                  | Result                                                                                                                           |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Builder, normal run                                                    | pass — three payloads written                                                                                                    |
+| Builder, `--check`                                                     | pass — all `UNCHANGED`, exit 0                                                                                                   |
+| Canonical offline validator, all four payloads                         | `DRAFT_PAYLOAD_VALID` ×4                                                                                                         |
+| Fingerprint self-verification, all four                                | 4/4 recompute correctly                                                                                                          |
+| Duplicate unit-code check, all four                                    | none                                                                                                                             |
+| Unpublished status, all four                                           | `publish: false`, `mode: create`                                                                                                 |
+| Build-time audits (draft-only, duplicates, numerics, Rainpalm, Sierra) | pass                                                                                                                             |
+| `git check-ignore -v` safety check                                     | source directories remain ignored                                                                                                |
+| Owner absolute-path scan of staged content                             | clean                                                                                                                            |
+| Credential/secret scan of staged content                               | clean                                                                                                                            |
+| `git diff --check`                                                     | clean                                                                                                                            |
+| Prettier, builder and edited docs                                      | formatted                                                                                                                        |
+| ESLint                                                                 | **not run** — `node_modules` is not installed in this worktree and `eslint.config.js` cannot resolve `@eslint/js`. Pre-existing. |
+| GitHub CI checks on PR #104                                            | **none configured.** No `.github/workflows` exists and the PR reports zero checks. An empty check list is not a passing build.   |
+
+No database was contacted in any pass.

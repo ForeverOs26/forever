@@ -21,12 +21,20 @@ normalised or edited.
 > Coralina reasoning, and §6.5's assumption that Sierra needs SIP qualification
 > before a draft can be built.
 >
-> **Corrective pass (FOREVER-CATALOG-10-003).** A source-integrity review
-> corrected two provenance claims made in this register. §6.3's reading of the
-> Rainpalm structural layer as "sound" was too generous — see the note there.
-> §6.4's Garden of Eden entry is unchanged in substance but its material is now
-> classified as an agency presentation rather than developer material. Payload
-> hashes in the Wave 1 report were reissued; the counts are unchanged.
+> **Owner Upload Trust Policy (FOREVER-CATALOG-10-004).** The Owner set the
+> product rule for initial ingestion: any project package the Owner deliberately
+> supplies is the official working source for the first unpublished draft. The
+> first import is not a forensic source audit — it prioritises speed and
+> completeness, and records facts as `owner_provided` /
+> `owner_uploaded_project_material` at confidence 1. Deep reconciliation moves to
+> the later Project Inspection / Update workflow, after a broker visits the
+> project or a newer package arrives.
+>
+> This supersedes the stricter provenance framing of the intermediate pass. Every
+> assessment below should be read as source _inventory_, not as a gate: a gap
+> recorded here is a warning on the draft, not a reason to withhold one. Payload
+> hashes in the Wave 1 report were reissued; project and unit counts are
+> unchanged.
 
 ## 1. Correction to the assumed starting state
 
@@ -491,20 +499,22 @@ Identity is sound: name `Rainpalm Villas`, developer raw `Tonsai Company`,
 location `Bang Tao, Phuket`, type `Pool Villa`, all attributed to
 `For PDF Presentation.pdf` with page-level references.
 
-**Corrected 2026-07-26.** "Perfect agreement on the structural layer" means the
-extraction pipeline agreed with itself, not that the structure is
-document-backed. The intake inventory `price-list.json` — the actual source of
-all 21 unit rows — cites `Копия Rainpalm - Price List（for In house)-1.pdf` for
-**every** field, including code, type, bedrooms, bathrooms and size, and that
-document is absent. So the structural layer carries the same broken citation as
-the price layer; only the price layer was flagged in the first pass. The Wave 1
-draft therefore records those fields as `extracted` from an operator intake
-artifact at 0.5 confidence, not as developer-provided material.
+**Updated 2026-07-26 (Owner Upload Trust Policy).** The Rainpalm structural
+layer is **accepted**. It comes from the Owner-approved package — project
+identity from `project-facts.json`, the 21-unit inventory from `price-list.json`
+— and under the trust policy that package is the official initial working
+source. The units carry `owner_provided` provenance at confidence 1, with one
+row-level source record per unit rather than repeated per-field blocks.
 
-Identity is genuinely sound and is unaffected: `project-facts.json`
-(sha `1e470322…`) states each identity fact and cites
-`For PDF Presentation.pdf` (sha `9887f0ff…`, 10,664,808 B), which resolves and
-verifies. That chain is complete.
+An intermediate pass downgraded these fields to `extracted` / `operator_intake`
+at 0.5 confidence because `price-list.json` cites an upstream file that is not on
+disk. That downgrade is withdrawn: a missing intermediate reference is not a
+reason to distrust an Owner-supplied package on first import.
+
+Prices remain inactive, for one reason only — the package holds four price-list
+versions and no single current schedule can be selected yet. That is recorded as
+a soft `multiple_price_list_versions` warning and does not block the project or
+its units.
 
 ### 7.2 The price provenance conflict
 

@@ -14,38 +14,38 @@
     "short_description": "Luxury Modern Tropical Villa",
     "field_provenance": {
       "name": {
-        "status": "developer_provided",
-        "source_type": "official_project_material",
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
         "source_ref": "For PDF Presentation.pdf#page=1",
         "confidence": 1
       },
       "developer_name_raw": {
-        "status": "developer_provided",
-        "source_type": "official_project_material",
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
         "source_ref": "For PDF Presentation.pdf#page=3",
         "confidence": 1
       },
       "location_name_raw": {
-        "status": "developer_provided",
-        "source_type": "official_project_material",
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
         "source_ref": "For PDF Presentation.pdf#pages=7-8",
         "confidence": 1
       },
       "location_area": {
-        "status": "developer_provided",
-        "source_type": "official_project_material",
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
         "source_ref": "For PDF Presentation.pdf#pages=7-8",
         "confidence": 1
       },
       "project_type": {
-        "status": "developer_provided",
-        "source_type": "official_project_material",
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
         "source_ref": "For PDF Presentation.pdf#page=1",
         "confidence": 1
       },
       "short_description": {
-        "status": "developer_provided",
-        "source_type": "official_project_material",
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
         "source_ref": "For PDF Presentation.pdf#page=5",
         "confidence": 1
       }
@@ -59,35 +59,18 @@
       "bathrooms": 5,
       "size_sqm": 346.4,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -98,35 +81,18 @@
       "bathrooms": 5,
       "size_sqm": 346.4,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -137,35 +103,18 @@
       "bathrooms": 5,
       "size_sqm": 516.59,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -176,35 +125,18 @@
       "bathrooms": 5,
       "size_sqm": 349.77,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -215,35 +147,18 @@
       "bathrooms": 5,
       "size_sqm": 349.77,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -254,35 +169,18 @@
       "bathrooms": 5,
       "size_sqm": 349.77,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -293,35 +191,18 @@
       "bathrooms": 5,
       "size_sqm": 349.77,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -332,35 +213,18 @@
       "bathrooms": 5,
       "size_sqm": 349.77,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -371,35 +235,18 @@
       "bathrooms": 5,
       "size_sqm": 335.63,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -410,35 +257,18 @@
       "bathrooms": 5,
       "size_sqm": 335.63,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -449,35 +279,18 @@
       "bathrooms": 5,
       "size_sqm": 335.63,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -488,35 +301,18 @@
       "bathrooms": 5,
       "size_sqm": 342.4,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -527,35 +323,18 @@
       "bathrooms": 4,
       "size_sqm": 320.25,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -566,35 +345,18 @@
       "bathrooms": 4,
       "size_sqm": 309.38,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -605,35 +367,18 @@
       "bathrooms": 4,
       "size_sqm": 298.94,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -644,35 +389,18 @@
       "bathrooms": 4,
       "size_sqm": 307.97,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -683,35 +411,18 @@
       "bathrooms": 5,
       "size_sqm": 303.59,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -722,35 +433,18 @@
       "bathrooms": 5,
       "size_sqm": 320.96,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -761,35 +455,18 @@
       "bathrooms": 5,
       "size_sqm": 303.59,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -800,35 +477,18 @@
       "bathrooms": 5,
       "size_sqm": 303.59,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     },
@@ -839,35 +499,18 @@
       "bathrooms": 5,
       "size_sqm": 303.59,
       "metadata": {
-        "field_provenance": {
-          "unit_type": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bedrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "bathrooms": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          },
-          "size_sqm": {
-            "status": "extracted",
-            "source_type": "operator_intake",
-            "source_ref": "price-list.json",
-            "confidence": 0.5,
-            "note": "Value read from the verified operator intake artifact \"price-list.json\". That artifact cites \"Копия Rainpalm - Price List（for In house)-1.pdf\", which is absent from every configured source root, so the upstream chain is unresolved and this value is not independently document-backed."
-          }
+        "source": {
+          "status": "owner_provided",
+          "source_type": "owner_uploaded_project_material",
+          "source_ref": "price-list.json",
+          "confidence": 1,
+          "applies_to": [
+            "unit_code",
+            "unit_type",
+            "bedrooms",
+            "bathrooms",
+            "size_sqm"
+          ]
         }
       }
     }
@@ -912,13 +555,12 @@
       }
     },
     {
-      "entity": "project",
-      "code": "authoritative_price_list_unresolved",
-      "severity": "warning",
-      "message": "No authoritative Rainpalm price list has been selected. Four conflicting price documents exist; the document cited by the original package is absent; the only variant with a qualified extraction chain supports 9 of the 14 previously asserted prices; and a fourth variant carries an entirely different 21-unit schedule. No unit price was imported. Prices must not be averaged, merged, or selected by filename.",
+      "entity": "price",
+      "code": "multiple_price_list_versions",
+      "severity": "info",
+      "message": "The Rainpalm package contains 4 price-list versions, so no single current schedule can be selected yet. Prices and availability stay inactive for now; the 21-unit structure is accepted and unaffected. Prices will be activated once the Owner selects the current version or a newer developer price list arrives. Versions are preserved side by side — none was averaged, merged, or chosen by filename.",
       "payload": {
-        "cited_source_file_absent": "Копия Rainpalm - Price List（for In house)-1.pdf",
-        "conflicting_documents": [
+        "versions": [
           {
             "file": "Rainpalm - Price List（for In house).pdf",
             "sha256": "08b4ceb9a71c7dc292cbfec6bf5d34c419687e6097c2d75e25b865ed0a459faf",
@@ -952,66 +594,8 @@
             "note": "Identical 14 values to the undated original. Not confirmed by the Owner to be the same document under a different name."
           }
         ],
-        "owner_decision_required": [
-          "Nominate the authoritative price list, ideally with its issue date stated inside the document.",
-          "Rule on whether the 4_12_2025 variant supersedes the 14-price schedule, and state what 4_12_2025 denotes.",
-          "Supply the absent cited document, or confirm in writing that 'Rainpalm - Price List new.pdf' is the same document under another name.",
-          "Confirm D4's availability: Available or Reserved.",
-          "Grant or withhold permission to publish unit-level prices from an in-house document."
-        ]
-      }
-    },
-    {
-      "entity": "project",
-      "field": "source_file",
-      "code": "cited_source_file_absent",
-      "severity": "warning",
-      "message": "The verified intake inventory \"price-list.json\" cites \"Копия Rainpalm - Price List（for In house)-1.pdf\" for every unit field — code, type, bedrooms, bathrooms, size and availability — and the retired package cited it for every price. This build proved the file is absent from every configured source root. The structural layer is therefore carried at \"extracted\" confidence against the intake artifact, not as document-backed developer material, and no price row was carried over. Project identity is unaffected: it resolves through \"project-facts.json\" to the verified \"For PDF Presentation.pdf\".",
-      "payload": {
-        "cited_file": "Копия Rainpalm - Price List（for In house)-1.pdf",
-        "also_absent": "Rainpalm Legal and Ownership.pdf (1)-1.pdf",
-        "affected_layer": "unit structure and availability",
-        "verified_intake_artifacts": [
-          {
-            "file": "project-facts.json",
-            "sha256": "1e47032269fe2cd48ed93f436075915a05e1be7380d2afc58ce793e55d5c795b",
-            "bytes": 1315
-          },
-          {
-            "file": "price-list.json",
-            "sha256": "6ce4a187711f1fdcc26eed84689a0ef0f7a461262a4630b895c251781d10a73f",
-            "bytes": 43890
-          }
-        ],
-        "identity_chain_resolves_to": {
-          "file": "For PDF Presentation.pdf",
-          "sha256": "9887f0ffe03cf294eefd60b15a99578c11fb08981a86dc40b6909f663d30df38",
-          "bytes": 10664808
-        }
-      }
-    },
-    {
-      "entity": "unit",
-      "field": "availability_status",
-      "code": "availability_unverified",
-      "severity": "warning",
-      "message": "Availability was not imported. Every availability value in the verified intake inventory cites the absent \"Копия Rainpalm - Price List（for In house)-1.pdf\", so all 21 units carry the schema default and that default must not be read as a verified availability state.",
-      "payload": {
-        "units_affected": 21
-      }
-    },
-    {
-      "entity": "unit",
-      "field": "availability_status",
-      "code": "availability_conflict",
-      "severity": "warning",
-      "message": "Unit D4 is rendered Available by the verified intake inventory and Reserved by the one price document with a qualified extraction chain. The conflict is unresolved.",
-      "payload": {
-        "unit_code": "D4",
-        "intake_inventory_value": "Available",
-        "intake_inventory_file": "price-list.json",
-        "document_value": "Reserved",
-        "document": "Rainpalm - Price List（for In house) update 04.2025.pdf"
+        "activation_condition": "Owner selects the current version, or a newer developer price list is received.",
+        "availability_note": "Availability moves with the price list, so it is deferred alongside prices; all units carry the schema default, which is not a verified availability state."
       }
     },
     {
@@ -1021,5 +605,5 @@
       "message": "The Rainpalm dossier holds a master plan, a presentation, a payment-terms document, a legal/ownership document, a 22-file picture set and a 598 MB video. None was ingested: media rows require a hosted URL, and no Storage upload was performed by this task. The 598 MB video also exceeds the 300 MiB intake archive limit and must be split or deferred."
     }
   ],
-  "batch_fingerprint": "bfe02898ca6851c93fb2b55d3ae99e84ad1e7c4443251d0a98072bd8ea2290c4"
+  "batch_fingerprint": "8f84fbecbf31daf2648f879181b3cc4302e1eab7a33530d6e194b09b2ff21a4e"
 }

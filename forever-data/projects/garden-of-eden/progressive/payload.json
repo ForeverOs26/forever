@@ -12,36 +12,32 @@
     "project_type": "Premium apart-hotel",
     "field_provenance": {
       "name": {
-        "status": "extracted",
-        "source_type": "agency_investment_presentation",
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
         "source_ref": "GARDEN OF EDEN - eng.pdf#page=2",
-        "confidence": 0.5,
-        "source_date": "2026-01",
-        "note": "Extracted from a SunThai Property agency investment presentation. Not developer-issued material; no developer or official confirmation is implied."
+        "confidence": 1,
+        "source_date": "2026-01"
       },
       "location_name_raw": {
-        "status": "extracted",
-        "source_type": "agency_investment_presentation",
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
         "source_ref": "GARDEN OF EDEN - eng.pdf#page=2",
-        "confidence": 0.5,
-        "source_date": "2026-01",
-        "note": "Extracted from a SunThai Property agency investment presentation. Not developer-issued material; no developer or official confirmation is implied."
+        "confidence": 1,
+        "source_date": "2026-01"
       },
       "location_area": {
-        "status": "extracted",
-        "source_type": "agency_investment_presentation",
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
         "source_ref": "GARDEN OF EDEN - eng.pdf#page=2",
-        "confidence": 0.5,
-        "source_date": "2026-01",
-        "note": "Extracted from a SunThai Property agency investment presentation. Not developer-issued material; no developer or official confirmation is implied."
+        "confidence": 1,
+        "source_date": "2026-01"
       },
       "project_type": {
-        "status": "extracted",
-        "source_type": "agency_investment_presentation",
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
         "source_ref": "GARDEN OF EDEN - eng.pdf#page=2",
-        "confidence": 0.5,
-        "source_date": "2026-01",
-        "note": "Extracted from a SunThai Property agency investment presentation. Not developer-issued material; no developer or official confirmation is implied."
+        "confidence": 1,
+        "source_date": "2026-01"
       }
     }
   },
@@ -176,5 +172,5 @@
       }
     }
   ],
-  "batch_fingerprint": "ee405fcc82f1d8bbcbf75f3e629b6d05a05ab68e4e0335c02081291bf0e214d3"
+  "batch_fingerprint": "de458b059155e971d6bdbe99c521e0009a15ca552d901d12ea02c054fceefbca"
 }

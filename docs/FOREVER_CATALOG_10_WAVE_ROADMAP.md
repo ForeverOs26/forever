@@ -23,25 +23,28 @@ staging boundary. Nothing here permits a publish.
 >   package already does. Canonical resolution is a publication prerequisite,
 >   not an import one, so the pinned migration is not on the Wave 1 path.
 > - **Rainpalm is no longer blocked on the price ruling.** It ships as a
->   structural draft with 21 units and zero prices, carrying
->   `authoritative_price_list_unresolved`. The Owner ruling is now required
+>   structural draft with 21 units and zero prices, carrying a soft
+>   `multiple_price_list_versions` warning. The Owner ruling is now required
 >   before Rainpalm gets _prices_, not before it gets a record.
 >
 > The gate table below still applies to Waves 2 and 3 unchanged.
 >
-> **G1 correction (FOREVER-CATALOG-10-003).** An earlier revision of this note
-> claimed the Rainpalm structural draft passes G1 by citing the presentation
-> document. That is true only of project _identity_. The 21 unit rows come from
-> an intake inventory whose every field cites an absent document, so the
-> structural layer does **not** pass G1 on its own evidence. It ships as an
-> explicitly downgraded `extracted` layer with that defect recorded per field,
-> not as a G1 pass. G1 remains open for Rainpalm units until the cited price
-> list is supplied.
+> **G1 restated under the Owner Upload Trust Policy (FOREVER-CATALOG-10-004).**
+> G1 was written as a source-forensics gate: every cited file must resolve and
+> match a manifest digest. For an _initial_ draft that is now the wrong test.
+> An Owner-supplied package is the accepted working source, so G1 for a first
+> import reduces to: the package can be read, and the payload reproduces from it
+> deterministically. Rainpalm passes on that reading — its 21-unit structure is
+> accepted, not provisional.
 >
-> The builder now resolves and digest-verifies all eleven pinned Wave 1 source
-> documents on every run, and negative tests prove it fails closed on a missing,
-> edited or substituted source, and on the reappearance of a cited-but-absent
-> document.
+> The stricter form of G1 does not disappear; it moves to the Project Inspection
+> / Update workflow, where a newer package is compared against an existing
+> project and conflicts are surfaced for review. Gates G2–G7 are unchanged.
+>
+> Rainpalm prices remain deferred, but not as a gate failure: the package simply
+> holds four price-list versions, recorded as a soft
+> `multiple_price_list_versions` warning. They activate when the Owner selects
+> the current version or a newer developer price list arrives.
 
 ## Wave 0 — Coralina prerequisites (blocking, ahead of everything else)
 
