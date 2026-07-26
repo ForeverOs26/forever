@@ -84,6 +84,7 @@ forever-data/projects/coralina/source/*
 !forever-data/projects/coralina/source/*/
 forever-data/projects/coralina/source/*/*
 !forever-data/projects/coralina/source/*/.gitkeep
+
 # FOREVER-TITLE-LEGENDARY-001: only the Draft payload and the two-source
 # manifest are committed. Downloaded developer documents stay owner-local.
 !forever-data/projects/the-title-legendary/
@@ -92,3 +93,42 @@ forever-data/projects/the-title-legendary/*
 !forever-data/projects/the-title-legendary/progressive/
 forever-data/projects/the-title-legendary/progressive/*
 !forever-data/projects/the-title-legendary/progressive/payload.json
+
+# Catalogue 10 draft packages. EXACTLY six payload files are allowed through,
+# across five projects — Rainpalm contributes two of them, its active payload and
+# the archived fast-intake version. Every directory around them stays ignored. In
+# particular `intake/`, `sip/` and any `source/` directory are re-ignored below,
+# so a newly added local evidence file, PDF, image or media asset under those
+# paths can never become trackable by accident. Files already tracked from an
+# earlier commit stay tracked — .gitignore does not untrack — but nothing new
+# joins them without a deliberate, separately reviewed rule.
+#
+# The count above is the human-readable specification of a safety guard, so it
+# must be updated whenever a `!` exception is added or removed below. A stale
+# count invites a later reader to "fix" the rules to match it.
+!forever-data/projects/rainpalm-villas/
+forever-data/projects/rainpalm-villas/*
+!forever-data/projects/rainpalm-villas/progressive/
+forever-data/projects/rainpalm-villas/progressive/*
+!forever-data/projects/rainpalm-villas/progressive/payload.json
+!forever-data/projects/rainpalm-villas/progressive/payload.fast-intake-v1.json
+!forever-data/projects/garden-of-eden/
+forever-data/projects/garden-of-eden/*
+!forever-data/projects/garden-of-eden/progressive/
+forever-data/projects/garden-of-eden/progressive/*
+!forever-data/projects/garden-of-eden/progressive/payload.json
+!forever-data/projects/the-title-sierra/
+forever-data/projects/the-title-sierra/*
+!forever-data/projects/the-title-sierra/progressive/
+forever-data/projects/the-title-sierra/progressive/*
+!forever-data/projects/the-title-sierra/progressive/payload.json
+!forever-data/projects/layan-green-park/
+forever-data/projects/layan-green-park/*
+!forever-data/projects/layan-green-park/progressive/
+forever-data/projects/layan-green-park/progressive/*
+!forever-data/projects/layan-green-park/progressive/payload.json
+!forever-data/projects/ayana-heights-seaview-residence/
+forever-data/projects/ayana-heights-seaview-residence/*
+!forever-data/projects/ayana-heights-seaview-residence/progressive/
+forever-data/projects/ayana-heights-seaview-residence/progressive/*
+!forever-data/projects/ayana-heights-seaview-residence/progressive/payload.json
