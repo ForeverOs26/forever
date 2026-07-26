@@ -1,0 +1,193 @@
+{
+  "schema_version": "1",
+  "mode": "create",
+  "project": {
+    "slug": "ayana-heights-seaview-residence",
+    "name": "AYANA Heights Seaview Residence",
+    "developer_id": null,
+    "location_id": null,
+    "publish": false,
+    "location_name_raw": "Layan",
+    "location_area": "Layan",
+    "project_type": "Premium apart-hotel",
+    "field_provenance": {
+      "name": {
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
+        "source_ref": "AYANA Heights Seaview Residence - eng.pdf#page=2",
+        "confidence": 1,
+        "source_date": "2026-01"
+      },
+      "location_name_raw": {
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
+        "source_ref": "AYANA Heights Seaview Residence - eng.pdf#page=2",
+        "confidence": 1,
+        "source_date": "2026-01"
+      },
+      "location_area": {
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
+        "source_ref": "AYANA Heights Seaview Residence - eng.pdf#page=2",
+        "confidence": 1,
+        "source_date": "2026-01"
+      },
+      "project_type": {
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
+        "source_ref": "AYANA Heights Seaview Residence - eng.pdf#page=2",
+        "confidence": 1,
+        "source_date": "2026-01"
+      }
+    }
+  },
+  "warnings": [
+    {
+      "entity": "developer",
+      "code": "developer_unresolved",
+      "severity": "warning",
+      "message": "No developer is named anywhere in the available source. Both documents are agency investment presentations produced by Sunthai Property, not developer material, so no raw developer name could be preserved either.",
+      "payload": {
+        "source_documents": [
+          "AYANA Heights Seaview Residence - eng.pdf",
+          "AYANA Heights Seaview Residence.pdf"
+        ]
+      }
+    },
+    {
+      "entity": "location",
+      "code": "location_unresolved",
+      "severity": "warning",
+      "message": "No canonical location matches \"Layan\"; the raw value was preserved for later enrichment.",
+      "payload": {
+        "raw_name": "Layan"
+      }
+    },
+    {
+      "entity": "project",
+      "code": "country_missing",
+      "severity": "warning",
+      "message": "No country is stated. The deck references Bang Tao and Laguna Phuket, but neither names the country. The investment model quotes Thai baht, which is a model currency and not a stated project country.",
+      "payload": {
+        "source_refs": [
+          "AYANA Heights Seaview Residence - eng.pdf#page=7",
+          "AYANA Heights Seaview Residence - eng.pdf#page=4"
+        ]
+      }
+    },
+    {
+      "entity": "project",
+      "field": "latitude",
+      "code": "coordinates_missing",
+      "severity": "info",
+      "message": "No coordinates are stated in the source; latitude/longitude remain NULL."
+    },
+    {
+      "entity": "project",
+      "field": "construction_status",
+      "code": "construction_status_missing",
+      "severity": "info",
+      "message": "No construction status is stated. The deck states a completion quarter only, which is recorded separately."
+    },
+    {
+      "entity": "project",
+      "field": "completion_date",
+      "code": "completion_quarter_only",
+      "severity": "info",
+      "message": "The source states completion as \"Q2-2027\". A quarter is not a date, so completion_date remains NULL rather than being resolved to an invented day.",
+      "payload": {
+        "stated": "Q2-2027",
+        "source_ref": "AYANA Heights Seaview Residence - eng.pdf#page=2"
+      }
+    },
+    {
+      "entity": "building",
+      "code": "building_inventory_missing",
+      "severity": "warning",
+      "message": "The source states \"Buildings: 8\" but gives no building identifiers, names, floor counts or unit counts. No building row was created, because inventing eight codes would fabricate structure.",
+      "payload": {
+        "stated_count": 8,
+        "source_ref": "AYANA Heights Seaview Residence - eng.pdf#page=2"
+      }
+    },
+    {
+      "entity": "unit",
+      "code": "unit_inventory_missing",
+      "severity": "warning",
+      "message": "The source states \"Total units: 543\" but contains no per-unit identifier, room number or unit schedule. The stated total is preserved here; no unit row was created.",
+      "payload": {
+        "stated_total_units": 543,
+        "source_ref": "AYANA Heights Seaview Residence - eng.pdf#page=2"
+      }
+    },
+    {
+      "entity": "unit",
+      "code": "unit_types_missing",
+      "severity": "warning",
+      "message": "No unit type schedule, bedroom breakdown or area schedule appears in the source. No unit row was created."
+    },
+    {
+      "entity": "price",
+      "code": "price_list_missing",
+      "severity": "warning",
+      "message": "No developer price list exists for this project in any inspected source root. No price row was created."
+    },
+    {
+      "entity": "price",
+      "code": "investment_projections_not_prices",
+      "severity": "warning",
+      "message": "Pages 4 to 6 carry a five-year investment model quoted in Thai baht, with an entry value, a bulk investment pool, a 15% discount, average price-per-sqm figures, an exit price and ROI tiers. These are agency projections for a bulk investment pool, not developer prices or yields. They were deliberately not ingested and must never be rendered as a price, a price range or a yield promise.",
+      "payload": {
+        "source_ref": "AYANA Heights Seaview Residence - eng.pdf#pages=4-6"
+      }
+    },
+    {
+      "entity": "project",
+      "code": "stated_facts_not_modelled",
+      "severity": "info",
+      "message": "Source-stated facts with no column in the current schema were preserved here rather than discarded or forced into an unrelated field.",
+      "payload": {
+        "distance_to_beach": "400 m",
+        "management": "A professional management company is in place",
+        "setting": "Close to the sea, Sirinat National Park, five-star hotels and the Laguna resort; described as one of the key projects shaping the infrastructure of the Layan area.",
+        "source_ref": "AYANA Heights Seaview Residence - eng.pdf#pages=2-3"
+      }
+    },
+    {
+      "entity": "media",
+      "code": "media_not_ingested",
+      "severity": "info",
+      "message": "Both documents contain embedded imagery only, with no standalone media assets. No media row was created and no asset was uploaded or made public.",
+      "payload": {
+        "documents": [
+          {
+            "file": "AYANA Heights Seaview Residence - eng.pdf",
+            "sha256": "98c34b692ea1eae50af9eb84a2dbe73ea2e4842b32d1990926fd51ec82b79711",
+            "bytes": 6218924,
+            "language": "English",
+            "role": "primary deck"
+          },
+          {
+            "file": "AYANA Heights Seaview Residence.pdf",
+            "sha256": "1699bab868e9e59b59ee4f36fb8761c938665bea7b8d4bc493b6abbee21b22bb",
+            "bytes": 1948454,
+            "language": "English",
+            "role": "shorter variant of the same English deck; closing contact page absent"
+          }
+        ]
+      }
+    },
+    {
+      "entity": "project",
+      "field": "source_date",
+      "code": "source_date_recorded",
+      "severity": "info",
+      "message": "The deck states \"INVESTMENT OPPORTUNITY / January / 2026\" on its title page. That in-document statement is the source date; no file timestamp was used.",
+      "payload": {
+        "source_date": "2026-01",
+        "source_ref": "AYANA Heights Seaview Residence - eng.pdf#page=1"
+      }
+    }
+  ],
+  "batch_fingerprint": "823e618b8d66cbe6739574a753129c0b3c6b017e137c43640722704b1f5fc85a"
+}
