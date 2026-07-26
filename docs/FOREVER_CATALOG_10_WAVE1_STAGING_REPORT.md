@@ -14,12 +14,22 @@ Planning commit continued from: `72454e3`
 **— RAINPALM PRICES DEFERRED**
 **— PRODUCTION UNTOUCHED**
 
-None of the three verdicts offered by the task brief applies, and adopting one
-would misdescribe what happened. Nothing was loaded, so "STAGING PASSED" is
-false. Coralina was not found to already exist, so "CORALINA REUSED" is false.
-No individual project is source-blocked, so "WAVE 1 PARTIAL" is false — all four
-packages are complete and validated. The single blocker sits between the
-prepared work and the database, and it affects all four projects equally.
+None of the three verdicts offered by the FOREVER-CATALOG-10-002 brief applies,
+and adopting one would misdescribe what happened. Nothing was loaded, so
+"STAGING PASSED" is false. Coralina was not found to already exist, so "CORALINA
+REUSED" is false. No individual project is source-blocked, so "WAVE 1 PARTIAL"
+is false — all four packages are complete and validated. The single blocker sits
+between the prepared work and the database, and it affects all four projects
+equally.
+
+> **Re-attempted under FOREVER-CATALOG-10-005 (2026-07-26) — still blocked.** A
+> controlled staging import was attempted at PR head
+> `ca3c02d9cdedc030be92de30acc6a88a1831bad5`. The staging target was proven
+> again, but the sanctioned interactive password gate blocked indefinitely
+> (`Read-Host` killed after 20s; stdin is not a TTY). Zero database commands were
+> issued and zero rows were written, to staging or production. All four payloads
+> re-validated and match the expected draft counts exactly. Full attempt record,
+> including the safety confirmations and the unblocking runbook, is in §13.
 
 ## 1. Exact base and branch
 
@@ -678,3 +688,200 @@ verification burden belongs: on the update path, not on first ingestion.
 | GitHub CI checks on PR #104                                            | **none configured.** No `.github/workflows` exists and the PR reports zero checks. An empty check list is not a passing build.   |
 
 No database was contacted in any pass.
+
+## 13. Wave 1 controlled staging import attempt (FOREVER-CATALOG-10-005)
+
+**Verdict: FOREVER CATALOGUE WAVE 1 STAGING BLOCKED — PAYLOADS READY —
+INTERACTIVE STAGING ACCESS REQUIRED — NO DATABASE CONTACT — PR REMAINS DRAFT.**
+
+No project was imported. No database was contacted — not staging, not
+production. The blocker is the one the brief anticipates: the sanctioned
+interactive password gate cannot receive input in this session.
+
+### 13.1 Preconditions
+
+| Check    | Result                                                                 |
+| -------- | ---------------------------------------------------------------------- |
+| PR head  | `ca3c02d9cdedc030be92de30acc6a88a1831bad5` — matches the expected head |
+| Branch   | `claude/forever-catalog-10-001`                                        |
+| Worktree | clean before and after                                                 |
+
+### 13.2 Staging target — proven
+
+Enumerated read-only through the Supabase management API from a temporary
+working directory, so no repository link could be consulted.
+
+| Role                   | Ref (sanitized) | Name                    | Region           | Status           | Database host               |
+| ---------------------- | --------------- | ----------------------- | ---------------- | ---------------- | --------------------------- |
+| **Authorized staging** | `garji…zisu`    | `forever-staging`       | `ap-southeast-2` | `ACTIVE_HEALTHY` | `db.garji…zisu.supabase.co` |
+| Production — forbidden | `abtvs…jeed`    | `ForeverOs26's Project` | `ap-northeast-1` | `ACTIVE_HEALTHY` | not used                    |
+
+The staging CA is present at `forever-staging-ca.crt` (Supabase Root 2021 CA),
+distinct from the production CA. `--linked` was never used; the repository's
+`supabase/config.toml` still pins production, which is precisely why the
+enumeration ran outside the repository.
+
+**The staging target is proven.** The §1 gate did not trip. The blocker is
+later.
+
+### 13.3 The blocker — the interactive password gate cannot receive input
+
+`scripts/import/Import-ForeverProjectDraft.ps1` line 153 calls
+`Read-Host 'Database password' -AsSecureString` when no `-Password` is supplied.
+That prompt was probed directly, in isolation, with no database involved:
+
+```text
+stdin is NOT a tty
+exit_code=124   (killed after 20s — Read-Host blocked forever waiting for input)
+output=[]
+```
+
+`Read-Host` did not fail; it blocked indefinitely on input that cannot arrive.
+This is a session property, not a repository defect.
+
+No sanctioned alternative exists, and none was manufactured:
+
+| Channel                                              | State                                                                  |
+| ---------------------------------------------------- | ---------------------------------------------------------------------- |
+| `FOREVER_IMPORT_HOST/PORT/DATABASE/USER/SSLROOTCERT` | absent from Process, User and Machine environments                     |
+| `PGPASSWORD`, `SUPABASE_DB_PASSWORD`                 | absent from all three scopes                                           |
+| `.env`                                               | only `C:\forever\.env` exists; production URL and publishable key only |
+| Ad-hoc SQL reproduction                              | **forbidden by §3** and not attempted                                  |
+| Importer guard modification                          | **forbidden by §3** and not attempted                                  |
+| Target-attestation bypass                            | **forbidden by §3** and not attempted                                  |
+
+The password was not requested from, searched for in, or extracted from any
+credential store. Doing so would mean handling it in plaintext and would bypass
+the very gate §1 and §3 designate as the only channel.
+
+### 13.4 What §2 through §7 therefore produced
+
+Every step from §2 onward requires an authenticated staging connection, so none
+of it ran. Nothing below is asserted from inference.
+
+| Brief section                     | Status                                                  |
+| --------------------------------- | ------------------------------------------------------- |
+| §2 Baseline counts                | **not recorded** — requires a connection                |
+| §2 Duplicate-slug read-only check | **not run**                                             |
+| §2 Coralina actual starting state | **still query-unverified**                              |
+| §3 Imports (all four)             | **not executed** — zero commands issued                 |
+| §5 Post-import verification       | **not run**                                             |
+| §6 Replay safety                  | **not run**                                             |
+| §7 Final counts and deltas        | **not recorded**; baseline − final = **0 rows written** |
+
+**Coralina's actual starting state remains unknown.** The repository-evidence
+classification from §4 of this report — absent from staging — still stands as
+evidence-backed and query-unverified. It was not confirmed and not refuted.
+
+### 13.5 Payloads are ready and match the expected results exactly
+
+The committed payloads at PR head were re-validated offline through the
+canonical validator. Every count matches §4 of the brief:
+
+| Project            | §4 expected                                     | Payload actual           | Match |
+| ------------------ | ----------------------------------------------- | ------------------------ | ----- |
+| `coralina`         | 8 buildings, 198 units, 198 prices, 6 warnings  | 8 / 198 / 198 / 6        | yes   |
+| `rainpalm-villas`  | 21 units, 0 prices, 7 warnings                  | 0 buildings / 21 / 0 / 7 | yes   |
+| `garden-of-eden`   | 0 buildings, 0 units, 0 prices, 13 warnings     | 0 / 0 / 0 / 13           | yes   |
+| `the-title-sierra` | 2 buildings, 180 units, 180 prices, 14 warnings | 2 / 180 / 180 / 14       | yes   |
+
+```text
+DRAFT_PAYLOAD_VALID|slug=coralina|sha256=2d5613a3…|buildings=8|units=198|prices=198|media=0|documents=0|warnings=6
+DRAFT_PAYLOAD_VALID|slug=rainpalm-villas|sha256=4e5f5d4d…|buildings=0|units=21|prices=0|media=0|documents=0|warnings=7
+DRAFT_PAYLOAD_VALID|slug=garden-of-eden|sha256=c8a51567…|buildings=0|units=0|prices=0|media=0|documents=0|warnings=13
+DRAFT_PAYLOAD_VALID|slug=the-title-sierra|sha256=7cb81e15…|buildings=2|units=180|prices=180|media=0|documents=0|warnings=14
+```
+
+The §5 assertions that can be checked without a database were checked, and all
+pass:
+
+| Assertion                                                                       | Result |
+| ------------------------------------------------------------------------------- | ------ |
+| Rainpalm — 21 units, 21 unique codes                                            | pass   |
+| Rainpalm — zero price rows                                                      | pass   |
+| Rainpalm — no imported availability claim (0 units carry `availability_status`) | pass   |
+| Rainpalm — `multiple_price_list_versions` present                               | pass   |
+| Garden of Eden — project exists with 0 buildings, units and prices              | pass   |
+| Sierra — exactly 180 unique unit codes                                          | pass   |
+| Sierra — 180 price rows, every one matching a unit code                         | pass   |
+| Sierra — buildings `A` and `C`                                                  | pass   |
+| All four — `publish: false`                                                     | pass   |
+
+What remains unverifiable without a connection is only the database-side half:
+that the rows land, that the fingerprint is stored, that no unrelated project
+changes, and that a replay writes nothing.
+
+### 13.6 Safety confirmations
+
+| Confirmation                                        | Evidence                                                                                                               |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Production never contacted                          | No connection, query, credential or connection string. Production was listed once, read-only, for identity comparison. |
+| Staging never contacted                             | The password gate blocked before any connection could be attempted.                                                    |
+| Rows written                                        | **0** in both projects                                                                                                 |
+| Projects published                                  | none — no import ran, and all four payloads carry `publish: false`                                                     |
+| Public catalogue output                             | unchanged                                                                                                              |
+| Booth tables, Booth migrations, Cloudflare, PR #102 | untouched, as required by §1                                                                                           |
+| Migrations applied                                  | none                                                                                                                   |
+| Password handling                                   | never printed, saved, logged, committed or pasted — it was never obtained                                              |
+| Repository changes                                  | documentation only                                                                                                     |
+
+### 13.7 Unresolved: the Rainpalm price-selection decision
+
+Independent of staging access, one Owner decision is still open. The Rainpalm
+package holds four price-list versions, so no current schedule can be selected.
+The draft therefore carries 21 units and zero prices, with the soft
+`multiple_price_list_versions` warning naming the activation condition.
+
+Prices activate when the Owner either selects the current version from the four
+already in the package, or supplies a newer developer price list. Availability
+is deferred alongside prices because it moves with the price list. Nothing was
+averaged, merged or chosen by filename. **This does not block the import** — the
+21-unit structure is accepted and ready to load now.
+
+### 13.8 What unblocks Wave 1
+
+One thing: an interactive session that can answer the masked prompt. From
+`C:\forever-worktrees\catalog-10`, with the staging host and staging CA set
+explicitly — never `--linked`, never the production ref:
+
+```bash
+$env:FOREVER_IMPORT_HOST = "db.<staging-ref>.supabase.co"
+```
+
+```bash
+$env:FOREVER_IMPORT_SSLROOTCERT = "$env:USERPROFILE\.supabase\certs\forever-staging-ca.crt"
+```
+
+Record the baseline, then the read-only duplicate check for all four slugs:
+
+```bash
+psql -h $env:FOREVER_IMPORT_HOST -U postgres -d postgres -c "SELECT (SELECT count(*) FROM public.projects) projects, (SELECT count(*) FROM public.buildings) buildings, (SELECT count(*) FROM public.units) units, (SELECT count(*) FROM public.unit_price_history) prices, (SELECT count(*) FROM public.ingestion_batches) batches, (SELECT count(*) FROM public.ingestion_warnings) warnings;"
+```
+
+```bash
+psql -h $env:FOREVER_IMPORT_HOST -U postgres -d postgres -c "SELECT slug, public_status FROM public.projects WHERE slug IN ('coralina','rainpalm-villas','garden-of-eden','the-title-sierra');"
+```
+
+Then import one at a time, in the §3 order — Coralina only if that check shows
+it absent:
+
+```bash
+powershell -NoProfile -File scripts/import/Import-ForeverProjectDraft.ps1 -Project coralina -HostName $env:FOREVER_IMPORT_HOST -SslRootCert $env:FOREVER_IMPORT_SSLROOTCERT
+```
+
+```bash
+powershell -NoProfile -File scripts/import/Import-ForeverProjectDraft.ps1 -Project rainpalm-villas -HostName $env:FOREVER_IMPORT_HOST -SslRootCert $env:FOREVER_IMPORT_SSLROOTCERT
+```
+
+```bash
+powershell -NoProfile -File scripts/import/Import-ForeverProjectDraft.ps1 -Project garden-of-eden -HostName $env:FOREVER_IMPORT_HOST -SslRootCert $env:FOREVER_IMPORT_SSLROOTCERT
+```
+
+```bash
+powershell -NoProfile -File scripts/import/Import-ForeverProjectDraft.ps1 -Project the-title-sierra -HostName $env:FOREVER_IMPORT_HOST -SslRootCert $env:FOREVER_IMPORT_SSLROOTCERT
+```
+
+Each emits `IMPORTED AS DRAFT|<slug>|{...}` with post-commit counts; check them
+against §13.5 before running the next. For §6 replay safety, run any one command
+a second time: the expected outcome is a refusal with
+`draft_import_duplicate_slug` and zero rows written.
