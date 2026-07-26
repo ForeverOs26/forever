@@ -9,7 +9,23 @@
  * known-fictitious seed slugs (see `@/lib/public-truth`).
  */
 
-export const SITEMAP_BASE_URL = "https://forever-home-core.lovable.app";
+/**
+ * Absolute origin the public site is served from.
+ *
+ * Canonical URLs, Open Graph URLs, breadcrumb structured data and the sitemap
+ * must all state the origin the build is actually deployed to, so this is
+ * configuration rather than a constant: set `VITE_PUBLIC_SITE_ORIGIN` for the
+ * production build. It is a public identifier, never a credential, so inlining
+ * it into the client bundle is intended.
+ *
+ * The fallback is the historical origin, kept so a developer build without the
+ * variable still produces well-formed absolute URLs.
+ */
+export const PUBLIC_SITE_ORIGIN = (
+  import.meta.env.VITE_PUBLIC_SITE_ORIGIN ?? "https://forever-home-core.lovable.app"
+).replace(/\/+$/, "");
+
+export const SITEMAP_BASE_URL = PUBLIC_SITE_ORIGIN;
 
 export interface SitemapEntry {
   path: string;

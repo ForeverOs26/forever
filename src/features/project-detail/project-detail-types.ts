@@ -17,11 +17,23 @@ export type ProgressiveProjectColumns = {
   field_provenance?: Record<string, unknown> | null;
 };
 
+/**
+ * A unit row plus its embedded building identity.
+ *
+ * Only `building_code` is embedded. `buildings.metadata` carries field
+ * provenance — repository paths and source URLs — and is withheld from the
+ * public role by `20260726140000_public_unit_price_projection.sql`, so it is
+ * neither selected nor typed here.
+ */
+export type UnitRowWithBuilding = UnitRow & {
+  building?: { building_code: string | null } | null;
+};
+
 export type ProjectDetailRecord = ProjectRow &
   ProgressiveProjectColumns & {
     developer: DeveloperRow | null;
     media: ProjectMediaRow[] | null;
-    units: UnitRow[] | null;
+    units: UnitRowWithBuilding[] | null;
     investment: InvestmentDataRow[] | null;
   };
 

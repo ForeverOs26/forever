@@ -1,3 +1,4 @@
+import { PUBLIC_SITE_ORIGIN } from "@/lib/sitemap";
 import type { ProjectDetail } from "./project-detail-types";
 
 /**
@@ -108,7 +109,7 @@ export function buildProjectStructuredData(project: ProjectDetail, url: string, 
             "@type": "ListItem",
             position: 1,
             name: "Projects",
-            item: "https://forever-home-core.lovable.app/projects",
+            item: `${PUBLIC_SITE_ORIGIN}/projects`,
           },
           { "@type": "ListItem", position: 2, name: project.core.name, item: url },
         ],

@@ -38,12 +38,43 @@ describe("public query privacy contract", () => {
     for (const projection of [
       "developer:developers(id, name, description, website, logo_url)",
       "media:project_media(id, media_type, title, url, sort_order)",
-      "units:units(id, unit_code, unit_type, bedrooms, bathrooms, size_sqm, floor, view_type, ownership_type, base_price_thb, discounted_price_thb, price_per_sqm, availability_status, payment_plan, furniture_package, rental_guarantee, roi_estimate, notes)",
+      "units:units(id, unit_code, unit_type, bedrooms, bathrooms, size_sqm, floor, view_type, ownership_type, base_price_thb, discounted_price_thb, price_per_sqm, availability_status, payment_plan, furniture_package, rental_guarantee, roi_estimate, notes, building:buildings(building_code))",
       "investment:investment_data(id, project_id, unit_id, expected_daily_rate, expected_monthly_rent, expected_yearly_rent, occupancy_rate, annual_roi_percent, guaranteed_rental_percent, guarantee_years, management_company, notes, created_at)",
     ]) {
       expect(detailSource).toContain(projection);
     }
     expect(detailSource).not.toMatch(/contact_(name|phone|email)/);
+    // The building embed exists only to name a unit's building. `buildings`
+    // still carries field_provenance in `metadata`, so it must never widen.
+    expect(detailSource).not.toContain("buildings(*)");
+    expect(detailSource).not.toMatch(/buildings\([^)]*\bmetadata\b/);
+  });
+
+  it("restricts the buildings projection the detail query now reads", () => {
+    const raw = read("supabase/migrations/20260726140000_public_unit_price_projection.sql");
+    // Executable text only: the documented rollback restores the broad grant in
+    // a comment, and a comment must never satisfy or break a grant assertion.
+    const migration = raw
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("--"))
+      .join("\n");
+
+    // Reading buildings publicly is only safe once the broad table grant from
+    // 20260707101000 is replaced by a presentation-column grant.
+    expect(migration).toContain("REVOKE SELECT ON TABLE public.buildings FROM anon, authenticated;");
+    const columns = grantedColumns(migration, "buildings");
+    for (const key of ["id", "project_id", "building_code"]) expect(columns).toContain(key);
+    expect(columns).not.toContain("metadata");
+    expect(migration).not.toMatch(
+      /GRANT\s+SELECT\s+ON(?:\s+TABLE)?\s+public\.buildings\s+TO\s+anon/i,
+    );
+
+    // The join key, and nothing more, is added to the units grant.
+    expect(migration).toContain("GRANT SELECT (building_id) ON public.units TO anon, authenticated;");
+    expect(migration).not.toMatch(/GRANT SELECT \([^)]*\bmetadata\b[^)]*\) ON public\.units/);
+
+    // The private price history is projected, never exposed.
+    expect(migration).not.toMatch(/GRANT[\s\S]{0,120}?ON\s+(TABLE\s+)?public\.unit_price_history/i);
   });
 
   it("keeps provenance-bearing raw rows outside public role grants", () => {
