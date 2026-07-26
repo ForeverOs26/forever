@@ -8,6 +8,7 @@ import type {
   ProjectDetailInvestmentRow,
   ProjectMediaRow,
   UnitRow,
+  UnitRowWithBuilding,
   InvestmentDataRow,
 } from "./project-detail-types";
 
@@ -179,10 +180,14 @@ export function mapProjectDeveloper(row: DeveloperRow | null | undefined) {
   };
 }
 
-export function mapProjectUnit(row: UnitRow) {
+export function mapProjectUnit(row: UnitRowWithBuilding) {
+  const buildingCode = text(row.building?.building_code);
   return {
     id: row.id,
     code: text(row.unit_code),
+    // Absent rather than empty: the Inventory table renders "—" for a unit
+    // whose building the record does not state.
+    ...(buildingCode ? { buildingCode } : {}),
     type: text(row.unit_type),
     bedrooms: row.bedrooms,
     bathrooms: row.bathrooms,

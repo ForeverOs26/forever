@@ -7,6 +7,7 @@ import type { ProjectDetail } from "@/features/project-detail/project-detail-typ
 import { SiteShell } from "@/components/SiteShell";
 import { Section } from "@/components/layout/Section";
 import { Button } from "@/components/ui/button";
+import { PUBLIC_SITE_ORIGIN } from "@/lib/sitemap";
 
 export const Route = createFileRoute("/projects/$slug")({
   loader: async ({ context, params }) => {
@@ -36,7 +37,7 @@ function buildProjectHead(slug: string, project?: ProjectDetail) {
         .filter(Boolean)
         .join(" ")
     : "Forever project record for a Phuket development.";
-  const url = `https://forever-home-core.lovable.app/projects/${slug}`;
+  const url = `${PUBLIC_SITE_ORIGIN}/projects/${slug}`;
   const meta = [
     { title },
     { name: "description", content: description },
