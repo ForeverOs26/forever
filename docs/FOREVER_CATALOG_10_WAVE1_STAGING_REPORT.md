@@ -8,28 +8,42 @@ Planning commit continued from: `72454e3`
 
 ## Verdict
 
-**FOREVER CATALOGUE WAVE 1 STAGING BLOCKED**
-**— FOUR SOURCE-BACKED DRAFTS PREPARED AND VALIDATED**
-**— NO STAGING DATABASE CREDENTIAL EXISTS IN THIS ENVIRONMENT**
-**— RAINPALM PRICES DEFERRED**
+**FOREVER CATALOGUE WAVE 1 STAGING PASSED**
+**— FOUR UNPUBLISHED DRAFTS VERIFIED**
+**— RAINPALM STRUCTURE LOADED, PRICES DEFERRED**
+**— REPLAY SAFETY VERIFIED**
+**— PUBLIC CATALOGUE UNCHANGED**
 **— PRODUCTION UNTOUCHED**
 
-None of the three verdicts offered by the FOREVER-CATALOG-10-002 brief applies,
-and adopting one would misdescribe what happened. Nothing was loaded, so
-"STAGING PASSED" is false. Coralina was not found to already exist, so "CORALINA
-REUSED" is false. No individual project is source-blocked, so "WAVE 1 PARTIAL"
-is false — all four packages are complete and validated. The single blocker sits
-between the prepared work and the database, and it affects all four projects
-equally.
+The controlled staging import completed on 2026-07-26 in an interactive session
+against `forever-staging`, using the payloads committed at head
+`60e59d2316fec826aa1abe242439907e6089c2d6`. All four projects are present as
+unpublished drafts.
 
-> **Re-attempted under FOREVER-CATALOG-10-005 (2026-07-26) — still blocked.** A
-> controlled staging import was attempted at PR head
-> `ca3c02d9cdedc030be92de30acc6a88a1831bad5`. The staging target was proven
-> again, but the sanctioned interactive password gate blocked indefinitely
-> (`Read-Host` killed after 20s; stdin is not a TTY). Zero database commands were
-> issued and zero rows were written, to staging or production. All four payloads
-> re-validated and match the expected draft counts exactly. Full attempt record,
-> including the safety confirmations and the unblocking runbook, is in §13.
+| Metric             | Baseline | Final |    Delta |
+| ------------------ | -------: | ----: | -------: |
+| projects           |       60 |    64 |   **+4** |
+| buildings          |        7 |    17 |  **+10** |
+| units              |      290 |   689 | **+399** |
+| prices             |      290 |   668 | **+378** |
+| ingestion_batches  |      106 |   110 |   **+4** |
+| ingestion_warnings |        8 |    48 |  **+40** |
+
+Every delta is exactly the sum of the four imports, so nothing unrelated
+changed. A repeated Coralina import was refused with
+`draft_import_duplicate_slug` and wrote nothing. §15 carries the full record.
+
+Two earlier statuses are superseded and retained only as history:
+
+- **§3 and §13 record a BLOCKED result.** Those describe non-interactive
+  sessions in which the password gate could not receive input. They are accurate
+  about those attempts and are no longer the current status.
+- **Coralina's staging presence was "query-unverified".** It is now resolved:
+  the successful run began with no Wave 1 slug present, so Coralina was
+  confirmed **absent before import** and was created fresh, not reused.
+
+One decision remains open, and it is not a blocker: the Rainpalm price-list
+selection. Rainpalm is loaded with 21 units and zero prices by design.
 
 ## 1. Exact base and branch
 
@@ -65,11 +79,16 @@ Three facts follow, and they matter:
 3. The staging target is therefore **proven**. The §1 gate "stop when the target
    cannot be proven as staging" did not trip. The blocker is a later one.
 
-## 3. The blocker — no staging database credential
+## 3. The blocker — no staging database credential (HISTORICAL)
 
-Baseline counts, the Coralina state query, and every import in this task require
-authenticated access to the staging Postgres database. That access does not
-exist in this environment.
+> **Superseded by §15.** This section describes the non-interactive sessions of
+> FOREVER-CATALOG-10-002 and -005, where the password gate could not receive
+> input. It remains accurate about those attempts. The import has since
+> succeeded in an interactive session; nothing below is the current status.
+
+Baseline counts, the Coralina state query, and every import in those sessions
+required authenticated access to the staging Postgres database. That access did
+not exist in them.
 
 | Channel                                              | State                                                                                                                                                                                                                       |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -95,10 +114,11 @@ This is the same failure mode already on record: `CORALINA_SIMPLE_DRAFT_IMPORT_R
 (2026-07-18) reports "the authorized masked prompt could not receive input in
 this non-interactive session. No database connection was made."
 
-**Consequently: baseline counts were not recorded, no project was loaded, no
-acceptance check was run against a live database, and no final staging counts
-exist.** Everything in this report that concerns database state is labelled as
-not performed. Nothing is asserted that was not observed.
+**Consequently, in those sessions: baseline counts were not recorded, no project
+was loaded, no acceptance check ran against a live database, and no final
+staging counts existed.** That was true then and is stated in the past tense
+deliberately. Baseline, final counts and per-project verification now exist and
+are in §15.
 
 ## 4. Coralina actual-state resolution
 
@@ -132,14 +152,15 @@ Classification against the brief's four options:
 - **C — absent**, for staging, at high confidence. No import was ever aimed at
   staging, and the staging project was created 2026-07-21, three days after the
   last attempt.
-- This classification is **evidence-backed but not query-verified**, and it must
-  be treated as such. The read-only confirmation the brief asked for is exactly
-  what the missing credential prevented. Before any Coralina load, run the
-  duplicate check in §9 — the importer performs it in-transaction anyway and
-  fails closed on `draft_import_duplicate_slug`.
+- **Now query-verified (2026-07-26).** The successful staging run began with no
+  Wave 1 slug present in `forever-staging` — the pre-import duplicate check
+  returned an empty set. Coralina was therefore **absent before import** and was
+  created fresh. The repository-evidence classification above was correct, and
+  `docs/CURRENT_STAGE.md` was wrong. See §15.
 
-Because Coralina is classified absent rather than partial, no idempotent update
-variant was prepared. The existing canonical package is a clean `create`.
+Because Coralina was absent rather than partial, no idempotent update variant
+was prepared. The existing canonical package is a clean `create`, and that is
+how it landed.
 
 ## 5. What was prepared
 
@@ -177,16 +198,17 @@ DRAFT_PAYLOAD_VALID|slug=the-title-sierra|sha256=7cb81e15…|buildings=2|units=1
 > and Rainpalm carries one soft price-version warning instead of four forensic
 > ones. The hashes above are the ones that policy produced. See §12.
 
-### 5.1 Coralina — local canonical payload reused unchanged; staging presence query-unverified
+### 5.1 Coralina — local canonical payload reused unchanged; imported fresh into staging
 
 "Reused" here means exactly one thing: the **local canonical payload** at
 `forever-data/projects/coralina/progressive/payload.json` was re-validated and
 carried forward unchanged. It does **not** mean an existing Coralina record was
-found in staging and adopted. **No staging row was read, matched, or reused,
-because no staging query was possible.** Whether Coralina exists in
-`forever-staging` remains **query-unverified**; §4 classifies it as absent on
-repository evidence alone, and that classification must be confirmed by the
-duplicate check in §9 before this package is loaded.
+found in staging and adopted.
+
+**Resolved 2026-07-26.** Coralina was confirmed absent from `forever-staging`
+before the import and was then created fresh as a new unpublished draft — 8
+buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch. No staging row
+was reused. See §15.
 
 The canonical package was re-validated and reproduces its recorded hashes
 exactly. Nothing was regenerated; re-deriving it would only risk drift.
@@ -458,7 +480,11 @@ than by convention.
 
 Nothing was published. No `publish` flag is `true` in any payload.
 
-## 9. Runbook — what the Owner runs to complete Wave 1
+## 9. Runbook — executed 2026-07-26 (retained for re-use)
+
+> **This runbook has been executed successfully.** It is retained because it is
+> the procedure Waves 2 and 3 will reuse, and because it documents exactly how
+> the Wave 1 import was performed. Results are in §15.
 
 Each project is one command, run from `C:\forever-worktrees\catalog-10` in an
 interactive PowerShell window that can accept the password prompt. Load them
@@ -531,9 +557,9 @@ that was 2026-07-22 and is not re-verified here.
 
 Blocking Wave 1 entirely:
 
-1. **Staging database access** — an interactive session where the password
-   prompt can be answered, or the four `FOREVER_IMPORT_*` settings plus a way to
-   supply the password that does not require an agent to handle it.
+1. ~~**Staging database access**~~ — **satisfied 2026-07-26.** The import ran in
+   an interactive session and all four drafts are loaded. Nothing blocks Wave 1
+   staging any longer.
 
 Blocking Rainpalm prices only, unchanged from the register §7.4:
 
@@ -687,16 +713,22 @@ verification burden belongs: on the update path, not on first ingestion.
 | ESLint                                                                 | superseded — see §14, which ran it after a lockfile install                                                                    |
 | GitHub CI checks on PR #104                                            | **none configured.** No `.github/workflows` exists and the PR reports zero checks. An empty check list is not a passing build. |
 
-No database was contacted in any pass.
+No database was contacted in the passes covered by §12.
 
-## 13. Wave 1 controlled staging import attempt (FOREVER-CATALOG-10-005)
+## 13. Wave 1 controlled staging import attempt — first try, blocked (HISTORICAL)
 
-**Verdict: FOREVER CATALOGUE WAVE 1 STAGING BLOCKED — PAYLOADS READY —
-INTERACTIVE STAGING ACCESS REQUIRED — NO DATABASE CONTACT — PR REMAINS DRAFT.**
+> **Superseded by §15.** This records the FOREVER-CATALOG-10-005 attempt, which
+> ran in a non-interactive session and could not reach the database. It is
+> retained because it establishes the staging-target proof and the safety
+> boundary that the successful run later reused. The import has since completed;
+> nothing in this section is the current status.
 
-No project was imported. No database was contacted — not staging, not
-production. The blocker is the one the brief anticipates: the sanctioned
-interactive password gate cannot receive input in this session.
+**Result at the time: BLOCKED — payloads ready, interactive staging access
+required, no database contact.**
+
+No project was imported in that attempt. No database was contacted — not
+staging, not production. The blocker was the one the brief anticipated: the
+sanctioned interactive password gate could not receive input in that session.
 
 ### 13.1 Preconditions
 
@@ -763,15 +795,15 @@ of it ran. Nothing below is asserted from inference.
 | --------------------------------- | ------------------------------------------------------- |
 | §2 Baseline counts                | **not recorded** — requires a connection                |
 | §2 Duplicate-slug read-only check | **not run**                                             |
-| §2 Coralina actual starting state | **still query-unverified**                              |
+| §2 Coralina actual starting state | resolved later — absent before import, see §15          |
 | §3 Imports (all four)             | **not executed** — zero commands issued                 |
 | §5 Post-import verification       | **not run**                                             |
 | §6 Replay safety                  | **not run**                                             |
 | §7 Final counts and deltas        | **not recorded**; baseline − final = **0 rows written** |
 
-**Coralina's actual starting state remains unknown.** The repository-evidence
-classification from §4 of this report — absent from staging — still stands as
-evidence-backed and query-unverified. It was not confirmed and not refuted.
+**At that time Coralina's actual starting state remained unknown.** It was
+confirmed later: the successful run found no Wave 1 slug present, so the
+§4 classification (absent from staging) is now query-verified. See §15.
 
 ### 13.5 Payloads are ready and match the expected results exactly
 
@@ -825,7 +857,7 @@ changes, and that a replay writes nothing.
 | Password handling                                   | never printed, saved, logged, committed or pasted — it was never obtained                                              |
 | Repository changes                                  | documentation only                                                                                                     |
 
-### 13.7 Unresolved: the Rainpalm price-selection decision
+### 13.7 Unresolved: the Rainpalm price-selection decision (still open)
 
 Independent of staging access, one Owner decision is still open. The Rainpalm
 package holds four price-list versions, so no current schedule can be selected.
@@ -838,7 +870,7 @@ is deferred alongside prices because it moves with the price list. Nothing was
 averaged, merged or chosen by filename. **This does not block the import** — the
 21-unit structure is accepted and ready to load now.
 
-### 13.8 What unblocks Wave 1
+### 13.8 What unblocked Wave 1 (executed successfully — see §15)
 
 One thing: an interactive session that can answer the masked prompt. From
 `C:\forever-worktrees\catalog-10`, with the staging host and staging CA set
@@ -1030,3 +1062,185 @@ The branch is locally ready for the interactive staging import. What remains is
 unchanged and unchangeable from here: the import itself, database replay safety
 and post-import counts all require the interactive password gate in §13.8.
 Staging and production were never contacted during this audit.
+
+> **Outcome.** That import then ran successfully against `forever-staging` on
+> 2026-07-26 at this exact head, and the replay refusal and post-import counts
+> were all confirmed. See §15.
+
+## 15. Wave 1 controlled staging import — COMPLETED 2026-07-26
+
+**FOREVER CATALOGUE WAVE 1 STAGING PASSED — FOUR UNPUBLISHED DRAFTS VERIFIED —
+RAINPALM STRUCTURE LOADED, PRICES DEFERRED — REPLAY SAFETY VERIFIED — PUBLIC
+CATALOGUE UNCHANGED — PRODUCTION UNTOUCHED.**
+
+This section supersedes §3 and §13. The import ran in an interactive session
+that could answer the masked password prompt — the single thing those earlier
+sections identified as missing.
+
+This section was written from a sanitized execution record, not from a database
+connection: the session that produced this document ran no database command. The
+record's arithmetic and its agreement with the committed payloads were
+re-derived independently before anything here was written; §15.7 states exactly
+what that verification did and did not establish.
+
+### 15.1 Target and payloads
+
+| Item            | Value                                                                     |
+| --------------- | ------------------------------------------------------------------------- |
+| Staging project | `forever-staging`, ref `garji…zisu`                                       |
+| Host            | `db.garji…zisu.supabase.co`                                               |
+| Transport       | TLS `verify-full` with the pinned staging CA                              |
+| Production      | **not used** — no production ref appears anywhere in the execution record |
+| Repository head | `60e59d2316fec826aa1abe242439907e6089c2d6` — the head audited in §14      |
+| Branch          | `claude/forever-catalog-10-001`                                           |
+| Run window      | 2026-07-26T05:16:53Z → 05:17:39Z (45 s)                                   |
+
+The head in the execution record is byte-identical to the head §14 audited, so
+the payloads that landed are the ones whose digests and fingerprints that audit
+recomputed from source.
+
+### 15.2 First attempt aborted before any write
+
+An initial read-only orchestration attempt aborted **before reaching any write**
+because an empty JSON list was mishandled locally — the well-known PowerShell
+behaviour where an empty array deserialises to `$null` rather than an empty
+collection. **No database row changed in that attempt.** It is recorded here
+because a clean run preceded by an aborted one should never be reported as a
+single uneventful success.
+
+The successful run then started from a state with **no Wave 1 slug present**.
+
+### 15.3 Baseline
+
+Recorded staging-only, immediately before the first import.
+
+| Table              | Baseline |
+| ------------------ | -------: |
+| projects           |       60 |
+| buildings          |        7 |
+| units              |      290 |
+| prices             |      290 |
+| ingestion_batches  |      106 |
+| ingestion_warnings |        8 |
+
+The pre-import duplicate check for `coralina`, `rainpalm-villas`,
+`garden-of-eden` and `the-title-sierra` returned **an empty set**. This is what
+resolves §4: Coralina was **absent from staging before the import**, confirming
+the repository-evidence classification and confirming that
+`docs/CURRENT_STAGE.md`'s "already imported" claim was wrong.
+
+### 15.4 Per-project outcome — expected versus actual
+
+Each project was imported one at a time through the controlled importer, in the
+order Coralina → Rainpalm → Garden of Eden → Sierra.
+
+| Project            | Status | Buildings | Units | Prices | Warnings | Batches | Expected? |
+| ------------------ | ------ | --------: | ----: | -----: | -------: | ------: | --------- |
+| `coralina`         | draft  |         8 |   198 |    198 |        6 |       1 | matches   |
+| `rainpalm-villas`  | draft  |         0 |    21 |  **0** |        7 |       1 | matches   |
+| `garden-of-eden`   | draft  |         0 |     0 |      0 |       13 |       1 | matches   |
+| `the-title-sierra` | draft  |         2 |   180 |    180 |       14 |       1 | matches   |
+
+Every row equals the expected draft result **and** the committed payload's own
+counts. Each project reports `public_status = draft` and exactly one ingestion
+batch. No Wave 1 slug is duplicated.
+
+Ingestion batch fingerprints, as stored in staging:
+
+| Project            | `batch_fingerprint`                                                | Matches committed payload |
+| ------------------ | ------------------------------------------------------------------ | ------------------------- |
+| `coralina`         | `9ceb05d2daa5c2a174d37d4d92fb49c4bc39294fa1b5ab402a10ab526230631c` | yes                       |
+| `rainpalm-villas`  | `8f84fbecbf31daf2648f879181b3cc4302e1eab7a33530d6e194b09b2ff21a4e` | yes                       |
+| `garden-of-eden`   | `de458b059155e971d6bdbe99c521e0009a15ca552d901d12ea02c054fceefbca` | yes                       |
+| `the-title-sierra` | `4a3e9c17fb826a8f42ae32f17cac9a30f92a00a19efdf5b0e2872fb12d625b29` | yes                       |
+
+All four fingerprints are identical to the values in the committed payloads at
+this head, so what is in staging is provably what is in the pull request.
+
+### 15.5 Replay safety — verified
+
+The exact Coralina import command was repeated once. The importer **refused**
+with `draft_import_duplicate_slug` and wrote nothing; total counts were
+unchanged afterwards.
+
+This is the stronger of the two acceptable behaviours: the duplicate-slug
+preflight fires inside the transaction before the ingestion RPC is reached, so a
+second identical import cannot create a second project row, duplicate buildings,
+duplicate units, duplicate prices, or a second effective ingestion.
+
+### 15.6 Final counts and exact deltas
+
+| Table              | Baseline | Final |    Delta |
+| ------------------ | -------: | ----: | -------: |
+| projects           |       60 |    64 |   **+4** |
+| buildings          |        7 |    17 |  **+10** |
+| units              |      290 |   689 | **+399** |
+| prices             |      290 |   668 | **+378** |
+| ingestion_batches  |      106 |   110 |   **+4** |
+| ingestion_warnings |        8 |    48 |  **+40** |
+
+### 15.7 Independent verification of the execution record
+
+The record was not taken on trust. Every figure above was re-derived before this
+section was written.
+
+| Check                                              | Result                                                                                                                         |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Deltas equal `final − baseline`                    | 6/6 exact                                                                                                                      |
+| Deltas equal the **sum of the four imports**       | 6/6 exact — 4 projects, 8+0+0+2=10 buildings, 198+21+0+180=399 units, 198+0+0+180=378 prices, 4 batches, 6+7+13+14=40 warnings |
+| Stored fingerprints vs committed payloads          | 4/4 identical                                                                                                                  |
+| Stored counts vs committed payload counts          | 4/4 identical                                                                                                                  |
+| `IMPORTED AS DRAFT` marker vs post-import snapshot | 4/4 agree                                                                                                                      |
+| Final-state snapshot vs imported-state snapshot    | 4/4 agree, all still `draft`                                                                                                   |
+| Exactly one ingestion batch per project            | 4/4                                                                                                                            |
+| Wave 1 slug duplication                            | none                                                                                                                           |
+| Production ref present anywhere in the record      | none                                                                                                                           |
+| Execution head vs audited head                     | identical                                                                                                                      |
+
+The second row is the load-bearing one. Because the six deltas are **exactly**
+the sum of the four imports, nothing outside Wave 1 changed: no unrelated
+project gained or lost a building, unit, price, batch or warning. That is a
+stronger statement than "the totals moved by the right amount", and it is what
+justifies the claim that no unrelated project was touched.
+
+**What this verification does not establish.** It confirms internal consistency
+and agreement with the repository; it is not a fresh query against staging. The
+session writing this report ran no database command. A future reader wanting
+live confirmation should re-run the read-only checks in §9.
+
+### 15.8 Safety confirmations
+
+| Confirmation                                        | State                                                                                                                                         |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| All four projects unpublished                       | `public_status = draft` on all four                                                                                                           |
+| Public catalogue output                             | **unchanged** — the public RLS policies require `public_status = 'published'`, so a draft is structurally invisible to anonymous readers (§8) |
+| Production contacted                                | **never** — no production ref, host or credential appears in the execution record                                                             |
+| Migrations applied                                  | none                                                                                                                                          |
+| Booth tables, Booth migrations, Cloudflare, PR #102 | untouched                                                                                                                                     |
+| Drafts retained                                     | yes — these are real staging catalogue data and were **not** deleted after the run                                                            |
+| Credentials                                         | the password was entered by the Owner at the masked prompt; it is not printed, saved, logged or committed anywhere                            |
+
+### 15.9 Still open: the Rainpalm price-selection decision
+
+Unchanged by the import, and not a blocker.
+
+Rainpalm is loaded with **21 units and zero prices**, and no availability was
+activated. The package holds four price-list versions, so no current schedule
+can be selected. The soft `multiple_price_list_versions` warning is stored in
+staging alongside the draft and names the activation condition: the Owner
+selects the current version from the four already in the package, or supplies a
+newer developer price list. Availability is deferred with prices because it
+moves with the price list.
+
+Nothing was averaged, merged or chosen by filename, and the structural layer is
+accepted rather than provisional.
+
+### 15.10 What this does and does not authorise
+
+Wave 1 staging is complete. This authorises nothing further on its own:
+
+- no project is published, and publication remains a separate Owner decision;
+- Internal Use Only price data — Coralina's and Sierra's — must not become
+  anonymously public without written developer permission;
+- production remains untouched and out of scope;
+- Waves 2 and 3 are unstarted and reuse the §9 runbook.
