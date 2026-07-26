@@ -44,6 +44,240 @@ export type Database = {
         }
         Relationships: []
       }
+      booth_funnel_events: {
+        Row: {
+          created_at: string
+          event: string
+          id: string
+          reason: string | null
+          session_id: string
+          step: string | null
+        }
+        Insert: {
+          created_at?: string
+          event: string
+          id?: string
+          reason?: string | null
+          session_id: string
+          step?: string | null
+        }
+        Update: {
+          created_at?: string
+          event?: string
+          id?: string
+          reason?: string | null
+          session_id?: string
+          step?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booth_funnel_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "booth_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      booth_guides: {
+        Row: {
+          created_at: string
+          display_name: string
+          id: string
+          is_active: boolean
+          languages: string[]
+          on_duty: boolean
+          specializations: string[]
+          staff_user_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          id?: string
+          is_active?: boolean
+          languages?: string[]
+          on_duty?: boolean
+          specializations?: string[]
+          staff_user_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          id?: string
+          is_active?: boolean
+          languages?: string[]
+          on_duty?: boolean
+          specializations?: string[]
+          staff_user_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      booth_sessions: {
+        Row: {
+          abandonment_reason: string | null
+          abandonment_step: string | null
+          assigned_guide_id: string | null
+          booth_id: string
+          client_ref: string
+          consent_recorded_at: string | null
+          consultation_consent: boolean
+          consultation_scheduled_at: string | null
+          consultation_timezone: string | null
+          country: string | null
+          created_at: string
+          email: string | null
+          first_name: string | null
+          flow_mode: string | null
+          guide_acknowledged_at: string | null
+          guide_acknowledged_by: string | null
+          guide_acknowledged_method: string | null
+          guide_assigned_at: string | null
+          guide_fallback_reason: string | null
+          guide_first_contact_at: string | null
+          guide_first_contact_by: string | null
+          guide_first_contact_method: string | null
+          host_email: string | null
+          host_user_id: string
+          host_note: string | null
+          id: string
+          last_name: string | null
+          lead_id: string | null
+          marketing_opt_in: boolean
+          next_step: string | null
+          outcome: string
+          preferred_contact_time: string | null
+          preferred_language: string | null
+          profile: Json | null
+          profile_confirmed_at: string | null
+          profile_version: number | null
+          reserve_guide_id: string | null
+          shortlist: Json
+          shortlist_mode: string
+          updated_at: string
+          whatsapp: string | null
+          whatsapp_verification_method: string | null
+          whatsapp_verification_state: string
+          whatsapp_verified_at: string | null
+        }
+        Insert: {
+          abandonment_reason?: string | null
+          abandonment_step?: string | null
+          assigned_guide_id?: string | null
+          booth_id?: string
+          client_ref: string
+          consent_recorded_at?: string | null
+          consultation_consent?: boolean
+          consultation_scheduled_at?: string | null
+          consultation_timezone?: string | null
+          country?: string | null
+          created_at?: string
+          email?: string | null
+          first_name?: string | null
+          flow_mode?: string | null
+          guide_acknowledged_at?: string | null
+          guide_acknowledged_by?: string | null
+          guide_acknowledged_method?: string | null
+          guide_assigned_at?: string | null
+          guide_fallback_reason?: string | null
+          guide_first_contact_at?: string | null
+          guide_first_contact_by?: string | null
+          guide_first_contact_method?: string | null
+          host_email?: string | null
+          host_user_id: string
+          host_note?: string | null
+          id?: string
+          last_name?: string | null
+          lead_id?: string | null
+          marketing_opt_in?: boolean
+          next_step?: string | null
+          outcome?: string
+          preferred_contact_time?: string | null
+          preferred_language?: string | null
+          profile?: Json | null
+          profile_confirmed_at?: string | null
+          profile_version?: number | null
+          reserve_guide_id?: string | null
+          shortlist?: Json
+          shortlist_mode?: string
+          updated_at?: string
+          whatsapp?: string | null
+          whatsapp_verification_method?: string | null
+          whatsapp_verification_state?: string
+          whatsapp_verified_at?: string | null
+        }
+        Update: {
+          abandonment_reason?: string | null
+          abandonment_step?: string | null
+          assigned_guide_id?: string | null
+          booth_id?: string
+          client_ref?: string
+          consent_recorded_at?: string | null
+          consultation_consent?: boolean
+          consultation_scheduled_at?: string | null
+          consultation_timezone?: string | null
+          country?: string | null
+          created_at?: string
+          email?: string | null
+          first_name?: string | null
+          flow_mode?: string | null
+          guide_acknowledged_at?: string | null
+          guide_acknowledged_by?: string | null
+          guide_acknowledged_method?: string | null
+          guide_assigned_at?: string | null
+          guide_fallback_reason?: string | null
+          guide_first_contact_at?: string | null
+          guide_first_contact_by?: string | null
+          guide_first_contact_method?: string | null
+          host_email?: string | null
+          host_user_id?: string
+          host_note?: string | null
+          id?: string
+          last_name?: string | null
+          lead_id?: string | null
+          marketing_opt_in?: boolean
+          next_step?: string | null
+          outcome?: string
+          preferred_contact_time?: string | null
+          preferred_language?: string | null
+          profile?: Json | null
+          profile_confirmed_at?: string | null
+          profile_version?: number | null
+          reserve_guide_id?: string | null
+          shortlist?: Json
+          shortlist_mode?: string
+          updated_at?: string
+          whatsapp?: string | null
+          whatsapp_verification_method?: string | null
+          whatsapp_verification_state?: string
+          whatsapp_verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booth_sessions_assigned_guide_id_fkey"
+            columns: ["assigned_guide_id"]
+            isOneToOne: false
+            referencedRelation: "booth_guides"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booth_sessions_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: true
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booth_sessions_reserve_guide_id_fkey"
+            columns: ["reserve_guide_id"]
+            isOneToOne: false
+            referencedRelation: "booth_guides"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       developer_translations: {
         Row: {
           created_at: string
@@ -192,7 +426,7 @@ export type Database = {
           budget: string | null
           country: string | null
           created_at: string
-          email: string
+          email: string | null
           id: string
           interest: string | null
           message: string | null
@@ -206,7 +440,7 @@ export type Database = {
           budget?: string | null
           country?: string | null
           created_at?: string
-          email: string
+          email?: string | null
           id?: string
           interest?: string | null
           message?: string | null
@@ -220,7 +454,7 @@ export type Database = {
           budget?: string | null
           country?: string | null
           created_at?: string
-          email?: string
+          email?: string | null
           id?: string
           interest?: string | null
           message?: string | null

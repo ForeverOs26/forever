@@ -11,104 +11,27 @@
  * Exits 0 on success, non-zero on the first failed assertion or apply error.
  */
 
-import { execFile, execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
+import { createCluster, errorText, sleep } from "./pg-cluster.mjs";
 
 const REPO = process.cwd();
 const MIGRATIONS_DIR = join(REPO, "supabase", "migrations");
 const BOOTSTRAP = join(REPO, "scripts", "studio", "pg-bootstrap.sql");
 const SUITE = join(REPO, "src", "features", "forever-studio", "tests", "studio.postgres.sql");
+const BOOTH_SUITE = join(
+  REPO,
+  "src",
+  "features",
+  "navigator",
+  "booth-v2",
+  "tests",
+  "booth.postgres.sql",
+);
 
-function findBinDir() {
-  for (const base of ["/usr/lib/postgresql", "/usr/pgsql", "/opt/homebrew/opt"]) {
-    if (!existsSync(base)) continue;
-    for (const entry of readdirSync(base).sort().reverse()) {
-      const bin = join(base, entry, "bin");
-      if (existsSync(join(bin, "initdb")) && existsSync(join(bin, "pg_ctl"))) return bin;
-    }
-  }
-  // Fall back to PATH.
-  return "";
-}
-
-const BIN = findBinDir();
-const bin = (name) => (BIN ? join(BIN, name) : name);
-const WINDOWS = process.platform === "win32";
-const work = mkdtempSync(join(tmpdir(), "forever-studio-pg-"));
-const data = join(work, "data");
-// PostgreSQL on Windows does not support the Unix-domain socket setup used by
-// the POSIX runner. Keep the disposable cluster loopback-only instead.
-const HOST = WINDOWS ? "127.0.0.1" : work;
-const PORT = WINDOWS ? process.env.STUDIO_PG_PORT || "55432" : "";
-// Detached Windows postgres children inherit pg_ctl's output handles. Avoid
-// pipe handles there so execFileSync can return once pg_ctl reports ready.
-const PG_CTL_OPTIONS = WINDOWS ? { stdio: "ignore" } : {};
-
-// PostgreSQL refuses to run as root. When invoked as root (CI/containers),
-// run the cluster commands as an unprivileged user (default: postgres).
-const RUN_AS =
-  process.env.STUDIO_PG_USER || (process.getuid && process.getuid() === 0 ? "postgres" : "");
-
-let started = false;
-
-if (RUN_AS) {
-  // The unprivileged user must own the cluster + socket directory.
-  execFileSync("chown", ["-R", `${RUN_AS}:${RUN_AS}`, work]);
-  execFileSync("chmod", ["777", work]);
-}
-
-function run(cmd, args, opts = {}) {
-  if (RUN_AS) {
-    return execFileSync("runuser", ["-u", RUN_AS, "--", cmd, ...args], {
-      stdio: "pipe",
-      encoding: "utf8",
-      ...opts,
-    });
-  }
-  return execFileSync(cmd, args, { stdio: "pipe", encoding: "utf8", ...opts });
-}
-
-function psqlArgs(extra) {
-  return [
-    "-h",
-    HOST,
-    ...(WINDOWS ? ["-p", PORT] : []),
-    "-U",
-    "postgres",
-    "-d",
-    "postgres",
-    "-v",
-    "ON_ERROR_STOP=1",
-    "-q",
-    ...extra,
-  ];
-}
-
-function psql(file) {
-  return run(bin("psql"), psqlArgs(["-f", file]));
-}
-
-function psqlSql(sql) {
-  return run(bin("psql"), psqlArgs(["-c", sql]));
-}
-
-/** A SECOND live session (async), for real cross-session concurrency probes. */
-function psqlSqlAsync(sql) {
-  const args = psqlArgs(["-c", sql]);
-  if (RUN_AS) {
-    return execFileAsync("runuser", ["-u", RUN_AS, "--", bin("psql"), ...args], {
-      encoding: "utf8",
-    });
-  }
-  return execFileAsync(bin("psql"), args, { encoding: "utf8" });
-}
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const cluster = createCluster({ prefix: "forever-studio-pg-" });
+const { psql, psqlSql, psqlSqlAsync } = cluster;
 
 /**
  * Concurrency probes for studio_index_archive_entries (exact inventory
@@ -195,9 +118,7 @@ async function concurrencyProbes() {
   try {
     await psqlSqlAsync(`SET ROLE service_role; ${indexCall(PA2, "evil.bin")};`);
   } catch (error) {
-    conflictRejected = /studio_archive_entries_conflict/.test(
-      String(error.stderr ?? "") + String(error.stdout ?? "") + String(error.message ?? ""),
-    );
+    conflictRejected = /studio_archive_entries_conflict/.test(errorText(error));
     if (!conflictRejected) throw error;
   }
   await sessionA2;
@@ -217,25 +138,207 @@ async function concurrencyProbes() {
   );
 }
 
-try {
-  run(bin("initdb"), ["-D", data, "-U", "postgres", "--auth=trust", "-E", "UTF8"]);
-  run(
-    bin("pg_ctl"),
-    [
-      "-D",
-      data,
-      "-o",
-      WINDOWS
-        ? `-h ${HOST} -p ${PORT} -c fsync=off -c synchronous_commit=off`
-        : `-k ${work} -c listen_addresses='' -c fsync=off -c synchronous_commit=off`,
-      "-w",
-      "-l",
-      join(work, "log"),
-      "start",
-    ],
-    PG_CTL_OPTIONS,
+/**
+ * Seed a booth session with a KNOWN client reference.
+ *
+ * Real sessions are created by booth_create_session, which issues its OWN
+ * random reference (probe 4 below proves that). The probes here need a fixed
+ * reference to contend on, so they insert one directly — fixture setup, never
+ * the operation under test.
+ */
+function seedSession(ref, hostId) {
+  return psqlSql(
+    `INSERT INTO public.booth_sessions (client_ref, host_user_id, host_email, booth_id)` +
+      ` VALUES ('${ref}','${hostId}','host@example.test','probe')`,
   );
-  started = true;
+}
+
+/**
+ * Booth V2 consent-commit atomicity and cross-Host ownership probes (PR #102
+ * corrective items 4 and 5): two REAL, concurrent psql sessions.
+ *
+ * Probe 1 — atomic consent replay. Session A holds the locked booth session row
+ * inside an open transaction while session B issues the identical
+ * booth_commit_consent call. Proves: (1) B blocks on A's row lock rather than
+ * racing it; (2) both return the SAME lead id; (3) exactly one lead row exists;
+ * (4) no unattached lead is left behind.
+ *
+ * Probe 2 — cross-Host ownership under contention. Session A (the owning Host)
+ * holds the row lock; session B is a DIFFERENT valid staff account that knows
+ * the client_ref. Proves the refusal is not a race artefact: B waits for the
+ * lock, then is refused deterministically and changes nothing.
+ *
+ * Probe 3 — rollback. A failure after the lead write rolls the whole
+ * transaction back: no consent, no contact bundle, no orphan lead.
+ */
+async function boothConcurrencyProbes() {
+  const HOST_ID = "b0000000-0000-0000-0000-000000000001";
+  const OTHER_HOST_ID = "b0000000-0000-0000-0000-000000000004";
+  const REF = "ref-probe-concurrent-1";
+  const consentCall = (ref, actor, extra = "") =>
+    `SELECT public.booth_commit_consent('${ref}','${actor}','quick',` +
+    ` '{"profileVersion":2,"preferredLanguage":"English"}'::jsonb, 2, now(), '[]'::jsonb, 'none',` +
+    ` '{"first_name":"Race","whatsapp":"+79990009988","preferred_language":"English"${extra}}'::jsonb,` +
+    ` '{"name":"Race","phone":"+79990009988","message":"m","source":"booth_v2"}'::jsonb)`;
+  const call = (extra = "") => consentCall(REF, HOST_ID, extra);
+
+  seedSession(REF, HOST_ID);
+
+  const sessionA = psqlSqlAsync(
+    `SET ROLE service_role; BEGIN; ${call()}; SELECT pg_sleep(6); COMMIT;`,
+  );
+  await sleep(1000);
+  const bStart = Date.now();
+  const sessionB = await psqlSqlAsync(`SET ROLE service_role; ${call(',"country":"Thailand"')};`);
+  const bElapsed = Date.now() - bStart;
+  const aResult = await sessionA;
+
+  if (bElapsed < 1000) {
+    throw new Error(
+      `booth session B returned in ${bElapsed} ms — it never blocked on session A's row lock`,
+    );
+  }
+  const leadOf = (text) => {
+    const match = String(text).match(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/,
+    );
+    return match ? match[0] : null;
+  };
+  const leadA = leadOf(aResult.stdout);
+  const leadB = leadOf(sessionB.stdout);
+  if (!leadA || leadA !== leadB) {
+    throw new Error(`concurrent contact saves returned different leads: ${leadA} vs ${leadB}`);
+  }
+  const counted = psqlSql(`SELECT count(*) FROM public.leads WHERE phone='+79990009988'`);
+  if (!/\b1\b/.test(counted)) {
+    throw new Error(`concurrent contact saves created more than one lead:\n${counted}`);
+  }
+  const orphans = psqlSql(
+    `SELECT count(*) FROM public.leads l WHERE l.source='booth_v2'` +
+      ` AND NOT EXISTS (SELECT 1 FROM public.booth_sessions s WHERE s.lead_id = l.id)`,
+  );
+  if (!/\b0\b/.test(orphans)) {
+    throw new Error(`unattached booth leads exist after the race:\n${orphans}`);
+  }
+
+  // --- Probe 2: a DIFFERENT Host, under real lock contention, is refused. ---
+  const OWNED_REF = "ref-probe-ownership-1";
+  seedSession(OWNED_REF, HOST_ID);
+  const ownerHolds = psqlSqlAsync(
+    `SET ROLE service_role; BEGIN;` +
+      ` SELECT public.booth_lock_owned_session('${OWNED_REF}','${HOST_ID}');` +
+      ` SELECT pg_sleep(6); COMMIT;`,
+  );
+  await sleep(1000);
+  const intruderStart = Date.now();
+  let intruderRefused = false;
+  try {
+    await psqlSqlAsync(`SET ROLE service_role; ${consentCall(OWNED_REF, OTHER_HOST_ID)};`);
+  } catch (error) {
+    intruderRefused = /booth_session_forbidden/.test(errorText(error));
+    if (!intruderRefused) throw error;
+  }
+  const intruderElapsed = Date.now() - intruderStart;
+  await ownerHolds;
+  if (!intruderRefused) {
+    throw new Error("a different Host committed consent on another Host's session");
+  }
+  if (intruderElapsed < 1000) {
+    throw new Error(
+      `the intruder returned in ${intruderElapsed} ms — it never contended for the owner's row lock`,
+    );
+  }
+  const untouched = psqlSql(
+    `SELECT (SELECT count(*) FROM public.booth_sessions WHERE client_ref='${OWNED_REF}'` +
+      ` AND consultation_consent = FALSE AND lead_id IS NULL) || ':' ||` +
+      ` (SELECT count(*) FROM public.leads WHERE phone='+79990009988')`,
+  );
+  if (!/\b1:1\b/.test(untouched)) {
+    throw new Error(`the refused cross-Host attempt changed rows:\n${untouched}`);
+  }
+
+  // --- Probe 3: a failure after the lead write rolls everything back. -------
+  const ROLLBACK_REF = "ref-probe-rollback-1";
+  seedSession(ROLLBACK_REF, HOST_ID);
+  let rolledBack = false;
+  try {
+    psqlSql(
+      `SET ROLE service_role; BEGIN;` +
+        ` SELECT public.booth_commit_consent('${ROLLBACK_REF}','${HOST_ID}','quick',` +
+        ` '{"profileVersion":2,"preferredLanguage":"English"}'::jsonb, 2, now(), '[]'::jsonb, 'none',` +
+        ` '{"first_name":"Rollback","whatsapp":"+79990007766","preferred_language":"English"}'::jsonb,` +
+        ` '{"name":"Rollback","phone":"+79990007766","message":"m","source":"booth_v2"}'::jsonb);` +
+        // Deliberate violation inside the same transaction.
+        ` UPDATE public.booth_sessions SET next_step='' WHERE client_ref='${ROLLBACK_REF}'; COMMIT;`,
+    );
+  } catch {
+    rolledBack = true;
+  }
+  if (!rolledBack) throw new Error("the deliberate mid-transaction violation did not fail");
+  const afterRollback = psqlSql(
+    `SELECT (SELECT count(*) FROM public.leads WHERE phone='+79990007766') || ':' ||` +
+      ` (SELECT count(*) FROM public.booth_sessions WHERE client_ref='${ROLLBACK_REF}' AND consultation_consent)`,
+  );
+  if (!/\b0:0\b/.test(afterRollback)) {
+    throw new Error(`a partially applied consent commit survived the rollback:\n${afterRollback}`);
+  }
+
+  // --- Probe 4: CONCURRENT server-issued creates (corrective pass 5). -------
+  // Session A opens a transaction, creates a session and holds it open while
+  // session B creates one in a second REAL connection — the two calls genuinely
+  // overlap in time. Each must get its OWN reference and its OWN row: the
+  // server issues identity, so two guests starting at once can never collide,
+  // and neither can end up sharing the other's session.
+  const CREATE_BOOTH = "probe-create-concurrent";
+  const createA = psqlSqlAsync(
+    `SET ROLE service_role; BEGIN;` +
+      ` SELECT public.booth_create_session('${HOST_ID}','host@example.test','${CREATE_BOOTH}');` +
+      ` SELECT pg_sleep(4); COMMIT;`,
+  );
+  await sleep(1000);
+  const createB = await psqlSqlAsync(
+    `SET ROLE service_role;` +
+      ` SELECT public.booth_create_session('${HOST_ID}','host@example.test','${CREATE_BOOTH}');`,
+  );
+  const createAResult = await createA;
+  const refA = leadOf(createAResult.stdout);
+  const refB = leadOf(createB.stdout);
+  if (!refA || !refB) {
+    throw new Error(
+      `a concurrent create did not return a reference: A=${refA} B=${refB}\n` +
+        `${createAResult.stdout}\n${createB.stdout}`,
+    );
+  }
+  if (refA === refB) {
+    throw new Error(`two concurrent creates returned the SAME reference: ${refA}`);
+  }
+  const createdRows = psqlSql(
+    `SELECT count(*) || ':' || count(DISTINCT client_ref)` +
+      ` FROM public.booth_sessions WHERE booth_id='${CREATE_BOOTH}'`,
+  );
+  if (!/\b2:2\b/.test(createdRows)) {
+    throw new Error(`two concurrent creates did not produce two distinct rows:\n${createdRows}`);
+  }
+  // Both are empty operational shells owned by the acting Host — no guest data
+  // was persisted by creating a session.
+  const createdShape = psqlSql(
+    `SELECT count(*) FROM public.booth_sessions WHERE booth_id='${CREATE_BOOTH}'` +
+      ` AND host_user_id='${HOST_ID}' AND outcome='active' AND consultation_consent = FALSE` +
+      ` AND profile IS NULL AND first_name IS NULL AND lead_id IS NULL`,
+  );
+  if (!/\b2\b/.test(createdShape)) {
+    throw new Error(`a created session carried more than the operational shell:\n${createdShape}`);
+  }
+
+  console.log(
+    `[studio-pg] booth atomicity + ownership probes PASS (consent replay blocked ${bElapsed} ms then returned the same lead;` +
+      ` a different Host contended ${intruderElapsed} ms and was refused; rollback left nothing;` +
+      ` two overlapping creates issued two distinct references)`,
+  );
+}
+
+try {
+  cluster.start();
 
   console.log("[studio-pg] applying bootstrap prerequisites");
   psql(BOOTSTRAP);
@@ -251,6 +354,15 @@ try {
     if (file === "20260721120000_forever_studio_v1.sql") {
       psqlSql("GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated");
     }
+    // Same adversarial setup for the Booth pilot, but through DEFAULT
+    // PRIVILEGES so the tables and functions the migration is about to create
+    // are born with browser-role access. Its explicit REVOKEs must strip them.
+    if (file === "20260725150000_booth_v2_pilot.sql") {
+      psqlSql(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;" +
+          " ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated",
+      );
+    }
     console.log(`[studio-pg] applying ${file}`);
     psql(join(MIGRATIONS_DIR, file));
   }
@@ -258,8 +370,12 @@ try {
   console.log("[studio-pg] running behavioral suite");
   const out = psql(SUITE);
   process.stdout.write(out);
+  console.log("[studio-pg] running Booth V2 behavioral suite");
+  process.stdout.write(psql(BOOTH_SUITE));
   console.log("[studio-pg] running cross-session concurrency probes (LA-12.23/24)");
   await concurrencyProbes();
+  console.log("[studio-pg] running Booth V2 contact/lead atomicity probes");
+  await boothConcurrencyProbes();
   console.log("[studio-pg] PASS");
 } catch (error) {
   const detail = [error.stdout, error.stderr, error.message]
@@ -270,12 +386,5 @@ try {
   console.error("[studio-pg] FAIL\n" + detail);
   process.exitCode = 1;
 } finally {
-  if (started) {
-    try {
-      run(bin("pg_ctl"), ["-D", data, "-w", "-m", "immediate", "stop"], PG_CTL_OPTIONS);
-    } catch {
-      /* best effort */
-    }
-  }
-  rmSync(work, { recursive: true, force: true });
+  cluster.dispose();
 }

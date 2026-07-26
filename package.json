@@ -16,6 +16,7 @@
     "tg-watch": "node src/intake/watch/run-cli.mjs",
     "factory:continue": "jiti src/factory/continue-forever/cli.ts",
     "studio:pg-test": "node scripts/studio/run-postgres-tests.mjs",
+    "booth:migration-upgrade-test": "node scripts/studio/run-migration-upgrade-test.mjs",
     "preview": "vite preview",
     "lint": "eslint .",
     "test": "vitest run",
