@@ -670,22 +670,22 @@ verification burden belongs: on the update path, not on first ingestion.
 
 ### 12.8 Validation
 
-| Check                                                                  | Result                                                                                                                           |
-| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Builder, normal run                                                    | pass — three payloads written                                                                                                    |
-| Builder, `--check`                                                     | pass — all `UNCHANGED`, exit 0                                                                                                   |
-| Canonical offline validator, all four payloads                         | `DRAFT_PAYLOAD_VALID` ×4                                                                                                         |
-| Fingerprint self-verification, all four                                | 4/4 recompute correctly                                                                                                          |
-| Duplicate unit-code check, all four                                    | none                                                                                                                             |
-| Unpublished status, all four                                           | `publish: false`, `mode: create`                                                                                                 |
-| Build-time audits (draft-only, duplicates, numerics, Rainpalm, Sierra) | pass                                                                                                                             |
-| `git check-ignore -v` safety check                                     | source directories remain ignored                                                                                                |
-| Owner absolute-path scan of staged content                             | clean                                                                                                                            |
-| Credential/secret scan of staged content                               | clean                                                                                                                            |
-| `git diff --check`                                                     | clean                                                                                                                            |
-| Prettier, builder and edited docs                                      | formatted                                                                                                                        |
-| ESLint                                                                 | **not run** — `node_modules` is not installed in this worktree and `eslint.config.js` cannot resolve `@eslint/js`. Pre-existing. |
-| GitHub CI checks on PR #104                                            | **none configured.** No `.github/workflows` exists and the PR reports zero checks. An empty check list is not a passing build.   |
+| Check                                                                  | Result                                                                                                                         |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Builder, normal run                                                    | pass — three payloads written                                                                                                  |
+| Builder, `--check`                                                     | pass — all `UNCHANGED`, exit 0                                                                                                 |
+| Canonical offline validator, all four payloads                         | `DRAFT_PAYLOAD_VALID` ×4                                                                                                       |
+| Fingerprint self-verification, all four                                | 4/4 recompute correctly                                                                                                        |
+| Duplicate unit-code check, all four                                    | none                                                                                                                           |
+| Unpublished status, all four                                           | `publish: false`, `mode: create`                                                                                               |
+| Build-time audits (draft-only, duplicates, numerics, Rainpalm, Sierra) | pass                                                                                                                           |
+| `git check-ignore -v` safety check                                     | source directories remain ignored                                                                                              |
+| Owner absolute-path scan of staged content                             | clean                                                                                                                          |
+| Credential/secret scan of staged content                               | clean                                                                                                                          |
+| `git diff --check`                                                     | clean                                                                                                                          |
+| Prettier, builder and edited docs                                      | formatted                                                                                                                      |
+| ESLint                                                                 | superseded — see §14, which ran it after a lockfile install                                                                    |
+| GitHub CI checks on PR #104                                            | **none configured.** No `.github/workflows` exists and the PR reports zero checks. An empty check list is not a passing build. |
 
 No database was contacted in any pass.
 
@@ -885,3 +885,148 @@ Each emits `IMPORTED AS DRAFT|<slug>|{...}` with post-commit counts; check them
 against §13.5 before running the next. For §6 replay safety, run any one command
 a second time: the expected outcome is a refusal with
 `draft_import_duplicate_slug` and zero rows written.
+
+## 14. Independent local readiness audit at head `73041a0`
+
+Earlier passes ran without repository dependencies installed and recorded ESLint
+as "not run". That is now corrected: `npm ci` installs cleanly from the
+committed lockfile, and the full local toolchain was exercised. This section
+records what was actually measured, and separates PR-owned results from
+reproduced baseline failures by running the same checks at the merge-base
+`a9d275fc` in a throwaway worktree.
+
+No database was contacted. Nothing about the staging import, database replay or
+post-import counts is claimed here — those remain unrun and still require the
+interactive session described in §13.8.
+
+### 14.1 Environment
+
+| Item                        | Value                                                                   |
+| --------------------------- | ----------------------------------------------------------------------- |
+| Head audited                | `73041a059098a90369400981894d3c0876364311`                              |
+| Merge-base compared against | `a9d275fc678065ef70b331aee20f24f1c4f030e6`                              |
+| Install                     | `npm ci` — 619 packages, lockfile SHA-256 unchanged, working tree clean |
+| Node / npm                  | v24.18.0 / 11.16.0                                                      |
+
+### 14.2 Independent payload recalculation
+
+Recomputed without reusing the builder's helpers. Fingerprints were recomputed
+with the repository's canonical
+`src/features/forever-ingestion/build-batch.ts::fingerprintBatch`, loaded through
+`jiti` — so a divergence between the builder's private copy and the canonical
+implementation would have surfaced. It did not.
+
+| Slug               | `payload.json` SHA-256                                             | `batch_fingerprint`                                                | Canonical recompute |
+| ------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------ | ------------------- |
+| `coralina`         | `2d5613a35705b251f20208aa4273038c2d8001bebe5d2c5bab5e55cb653e6605` | `9ceb05d2daa5c2a174d37d4d92fb49c4bc39294fa1b5ab402a10ab526230631c` | matches             |
+| `rainpalm-villas`  | `4e5f5d4d56eab887097247e5165b4acdd08c0c31e2346fef1b0d1085ca7c5ed2` | `8f84fbecbf31daf2648f879181b3cc4302e1eab7a33530d6e194b09b2ff21a4e` | matches             |
+| `garden-of-eden`   | `c8a5156779a7f92fbb3d1359f18276a59f3f8d5b02c9ce011b7ecd8307ea370a` | `de458b059155e971d6bdbe99c521e0009a15ca552d901d12ea02c054fceefbca` | matches             |
+| `the-title-sierra` | `7cb81e154ab13d22df500209c5edb5ec87bfeadd733488c252053c62ed79c9a7` | `4a3e9c17fb826a8f42ae32f17cac9a30f92a00a19efdf5b0e2872fb12d625b29` | matches             |
+
+All four also pass `src/intake/validate-draft.ts::validateDraftPayloadFile`,
+which independently recomputes the fingerprint and is stricter than the
+PowerShell path.
+
+Per-payload invariants, all verified independently:
+
+| Check                                                                 | Result                                              |
+| --------------------------------------------------------------------- | --------------------------------------------------- |
+| `schema_version = 1`, `mode = create`, `publish = false`              | 4/4                                                 |
+| Slug matches directory                                                | 4/4                                                 |
+| `documents = 0`, `media = 0` (no auto public media)                   | 4/4                                                 |
+| Counts equal the expected draft results                               | 4/4 — 8/198/198/6, 0/21/0/7, 0/0/0/13, 2/180/180/14 |
+| Unit codes unique                                                     | 198, 21, 0, 180 — no duplicates anywhere            |
+| Building codes unique, every unit's `building_code` resolves in-batch | 4/4                                                 |
+| Every price row references an existing unit code                      | 198, 0, 0, 180 — no orphans                         |
+| All price values finite and non-null                                  | 4/4                                                 |
+| All unit numerics finite                                              | 4/4                                                 |
+| Every warning carries entity, code and message                        | 4/4                                                 |
+| `developer_id` and `location_id` null                                 | 4/4                                                 |
+| Retired provenance vocabulary absent                                  | 4/4                                                 |
+
+Project-specific:
+
+| Assertion                                                               | Result |
+| ----------------------------------------------------------------------- | ------ |
+| Rainpalm — 21 units, zero prices                                        | pass   |
+| Rainpalm — no unit carries `availability_status`                        | pass   |
+| Rainpalm — `multiple_price_list_versions` retained                      | pass   |
+| Rainpalm — retired forensic warnings absent                             | pass   |
+| Garden of Eden — valid empty structural draft with a project name       | pass   |
+| Sierra — exactly 180 unique unit codes and 180 price rows, one per unit | pass   |
+
+### 14.3 Toolchain results, PR-owned versus baseline
+
+Every failure below was reproduced at the merge-base with identical output, so
+none is introduced by this PR.
+
+| Check                                 | HEAD                                         | Merge-base                                  | PR-owned?           |
+| ------------------------------------- | -------------------------------------------- | ------------------------------------------- | ------------------- |
+| Builder normal + `--check`            | pass, tree byte-identical after rebuild      | n/a (builder is new)                        | —                   |
+| Canonical validator, 4 payloads       | `DRAFT_PAYLOAD_VALID` ×4                     | n/a                                         | —                   |
+| **Production build** (`vite build`)   | **pass**, exit 0                             | n/a                                         | —                   |
+| **ESLint** (`eslint .`)               | 1125 problems (1118 errors, 7 warnings)      | **1125 problems (1118 errors, 7 warnings)** | **no — identical**  |
+| ESLint on the PR's own script         | **0 problems**                               | n/a                                         | —                   |
+| **TypeScript** (`tsc --noEmit`)       | 1 error, exit 2                              | **1 error, exit 2, same file and line**     | **no — reproduced** |
+| **Full test suite** (`vitest run`)    | 3380 passed, 3 failed, 6 skipped (357 files) | same 2 files, same 3 tests fail             | **no — reproduced** |
+| `git diff --check`                    | clean                                        | —                                           | —                   |
+| Public-bundle scan                    | clean                                        | —                                           | —                   |
+| Secret / credential scan              | clean                                        | —                                           | —                   |
+| Owner absolute-path scan outside docs | clean                                        | —                                           | —                   |
+
+The single TypeScript error is
+`src/features/project-detail/partner-demo-data.ts(13,29)` importing
+`forever-data/projects/modeva/extracted/price-list.json`. That file is tracked at
+neither the merge-base nor this head — it has never been committed — and the
+importing line is byte-identical in both revisions. The production build still
+succeeds because the bundler strips types without typechecking.
+
+The three failing tests are `src/features/project-detail/partner-demo-data.test.ts`
+(same missing asset) and three cases in `src/import/importer-preflight.test.ts`.
+All reproduce at the merge-base.
+
+### 14.4 One attributable observation: Prettier drift on generated payloads
+
+Not a functional defect, but stated plainly so it is the Owner's call.
+
+| Scope                                    | Merge-base | Head |  Delta |
+| ---------------------------------------- | ---------: | ---: | -----: |
+| Files differing from Prettier, repo-wide |        129 |  132 | **+3** |
+| …of those, inside `forever-data/`        |          2 |    5 |     +3 |
+
+The three are the payloads this PR writes. `JSON.stringify(value, null, 2)`
+breaks short arrays across lines where Prettier would inline them — specifically
+the `applies_to` arrays introduced by the trust policy's row-level source
+records. Reformatting changes only whitespace: the parsed content is identical
+and **every `batch_fingerprint` is unaffected**, because the fingerprint is
+computed over a key-sorted canonical serialisation, not over file bytes.
+
+It was left as-is deliberately. The repository does not hold this tree to
+Prettier cleanliness — 129 files already differ at the merge-base, two of them
+inside `forever-data/` — so no existing invariant is broken. The available fix is
+to make the builder format its output through Prettier, which would couple a
+currently dependency-free script to `node_modules` and lose its ability to run on
+a bare checkout. That is a worse trade than the cosmetic gain on generated data.
+
+### 14.5 Structural checks
+
+| Check                                             | Result                                                                       |
+| ------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Files changed by the PR                           | 9 — one `.gitignore`, three docs, four payload JSONs, one builder script     |
+| Runtime source (`src/`) changed                   | **none**                                                                     |
+| Previously-tracked files dropped                  | **none** — verified across the whole tree                                    |
+| Studio tests depending on `rainpalm-villas/sip/*` | still resolve; those files remain tracked                                    |
+| `.gitignore` sentinels                            | `intake/`, `sip/` and `source/` sentinels ignored; the four payloads allowed |
+| Executable, archive or media files added          | none — only `.json`, `.md`, `.mjs`                                           |
+
+### 14.6 Audit conclusion
+
+No PR-owned defect was found, so no corrective code commit was made. This
+section is the one documentation change, and it exists to correct a factual
+contradiction — the earlier "ESLint not run" claim — not to record the audit for
+its own sake.
+
+The branch is locally ready for the interactive staging import. What remains is
+unchanged and unchangeable from here: the import itself, database replay safety
+and post-import counts all require the interactive password gate in §13.8.
+Staging and production were never contacted during this audit.
