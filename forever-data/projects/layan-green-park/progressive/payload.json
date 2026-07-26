@@ -1,0 +1,256 @@
+{
+  "schema_version": "1",
+  "mode": "create",
+  "project": {
+    "slug": "layan-green-park",
+    "name": "Layan Green Park",
+    "developer_id": null,
+    "location_id": null,
+    "publish": false,
+    "location_name_raw": "Layan",
+    "location_area": "Layan",
+    "project_type": "Premium apart-hotel",
+    "field_provenance": {
+      "name": {
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
+        "source_ref": "Layan Green Park - eng.pdf#page=2",
+        "confidence": 1,
+        "source_date": "2026-01"
+      },
+      "location_name_raw": {
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
+        "source_ref": "Layan Green Park - eng.pdf#page=2",
+        "confidence": 1,
+        "source_date": "2026-01"
+      },
+      "location_area": {
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
+        "source_ref": "Layan Green Park - eng.pdf#page=2",
+        "confidence": 1,
+        "source_date": "2026-01"
+      },
+      "project_type": {
+        "status": "owner_provided",
+        "source_type": "owner_uploaded_project_material",
+        "source_ref": "Layan Green Park - eng.pdf#page=2",
+        "confidence": 1,
+        "source_date": "2026-01",
+        "note": "Page 2 states \"PREMIUM APART-HOTEL\". The page 4 financial annex states \"Property Type: Condominiums\"; the disagreement is recorded as project_type_inconsistent rather than resolved here."
+      }
+    }
+  },
+  "warnings": [
+    {
+      "entity": "developer",
+      "code": "developer_unresolved",
+      "severity": "warning",
+      "message": "No developer is named anywhere in the available source. Both documents are agency investment presentations produced by Sunthai Property, not developer material, so no raw developer name could be preserved either.",
+      "payload": {
+        "source_documents": [
+          "Layan Green Park - eng.pdf",
+          "Layan Green Park.pdf"
+        ]
+      }
+    },
+    {
+      "entity": "location",
+      "code": "location_unresolved",
+      "severity": "warning",
+      "message": "No canonical location matches \"Layan\"; the raw value was preserved for later enrichment.",
+      "payload": {
+        "raw_name": "Layan"
+      }
+    },
+    {
+      "entity": "project",
+      "code": "country_missing",
+      "severity": "warning",
+      "message": "No country is stated. The deck references Bang Tao and Laguna Phuket, but neither names the country, so currency cannot be inferred.",
+      "payload": {
+        "source_ref": "Layan Green Park - eng.pdf#page=8"
+      }
+    },
+    {
+      "entity": "project",
+      "field": "latitude",
+      "code": "coordinates_missing",
+      "severity": "info",
+      "message": "No coordinates are stated in the source; latitude/longitude remain NULL."
+    },
+    {
+      "entity": "project",
+      "field": "construction_status",
+      "code": "construction_status_missing",
+      "severity": "info",
+      "message": "No construction status is stated. The deck states a completion quarter only, which is recorded separately."
+    },
+    {
+      "entity": "project",
+      "field": "construction_status",
+      "code": "construction_status_stale",
+      "severity": "warning",
+      "message": "The source states completion as \"Q1-2026\". That quarter had already closed when the deck was issued in January 2026 and is further in the past now, so it must not be presented as a current readiness state. A current construction or handover update is required before publication.",
+      "payload": {
+        "stated_completion": "Q1-2026",
+        "source_date": "2026-01",
+        "source_ref": "Layan Green Park - eng.pdf#page=2"
+      }
+    },
+    {
+      "entity": "project",
+      "field": "completion_date",
+      "code": "completion_quarter_only",
+      "severity": "info",
+      "message": "The source states completion as \"Q1-2026\". A quarter is not a date, so completion_date remains NULL rather than being resolved to an invented day.",
+      "payload": {
+        "stated": "Q1-2026",
+        "source_ref": "Layan Green Park - eng.pdf#page=2"
+      }
+    },
+    {
+      "entity": "building",
+      "code": "building_inventory_missing",
+      "severity": "warning",
+      "message": "The source states \"Buildings: 4\" but gives no building identifiers, names, floor counts or unit counts. No building row was created, because inventing four codes would fabricate structure.",
+      "payload": {
+        "stated_count": 4,
+        "source_ref": "Layan Green Park - eng.pdf#page=2"
+      }
+    },
+    {
+      "entity": "unit",
+      "code": "unit_inventory_missing",
+      "severity": "warning",
+      "message": "The source states \"Total units: 377\" but contains no per-unit identifier, room number or unit schedule. The stated total is preserved here; no unit row was created.",
+      "payload": {
+        "stated_total_units": 377,
+        "source_ref": "Layan Green Park - eng.pdf#page=2"
+      }
+    },
+    {
+      "entity": "unit",
+      "code": "unit_types_missing",
+      "severity": "warning",
+      "message": "No unit type schedule, bedroom breakdown or area schedule appears in the source. No unit row was created."
+    },
+    {
+      "entity": "price",
+      "code": "price_list_missing",
+      "severity": "warning",
+      "message": "No developer price list exists for this project in any inspected source root. No price row was created."
+    },
+    {
+      "entity": "price",
+      "code": "investment_projections_not_prices",
+      "severity": "warning",
+      "message": "Pages 4 to 7 carry a five-year investment model with entry/exit values, a bulk-purchase discount, capitalisation and rental-pool projections, ROI, IRR and an equity multiple. These are agency projections for a bulk investment pool, not developer prices or yields. They were deliberately not ingested and must never be rendered as a price, a price range or a yield promise.",
+      "payload": {
+        "source_ref": "Layan Green Park - eng.pdf#pages=4-7",
+        "model_basis": "Returns are calculated based on the Leasehold ownership structure (stated page 5)."
+      }
+    },
+    {
+      "entity": "project",
+      "field": "project_type",
+      "code": "project_type_inconsistent",
+      "severity": "warning",
+      "message": "The source disagrees with itself about the property type. Page 2 states \"PREMIUM APART-HOTEL\"; the page 4 financial annex states \"Property Type: Condominiums\". Page 2 is the project identity page and supplies project_type; both statements are recorded verbatim and neither was normalised away.",
+      "payload": {
+        "page_2": "PREMIUM APART-HOTEL",
+        "page_4": "Condominiums",
+        "source_refs": [
+          "Layan Green Park - eng.pdf#page=2",
+          "Layan Green Park - eng.pdf#page=4"
+        ]
+      }
+    },
+    {
+      "entity": "project",
+      "code": "project_scope_ambiguous",
+      "severity": "warning",
+      "message": "The page 4 investment model is labelled \"Layan Green Partk, фаза 2\" — phase 2 — and covers 28 units over 2,457.7 sqm, while page 2 describes the project as 377 units across 4 buildings. The model therefore describes a subset or a later phase, not the whole project. This record models the page 2 project. The spelling \"Partk\" and the Russian \"фаза 2\" are the source's own, quoted rather than corrected.",
+      "payload": {
+        "annex_label": "Layan Green Partk, фаза 2",
+        "annex_units": 28,
+        "annex_sellable_area_sqm": 2457.7,
+        "project_stated_units": 377,
+        "source_refs": [
+          "Layan Green Park - eng.pdf#page=2",
+          "Layan Green Park - eng.pdf#page=4"
+        ]
+      }
+    },
+    {
+      "entity": "project",
+      "code": "related_project_name_in_source",
+      "severity": "warning",
+      "message": "Page 6 of this project's own deck reads \"LA GREEN HOTEL & RESIDENCE represents an attractive investment...\". The onboarding register records \"La Green Hotel & Residence Layan\" as a separate provisional catalogue entry with no located source, and requires that it not be merged with Layan Green Park. This deck names it inside Layan Green Park material. The conflict is recorded, not resolved: no merge, no alias and no second record was created here, and an Owner ruling is required.",
+      "payload": {
+        "stated_name": "LA GREEN HOTEL & RESIDENCE",
+        "source_ref": "Layan Green Park - eng.pdf#page=6",
+        "register_reference": "docs/FOREVER_CATALOG_10_ONBOARDING.md §6.11"
+      }
+    },
+    {
+      "entity": "project",
+      "code": "units_sold_snapshot",
+      "severity": "info",
+      "message": "The source states \"Units sold: 45%\". That is a January 2026 snapshot, not a current availability figure, and it is recorded only with its date. It must never be rendered as current availability.",
+      "payload": {
+        "stated": "45%",
+        "as_of": "2026-01",
+        "source_ref": "Layan Green Park - eng.pdf#page=2"
+      }
+    },
+    {
+      "entity": "project",
+      "code": "stated_facts_not_modelled",
+      "severity": "info",
+      "message": "Source-stated facts with no column in the current schema were preserved here rather than discarded or forced into an unrelated field.",
+      "payload": {
+        "distance_to_beach": "700 m",
+        "setting": "Close to the sea, Sirinat National Park, five-star hotels and the Laguna resort; described as one of the key projects shaping the infrastructure of the Layan area.",
+        "source_ref": "Layan Green Park - eng.pdf#pages=2-3"
+      }
+    },
+    {
+      "entity": "media",
+      "code": "media_not_ingested",
+      "severity": "info",
+      "message": "Both documents contain embedded imagery only, with no standalone media assets. No media row was created and no asset was uploaded or made public.",
+      "payload": {
+        "documents": [
+          {
+            "file": "Layan Green Park - eng.pdf",
+            "sha256": "1203065c56b0bdbe97bdc190e09af7c9392df53ff4a1695e215d9705d59c70a2",
+            "bytes": 7338210,
+            "language": "English",
+            "role": "primary deck"
+          },
+          {
+            "file": "Layan Green Park.pdf",
+            "sha256": "e7beee1d6dce124d05ec7f3c84584afbabc9024b143908d36c56abf500b79c81",
+            "bytes": 3066949,
+            "language": "English",
+            "role": "shorter variant of the same English deck; closing contact page absent"
+          }
+        ]
+      }
+    },
+    {
+      "entity": "project",
+      "field": "source_date",
+      "code": "source_date_recorded",
+      "severity": "info",
+      "message": "The deck states \"INVESTMENT OPPORTUNITY / January / 2026\" on its title page. That in-document statement is the source date; no file timestamp was used.",
+      "payload": {
+        "source_date": "2026-01",
+        "source_ref": "Layan Green Park - eng.pdf#page=1"
+      }
+    }
+  ],
+  "batch_fingerprint": "ab6ab0aa4b57369933cc02ee8a70dae9c2869ef3b1f66a8cc6d78b7b9ce7a694"
+}

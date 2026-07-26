@@ -146,6 +146,73 @@ adds the second villa product and a second unit-level price list, but its
 promotional pricing structure needs the extra care described below, which is why
 it follows Sierra rather than accompanying it.
 
+> **Preparation status — FOREVER-CATALOG-10-006, 2026-07-26.** The two
+> deck-derived members are **prepared and validated offline**. Neither is
+> imported: this task made no database contact of any kind, and Wave 2 staging
+> remains unstarted. Casa de Monte Villa was explicitly out of scope and is
+> untouched.
+>
+> | Project                           | Buildings | Units | Prices | Warnings | `payload.json` SHA-256 | `batch_fingerprint` |
+> | --------------------------------- | --------: | ----: | -----: | -------: | ---------------------- | ------------------- |
+> | `layan-green-park`                |         0 |     0 |      0 |   **19** | `04b0514cea474571…`    | `ab6ab0aa4b573699…` |
+> | `ayana-heights-seaview-residence` |         0 |     0 |      0 |   **14** | `1efa6fa455875537…`    | `823e618b8d66cbe6…` |
+>
+> Both are `mode: create`, `publish: false`, and both pass the canonical offline
+> validator and the stricter `src/intake/validate-draft.ts`, which independently
+> recomputes the fingerprint. Two consecutive `--check` runs reported `UNCHANGED`.
+> All four Wave 1 payloads are byte-identical to their recorded digests.
+>
+> **Both records are project-only by design.** Each deck states a building count
+> and a unit total but supplies no building identifier, room number or unit
+> schedule, and no price list of any kind. Materialising rows from a bare count
+> would fabricate structure, so the stated counts are preserved as
+> `building_inventory_missing` and `unit_inventory_missing` warnings instead. A
+> build-time audit fails the run if either project ever emits a building, unit,
+> price, media or document row.
+>
+> Five findings came out of reading the decks directly, and each one changes
+> something the plan below assumed:
+>
+> - **The expected-warning table below is a lower bound, not a prediction.** It
+>   lists 5 codes for Layan and 4 for AYANA; the evidence-derived payloads carry
+>   19 and 14. The same undercount already happened in Wave 1, where Garden of
+>   Eden was predicted at 5 and built at 13. Warning counts should be read as
+>   outputs of the source, never as a target.
+> - **Layan's own deck names "LA GREEN HOTEL & RESIDENCE"** on page 6. The
+>   onboarding register §6.11 records "La Green Hotel & Residence Layan" as a
+>   separate provisional entry with _no located source_, and requires that it not
+>   be merged with Layan Green Park. That premise does not survive the deck. The
+>   conflict is recorded as `related_project_name_in_source` and **not resolved**:
+>   no merge, no alias, no second record. An Owner ruling is required.
+> - **Layan's deck contradicts itself on property type.** Page 2 states
+>   `PREMIUM APART-HOTEL`; the page 4 financial annex states
+>   `Property Type: Condominiums`. Page 2 supplies `project_type`; both
+>   statements are stored verbatim under `project_type_inconsistent`.
+> - **Layan's financial annex describes a different scope.** It is labelled
+>   "Layan Green Partk, фаза 2" and covers 28 units over 2,457.7 sqm, while page 2
+>   describes 377 units across 4 buildings. Recorded as
+>   `project_scope_ambiguous`; the record models the page 2 project.
+> - **The second PDF in each pair is not a Russian translation.** For both Wave 2
+>   projects — and for Garden of Eden — the second file's text layer is the same
+>   English deck with the closing agency-contact page removed. The register
+>   describes these as Russian, and the committed `garden-of-eden` payload records
+>   `"language": "Russian"` for `GARDEN OF EDEN.pdf`. The Wave 2 payloads label
+>   both documents English. The Wave 1 payload was **not** edited — its bytes,
+>   counts and fingerprint are frozen — so that inaccurate label stands in the
+>   Wave 1 record and is flagged here for a separate Owner decision.
+>
+> Gate results: **G9 satisfied** — Layan carries `construction_status_stale` for
+> the lapsed `Q1-2026` completion, enforced by a build-time assertion. **G10
+> satisfied** — the "45% sold" figure is stored as `units_sold_snapshot` with
+> `as_of: 2026-01` and never as current availability. **G8 is untouched**, since
+> it applies only to Casa de Monte.
+>
+> Casa de Monte Villa remains unstarted for one environmental reason: its price
+> list needs Xpdf `pdftotext -table`, the same toolchain Sierra used, and no Xpdf
+> build is resolvable on the working machine. The builder now accepts
+> `--only=<slug>[,<slug>]` so every project except Sierra can be built or verified
+> without it. Nothing about Casa de Monte's own readiness changed.
+
 ### Staging upload order
 
 1. `layan-green-park`

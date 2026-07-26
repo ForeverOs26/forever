@@ -108,3 +108,13 @@ forever-data/projects/the-title-sierra/*
 !forever-data/projects/the-title-sierra/progressive/
 forever-data/projects/the-title-sierra/progressive/*
 !forever-data/projects/the-title-sierra/progressive/payload.json
+!forever-data/projects/layan-green-park/
+forever-data/projects/layan-green-park/*
+!forever-data/projects/layan-green-park/progressive/
+forever-data/projects/layan-green-park/progressive/*
+!forever-data/projects/layan-green-park/progressive/payload.json
+!forever-data/projects/ayana-heights-seaview-residence/
+forever-data/projects/ayana-heights-seaview-residence/*
+!forever-data/projects/ayana-heights-seaview-residence/progressive/
+forever-data/projects/ayana-heights-seaview-residence/progressive/*
+!forever-data/projects/ayana-heights-seaview-residence/progressive/payload.json

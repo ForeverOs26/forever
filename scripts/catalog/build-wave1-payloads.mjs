@@ -1,11 +1,20 @@
 /**
- * FOREVER-CATALOG-10-002 — Wave 1 progressive draft payload builder.
+ * FOREVER-CATALOG-10-002 / -006 — progressive draft payload builder.
  *
- * Regenerates the three Wave 1 payloads that this task authors:
+ * Wave 1 (FOREVER-CATALOG-10-002) — the three payloads that task authors:
  *
  *   - rainpalm-villas  structural-only rebuild (prices deliberately removed)
  *   - garden-of-eden   Passport Light from the January 2026 deck
  *   - the-title-sierra Passport Light plus the 2026-05-15 unit price list
+ *
+ * Wave 2 (FOREVER-CATALOG-10-006) — two deck-derived Passport Light records:
+ *
+ *   - layan-green-park                Passport Light from the January 2026 deck
+ *   - ayana-heights-seaview-residence Passport Light from the January 2026 deck
+ *
+ * The Wave 2 pair carries no buildings, units or prices. Their decks state
+ * building and unit *counts* but no identifiers and no price list, so the counts
+ * are preserved as warnings rather than materialised as invented rows.
  *
  * Coralina is NOT rebuilt. Its canonical package already exists, validates and
  * reproduces its recorded hashes; re-deriving it would risk drift.
@@ -43,10 +52,18 @@
  * and continues.
  *
  * Usage:
- *   set FOREVER_WAVE1_SOURCE_ROOTS=<root1>;<root2>
+ *   set FOREVER_CATALOG_SOURCE_ROOTS=<root1>;<root2>
  *   node scripts/catalog/build-wave1-payloads.mjs [--check]
  *
+ * `FOREVER_WAVE1_SOURCE_ROOTS` remains accepted as a fallback so the Wave 1
+ * reproduction instructions already published in the staging report keep working.
+ *
  * `--check` rebuilds in memory and fails if the committed payloads differ.
+ *
+ * `--only=<slug>[,<slug>...]` restricts the run to the named projects. Only
+ * `the-title-sierra` needs an Xpdf `pdftotext` for its price table, so this lets
+ * every other payload be built or verified on a machine without that toolchain.
+ * It narrows the run; it never changes what a project builds.
  */
 
 import { createHash } from "node:crypto";
@@ -67,6 +84,11 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CHECK_ONLY = process.argv.includes("--check");
+const ONLY = (process.argv.find((arg) => arg.startsWith("--only=")) ?? "")
+  .slice("--only=".length)
+  .split(",")
+  .map((slug) => slug.trim())
+  .filter(Boolean);
 
 // ---------------------------------------------------------------------------
 // Canonical fingerprint — byte-identical to
@@ -113,6 +135,30 @@ const SOURCES = {
     citation: "GARDEN OF EDEN.pdf",
     sha256: "ac5cfa99a55867d8c78c8397230356732da1b140f25b69945480ccbb40221ca6",
     bytes: 6885501,
+  },
+
+  // Wave 2. Two decks per project from the same January 2026 Sunthai Property
+  // family as Garden of Eden. The second file of each pair is a shorter variant
+  // of the same English deck, not a translation — see `deckVariantNote`.
+  layanGreenParkPrimary: {
+    citation: "Layan Green Park - eng.pdf",
+    sha256: "1203065c56b0bdbe97bdc190e09af7c9392df53ff4a1695e215d9705d59c70a2",
+    bytes: 7338210,
+  },
+  layanGreenParkVariant: {
+    citation: "Layan Green Park.pdf",
+    sha256: "e7beee1d6dce124d05ec7f3c84584afbabc9024b143908d36c56abf500b79c81",
+    bytes: 3066949,
+  },
+  ayanaHeightsPrimary: {
+    citation: "AYANA Heights Seaview Residence - eng.pdf",
+    sha256: "98c34b692ea1eae50af9eb84a2dbe73ea2e4842b32d1990926fd51ec82b79711",
+    bytes: 6218924,
+  },
+  ayanaHeightsVariant: {
+    citation: "AYANA Heights Seaview Residence.pdf",
+    sha256: "1699bab868e9e59b59ee4f36fb8761c938665bea7b8d4bc493b6abbee21b22bb",
+    bytes: 1948454,
   },
 
   // Rainpalm. The documents the build reads and the ones whose digests appear in
@@ -198,14 +244,15 @@ function sha256File(path) {
  * Semicolon-separated; each root is searched for the pinned filename.
  */
 function sourceRoots() {
-  const raw = process.env.FOREVER_WAVE1_SOURCE_ROOTS ?? "";
+  const raw =
+    process.env.FOREVER_CATALOG_SOURCE_ROOTS ?? process.env.FOREVER_WAVE1_SOURCE_ROOTS ?? "";
   const roots = raw
     .split(";")
     .map((entry) => entry.trim())
     .filter(Boolean);
   if (!roots.length) {
     throw new Error(
-      "FOREVER_WAVE1_SOURCE_ROOTS is not set. Point it at the Owner intake folders holding the pinned Wave 1 source documents (semicolon-separated).",
+      "FOREVER_CATALOG_SOURCE_ROOTS is not set. Point it at the Owner intake folders holding the pinned source documents (semicolon-separated). FOREVER_WAVE1_SOURCE_ROOTS is still accepted.",
     );
   }
   return roots;
@@ -572,8 +619,13 @@ function buildGardenOfEden() {
     location_area: "Layan",
     project_type: "Premium apart-hotel",
     field_provenance: {
-      // Agency presentation, not developer material: never developer_provided,
-      // never official_project_material, confidence below 1.
+      // Owner Upload Trust Policy (FOREVER-CATALOG-10-004): an Owner-supplied
+      // package is the accepted working source for a first draft, so these are
+      // owner_provided / owner_uploaded_project_material at confidence 1.
+      // Confidence 1 records that the extraction is faithful to the package, not
+      // that the package has been independently audited. The comment previously
+      // here claimed "confidence below 1", which contradicted the value
+      // `provenance()` actually emits and the payload actually carries.
       name: provenance(`${eng.citation}#page=2`, { sourceDate: "2026-01" }),
       location_name_raw: provenance(`${eng.citation}#page=2`, { sourceDate: "2026-01" }),
       location_area: provenance(`${eng.citation}#page=2`, { sourceDate: "2026-01" }),
@@ -706,7 +758,411 @@ function buildGardenOfEden() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. The Title Sierra — Passport Light plus the 2026-05-15 unit price list
+// 3. Wave 2 deck pair — Layan Green Park and AYANA Heights Seaview Residence
+//
+// Both come from the same January 2026 Sunthai Property deck family as Garden
+// of Eden and are built the same way: source-stated facts are transcribed with
+// a page citation, and anything the deck does not state stays absent behind a
+// warning. Neither deck contains a price list or any per-unit identifier, so
+// both records are project-only — zero buildings, zero units, zero prices.
+// ---------------------------------------------------------------------------
+
+/**
+ * Each project ships two PDFs. The second is NOT a translation: its text layer
+ * is the same English deck with the closing agency-contact page removed. The
+ * onboarding register describes these second files as Russian; that label does
+ * not survive inspection of the documents' own text, so it is not repeated in
+ * the payloads. Recorded per document rather than asserted globally.
+ */
+function deckVariantNote(primary, variant) {
+  return {
+    documents: [
+      {
+        file: primary.citation,
+        sha256: primary.sha256,
+        bytes: primary.bytes,
+        language: "English",
+        role: "primary deck",
+      },
+      {
+        file: variant.citation,
+        sha256: variant.sha256,
+        bytes: variant.bytes,
+        language: "English",
+        role: "shorter variant of the same English deck; closing contact page absent",
+      },
+    ],
+  };
+}
+
+function buildLayanGreenPark() {
+  const primary = requireSource("layanGreenParkPrimary");
+  const variant = requireSource("layanGreenParkVariant");
+  const cite = (page) => `${primary.citation}#page=${page}`;
+
+  const project = {
+    slug: "layan-green-park",
+    name: "Layan Green Park",
+    developer_id: null,
+    location_id: null,
+    publish: false,
+    location_name_raw: "Layan",
+    location_area: "Layan",
+    project_type: "Premium apart-hotel",
+    field_provenance: {
+      name: provenance(cite(2), { sourceDate: "2026-01" }),
+      location_name_raw: provenance(cite(2), { sourceDate: "2026-01" }),
+      location_area: provenance(cite(2), { sourceDate: "2026-01" }),
+      project_type: provenance(cite(2), {
+        sourceDate: "2026-01",
+        note: 'Page 2 states "PREMIUM APART-HOTEL". The page 4 financial annex states "Property Type: Condominiums"; the disagreement is recorded as project_type_inconsistent rather than resolved here.',
+      }),
+    },
+  };
+
+  const warnings = [
+    {
+      entity: "developer",
+      code: "developer_unresolved",
+      severity: "warning",
+      message:
+        "No developer is named anywhere in the available source. Both documents are agency investment presentations produced by Sunthai Property, not developer material, so no raw developer name could be preserved either.",
+      payload: { source_documents: [primary.citation, variant.citation] },
+    },
+    {
+      entity: "location",
+      code: "location_unresolved",
+      severity: "warning",
+      message:
+        'No canonical location matches "Layan"; the raw value was preserved for later enrichment.',
+      payload: { raw_name: "Layan" },
+    },
+    {
+      entity: "project",
+      code: "country_missing",
+      severity: "warning",
+      message:
+        "No country is stated. The deck references Bang Tao and Laguna Phuket, but neither names the country, so currency cannot be inferred.",
+      payload: { source_ref: cite(8) },
+    },
+    {
+      entity: "project",
+      field: "latitude",
+      code: "coordinates_missing",
+      severity: "info",
+      message: "No coordinates are stated in the source; latitude/longitude remain NULL.",
+    },
+    {
+      entity: "project",
+      field: "construction_status",
+      code: "construction_status_missing",
+      severity: "info",
+      message:
+        "No construction status is stated. The deck states a completion quarter only, which is recorded separately.",
+    },
+    {
+      entity: "project",
+      field: "construction_status",
+      code: "construction_status_stale",
+      severity: "warning",
+      message:
+        'The source states completion as "Q1-2026". That quarter had already closed when the deck was issued in January 2026 and is further in the past now, so it must not be presented as a current readiness state. A current construction or handover update is required before publication.',
+      payload: {
+        stated_completion: "Q1-2026",
+        source_date: "2026-01",
+        source_ref: cite(2),
+      },
+    },
+    {
+      entity: "project",
+      field: "completion_date",
+      code: "completion_quarter_only",
+      severity: "info",
+      message:
+        'The source states completion as "Q1-2026". A quarter is not a date, so completion_date remains NULL rather than being resolved to an invented day.',
+      payload: { stated: "Q1-2026", source_ref: cite(2) },
+    },
+    {
+      entity: "building",
+      code: "building_inventory_missing",
+      severity: "warning",
+      message:
+        'The source states "Buildings: 4" but gives no building identifiers, names, floor counts or unit counts. No building row was created, because inventing four codes would fabricate structure.',
+      payload: { stated_count: 4, source_ref: cite(2) },
+    },
+    {
+      entity: "unit",
+      code: "unit_inventory_missing",
+      severity: "warning",
+      message:
+        'The source states "Total units: 377" but contains no per-unit identifier, room number or unit schedule. The stated total is preserved here; no unit row was created.',
+      payload: { stated_total_units: 377, source_ref: cite(2) },
+    },
+    {
+      entity: "unit",
+      code: "unit_types_missing",
+      severity: "warning",
+      message:
+        "No unit type schedule, bedroom breakdown or area schedule appears in the source. No unit row was created.",
+    },
+    {
+      entity: "price",
+      code: "price_list_missing",
+      severity: "warning",
+      message:
+        "No developer price list exists for this project in any inspected source root. No price row was created.",
+    },
+    {
+      entity: "price",
+      code: "investment_projections_not_prices",
+      severity: "warning",
+      message:
+        "Pages 4 to 7 carry a five-year investment model with entry/exit values, a bulk-purchase discount, capitalisation and rental-pool projections, ROI, IRR and an equity multiple. These are agency projections for a bulk investment pool, not developer prices or yields. They were deliberately not ingested and must never be rendered as a price, a price range or a yield promise.",
+      payload: {
+        source_ref: `${primary.citation}#pages=4-7`,
+        model_basis:
+          "Returns are calculated based on the Leasehold ownership structure (stated page 5).",
+      },
+    },
+    {
+      entity: "project",
+      field: "project_type",
+      code: "project_type_inconsistent",
+      severity: "warning",
+      message:
+        'The source disagrees with itself about the property type. Page 2 states "PREMIUM APART-HOTEL"; the page 4 financial annex states "Property Type: Condominiums". Page 2 is the project identity page and supplies project_type; both statements are recorded verbatim and neither was normalised away.',
+      payload: {
+        page_2: "PREMIUM APART-HOTEL",
+        page_4: "Condominiums",
+        source_refs: [cite(2), cite(4)],
+      },
+    },
+    {
+      entity: "project",
+      code: "project_scope_ambiguous",
+      severity: "warning",
+      message:
+        'The page 4 investment model is labelled "Layan Green Partk, фаза 2" — phase 2 — and covers 28 units over 2,457.7 sqm, while page 2 describes the project as 377 units across 4 buildings. The model therefore describes a subset or a later phase, not the whole project. This record models the page 2 project. The spelling "Partk" and the Russian "фаза 2" are the source\'s own, quoted rather than corrected.',
+      payload: {
+        annex_label: "Layan Green Partk, фаза 2",
+        annex_units: 28,
+        annex_sellable_area_sqm: 2457.7,
+        project_stated_units: 377,
+        source_refs: [cite(2), cite(4)],
+      },
+    },
+    {
+      entity: "project",
+      code: "related_project_name_in_source",
+      severity: "warning",
+      message:
+        'Page 6 of this project\'s own deck reads "LA GREEN HOTEL & RESIDENCE represents an attractive investment...". The onboarding register records "La Green Hotel & Residence Layan" as a separate provisional catalogue entry with no located source, and requires that it not be merged with Layan Green Park. This deck names it inside Layan Green Park material. The conflict is recorded, not resolved: no merge, no alias and no second record was created here, and an Owner ruling is required.',
+      payload: {
+        stated_name: "LA GREEN HOTEL & RESIDENCE",
+        source_ref: cite(6),
+        register_reference: "docs/FOREVER_CATALOG_10_ONBOARDING.md §6.11",
+      },
+    },
+    {
+      entity: "project",
+      code: "units_sold_snapshot",
+      severity: "info",
+      message:
+        'The source states "Units sold: 45%". That is a January 2026 snapshot, not a current availability figure, and it is recorded only with its date. It must never be rendered as current availability.',
+      payload: { stated: "45%", as_of: "2026-01", source_ref: cite(2) },
+    },
+    {
+      entity: "project",
+      code: "stated_facts_not_modelled",
+      severity: "info",
+      message:
+        "Source-stated facts with no column in the current schema were preserved here rather than discarded or forced into an unrelated field.",
+      payload: {
+        distance_to_beach: "700 m",
+        setting:
+          "Close to the sea, Sirinat National Park, five-star hotels and the Laguna resort; described as one of the key projects shaping the infrastructure of the Layan area.",
+        source_ref: `${primary.citation}#pages=2-3`,
+      },
+    },
+    {
+      entity: "media",
+      code: "media_not_ingested",
+      severity: "info",
+      message:
+        "Both documents contain embedded imagery only, with no standalone media assets. No media row was created and no asset was uploaded or made public.",
+      payload: deckVariantNote(primary, variant),
+    },
+    {
+      entity: "project",
+      field: "source_date",
+      code: "source_date_recorded",
+      severity: "info",
+      message:
+        'The deck states "INVESTMENT OPPORTUNITY / January / 2026" on its title page. That in-document statement is the source date; no file timestamp was used.',
+      payload: { source_date: "2026-01", source_ref: cite(1) },
+    },
+  ];
+
+  return emit("layan-green-park", {
+    schema_version: "1",
+    mode: "create",
+    project,
+    warnings,
+  });
+}
+
+function buildAyanaHeights() {
+  const primary = requireSource("ayanaHeightsPrimary");
+  const variant = requireSource("ayanaHeightsVariant");
+  const cite = (page) => `${primary.citation}#page=${page}`;
+
+  const project = {
+    slug: "ayana-heights-seaview-residence",
+    name: "AYANA Heights Seaview Residence",
+    developer_id: null,
+    location_id: null,
+    publish: false,
+    location_name_raw: "Layan",
+    location_area: "Layan",
+    project_type: "Premium apart-hotel",
+    field_provenance: {
+      name: provenance(cite(2), { sourceDate: "2026-01" }),
+      location_name_raw: provenance(cite(2), { sourceDate: "2026-01" }),
+      location_area: provenance(cite(2), { sourceDate: "2026-01" }),
+      project_type: provenance(cite(2), { sourceDate: "2026-01" }),
+    },
+  };
+
+  const warnings = [
+    {
+      entity: "developer",
+      code: "developer_unresolved",
+      severity: "warning",
+      message:
+        "No developer is named anywhere in the available source. Both documents are agency investment presentations produced by Sunthai Property, not developer material, so no raw developer name could be preserved either.",
+      payload: { source_documents: [primary.citation, variant.citation] },
+    },
+    {
+      entity: "location",
+      code: "location_unresolved",
+      severity: "warning",
+      message:
+        'No canonical location matches "Layan"; the raw value was preserved for later enrichment.',
+      payload: { raw_name: "Layan" },
+    },
+    {
+      entity: "project",
+      code: "country_missing",
+      severity: "warning",
+      message:
+        "No country is stated. The deck references Bang Tao and Laguna Phuket, but neither names the country. The investment model quotes Thai baht, which is a model currency and not a stated project country.",
+      payload: { source_refs: [cite(7), cite(4)] },
+    },
+    {
+      entity: "project",
+      field: "latitude",
+      code: "coordinates_missing",
+      severity: "info",
+      message: "No coordinates are stated in the source; latitude/longitude remain NULL.",
+    },
+    {
+      entity: "project",
+      field: "construction_status",
+      code: "construction_status_missing",
+      severity: "info",
+      message:
+        "No construction status is stated. The deck states a completion quarter only, which is recorded separately.",
+    },
+    {
+      entity: "project",
+      field: "completion_date",
+      code: "completion_quarter_only",
+      severity: "info",
+      message:
+        'The source states completion as "Q2-2027". A quarter is not a date, so completion_date remains NULL rather than being resolved to an invented day.',
+      payload: { stated: "Q2-2027", source_ref: cite(2) },
+    },
+    {
+      entity: "building",
+      code: "building_inventory_missing",
+      severity: "warning",
+      message:
+        'The source states "Buildings: 8" but gives no building identifiers, names, floor counts or unit counts. No building row was created, because inventing eight codes would fabricate structure.',
+      payload: { stated_count: 8, source_ref: cite(2) },
+    },
+    {
+      entity: "unit",
+      code: "unit_inventory_missing",
+      severity: "warning",
+      message:
+        'The source states "Total units: 543" but contains no per-unit identifier, room number or unit schedule. The stated total is preserved here; no unit row was created.',
+      payload: { stated_total_units: 543, source_ref: cite(2) },
+    },
+    {
+      entity: "unit",
+      code: "unit_types_missing",
+      severity: "warning",
+      message:
+        "No unit type schedule, bedroom breakdown or area schedule appears in the source. No unit row was created.",
+    },
+    {
+      entity: "price",
+      code: "price_list_missing",
+      severity: "warning",
+      message:
+        "No developer price list exists for this project in any inspected source root. No price row was created.",
+    },
+    {
+      entity: "price",
+      code: "investment_projections_not_prices",
+      severity: "warning",
+      message:
+        "Pages 4 to 6 carry a five-year investment model quoted in Thai baht, with an entry value, a bulk investment pool, a 15% discount, average price-per-sqm figures, an exit price and ROI tiers. These are agency projections for a bulk investment pool, not developer prices or yields. They were deliberately not ingested and must never be rendered as a price, a price range or a yield promise.",
+      payload: { source_ref: `${primary.citation}#pages=4-6` },
+    },
+    {
+      entity: "project",
+      code: "stated_facts_not_modelled",
+      severity: "info",
+      message:
+        "Source-stated facts with no column in the current schema were preserved here rather than discarded or forced into an unrelated field.",
+      payload: {
+        distance_to_beach: "400 m",
+        management: "A professional management company is in place",
+        setting:
+          "Close to the sea, Sirinat National Park, five-star hotels and the Laguna resort; described as one of the key projects shaping the infrastructure of the Layan area.",
+        source_ref: `${primary.citation}#pages=2-3`,
+      },
+    },
+    {
+      entity: "media",
+      code: "media_not_ingested",
+      severity: "info",
+      message:
+        "Both documents contain embedded imagery only, with no standalone media assets. No media row was created and no asset was uploaded or made public.",
+      payload: deckVariantNote(primary, variant),
+    },
+    {
+      entity: "project",
+      field: "source_date",
+      code: "source_date_recorded",
+      severity: "info",
+      message:
+        'The deck states "INVESTMENT OPPORTUNITY / January / 2026" on its title page. That in-document statement is the source date; no file timestamp was used.',
+      payload: { source_date: "2026-01", source_ref: cite(1) },
+    },
+  ];
+
+  return emit("ayana-heights-seaview-residence", {
+    schema_version: "1",
+    mode: "create",
+    project,
+    warnings,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 4. The Title Sierra — Passport Light plus the 2026-05-15 unit price list
 // ---------------------------------------------------------------------------
 
 const SIERRA_ROW =
@@ -1102,20 +1558,77 @@ function auditSierra(payload) {
 
 // ---------------------------------------------------------------------------
 
-const built = {
-  "rainpalm-villas": buildRainpalm(),
-  "garden-of-eden": buildGardenOfEden(),
-  "the-title-sierra": buildSierra(),
+/**
+ * A deck-derived Passport Light record must stay project-only. The decks state
+ * building and unit counts but no identifiers, so materialising any row here
+ * would be invention. Regression guard for the Wave 2 pair.
+ */
+function auditDeckOnly(slug, payload) {
+  for (const collection of ["buildings", "units", "prices", "media", "documents"]) {
+    const rows = payload[collection] ?? [];
+    if (rows.length) {
+      throw new Error(
+        `deck_record_violation: ${slug} emitted ${rows.length} ${collection} row(s); a deck with no identifiers must stay project-only.`,
+      );
+    }
+  }
+  const codes = new Set((payload.warnings ?? []).map((warning) => warning.code));
+  for (const required of [
+    "building_inventory_missing",
+    "unit_inventory_missing",
+    "price_list_missing",
+    "investment_projections_not_prices",
+  ]) {
+    if (!codes.has(required)) {
+      throw new Error(`deck_warning_missing: ${slug} is missing ${required}.`);
+    }
+  }
+  console.log(
+    `AUDIT ${slug}: project-only draft, ${(payload.warnings ?? []).length} warnings, no invented rows`,
+  );
+}
+
+const BUILDERS = {
+  "rainpalm-villas": buildRainpalm,
+  "garden-of-eden": buildGardenOfEden,
+  "the-title-sierra": buildSierra,
+  "layan-green-park": buildLayanGreenPark,
+  "ayana-heights-seaview-residence": buildAyanaHeights,
 };
+
+for (const slug of ONLY) {
+  if (!(slug in BUILDERS)) throw new Error(`unknown_project: --only=${slug}`);
+}
+
+const built = {};
+for (const [slug, build] of Object.entries(BUILDERS)) {
+  if (ONLY.length && !ONLY.includes(slug)) continue;
+  built[slug] = build();
+}
 
 for (const [slug, payload] of Object.entries(built)) {
   auditDraftOnly(slug, payload);
   auditNoDuplicateUnits(slug, payload);
   auditNumericsParsed(slug, payload);
 }
-auditRainpalm(built["rainpalm-villas"]);
-auditSierra(built["the-title-sierra"]);
-console.log("AUDIT garden-of-eden: owner_provided provenance, no invented facts");
+if (built["rainpalm-villas"]) auditRainpalm(built["rainpalm-villas"]);
+if (built["the-title-sierra"]) auditSierra(built["the-title-sierra"]);
+if (built["garden-of-eden"]) {
+  console.log("AUDIT garden-of-eden: owner_provided provenance, no invented facts");
+}
+for (const slug of ["layan-green-park", "ayana-heights-seaview-residence"]) {
+  if (built[slug]) auditDeckOnly(slug, built[slug]);
+}
+
+// Wave 2 gate G9: Layan's lapsed completion quarter must never read as current.
+if (
+  built["layan-green-park"] &&
+  !built["layan-green-park"].warnings.some(
+    (warning) => warning.code === "construction_status_stale",
+  )
+) {
+  throw new Error("layan_warning_missing: construction_status_stale");
+}
 
 for (const notice of softNotices) {
   console.log(
