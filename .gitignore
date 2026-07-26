@@ -84,3 +84,11 @@ forever-data/projects/coralina/source/*
 !forever-data/projects/coralina/source/*/
 forever-data/projects/coralina/source/*/*
 !forever-data/projects/coralina/source/*/.gitkeep
+# FOREVER-TITLE-LEGENDARY-001: only the Draft payload and the two-source
+# manifest are committed. Downloaded developer documents stay owner-local.
+!forever-data/projects/the-title-legendary/
+forever-data/projects/the-title-legendary/*
+!forever-data/projects/the-title-legendary/source-manifest.json
+!forever-data/projects/the-title-legendary/progressive/
+forever-data/projects/the-title-legendary/progressive/*
+!forever-data/projects/the-title-legendary/progressive/payload.json
