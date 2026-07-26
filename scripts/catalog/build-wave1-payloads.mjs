@@ -7,14 +7,28 @@
  *   - garden-of-eden   Passport Light from the January 2026 deck
  *   - the-title-sierra Passport Light plus the 2026-05-15 unit price list
  *
- * Wave 2 (FOREVER-CATALOG-10-006) — two deck-derived Passport Light records:
+ * Wave 2 (FOREVER-CATALOG-10-006) — deck-derived Passport Light:
  *
- *   - layan-green-park                Passport Light from the January 2026 deck
  *   - ayana-heights-seaview-residence Passport Light from the January 2026 deck
  *
- * The Wave 2 pair carries no buildings, units or prices. Their decks state
- * building and unit *counts* but no identifiers and no price list, so the counts
- * are preserved as warnings rather than materialised as invented rows.
+ * AYANA carries no buildings, units or prices. Its deck states building and unit
+ * *counts* but no identifiers and no price list, so the counts are preserved as
+ * warnings rather than materialised as invented rows.
+ *
+ * Layan (FOREVER-CATALOG-10-008) — rebuilt from current developer-side sources:
+ *
+ *   - layan-green-park                Phase 1, from the Phase 1 project guide
+ *                                     and the Phase 1 price list
+ *
+ * Layan is no longer part of the deck family. Its January 2026 agency deck pair
+ * was superseded by two current documents that disagree with it on the unit
+ * total, the property type, the completion state, the area name and the beach
+ * distance, so the record was rebuilt rather than patched. It carries a real
+ * price list, but that price list is type-level: five typology bands, no unit
+ * identifier anywhere. It therefore still emits zero price rows, because a price
+ * row needs a unit_code and inventing one would fabricate inventory. Every fact
+ * is scoped to Phase 1, and every transcribed value is asserted back against the
+ * pinned document bytes at build time.
  *
  * Coralina is NOT rebuilt. Its canonical package already exists, validates and
  * reproduces its recorded hashes; re-deriving it would risk drift.
@@ -137,19 +151,37 @@ const SOURCES = {
     bytes: 6885501,
   },
 
-  // Wave 2. Two decks per project from the same January 2026 Sunthai Property
-  // family as Garden of Eden. The second file of each pair is a shorter variant
-  // of the same English deck, not a translation — see `deckVariantNote`.
-  layanGreenParkPrimary: {
-    citation: "Layan Green Park - eng.pdf",
-    sha256: "1203065c56b0bdbe97bdc190e09af7c9392df53ff4a1695e215d9705d59c70a2",
-    bytes: 7338210,
+  // Layan Green Park Phase 1 (FOREVER-CATALOG-10-008). These two documents
+  // replace the January 2026 Sunthai Property deck pair entirely: they are the
+  // developer-side Phase 1 guide and Phase 1 price list, and every fact in the
+  // Layan payload now comes from them.
+  //
+  // `strictPin` is mandatory here. The Phase 1 and Phase 2 folders of the same
+  // Drive tree each hold a file called "Layan Green Park project guide.pdf" and
+  // a file called "Layan Green Park price list.pdf". The names are identical;
+  // only the digest and the Drive file ID separate them. The ordinary
+  // newest-mtime fallback would therefore be free to substitute Phase 2 content
+  // into a Phase 1 record without anything looking wrong, so these two refuse to
+  // resolve at all unless the pinned digest matches.
+  layanPhase1Guide: {
+    citation: "Layan Green Park project guide.pdf",
+    sha256: "b01ef1e39b9a0c6558230db7d8e7f34caee16c779f8966e8dec2a70c14a19dd4",
+    bytes: 25417328,
+    strictPin: true,
+    driveFileId: "1S121eHy6YuHnhXcr3Xco5VTy65TWr2bR",
+    driveParentFolderId: "1Y7bxJp1PnI7h_UgVhZl3HwfVoBK68u7a",
+    driveFolderPath: "PHASE 1 / 1. ENGLISH VERSION",
   },
-  layanGreenParkVariant: {
-    citation: "Layan Green Park.pdf",
-    sha256: "e7beee1d6dce124d05ec7f3c84584afbabc9024b143908d36c56abf500b79c81",
-    bytes: 3066949,
+  layanPhase1PriceList: {
+    citation: "Layan Green Park price list.pdf",
+    sha256: "e91695a0ac52dfc502fc9b6cc64e7c472432a8e5be4e26c07fb60540e40278d3",
+    bytes: 6798516,
+    strictPin: true,
+    driveFileId: "1OaKT8DqmmIVj62qau_m8jm76CxebpnSO",
+    driveParentFolderId: "1degE4Hc-kd7xFRoCn3_OfxvXP7Vw4Q7L",
+    driveFolderPath: "PHASE 1 / 1. ENGLISH VERSION / 4. Price lists - Phase 1",
   },
+
   ayanaHeightsPrimary: {
     citation: "AYANA Heights Seaview Residence - eng.pdf",
     sha256: "98c34b692ea1eae50af9eb84a2dbe73ea2e4842b32d1990926fd51ec82b79711",
@@ -294,6 +326,12 @@ const softNotices = [];
  * simply picks the intended copy. If no copy matches the pin, the package has
  * moved on — the build takes the newest candidate, records a soft notice, and
  * continues. Only a file that cannot be found or read is fatal.
+ *
+ * A source marked `strictPin` opts out of that fallback. It exists for documents
+ * whose filename is genuinely ambiguous across packages — two phases of the same
+ * project shipping identically named files — where taking "the newest one" could
+ * silently swap the document's meaning rather than merely its version. For those,
+ * a digest miss is fatal.
  */
 function requireSource(key) {
   const source = SOURCES[key];
@@ -325,6 +363,15 @@ function requireSource(key) {
     (item) => item.sha256 === source.sha256 && item.bytes === source.bytes,
   );
   if (pinned) return { ...source, path: pinned.path };
+
+  if (source.strictPin) {
+    throw new Error(
+      `source_pin_mismatch: no copy of ${source.citation} matches the pinned digest ` +
+        `${source.sha256} (${source.bytes} bytes). ${candidates.length} candidate(s) were read. ` +
+        `This source is strictly pinned because the filename alone does not identify the ` +
+        `document, so the build refuses to substitute a different one.`,
+    );
+  }
 
   // No copy matches the pin. Prefer the newest — the clearest available version
   // signal — and preserve what changed rather than refusing to build.
@@ -359,6 +406,57 @@ function pdfToTableText(path) {
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
+}
+
+/**
+ * `pdftotext -layout`, UTF-8. Unlike `-table` this mode carries no Xpdf-only
+ * contract, so it runs on any pdftotext build and needs no vendor assertion.
+ */
+function pdfToLayoutText(path) {
+  const workspace = mkdtempSync(join(tmpdir(), "forever-layout-"));
+  try {
+    const out = join(workspace, "out.txt");
+    execFileSync("pdftotext", ["-layout", "-enc", "UTF-8", path, out], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return readFileSync(out, "utf8");
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Collapse whitespace so a transcribed phrase can be located in extracted text
+ * regardless of how the extractor broke lines or padded columns. Thin, narrow
+ * and non-breaking spaces are folded to an ordinary space; nothing else is
+ * altered, so a Cyrillic character in the source stays Cyrillic here.
+ */
+function normalizeExtractedText(text) {
+  return text
+    .replace(/[    ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Assert that every transcribed phrase really occurs in the pinned document.
+ *
+ * The digest pin proves which bytes were read; this proves the payload's
+ * hand-transcribed facts still describe those bytes. Together they are what
+ * makes the record reproducible rather than merely stable. A phrase that no
+ * longer occurs is fatal: the document moved on and the transcription must be
+ * re-derived by a human, not silently kept.
+ */
+function assertTranscribedFacts(label, extractedText, phrases) {
+  const haystack = normalizeExtractedText(extractedText);
+  const missing = phrases.filter((phrase) => !haystack.includes(normalizeExtractedText(phrase)));
+  if (missing.length) {
+    throw new Error(
+      `source_text_missing: ${label} no longer contains ${missing.length} transcribed phrase(s). ` +
+        `First: ${JSON.stringify(missing[0])}`,
+    );
+  }
+  return phrases.length;
 }
 
 /**
@@ -758,21 +856,23 @@ function buildGardenOfEden() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Wave 2 deck pair — Layan Green Park and AYANA Heights Seaview Residence
+// 3. AYANA Heights Seaview Residence — Wave 2 deck record
 //
-// Both come from the same January 2026 Sunthai Property deck family as Garden
-// of Eden and are built the same way: source-stated facts are transcribed with
-// a page citation, and anything the deck does not state stays absent behind a
-// warning. Neither deck contains a price list or any per-unit identifier, so
-// both records are project-only — zero buildings, zero units, zero prices.
+// Comes from the same January 2026 Sunthai Property deck family as Garden of
+// Eden and is built the same way: source-stated facts are transcribed with a
+// page citation, and anything the deck does not state stays absent behind a
+// warning. The deck contains no price list and no per-unit identifier, so the
+// record is project-only — zero buildings, zero units, zero prices.
+//
+// Layan Green Park no longer belongs to this family; see section 3b.
 // ---------------------------------------------------------------------------
 
 /**
- * Each project ships two PDFs. The second is NOT a translation: its text layer
- * is the same English deck with the closing agency-contact page removed. The
- * onboarding register describes these second files as Russian; that label does
- * not survive inspection of the documents' own text, so it is not repeated in
- * the payloads. Recorded per document rather than asserted globally.
+ * AYANA ships two PDFs. The second is NOT a translation: its text layer is the
+ * same English deck with the closing agency-contact page removed. The onboarding
+ * register describes that second file as Russian; the label does not survive
+ * inspection of the document's own text, so it is not repeated in the payload.
+ * Recorded per document rather than asserted globally.
  */
 function deckVariantNote(primary, variant) {
   return {
@@ -795,10 +895,289 @@ function deckVariantNote(primary, variant) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// 3b. Layan Green Park — Phase 1, from the current developer-side documents
+//
+// This record is no longer deck-derived. It is built from the Phase 1 project
+// guide and the Phase 1 price list, and it replaces a payload derived from a
+// January 2026 agency deck pair that stated a different unit total, a different
+// property type, a lapsed completion quarter and a beach distance in metres —
+// none of which occurs in the current evidence.
+//
+// Three properties make this record honest, and each is enforced rather than
+// asserted:
+//
+//   - Every fact is scoped to Phase 1. The guide covers both phases and gives
+//     them different figures, so an unscoped project-level claim would be false
+//     for one of them.
+//   - The price list is type-level. It states five typology bands and no unit
+//     identifier at all, so it produces zero price rows: a price row needs a
+//     unit_code, and inventing one would fabricate inventory.
+//   - Every transcribed value is asserted back against the pinned bytes at build
+//     time, so a typo cannot reach the payload and a changed document cannot
+//     pass silently.
+// ---------------------------------------------------------------------------
+
+/** Digit grouping with spaces, matching how both documents print numbers. */
+function spaceGrouped(value) {
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
+/** Four decimal places, enough to separate the document's distinct FX rates. */
+function round4(value) {
+  return Math.round(value * 10000) / 10000;
+}
+
+/** Two decimal places, the precision at which the document quotes a rate. */
+function round2(value) {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * The Phase 1 price list, page 1, transcribed verbatim. `size_text` keeps the
+ * source's own characters: the duplex row really does print a Cyrillic м and a
+ * comma decimal separator where the other four print a Latin m and a point.
+ * `sold_state` is null unless the document itself prints a state.
+ */
+const LAYAN_PHASE1_PRICE_BANDS = [
+  {
+    type_label: "Studios",
+    size_text: "from 30.3 m2",
+    size_from_sqm: 30.3,
+    from_thb: 5000000,
+    from_usd: 150286,
+    to_thb: 10371600,
+    to_usd: 311740,
+    sold_state: null,
+  },
+  {
+    type_label: "1-BR",
+    size_text: "from 45.4 m2",
+    size_from_sqm: 45.4,
+    from_thb: 9034600,
+    from_usd: 271554,
+    to_thb: 14086800,
+    to_usd: 423408,
+    sold_state: null,
+  },
+  {
+    type_label: "2-BR",
+    size_text: "from 90.4 m2",
+    size_from_sqm: 90.4,
+    from_thb: 16398000,
+    from_usd: 492876,
+    to_thb: 30240000,
+    to_usd: 908927,
+    sold_state: null,
+  },
+  {
+    type_label: "3-BR",
+    size_text: "from 126.6 m2",
+    size_from_sqm: 126.6,
+    from_thb: 28000000,
+    from_usd: 841599,
+    to_thb: 38000000,
+    to_usd: 1142170,
+    sold_state: null,
+  },
+  {
+    type_label: "Duplexes",
+    size_text: "from 120,9 м2",
+    // The document overlaps two text runs here: "from" and "SOLD" occupy the
+    // same horizontal space, so extraction interleaves them character by
+    // character into "fSroOmLD". That interleaving is the evidence for the SOLD
+    // state — it is not noise, and the assertion is made against it rather than
+    // against the reconstructed reading, so the reconstruction stays checkable.
+    size_text_extracted: "fSroOmLD120,9 м2",
+    size_from_sqm: 120.9,
+    from_thb: 38230971,
+    from_usd: 1215998,
+    to_thb: 49499178,
+    to_usd: 1574401,
+    sold_state: "SOLD",
+  },
+];
+
+/**
+ * The Phase 1 column of the guide's layout-solutions table. The table's two
+ * columns are unlabelled in the document, so this attribution is derived, not
+ * stated; the derivation and its three corroborations are recorded in the
+ * `price_band_phase_scope_derived` warning. Kept separate from the price-list
+ * bands above so guide evidence and price-list evidence never merge.
+ */
+const LAYAN_PHASE1_GUIDE_BANDS = [
+  {
+    type_label: "STUDIOS",
+    size_text: "30-48 m2",
+    from_thb: 5000000,
+    from_usd: 150286,
+    sold_state: null,
+  },
+  {
+    type_label: "ONE-BEDROOM",
+    size_text: "45-67 m2",
+    from_thb: 9034600,
+    from_usd: 271554,
+    sold_state: null,
+  },
+  {
+    type_label: "TWO-BEDROOM",
+    size_text: "90-144 m2",
+    from_thb: 16398000,
+    from_usd: 492876,
+    sold_state: null,
+  },
+  {
+    type_label: "THREE-BEDROOM",
+    size_text: "127-130 m2",
+    from_thb: 28000000,
+    from_usd: 841599,
+    sold_state: null,
+  },
+  {
+    type_label: "DUPLEXES",
+    size_text: "109 m2",
+    from_thb: null,
+    from_usd: null,
+    sold_state: "Sold",
+  },
+];
+
+/**
+ * Guide size floor against price-list size floor, per typology. Four pairs are
+ * consistent with the guide rounding to whole square metres; the duplex pair is
+ * not, and that is the point of recording all five.
+ */
+const LAYAN_PHASE1_SIZE_COMPARISONS = LAYAN_PHASE1_GUIDE_BANDS.map((guideBand, index) => {
+  const priceBand = LAYAN_PHASE1_PRICE_BANDS[index];
+  return {
+    guide_type_label: guideBand.type_label,
+    guide_size_text: guideBand.size_text,
+    price_list_type_label: priceBand.type_label,
+    price_list_size_text: priceBand.size_text,
+    price_list_size_from_sqm: priceBand.size_from_sqm,
+    explained_by_rounding: Math.abs(priceBand.size_from_sqm - parseFloat(guideBand.size_text)) < 1,
+  };
+});
+
+/**
+ * Phase 1 guide phrases asserted against the pinned guide bytes. Transcribed
+ * with the document's own characters, so the apostrophes are U+2019 and the
+ * building separators are U+2014 em dashes, not ASCII lookalikes.
+ */
+const LAYAN_PHASE1_GUIDE_PHRASES = [
+  "LAYAN GREEN PARK is Phuket’s first eco-friendly development, officially recognized and certified by the international EDGE standard.",
+  "Located in Bang Tao, the island’s most prestigious area",
+  "is just two minutes from the serene, white-sand Layan Beach, stretching for seven kilometers.",
+  "phuket | thailand",
+  "First premium",
+  "condo-hotel",
+  "certificated",
+  "by EDGE",
+  "Two construction phases",
+  "Construction completed",
+  "in 2024",
+  "30 m² - 144 m²",
+  "9 940 m²",
+  "Number of buildings",
+  "Number of apartments",
+  "248",
+  "of construction completed",
+  "increase in the value of apartments",
+  "Over 60%",
+  "of apartments sold",
+  "296",
+  "37 m² - 269 m²",
+  "16 673 m²",
+  "Completion of construction",
+  "Infrastructure",
+  "Building A —",
+  "Mangosteen",
+  "Building D —",
+  "Duplex",
+  "Layan beach, shuttle",
+  "2 MIN",
+  "A total of 20,000 sq. m. of on-site facilities",
+  "over 40% of the",
+  "Layout solutions",
+  "30+ planning options",
+  "from 30 to 269 m² | from studios to duplexes",
+  "Price valid as of July 1, 2026",
+  "transfers 60% of net profit to the owners.",
+  "Reservation deposit of THB 200,000.",
+  "increase by 10-15%",
+  "layangreenpark.com",
+];
+
+/** Phase 1 price-list phrases asserted against the pinned price-list bytes. */
+const LAYAN_PHASE1_PRICE_PHRASES = [
+  "The cost of apartments",
+  "discover the latest pricing in the",
+  "price valid as of July 1, 2026",
+  "1 USD = 33.3 THB",
+  "1 USD = 31,25 THB",
+  "02.02.2026",
+];
+
 function buildLayanGreenPark() {
-  const primary = requireSource("layanGreenParkPrimary");
-  const variant = requireSource("layanGreenParkVariant");
-  const cite = (page) => `${primary.citation}#page=${page}`;
+  const guide = requireSource("layanPhase1Guide");
+  const priceList = requireSource("layanPhase1PriceList");
+
+  // The guide is a single Figma artboard exported as one PDF page, so a page
+  // number carries no information. Sections are cited by the heading the
+  // document itself prints.
+  const guideCite = (section) => `${guide.citation}#page=1;section=${section}`;
+  const priceCite = (page) => `${priceList.citation}#page=${page}`;
+
+  const guideText = pdfToLayoutText(guide.path);
+  const priceText = pdfToLayoutText(priceList.path);
+
+  // Every transcribed value below is asserted back against the pinned bytes, so
+  // a typo here cannot reach the payload and a changed document cannot pass
+  // silently. The phrase lists are generated from the same constants that
+  // populate the payload, never written out twice.
+  const priceBandPhrases = LAYAN_PHASE1_PRICE_BANDS.flatMap((band) => [
+    band.type_label,
+    band.size_text_extracted ?? band.size_text,
+    `from ${spaceGrouped(band.from_thb)} THB | ${spaceGrouped(band.from_usd)} USD`,
+    `to ${spaceGrouped(band.to_thb)} THB | ${spaceGrouped(band.to_usd)} USD`,
+  ]);
+  const guideBandPhrases = LAYAN_PHASE1_GUIDE_BANDS.flatMap((band) =>
+    band.from_thb === null
+      ? [band.type_label, band.size_text, band.sold_state]
+      : [
+          band.type_label,
+          band.size_text,
+          `from ${spaceGrouped(band.from_thb)} THB`,
+          `from ${spaceGrouped(band.from_usd)} USD`,
+        ],
+  );
+
+  const guidePhrasesVerified = assertTranscribedFacts(guide.citation, guideText, [
+    ...LAYAN_PHASE1_GUIDE_PHRASES,
+    ...guideBandPhrases,
+  ]);
+  const pricePhrasesVerified = assertTranscribedFacts(priceList.citation, priceText, [
+    ...LAYAN_PHASE1_PRICE_PHRASES,
+    ...priceBandPhrases,
+  ]);
+
+  // Implied rates are computed, never transcribed, so they cannot disagree with
+  // the band values they are derived from.
+  const impliedRates = LAYAN_PHASE1_PRICE_BANDS.map((band) => ({
+    type_label: band.type_label,
+    implied_from_rate: round4(band.from_thb / band.from_usd),
+    implied_to_rate: round4(band.to_thb / band.to_usd),
+  }));
+  // Grouped at two decimals. The per-band figures above differ in their last
+  // digits only because the document's USD column is rounded to whole dollars,
+  // so quoting the 4-decimal values as distinct rates would invent a difference
+  // the document does not have. There are two implied rates, not eight.
+  const impliedRateGroups = [
+    ...new Set(
+      impliedRates.flatMap((row) => [round2(row.implied_from_rate), round2(row.implied_to_rate)]),
+    ),
+  ].sort((a, b) => a - b);
 
   const project = {
     slug: "layan-green-park",
@@ -806,182 +1185,457 @@ function buildLayanGreenPark() {
     developer_id: null,
     location_id: null,
     publish: false,
-    location_name_raw: "Layan",
-    location_area: "Layan",
-    project_type: "Premium apart-hotel",
+    location_name_raw: "Bang Tao",
+    location_area: "Bang Tao",
+    project_type: "Premium condo-hotel",
     field_provenance: {
-      name: provenance(cite(2), { sourceDate: "2026-01" }),
-      location_name_raw: provenance(cite(2), { sourceDate: "2026-01" }),
-      location_area: provenance(cite(2), { sourceDate: "2026-01" }),
-      project_type: provenance(cite(2), {
-        sourceDate: "2026-01",
-        note: 'Page 2 states "PREMIUM APART-HOTEL". The page 4 financial annex states "Property Type: Condominiums"; the disagreement is recorded as project_type_inconsistent rather than resolved here.',
+      name: provenance(guideCite("Two construction phases"), { sourceDate: "2026-07-01" }),
+      location_name_raw: provenance(guideCite("Overview"), {
+        sourceDate: "2026-07-01",
+        note: 'The guide states "Located in Bang Tao, the island’s most prestigious area". The earlier deck-derived record said "Layan", which this source does not support as the area name; Layan is named only as the neighbouring beach.',
+      }),
+      location_area: provenance(guideCite("Overview"), { sourceDate: "2026-07-01" }),
+      project_type: provenance(guideCite("Overview"), {
+        sourceDate: "2026-07-01",
+        note: 'The guide states "First premium condo-hotel certificated by EDGE". Neither current source contains the earlier deck\'s "PREMIUM APART-HOTEL" or "Condominiums" wording, so the previously recorded project_type_inconsistent conflict has no basis in the current evidence and was removed rather than carried forward.',
       }),
     },
   };
 
   const warnings = [
     {
+      entity: "project",
+      code: "phase_scope_phase_1_only",
+      severity: "warning",
+      message:
+        "Every fact in this record is scoped to Phase 1. The guide describes two phases under one project name and states different figures for each, so a project-level assertion would be false for one of them. The slug names the whole project; the content does not. Phase 2 figures appear below only where they are needed to show how a Phase 1 reading was established, and are never ingested as Phase 1 values.",
+      payload: {
+        phase: "Phase 1",
+        phase_1_stated: {
+          buildings: 4,
+          apartments: 248,
+          apartment_size: "30 m² - 144 m²",
+          site_area: "9 940 m²",
+          construction: "Construction completed in 2024",
+          construction_completed_share: "100%",
+        },
+        phase_2_stated_not_ingested: {
+          buildings: 6,
+          apartments: 296,
+          apartment_size: "37 m² - 269 m²",
+          site_area: "16 673 m²",
+          completion_of_construction: "2026",
+          apartments_sold: "Over 60%",
+        },
+        source_refs: [guideCite("Two construction phases"), guideCite("Project information")],
+      },
+    },
+    {
+      entity: "project",
+      code: "phase_2_sources_not_ingested",
+      severity: "warning",
+      message:
+        "An equally current Phase 2 guide and Phase 2 price list exist in the same Drive tree and were deliberately not retrieved or ingested by this task. They are not stale, superseded or missing — they are out of scope. Critically, the Phase 2 files carry byte-for-byte identical filenames to the two Phase 1 files ingested here, so a filename alone never identifies which phase a document describes; only the Drive file ID and the SHA-256 digest do. Anything that resolves these documents by name must pin the digest.",
+      payload: {
+        phase_2_documents: [
+          {
+            file: "Layan Green Park project guide.pdf",
+            drive_file_id: "1MMNrkdkL7ftf7RbvRrEh9gLnapMBaZXh",
+            drive_folder_path: "PHASE 2 / 1. ENGLISH VERSION",
+            ingested: false,
+          },
+          {
+            file: "Layan Green Park price list.pdf",
+            drive_file_id: "1lb-VXuvtaFvWyPE4H4s1CF0x2lqUmS8F",
+            drive_folder_path: "PHASE 2 / 1. ENGLISH VERSION / 4. Price lists - Phase 2",
+            ingested: false,
+          },
+        ],
+        filename_collision_with_phase_1: true,
+      },
+    },
+    {
       entity: "developer",
       code: "developer_unresolved",
       severity: "warning",
       message:
-        "No developer is named anywhere in the available source. Both documents are agency investment presentations produced by Sunthai Property, not developer material, so no raw developer name could be preserved either.",
-      payload: { source_documents: [primary.citation, variant.citation] },
+        "Neither current source names a developer, a legal entity or a seller. No canonical developer could be resolved and no raw developer name could be preserved either, because there is none to preserve. The guide is developer-side project material rather than agency material, but it never identifies its own publisher beyond the project website.",
+      payload: {
+        source_documents: [guide.citation, priceList.citation],
+        only_publisher_signal: "layangreenpark.com",
+        note: 'The same Drive tree contains a folder named "10. Developer\'s portfolio" for both phases. It was not retrieved: this task is bounded to the two verified documents, and resolving the developer from an unretrieved folder would be inference. That folder is the obvious next evidence source.',
+      },
     },
     {
       entity: "location",
       code: "location_unresolved",
       severity: "warning",
       message:
-        'No canonical location matches "Layan"; the raw value was preserved for later enrichment.',
-      payload: { raw_name: "Layan" },
+        'The guide states "Located in Bang Tao, the island’s most prestigious area" and prints "phuket | thailand" as a running header. No canonical location row was resolved offline, so the raw values were preserved for later enrichment. The earlier record\'s area value "Layan" is not supported by this source: Layan appears only as the name of the neighbouring beach.',
+      payload: {
+        raw_name: "Bang Tao",
+        island: "Phuket",
+        country: "Thailand",
+        source_refs: [guideCite("Overview"), guideCite("Two construction phases")],
+      },
     },
     {
       entity: "project",
-      code: "country_missing",
-      severity: "warning",
+      code: "country_stated_not_modelled",
+      severity: "info",
       message:
-        "No country is stated. The deck references Bang Tao and Laguna Phuket, but neither names the country, so currency cannot be inferred.",
-      payload: { source_ref: cite(8) },
+        'The country is directly stated. The guide prints "phuket | thailand" as a running header on four sections. The projects table has no country column — country lives on locations — so the value is preserved here and belongs to the canonical location this project is later attached to. This supersedes the earlier country_missing warning, which is no longer true of the current evidence.',
+      payload: {
+        country: "Thailand",
+        province: "Phuket",
+        stated_as: "phuket | thailand",
+        supersedes: "country_missing",
+      },
     },
     {
       entity: "project",
       field: "latitude",
       code: "coordinates_missing",
       severity: "info",
-      message: "No coordinates are stated in the source; latitude/longitude remain NULL.",
+      message: "No coordinates are stated in either source; latitude/longitude remain NULL.",
     },
     {
       entity: "project",
       field: "construction_status",
-      code: "construction_status_missing",
-      severity: "info",
-      message:
-        "No construction status is stated. The deck states a completion quarter only, which is recorded separately.",
-    },
-    {
-      entity: "project",
-      field: "construction_status",
-      code: "construction_status_stale",
+      code: "construction_status_phase_dependent",
       severity: "warning",
       message:
-        'The source states completion as "Q1-2026". That quarter had already closed when the deck was issued in January 2026 and is further in the past now, so it must not be presented as a current readiness state. A current construction or handover update is required before publication.',
+        'Phase 1 is stated complete — "Construction completed in 2024" and "100% of construction completed" — while the same guide gives Phase 2 a completion of 2026. A single project-level construction_status would therefore misstate one phase, so the column stays NULL and both stated states are preserved here. This replaces the earlier construction_status_stale warning, whose lapsed completion quarter is listed under superseded_source_claims_removed.',
       payload: {
-        stated_completion: "Q1-2026",
-        source_date: "2026-01",
-        source_ref: cite(2),
+        phase_1: {
+          stated: "Construction completed in 2024",
+          completed_share: "100%",
+          source_refs: [guideCite("Two construction phases"), guideCite("Project information")],
+        },
+        phase_2_not_ingested: { completion_of_construction: "2026" },
+        supersedes: ["construction_status_stale", "construction_status_missing"],
       },
     },
     {
       entity: "project",
       field: "completion_date",
-      code: "completion_quarter_only",
+      code: "completion_year_only",
       severity: "info",
       message:
-        'The source states completion as "Q1-2026". A quarter is not a date, so completion_date remains NULL rather than being resolved to an invented day.',
-      payload: { stated: "Q1-2026", source_ref: cite(2) },
+        'Phase 1 completion is stated as a year — "in 2024" — not a date. A year is not a date, so completion_date remains NULL rather than being resolved to an invented month and day.',
+      payload: { stated: "2024", source_ref: guideCite("Two construction phases") },
     },
     {
       entity: "building",
       code: "building_inventory_missing",
       severity: "warning",
       message:
-        'The source states "Buildings: 4" but gives no building identifiers, names, floor counts or unit counts. No building row was created, because inventing four codes would fabricate structure.',
-      payload: { stated_count: 4, source_ref: cite(2) },
+        'The guide states "Number of buildings: 4" for Phase 1 but never lists which buildings those are. Its infrastructure section does name eleven buildings — A Mangosteen, B Leelawadee, C Colibri, D Duplex, F, G, H, J1, J2, K and L — but assigns none of them to a phase, and eleven names cannot be reconciled with the stated 4 + 6 = 10 buildings across both phases. Selecting four of those names as the Phase 1 set would be inference, so no building row was created.',
+      payload: {
+        stated_phase_1_count: 4,
+        named_buildings_unassigned_to_phase: [
+          "Building A — Mangosteen",
+          "Building B — Leelawadee",
+          "Building C — Colibri",
+          "Building D — Duplex",
+          "Building F",
+          "Building G",
+          "Building H",
+          "Building J1",
+          "Building J2",
+          "Building K",
+          "Building L",
+        ],
+        stated_total_buildings_both_phases: 10,
+        named_building_labels_observed: 11,
+        source_refs: [guideCite("Two construction phases"), guideCite("Infrastructure")],
+      },
     },
     {
       entity: "unit",
       code: "unit_inventory_missing",
       severity: "warning",
       message:
-        'The source states "Total units: 377" but contains no per-unit identifier, room number or unit schedule. The stated total is preserved here; no unit row was created.',
-      payload: { stated_total_units: 377, source_ref: cite(2) },
+        "The guide states 248 apartments for Phase 1, twice and consistently. Neither source contains a unit number, a room number, a floor schedule or any other per-unit identifier, so the stated total is preserved here and no unit row was created. The total this record previously carried came from a superseded document and is listed under superseded_source_claims_removed.",
+      payload: {
+        stated_phase_1_apartments: 248,
+        source_refs: [guideCite("Two construction phases"), guideCite("Project information")],
+      },
     },
     {
       entity: "unit",
-      code: "unit_types_missing",
+      code: "unit_types_type_level_only",
       severity: "warning",
       message:
-        "No unit type schedule, bedroom breakdown or area schedule appears in the source. No unit row was created.",
+        'Five apartment typologies are stated with size bands — studios, one-bedroom, two-bedroom, three-bedroom and duplexes — and the guide advertises "30+ planning options from 30 to 269 m² | from studios to duplexes" across both phases. A typology is not a unit: there is no schedule mapping any typology to a countable set of identified apartments, so no unit row was created. This replaces the earlier unit_types_missing warning, which is no longer true — types are stated, individual units are not.',
+      payload: {
+        typologies: LAYAN_PHASE1_PRICE_BANDS.map((band) => band.type_label),
+        planning_options_both_phases: "30+ planning options from 30 to 269 m²",
+        supersedes: "unit_types_missing",
+        source_refs: [guideCite("Layout solutions"), priceCite(1)],
+      },
     },
     {
       entity: "price",
-      code: "price_list_missing",
+      code: "price_bands_type_level_only",
       severity: "warning",
       message:
-        "No developer price list exists for this project in any inspected source root. No price row was created.",
+        'A current Phase 1 price list exists and is ingested here as type-level bands, which is the only shape the source actually has. It states a minimum size and a THB and USD price range for each of five typologies. It contains no unit identifier, no per-unit price, no inventory and no availability column, and it explicitly defers to the project website for "the latest pricing", so no price row was created: a price row requires a unit_code, and manufacturing one would invent inventory the source does not have. This replaces the earlier price_list_missing warning, which is no longer true.',
+      payload: {
+        price_list_date: "2026-07-01",
+        stated_as: "price valid as of July 1, 2026",
+        currencies_quoted: ["THB", "USD"],
+        bands: LAYAN_PHASE1_PRICE_BANDS,
+        band_count: LAYAN_PHASE1_PRICE_BANDS.length,
+        building_level_bands_present: false,
+        supersedes: "price_list_missing",
+        source_ref: priceCite(1),
+        document_defers_to:
+          'The cost of apartments … discover the latest pricing in the "Unit plans and prices" section of our website.',
+      },
     },
     {
       entity: "price",
-      code: "investment_projections_not_prices",
+      field: "currency",
+      code: "price_fx_inconsistent",
       severity: "warning",
       message:
-        "Pages 4 to 7 carry a five-year investment model with entry/exit values, a bulk-purchase discount, capitalisation and rental-pool projections, ROI, IRR and an equity multiple. These are agency projections for a bulk investment pool, not developer prices or yields. They were deliberately not ingested and must never be rendered as a price, a price range or a yield promise.",
+        "The price list disagrees with itself about the THB/USD rate in four different ways, so its USD column cannot be treated as a reliable conversion of its THB column. Page 1 prints one rate, page 2 prints another, the studio-to-three-bedroom rows imply a third, and the duplex row implies a fourth. Both currencies are preserved exactly as printed and neither was recomputed, rounded or normalised to a single rate.",
       payload: {
-        source_ref: `${primary.citation}#pages=4-7`,
-        model_basis:
-          "Returns are calculated based on the Leasehold ownership structure (stated page 5).",
+        stated_rate_page_1: "1 USD = 33.3 THB",
+        stated_rate_page_2: "1 USD = 31,25 THB",
+        implied_by_band: impliedRates,
+        implied_rate_groups: impliedRateGroups,
+        implied_rate_precision_note:
+          "Per-band figures are given to four decimals and vary in their last digits only because the document rounds its USD column to whole dollars. Grouped to two decimals there are two implied rates, not eight.",
+        note: "The duplex row is the outlier at 31.44, and it is also the only row printed with a Cyrillic м and a comma decimal separator — see price_band_source_anomalies.",
+        source_refs: [priceCite(1), priceCite(2)],
+      },
+    },
+    {
+      entity: "price",
+      code: "price_band_phase_scope_derived",
+      severity: "warning",
+      message:
+        'The price list never says "Phase 1" anywhere in its own text. Its Phase 1 scope rests on its Drive location — it is the only file in the folder "4. Price lists - Phase 1" — corroborated by three independent arithmetic identities against the guide. The scope is therefore well-supported but derived, not stated, and it is recorded as derived so it can be audited rather than trusted.',
+      payload: {
+        basis: "drive_folder_path",
+        drive_folder_path: "PHASE 1 / 1. ENGLISH VERSION / 4. Price lists - Phase 1",
+        drive_file_id: "1OaKT8DqmmIVj62qau_m8jm76CxebpnSO",
+        in_document_phase_statement: null,
+        corroborations: [
+          'The guide\'s layout-solutions table has two unlabelled columns. One spans 30-144 m², exactly the stated Phase 1 range "30 m² - 144 m²"; the other spans 37-269 m², exactly the stated Phase 2 range "37 m² - 269 m²".',
+          "All four non-duplex THB floor prices in that first column are identical to the four non-duplex THB floor prices in this price list.",
+          "That first column marks DUPLEXES as Sold while the second column marks STUDIOS as Sold; this price list marks Duplexes as SOLD, matching the first column.",
+        ],
+        uncorroborated_band: {
+          type_label: "Duplexes",
+          reason:
+            "Its 120,9 m² floor matches neither the 109 m² the guide gives Phase 1 duplexes nor the 208-269 m² it gives Phase 2 duplexes, and it is the one band whose implied FX rate differs from the rest.",
+        },
+      },
+    },
+    {
+      entity: "price",
+      code: "price_band_source_anomalies",
+      severity: "warning",
+      message:
+        "The duplex band is internally distinguishable from the other four in three independent ways, which is recorded because it is the same band whose phase scope is uncorroborated. Its size is printed with a Cyrillic м rather than a Latin m and a comma rather than a point decimal separator; its implied FX rate differs from the other four rows; and its size floor matches neither phase. The characters are preserved exactly as extracted and were not transliterated.",
+      payload: {
+        duplex_size_text: "from 120,9 м2",
+        duplex_size_unit_codepoint: "U+043C CYRILLIC SMALL LETTER EM",
+        other_bands_size_unit_codepoint: "U+006D LATIN SMALL LETTER M",
+        duplex_implied_rate: round2(38230971 / 1215998),
+        other_bands_implied_rate: round2(5000000 / 150286),
+        source_ref: priceCite(1),
+      },
+    },
+    {
+      entity: "price",
+      code: "price_band_size_disagreement",
+      severity: "warning",
+      message:
+        "The guide and the price list state different size floors for the same Phase 1 typologies. The differences are small for four of the five bands and are consistent with the guide rounding to whole square metres, but the duplex pair disagrees by nearly twelve square metres and cannot be explained that way. Both figures are preserved per band; neither document was treated as correcting the other.",
+      payload: {
+        comparisons: LAYAN_PHASE1_SIZE_COMPARISONS,
+        guide_source_ref: guideCite("Layout solutions"),
+        price_list_source_ref: priceCite(1),
+      },
+    },
+    {
+      entity: "price",
+      code: "availability_not_ingested",
+      severity: "warning",
+      message:
+        'No availability state was ingested for any typology, because neither source carries a per-unit availability column. The only availability the sources state at all is the word SOLD against Phase 1 duplexes, printed in both documents. That marker is preserved on its band and nowhere else: it is not evidence that any other typology is available, and it must never be rendered as a unit-level or project-level availability figure. Nothing in either current source states a sold percentage for Phase 1 — the guide\'s "Over 60% of apartments sold" belongs to Phase 2, and its Phase 1 "100%" refers to construction completed, not units sold.',
+      payload: {
+        explicit_sold_states: [
+          {
+            phase: "Phase 1",
+            type_label: "Duplexes",
+            stated: "SOLD",
+            source_ref: priceCite(1),
+          },
+          {
+            phase: "Phase 1",
+            type_label: "DUPLEXES",
+            stated: "Sold",
+            size_text: "109 m2",
+            source_ref: guideCite("Layout solutions"),
+          },
+        ],
+        phase_1_sold_percentage: null,
+        not_a_phase_1_figure: {
+          "Over 60% of apartments sold": "Phase 2",
+          "100% of construction completed": "Phase 1, construction not sales",
+        },
+      },
+    },
+    {
+      entity: "price",
+      code: "investment_claims_not_prices",
+      severity: "warning",
+      message:
+        'The guide carries forward-looking commercial claims — "+100% increase in the value of apartments" for Phase 1, a stated 10-15% value increase with each construction stage, a rental pool distributing 60% of net profit to owners and 40% to the management company, and an instalment plan bearing 3%, 4% and 5% interest across three years. None was ingested. These are vendor projections and commercial terms, not developer prices or yields, and none may ever be rendered as a price, a price range, a yield or a return promise.',
+      payload: {
+        claims: [
+          "+100% increase in the value of apartments (Phase 1)",
+          "value of apartments steadily increase by 10-15% with each new construction stage",
+          "rental pool: 60% of net profit to owners, 40% to the management company",
+          "instalment interest: 3% year one, 4% year two, 5% year three",
+          "reservation deposit of THB 200,000",
+        ],
+        source_refs: [guideCite("investment performance"), guideCite("Project information")],
       },
     },
     {
       entity: "project",
-      field: "project_type",
-      code: "project_type_inconsistent",
-      severity: "warning",
-      message:
-        'The source disagrees with itself about the property type. Page 2 states "PREMIUM APART-HOTEL"; the page 4 financial annex states "Property Type: Condominiums". Page 2 is the project identity page and supplies project_type; both statements are recorded verbatim and neither was normalised away.',
-      payload: {
-        page_2: "PREMIUM APART-HOTEL",
-        page_4: "Condominiums",
-        source_refs: [cite(2), cite(4)],
-      },
-    },
-    {
-      entity: "project",
-      code: "project_scope_ambiguous",
-      severity: "warning",
-      message:
-        'The page 4 investment model is labelled "Layan Green Partk, фаза 2" — phase 2 — and covers 28 units over 2,457.7 sqm, while page 2 describes the project as 377 units across 4 buildings. The model therefore describes a subset or a later phase, not the whole project. This record models the page 2 project. The spelling "Partk" and the Russian "фаза 2" are the source\'s own, quoted rather than corrected.',
-      payload: {
-        annex_label: "Layan Green Partk, фаза 2",
-        annex_units: 28,
-        annex_sellable_area_sqm: 2457.7,
-        project_stated_units: 377,
-        source_refs: [cite(2), cite(4)],
-      },
-    },
-    {
-      entity: "project",
-      code: "related_project_name_in_source",
-      severity: "warning",
-      message:
-        'Page 6 of this project\'s own deck reads "LA GREEN HOTEL & RESIDENCE represents an attractive investment...". The onboarding register records "La Green Hotel & Residence Layan" as a separate provisional catalogue entry with no located source, and requires that it not be merged with Layan Green Park. This deck names it inside Layan Green Park material. The conflict is recorded, not resolved: no merge, no alias and no second record was created here, and an Owner ruling is required.',
-      payload: {
-        stated_name: "LA GREEN HOTEL & RESIDENCE",
-        source_ref: cite(6),
-        register_reference: "docs/FOREVER_CATALOG_10_ONBOARDING.md §6.11",
-      },
-    },
-    {
-      entity: "project",
-      code: "units_sold_snapshot",
+      code: "superseded_source_claims_removed",
       severity: "info",
       message:
-        'The source states "Units sold: 45%". That is a January 2026 snapshot, not a current availability figure, and it is recorded only with its date. It must never be rendered as current availability.',
-      payload: { stated: "45%", as_of: "2026-01", source_ref: cite(2) },
+        "This record was rebuilt from two current documents that replace the January 2026 agency deck pair the previous version was derived from. Each claim below was carried by the previous payload and is absent from both current sources; each was removed rather than migrated. Absence here means the phrase does not occur in either current document, not that it has been disproved.",
+      payload: {
+        removed: [
+          { claim: "Total units: 377", replaced_by: "Phase 1: 248 apartments" },
+          {
+            claim: "Units sold: 45% (as of 2026-01)",
+            replaced_by: "no Phase 1 sold figure stated",
+          },
+          {
+            claim: "Completion Q1-2026 / construction_status_stale",
+            replaced_by: "Phase 1 construction completed in 2024",
+          },
+          { claim: "distance_to_beach: 700 m", replaced_by: '"two minutes from Layan Beach"' },
+          {
+            claim: 'project_type "Premium apart-hotel" contradicted by "Condominiums"',
+            replaced_by: '"First premium condo-hotel certificated by EDGE"',
+          },
+          {
+            claim: "LA GREEN HOTEL & RESIDENCE named inside Layan Green Park material",
+            replaced_by: "no occurrence in either current source",
+          },
+          {
+            claim: 'project_scope_ambiguous — "Layan Green Partk, фаза 2" annex of 28 units',
+            replaced_by: "explicit two-phase structure stated by the guide",
+          },
+          { claim: 'location_area "Layan"', replaced_by: '"Located in Bang Tao"' },
+          {
+            claim: "five-year investment model with ROI, IRR and an equity multiple",
+            replaced_by: "no such model in either current source",
+          },
+        ],
+        superseded_documents: ["Layan Green Park - eng.pdf", "Layan Green Park.pdf"],
+        note: 'The "LA GREEN HOTEL & RESIDENCE" residue is resolved as absent, not as merged or aliased. No alias, no merge and no second project record was created, and none should be: the onboarding register\'s separate provisional entry is neither confirmed nor refuted by these two documents.',
+      },
     },
     {
       entity: "project",
       code: "stated_facts_not_modelled",
       severity: "info",
       message:
-        "Source-stated facts with no column in the current schema were preserved here rather than discarded or forced into an unrelated field.",
+        "Source-stated facts with no column in the current schema were preserved here rather than discarded or forced into an unrelated field. The beach proximity is recorded in the source's own words: the guide states a travel time and never a distance, so no metre figure was derived from it.",
       payload: {
-        distance_to_beach: "700 m",
-        setting:
-          "Close to the sea, Sirinat National Park, five-star hotels and the Laguna resort; described as one of the key projects shaping the infrastructure of the Layan area.",
-        source_ref: `${primary.citation}#pages=2-3`,
+        beach_proximity: "just two minutes from the serene, white-sand Layan Beach",
+        beach_proximity_detail: "2 MIN — Layan beach, shuttle to the beach",
+        beach_distance_metres: null,
+        certification:
+          "Phuket’s first eco-friendly development, officially recognized and certified by the international EDGE standard; first premium condo-hotel certificated by EDGE",
+        on_site_facilities: "A total of 20,000 sq. m. of on-site facilities",
+        amenity_share:
+          "over 40% of the project area is dedicated to internal infrastructure; 40% of the development is dedicated to premium amenities",
+        travel_times: {
+          "Layan beach": "2 MIN",
+          "Laguna area, tennis courts, golf courses, spa": "5 MIN",
+          "Tesco Lotus and Macros supermarkets, Boat Avenue mall": "15 MIN",
+          Airport: "20 MIN",
+        },
+        payment_options: [
+          "100% payment: THB 200,000 reservation deposit, balance within 14 days",
+          "Installment plan during construction: THB 200,000 deposit, 35% within 14 days, balance against construction milestones",
+          "Post-completion installment plan: THB 200,000 deposit, 35% within 14 days, 35% spread through 2026, remaining 30% over 3 years with interest",
+        ],
+        project_website: "layangreenpark.com",
+        source_refs: [
+          guideCite("Overview"),
+          guideCite("Infrastructure"),
+          guideCite("investment performance"),
+        ],
+      },
+    },
+    {
+      entity: "project",
+      code: "source_ref_section_based",
+      severity: "info",
+      message:
+        "The guide is a single Figma artboard exported as one PDF page, so every citation into it reads page=1 and carries a section label instead. The section labels are the headings the document itself prints. The price list is an ordinary two-page document and is cited by page.",
+      payload: {
+        guide_producer: "Figma",
+        guide_internal_title: "LGP_Guide_ENG",
+        guide_pdf_pages: 1,
+        price_list_pdf_pages: 2,
+        guide_sections_cited: [
+          "Overview",
+          "Two construction phases",
+          "Infrastructure",
+          "Layout solutions",
+          "investment performance",
+          "Project information",
+        ],
+      },
+    },
+    {
+      entity: "project",
+      code: "source_documents_pinned",
+      severity: "info",
+      message:
+        "The two documents this record is built from, pinned by Drive file ID, SHA-256 digest and byte length. Both digests were verified against the bytes read at build time, and every transcribed fact in this payload was asserted back against the text extracted from those same bytes. The Drive file IDs and folder paths come from the Drive listings captured by the preceding audit and were not re-fetched by this task.",
+      payload: {
+        documents: [
+          {
+            file: guide.citation,
+            role: "Phase 1 project guide",
+            drive_file_id: guide.driveFileId,
+            drive_parent_folder_id: guide.driveParentFolderId,
+            drive_folder_path: guide.driveFolderPath,
+            sha256: guide.sha256,
+            bytes: guide.bytes,
+            producer: "Figma",
+            language: "English",
+            transcribed_phrases_verified: guidePhrasesVerified,
+          },
+          {
+            file: priceList.citation,
+            role: "Phase 1 price list",
+            drive_file_id: priceList.driveFileId,
+            drive_parent_folder_id: priceList.driveParentFolderId,
+            drive_folder_path: priceList.driveFolderPath,
+            sha256: priceList.sha256,
+            bytes: priceList.bytes,
+            producer: "iLovePDF",
+            language: "English",
+            transcribed_phrases_verified: pricePhrasesVerified,
+          },
+        ],
       },
     },
     {
@@ -989,8 +1643,11 @@ function buildLayanGreenPark() {
       code: "media_not_ingested",
       severity: "info",
       message:
-        "Both documents contain embedded imagery only, with no standalone media assets. No media row was created and no asset was uploaded or made public.",
-      payload: deckVariantNote(primary, variant),
+        "Both documents contain embedded imagery only, with no standalone media assets. The price list's second page is a set of floor-plan drawings whose room areas extract as text but which carry no unit identifier. No media row was created and no asset was uploaded or made public.",
+      payload: {
+        documents: [guide.citation, priceList.citation],
+        floor_plan_page: priceCite(2),
+      },
     },
     {
       entity: "project",
@@ -998,8 +1655,14 @@ function buildLayanGreenPark() {
       code: "source_date_recorded",
       severity: "info",
       message:
-        'The deck states "INVESTMENT OPPORTUNITY / January / 2026" on its title page. That in-document statement is the source date; no file timestamp was used.',
-      payload: { source_date: "2026-01", source_ref: cite(1) },
+        'Both documents state "valid as of July 1, 2026" against their prices, and that in-document statement is the source date. The price list\'s embedded ModDate agrees at 2026-07-01T09:39:17Z, but no file timestamp was used to establish the date. The floor-plan page carries an older internal date of 02.02.2026, which is recorded rather than reconciled.',
+      payload: {
+        source_date: "2026-07-01",
+        stated_as: ["price valid as of July 1, 2026", "Price valid as of July 1, 2026"],
+        price_list_moddate_corroboration: "D:20260701093917Z",
+        floor_plan_page_internal_date: "02.02.2026",
+        source_refs: [priceCite(1), guideCite("Layout solutions"), priceCite(2)],
+      },
     },
   ];
 
@@ -1559,9 +2222,16 @@ function auditSierra(payload) {
 // ---------------------------------------------------------------------------
 
 /**
- * A deck-derived Passport Light record must stay project-only. The decks state
+ * A deck-derived Passport Light record must stay project-only. The deck states
  * building and unit counts but no identifiers, so materialising any row here
- * would be invention. Regression guard for the Wave 2 pair.
+ * would be invention. Regression guard for AYANA.
+ *
+ * Layan was covered by this guard while it was deck-derived. It is not any more,
+ * because its evidence class changed: it now has a real price list, so
+ * `price_list_missing` and `investment_projections_not_prices` are no longer
+ * true of it and requiring them would force the payload to carry two false
+ * warnings. Layan is guarded by `auditLayanPhase1` instead, which checks strictly
+ * more than this function does. Nothing was relaxed for AYANA.
  */
 function auditDeckOnly(slug, payload) {
   for (const collection of ["buildings", "units", "prices", "media", "documents"]) {
@@ -1585,6 +2255,137 @@ function auditDeckOnly(slug, payload) {
   }
   console.log(
     `AUDIT ${slug}: project-only draft, ${(payload.warnings ?? []).length} warnings, no invented rows`,
+  );
+}
+
+/**
+ * Layan Phase 1. Replaces `auditDeckOnly` for this project and checks strictly
+ * more: the same no-invented-rows rule, plus the three things that could quietly
+ * undo this rebuild — a stale deck claim creeping back, a Phase 2 figure being
+ * ingested as Phase 1, and a type-level band being promoted into a unit.
+ *
+ * Gate G9 as originally written required a `construction_status_stale` warning,
+ * because the deck's completion quarter had already lapsed. That premise is gone:
+ * Phase 1 is stated complete, so the correct assertion is the inverse — the
+ * lapsed-quarter claim must NOT be present. The gate's intent, that a lapsed
+ * readiness state never reads as current, is enforced more directly here.
+ */
+function auditLayanPhase1(payload) {
+  for (const collection of ["buildings", "units", "prices", "media", "documents"]) {
+    const rows = payload[collection] ?? [];
+    if (rows.length) {
+      throw new Error(
+        `layan_record_violation: ${rows.length} ${collection} row(s) emitted. Neither current ` +
+          `source carries a per-unit or per-building identifier, so any row here is invention.`,
+      );
+    }
+  }
+
+  const codes = new Set((payload.warnings ?? []).map((warning) => warning.code));
+  for (const required of [
+    "phase_scope_phase_1_only",
+    "phase_2_sources_not_ingested",
+    "building_inventory_missing",
+    "unit_inventory_missing",
+    "price_bands_type_level_only",
+    "price_fx_inconsistent",
+    "price_band_phase_scope_derived",
+    "availability_not_ingested",
+    "investment_claims_not_prices",
+    "developer_unresolved",
+    "source_documents_pinned",
+  ]) {
+    if (!codes.has(required)) throw new Error(`layan_warning_missing: ${required}`);
+  }
+
+  // Superseded claims must not reappear under their old codes.
+  for (const forbidden of [
+    "construction_status_stale",
+    "completion_quarter_only",
+    "units_sold_snapshot",
+    "project_scope_ambiguous",
+    "related_project_name_in_source",
+    "project_type_inconsistent",
+    "price_list_missing",
+    "unit_types_missing",
+    "country_missing",
+  ]) {
+    if (codes.has(forbidden)) {
+      throw new Error(
+        `layan_superseded_warning_present: ${forbidden} has no basis in the current sources.`,
+      );
+    }
+  }
+
+  // Nor under any other code. `superseded_source_claims_removed` documents these
+  // strings deliberately, so it is the one warning exempt from the scan.
+  //
+  // Digests and Drive file IDs are excluded before scanning. They are opaque
+  // identifiers whose characters carry no meaning, so a hash that happens to
+  // contain "377" would fail this audit for no reason at all — a real risk,
+  // since the pinned digests change whenever the source documents do.
+  const scanned = JSON.stringify(
+    (payload.warnings ?? []).filter(
+      (warning) => warning.code !== "superseded_source_claims_removed",
+    ),
+    (key, value) =>
+      typeof value === "string" && (/^[0-9a-f]{64}$/.test(value) || /^[\w-]{25,45}$/.test(value))
+        ? "[opaque-identifier]"
+        : value,
+  );
+  for (const [needle, why] of [
+    ["377", "the superseded 377-unit total"],
+    ["45%", "the superseded 45%-sold snapshot"],
+    ["Q1-2026", "the superseded lapsed completion quarter"],
+    ["700 m", "the superseded 700 m beach distance"],
+    ["LA GREEN", "the superseded LA GREEN HOTEL & RESIDENCE residue"],
+    ["apart-hotel", "the superseded apart-hotel property type"],
+  ]) {
+    if (scanned.includes(needle)) {
+      throw new Error(`layan_superseded_claim_present: ${why} (${needle}) reached the payload.`);
+    }
+  }
+
+  // A Phase 2 figure must never be ingested as a Phase 1 value. Three warnings
+  // exist precisely to explain how the two phases were told apart, and cannot do
+  // that without naming Phase 2 figures; the check is that no other warning does.
+  const phaseBoundaryWarnings = new Set([
+    "phase_scope_phase_1_only",
+    "phase_2_sources_not_ingested",
+    "price_band_phase_scope_derived",
+  ]);
+  for (const warning of payload.warnings ?? []) {
+    if (phaseBoundaryWarnings.has(warning.code)) continue;
+    const text = JSON.stringify(warning);
+    for (const phase2Figure of ["296", "16 673", "37 m² - 269 m²"]) {
+      if (text.includes(phase2Figure)) {
+        throw new Error(
+          `layan_phase_2_leak: warning ${warning.code} carries the Phase 2 figure ${phase2Figure}.`,
+        );
+      }
+    }
+  }
+
+  // Type-level bands must stay type-level: no band may carry a unit identifier.
+  const bandWarning = (payload.warnings ?? []).find(
+    (warning) => warning.code === "price_bands_type_level_only",
+  );
+  const bands = bandWarning?.payload?.bands ?? [];
+  if (!bands.length) throw new Error("layan_price_bands_empty: the price list produced no band.");
+  for (const band of bands) {
+    for (const forbiddenKey of ["unit_code", "unit_id", "room", "availability_status", "floor"]) {
+      if (forbiddenKey in band) {
+        throw new Error(
+          `layan_band_is_not_a_unit: band ${band.type_label} carries ${forbiddenKey}; ` +
+            `a type-level price band must never be shaped like a unit.`,
+        );
+      }
+    }
+  }
+
+  console.log(
+    `AUDIT layan-green-park: Phase 1 only, ${bands.length} type-level price bands, ` +
+      `0 invented rows, ${(payload.warnings ?? []).length} warnings`,
   );
 }
 
@@ -1616,19 +2417,10 @@ if (built["the-title-sierra"]) auditSierra(built["the-title-sierra"]);
 if (built["garden-of-eden"]) {
   console.log("AUDIT garden-of-eden: owner_provided provenance, no invented facts");
 }
-for (const slug of ["layan-green-park", "ayana-heights-seaview-residence"]) {
+for (const slug of ["ayana-heights-seaview-residence"]) {
   if (built[slug]) auditDeckOnly(slug, built[slug]);
 }
-
-// Wave 2 gate G9: Layan's lapsed completion quarter must never read as current.
-if (
-  built["layan-green-park"] &&
-  !built["layan-green-park"].warnings.some(
-    (warning) => warning.code === "construction_status_stale",
-  )
-) {
-  throw new Error("layan_warning_missing: construction_status_stale");
-}
+if (built["layan-green-park"]) auditLayanPhase1(built["layan-green-park"]);
 
 for (const notice of softNotices) {
   console.log(

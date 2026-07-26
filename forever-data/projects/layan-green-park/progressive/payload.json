@@ -7,70 +7,134 @@
     "developer_id": null,
     "location_id": null,
     "publish": false,
-    "location_name_raw": "Layan",
-    "location_area": "Layan",
-    "project_type": "Premium apart-hotel",
+    "location_name_raw": "Bang Tao",
+    "location_area": "Bang Tao",
+    "project_type": "Premium condo-hotel",
     "field_provenance": {
       "name": {
         "status": "owner_provided",
         "source_type": "owner_uploaded_project_material",
-        "source_ref": "Layan Green Park - eng.pdf#page=2",
+        "source_ref": "Layan Green Park project guide.pdf#page=1;section=Two construction phases",
         "confidence": 1,
-        "source_date": "2026-01"
+        "source_date": "2026-07-01"
       },
       "location_name_raw": {
         "status": "owner_provided",
         "source_type": "owner_uploaded_project_material",
-        "source_ref": "Layan Green Park - eng.pdf#page=2",
+        "source_ref": "Layan Green Park project guide.pdf#page=1;section=Overview",
         "confidence": 1,
-        "source_date": "2026-01"
+        "source_date": "2026-07-01",
+        "note": "The guide states \"Located in Bang Tao, the island’s most prestigious area\". The earlier deck-derived record said \"Layan\", which this source does not support as the area name; Layan is named only as the neighbouring beach."
       },
       "location_area": {
         "status": "owner_provided",
         "source_type": "owner_uploaded_project_material",
-        "source_ref": "Layan Green Park - eng.pdf#page=2",
+        "source_ref": "Layan Green Park project guide.pdf#page=1;section=Overview",
         "confidence": 1,
-        "source_date": "2026-01"
+        "source_date": "2026-07-01"
       },
       "project_type": {
         "status": "owner_provided",
         "source_type": "owner_uploaded_project_material",
-        "source_ref": "Layan Green Park - eng.pdf#page=2",
+        "source_ref": "Layan Green Park project guide.pdf#page=1;section=Overview",
         "confidence": 1,
-        "source_date": "2026-01",
-        "note": "Page 2 states \"PREMIUM APART-HOTEL\". The page 4 financial annex states \"Property Type: Condominiums\"; the disagreement is recorded as project_type_inconsistent rather than resolved here."
+        "source_date": "2026-07-01",
+        "note": "The guide states \"First premium condo-hotel certificated by EDGE\". Neither current source contains the earlier deck's \"PREMIUM APART-HOTEL\" or \"Condominiums\" wording, so the previously recorded project_type_inconsistent conflict has no basis in the current evidence and was removed rather than carried forward."
       }
     }
   },
   "warnings": [
     {
+      "entity": "project",
+      "code": "phase_scope_phase_1_only",
+      "severity": "warning",
+      "message": "Every fact in this record is scoped to Phase 1. The guide describes two phases under one project name and states different figures for each, so a project-level assertion would be false for one of them. The slug names the whole project; the content does not. Phase 2 figures appear below only where they are needed to show how a Phase 1 reading was established, and are never ingested as Phase 1 values.",
+      "payload": {
+        "phase": "Phase 1",
+        "phase_1_stated": {
+          "buildings": 4,
+          "apartments": 248,
+          "apartment_size": "30 m² - 144 m²",
+          "site_area": "9 940 m²",
+          "construction": "Construction completed in 2024",
+          "construction_completed_share": "100%"
+        },
+        "phase_2_stated_not_ingested": {
+          "buildings": 6,
+          "apartments": 296,
+          "apartment_size": "37 m² - 269 m²",
+          "site_area": "16 673 m²",
+          "completion_of_construction": "2026",
+          "apartments_sold": "Over 60%"
+        },
+        "source_refs": [
+          "Layan Green Park project guide.pdf#page=1;section=Two construction phases",
+          "Layan Green Park project guide.pdf#page=1;section=Project information"
+        ]
+      }
+    },
+    {
+      "entity": "project",
+      "code": "phase_2_sources_not_ingested",
+      "severity": "warning",
+      "message": "An equally current Phase 2 guide and Phase 2 price list exist in the same Drive tree and were deliberately not retrieved or ingested by this task. They are not stale, superseded or missing — they are out of scope. Critically, the Phase 2 files carry byte-for-byte identical filenames to the two Phase 1 files ingested here, so a filename alone never identifies which phase a document describes; only the Drive file ID and the SHA-256 digest do. Anything that resolves these documents by name must pin the digest.",
+      "payload": {
+        "phase_2_documents": [
+          {
+            "file": "Layan Green Park project guide.pdf",
+            "drive_file_id": "1MMNrkdkL7ftf7RbvRrEh9gLnapMBaZXh",
+            "drive_folder_path": "PHASE 2 / 1. ENGLISH VERSION",
+            "ingested": false
+          },
+          {
+            "file": "Layan Green Park price list.pdf",
+            "drive_file_id": "1lb-VXuvtaFvWyPE4H4s1CF0x2lqUmS8F",
+            "drive_folder_path": "PHASE 2 / 1. ENGLISH VERSION / 4. Price lists - Phase 2",
+            "ingested": false
+          }
+        ],
+        "filename_collision_with_phase_1": true
+      }
+    },
+    {
       "entity": "developer",
       "code": "developer_unresolved",
       "severity": "warning",
-      "message": "No developer is named anywhere in the available source. Both documents are agency investment presentations produced by Sunthai Property, not developer material, so no raw developer name could be preserved either.",
+      "message": "Neither current source names a developer, a legal entity or a seller. No canonical developer could be resolved and no raw developer name could be preserved either, because there is none to preserve. The guide is developer-side project material rather than agency material, but it never identifies its own publisher beyond the project website.",
       "payload": {
         "source_documents": [
-          "Layan Green Park - eng.pdf",
-          "Layan Green Park.pdf"
-        ]
+          "Layan Green Park project guide.pdf",
+          "Layan Green Park price list.pdf"
+        ],
+        "only_publisher_signal": "layangreenpark.com",
+        "note": "The same Drive tree contains a folder named \"10. Developer's portfolio\" for both phases. It was not retrieved: this task is bounded to the two verified documents, and resolving the developer from an unretrieved folder would be inference. That folder is the obvious next evidence source."
       }
     },
     {
       "entity": "location",
       "code": "location_unresolved",
       "severity": "warning",
-      "message": "No canonical location matches \"Layan\"; the raw value was preserved for later enrichment.",
+      "message": "The guide states \"Located in Bang Tao, the island’s most prestigious area\" and prints \"phuket | thailand\" as a running header. No canonical location row was resolved offline, so the raw values were preserved for later enrichment. The earlier record's area value \"Layan\" is not supported by this source: Layan appears only as the name of the neighbouring beach.",
       "payload": {
-        "raw_name": "Layan"
+        "raw_name": "Bang Tao",
+        "island": "Phuket",
+        "country": "Thailand",
+        "source_refs": [
+          "Layan Green Park project guide.pdf#page=1;section=Overview",
+          "Layan Green Park project guide.pdf#page=1;section=Two construction phases"
+        ]
       }
     },
     {
       "entity": "project",
-      "code": "country_missing",
-      "severity": "warning",
-      "message": "No country is stated. The deck references Bang Tao and Laguna Phuket, but neither names the country, so currency cannot be inferred.",
+      "code": "country_stated_not_modelled",
+      "severity": "info",
+      "message": "The country is directly stated. The guide prints \"phuket | thailand\" as a running header on four sections. The projects table has no country column — country lives on locations — so the value is preserved here and belongs to the canonical location this project is later attached to. This supersedes the earlier country_missing warning, which is no longer true of the current evidence.",
       "payload": {
-        "source_ref": "Layan Green Park - eng.pdf#page=8"
+        "country": "Thailand",
+        "province": "Phuket",
+        "stated_as": "phuket | thailand",
+        "supersedes": "country_missing"
       }
     },
     {
@@ -78,166 +142,506 @@
       "field": "latitude",
       "code": "coordinates_missing",
       "severity": "info",
-      "message": "No coordinates are stated in the source; latitude/longitude remain NULL."
+      "message": "No coordinates are stated in either source; latitude/longitude remain NULL."
     },
     {
       "entity": "project",
       "field": "construction_status",
-      "code": "construction_status_missing",
-      "severity": "info",
-      "message": "No construction status is stated. The deck states a completion quarter only, which is recorded separately."
-    },
-    {
-      "entity": "project",
-      "field": "construction_status",
-      "code": "construction_status_stale",
+      "code": "construction_status_phase_dependent",
       "severity": "warning",
-      "message": "The source states completion as \"Q1-2026\". That quarter had already closed when the deck was issued in January 2026 and is further in the past now, so it must not be presented as a current readiness state. A current construction or handover update is required before publication.",
+      "message": "Phase 1 is stated complete — \"Construction completed in 2024\" and \"100% of construction completed\" — while the same guide gives Phase 2 a completion of 2026. A single project-level construction_status would therefore misstate one phase, so the column stays NULL and both stated states are preserved here. This replaces the earlier construction_status_stale warning, whose lapsed completion quarter is listed under superseded_source_claims_removed.",
       "payload": {
-        "stated_completion": "Q1-2026",
-        "source_date": "2026-01",
-        "source_ref": "Layan Green Park - eng.pdf#page=2"
+        "phase_1": {
+          "stated": "Construction completed in 2024",
+          "completed_share": "100%",
+          "source_refs": [
+            "Layan Green Park project guide.pdf#page=1;section=Two construction phases",
+            "Layan Green Park project guide.pdf#page=1;section=Project information"
+          ]
+        },
+        "phase_2_not_ingested": {
+          "completion_of_construction": "2026"
+        },
+        "supersedes": [
+          "construction_status_stale",
+          "construction_status_missing"
+        ]
       }
     },
     {
       "entity": "project",
       "field": "completion_date",
-      "code": "completion_quarter_only",
+      "code": "completion_year_only",
       "severity": "info",
-      "message": "The source states completion as \"Q1-2026\". A quarter is not a date, so completion_date remains NULL rather than being resolved to an invented day.",
+      "message": "Phase 1 completion is stated as a year — \"in 2024\" — not a date. A year is not a date, so completion_date remains NULL rather than being resolved to an invented month and day.",
       "payload": {
-        "stated": "Q1-2026",
-        "source_ref": "Layan Green Park - eng.pdf#page=2"
+        "stated": "2024",
+        "source_ref": "Layan Green Park project guide.pdf#page=1;section=Two construction phases"
       }
     },
     {
       "entity": "building",
       "code": "building_inventory_missing",
       "severity": "warning",
-      "message": "The source states \"Buildings: 4\" but gives no building identifiers, names, floor counts or unit counts. No building row was created, because inventing four codes would fabricate structure.",
+      "message": "The guide states \"Number of buildings: 4\" for Phase 1 but never lists which buildings those are. Its infrastructure section does name eleven buildings — A Mangosteen, B Leelawadee, C Colibri, D Duplex, F, G, H, J1, J2, K and L — but assigns none of them to a phase, and eleven names cannot be reconciled with the stated 4 + 6 = 10 buildings across both phases. Selecting four of those names as the Phase 1 set would be inference, so no building row was created.",
       "payload": {
-        "stated_count": 4,
-        "source_ref": "Layan Green Park - eng.pdf#page=2"
+        "stated_phase_1_count": 4,
+        "named_buildings_unassigned_to_phase": [
+          "Building A — Mangosteen",
+          "Building B — Leelawadee",
+          "Building C — Colibri",
+          "Building D — Duplex",
+          "Building F",
+          "Building G",
+          "Building H",
+          "Building J1",
+          "Building J2",
+          "Building K",
+          "Building L"
+        ],
+        "stated_total_buildings_both_phases": 10,
+        "named_building_labels_observed": 11,
+        "source_refs": [
+          "Layan Green Park project guide.pdf#page=1;section=Two construction phases",
+          "Layan Green Park project guide.pdf#page=1;section=Infrastructure"
+        ]
       }
     },
     {
       "entity": "unit",
       "code": "unit_inventory_missing",
       "severity": "warning",
-      "message": "The source states \"Total units: 377\" but contains no per-unit identifier, room number or unit schedule. The stated total is preserved here; no unit row was created.",
+      "message": "The guide states 248 apartments for Phase 1, twice and consistently. Neither source contains a unit number, a room number, a floor schedule or any other per-unit identifier, so the stated total is preserved here and no unit row was created. The total this record previously carried came from a superseded document and is listed under superseded_source_claims_removed.",
       "payload": {
-        "stated_total_units": 377,
-        "source_ref": "Layan Green Park - eng.pdf#page=2"
+        "stated_phase_1_apartments": 248,
+        "source_refs": [
+          "Layan Green Park project guide.pdf#page=1;section=Two construction phases",
+          "Layan Green Park project guide.pdf#page=1;section=Project information"
+        ]
       }
     },
     {
       "entity": "unit",
-      "code": "unit_types_missing",
+      "code": "unit_types_type_level_only",
       "severity": "warning",
-      "message": "No unit type schedule, bedroom breakdown or area schedule appears in the source. No unit row was created."
-    },
-    {
-      "entity": "price",
-      "code": "price_list_missing",
-      "severity": "warning",
-      "message": "No developer price list exists for this project in any inspected source root. No price row was created."
-    },
-    {
-      "entity": "price",
-      "code": "investment_projections_not_prices",
-      "severity": "warning",
-      "message": "Pages 4 to 7 carry a five-year investment model with entry/exit values, a bulk-purchase discount, capitalisation and rental-pool projections, ROI, IRR and an equity multiple. These are agency projections for a bulk investment pool, not developer prices or yields. They were deliberately not ingested and must never be rendered as a price, a price range or a yield promise.",
+      "message": "Five apartment typologies are stated with size bands — studios, one-bedroom, two-bedroom, three-bedroom and duplexes — and the guide advertises \"30+ planning options from 30 to 269 m² | from studios to duplexes\" across both phases. A typology is not a unit: there is no schedule mapping any typology to a countable set of identified apartments, so no unit row was created. This replaces the earlier unit_types_missing warning, which is no longer true — types are stated, individual units are not.",
       "payload": {
-        "source_ref": "Layan Green Park - eng.pdf#pages=4-7",
-        "model_basis": "Returns are calculated based on the Leasehold ownership structure (stated page 5)."
+        "typologies": [
+          "Studios",
+          "1-BR",
+          "2-BR",
+          "3-BR",
+          "Duplexes"
+        ],
+        "planning_options_both_phases": "30+ planning options from 30 to 269 m²",
+        "supersedes": "unit_types_missing",
+        "source_refs": [
+          "Layan Green Park project guide.pdf#page=1;section=Layout solutions",
+          "Layan Green Park price list.pdf#page=1"
+        ]
       }
     },
     {
-      "entity": "project",
-      "field": "project_type",
-      "code": "project_type_inconsistent",
+      "entity": "price",
+      "code": "price_bands_type_level_only",
       "severity": "warning",
-      "message": "The source disagrees with itself about the property type. Page 2 states \"PREMIUM APART-HOTEL\"; the page 4 financial annex states \"Property Type: Condominiums\". Page 2 is the project identity page and supplies project_type; both statements are recorded verbatim and neither was normalised away.",
+      "message": "A current Phase 1 price list exists and is ingested here as type-level bands, which is the only shape the source actually has. It states a minimum size and a THB and USD price range for each of five typologies. It contains no unit identifier, no per-unit price, no inventory and no availability column, and it explicitly defers to the project website for \"the latest pricing\", so no price row was created: a price row requires a unit_code, and manufacturing one would invent inventory the source does not have. This replaces the earlier price_list_missing warning, which is no longer true.",
       "payload": {
-        "page_2": "PREMIUM APART-HOTEL",
-        "page_4": "Condominiums",
+        "price_list_date": "2026-07-01",
+        "stated_as": "price valid as of July 1, 2026",
+        "currencies_quoted": [
+          "THB",
+          "USD"
+        ],
+        "bands": [
+          {
+            "type_label": "Studios",
+            "size_text": "from 30.3 m2",
+            "size_from_sqm": 30.3,
+            "from_thb": 5000000,
+            "from_usd": 150286,
+            "to_thb": 10371600,
+            "to_usd": 311740,
+            "sold_state": null
+          },
+          {
+            "type_label": "1-BR",
+            "size_text": "from 45.4 m2",
+            "size_from_sqm": 45.4,
+            "from_thb": 9034600,
+            "from_usd": 271554,
+            "to_thb": 14086800,
+            "to_usd": 423408,
+            "sold_state": null
+          },
+          {
+            "type_label": "2-BR",
+            "size_text": "from 90.4 m2",
+            "size_from_sqm": 90.4,
+            "from_thb": 16398000,
+            "from_usd": 492876,
+            "to_thb": 30240000,
+            "to_usd": 908927,
+            "sold_state": null
+          },
+          {
+            "type_label": "3-BR",
+            "size_text": "from 126.6 m2",
+            "size_from_sqm": 126.6,
+            "from_thb": 28000000,
+            "from_usd": 841599,
+            "to_thb": 38000000,
+            "to_usd": 1142170,
+            "sold_state": null
+          },
+          {
+            "type_label": "Duplexes",
+            "size_text": "from 120,9 м2",
+            "size_text_extracted": "fSroOmLD120,9 м2",
+            "size_from_sqm": 120.9,
+            "from_thb": 38230971,
+            "from_usd": 1215998,
+            "to_thb": 49499178,
+            "to_usd": 1574401,
+            "sold_state": "SOLD"
+          }
+        ],
+        "band_count": 5,
+        "building_level_bands_present": false,
+        "supersedes": "price_list_missing",
+        "source_ref": "Layan Green Park price list.pdf#page=1",
+        "document_defers_to": "The cost of apartments … discover the latest pricing in the \"Unit plans and prices\" section of our website."
+      }
+    },
+    {
+      "entity": "price",
+      "field": "currency",
+      "code": "price_fx_inconsistent",
+      "severity": "warning",
+      "message": "The price list disagrees with itself about the THB/USD rate in four different ways, so its USD column cannot be treated as a reliable conversion of its THB column. Page 1 prints one rate, page 2 prints another, the studio-to-three-bedroom rows imply a third, and the duplex row implies a fourth. Both currencies are preserved exactly as printed and neither was recomputed, rounded or normalised to a single rate.",
+      "payload": {
+        "stated_rate_page_1": "1 USD = 33.3 THB",
+        "stated_rate_page_2": "1 USD = 31,25 THB",
+        "implied_by_band": [
+          {
+            "type_label": "Studios",
+            "implied_from_rate": 33.2699,
+            "implied_to_rate": 33.27
+          },
+          {
+            "type_label": "1-BR",
+            "implied_from_rate": 33.27,
+            "implied_to_rate": 33.27
+          },
+          {
+            "type_label": "2-BR",
+            "implied_from_rate": 33.27,
+            "implied_to_rate": 33.27
+          },
+          {
+            "type_label": "3-BR",
+            "implied_from_rate": 33.27,
+            "implied_to_rate": 33.27
+          },
+          {
+            "type_label": "Duplexes",
+            "implied_from_rate": 31.44,
+            "implied_to_rate": 31.44
+          }
+        ],
+        "implied_rate_groups": [
+          31.44,
+          33.27
+        ],
+        "implied_rate_precision_note": "Per-band figures are given to four decimals and vary in their last digits only because the document rounds its USD column to whole dollars. Grouped to two decimals there are two implied rates, not eight.",
+        "note": "The duplex row is the outlier at 31.44, and it is also the only row printed with a Cyrillic м and a comma decimal separator — see price_band_source_anomalies.",
         "source_refs": [
-          "Layan Green Park - eng.pdf#page=2",
-          "Layan Green Park - eng.pdf#page=4"
+          "Layan Green Park price list.pdf#page=1",
+          "Layan Green Park price list.pdf#page=2"
+        ]
+      }
+    },
+    {
+      "entity": "price",
+      "code": "price_band_phase_scope_derived",
+      "severity": "warning",
+      "message": "The price list never says \"Phase 1\" anywhere in its own text. Its Phase 1 scope rests on its Drive location — it is the only file in the folder \"4. Price lists - Phase 1\" — corroborated by three independent arithmetic identities against the guide. The scope is therefore well-supported but derived, not stated, and it is recorded as derived so it can be audited rather than trusted.",
+      "payload": {
+        "basis": "drive_folder_path",
+        "drive_folder_path": "PHASE 1 / 1. ENGLISH VERSION / 4. Price lists - Phase 1",
+        "drive_file_id": "1OaKT8DqmmIVj62qau_m8jm76CxebpnSO",
+        "in_document_phase_statement": null,
+        "corroborations": [
+          "The guide's layout-solutions table has two unlabelled columns. One spans 30-144 m², exactly the stated Phase 1 range \"30 m² - 144 m²\"; the other spans 37-269 m², exactly the stated Phase 2 range \"37 m² - 269 m²\".",
+          "All four non-duplex THB floor prices in that first column are identical to the four non-duplex THB floor prices in this price list.",
+          "That first column marks DUPLEXES as Sold while the second column marks STUDIOS as Sold; this price list marks Duplexes as SOLD, matching the first column."
+        ],
+        "uncorroborated_band": {
+          "type_label": "Duplexes",
+          "reason": "Its 120,9 m² floor matches neither the 109 m² the guide gives Phase 1 duplexes nor the 208-269 m² it gives Phase 2 duplexes, and it is the one band whose implied FX rate differs from the rest."
+        }
+      }
+    },
+    {
+      "entity": "price",
+      "code": "price_band_source_anomalies",
+      "severity": "warning",
+      "message": "The duplex band is internally distinguishable from the other four in three independent ways, which is recorded because it is the same band whose phase scope is uncorroborated. Its size is printed with a Cyrillic м rather than a Latin m and a comma rather than a point decimal separator; its implied FX rate differs from the other four rows; and its size floor matches neither phase. The characters are preserved exactly as extracted and were not transliterated.",
+      "payload": {
+        "duplex_size_text": "from 120,9 м2",
+        "duplex_size_unit_codepoint": "U+043C CYRILLIC SMALL LETTER EM",
+        "other_bands_size_unit_codepoint": "U+006D LATIN SMALL LETTER M",
+        "duplex_implied_rate": 31.44,
+        "other_bands_implied_rate": 33.27,
+        "source_ref": "Layan Green Park price list.pdf#page=1"
+      }
+    },
+    {
+      "entity": "price",
+      "code": "price_band_size_disagreement",
+      "severity": "warning",
+      "message": "The guide and the price list state different size floors for the same Phase 1 typologies. The differences are small for four of the five bands and are consistent with the guide rounding to whole square metres, but the duplex pair disagrees by nearly twelve square metres and cannot be explained that way. Both figures are preserved per band; neither document was treated as correcting the other.",
+      "payload": {
+        "comparisons": [
+          {
+            "guide_type_label": "STUDIOS",
+            "guide_size_text": "30-48 m2",
+            "price_list_type_label": "Studios",
+            "price_list_size_text": "from 30.3 m2",
+            "price_list_size_from_sqm": 30.3,
+            "explained_by_rounding": true
+          },
+          {
+            "guide_type_label": "ONE-BEDROOM",
+            "guide_size_text": "45-67 m2",
+            "price_list_type_label": "1-BR",
+            "price_list_size_text": "from 45.4 m2",
+            "price_list_size_from_sqm": 45.4,
+            "explained_by_rounding": true
+          },
+          {
+            "guide_type_label": "TWO-BEDROOM",
+            "guide_size_text": "90-144 m2",
+            "price_list_type_label": "2-BR",
+            "price_list_size_text": "from 90.4 m2",
+            "price_list_size_from_sqm": 90.4,
+            "explained_by_rounding": true
+          },
+          {
+            "guide_type_label": "THREE-BEDROOM",
+            "guide_size_text": "127-130 m2",
+            "price_list_type_label": "3-BR",
+            "price_list_size_text": "from 126.6 m2",
+            "price_list_size_from_sqm": 126.6,
+            "explained_by_rounding": true
+          },
+          {
+            "guide_type_label": "DUPLEXES",
+            "guide_size_text": "109 m2",
+            "price_list_type_label": "Duplexes",
+            "price_list_size_text": "from 120,9 м2",
+            "price_list_size_from_sqm": 120.9,
+            "explained_by_rounding": false
+          }
+        ],
+        "guide_source_ref": "Layan Green Park project guide.pdf#page=1;section=Layout solutions",
+        "price_list_source_ref": "Layan Green Park price list.pdf#page=1"
+      }
+    },
+    {
+      "entity": "price",
+      "code": "availability_not_ingested",
+      "severity": "warning",
+      "message": "No availability state was ingested for any typology, because neither source carries a per-unit availability column. The only availability the sources state at all is the word SOLD against Phase 1 duplexes, printed in both documents. That marker is preserved on its band and nowhere else: it is not evidence that any other typology is available, and it must never be rendered as a unit-level or project-level availability figure. Nothing in either current source states a sold percentage for Phase 1 — the guide's \"Over 60% of apartments sold\" belongs to Phase 2, and its Phase 1 \"100%\" refers to construction completed, not units sold.",
+      "payload": {
+        "explicit_sold_states": [
+          {
+            "phase": "Phase 1",
+            "type_label": "Duplexes",
+            "stated": "SOLD",
+            "source_ref": "Layan Green Park price list.pdf#page=1"
+          },
+          {
+            "phase": "Phase 1",
+            "type_label": "DUPLEXES",
+            "stated": "Sold",
+            "size_text": "109 m2",
+            "source_ref": "Layan Green Park project guide.pdf#page=1;section=Layout solutions"
+          }
+        ],
+        "phase_1_sold_percentage": null,
+        "not_a_phase_1_figure": {
+          "Over 60% of apartments sold": "Phase 2",
+          "100% of construction completed": "Phase 1, construction not sales"
+        }
+      }
+    },
+    {
+      "entity": "price",
+      "code": "investment_claims_not_prices",
+      "severity": "warning",
+      "message": "The guide carries forward-looking commercial claims — \"+100% increase in the value of apartments\" for Phase 1, a stated 10-15% value increase with each construction stage, a rental pool distributing 60% of net profit to owners and 40% to the management company, and an instalment plan bearing 3%, 4% and 5% interest across three years. None was ingested. These are vendor projections and commercial terms, not developer prices or yields, and none may ever be rendered as a price, a price range, a yield or a return promise.",
+      "payload": {
+        "claims": [
+          "+100% increase in the value of apartments (Phase 1)",
+          "value of apartments steadily increase by 10-15% with each new construction stage",
+          "rental pool: 60% of net profit to owners, 40% to the management company",
+          "instalment interest: 3% year one, 4% year two, 5% year three",
+          "reservation deposit of THB 200,000"
+        ],
+        "source_refs": [
+          "Layan Green Park project guide.pdf#page=1;section=investment performance",
+          "Layan Green Park project guide.pdf#page=1;section=Project information"
         ]
       }
     },
     {
       "entity": "project",
-      "code": "project_scope_ambiguous",
-      "severity": "warning",
-      "message": "The page 4 investment model is labelled \"Layan Green Partk, фаза 2\" — phase 2 — and covers 28 units over 2,457.7 sqm, while page 2 describes the project as 377 units across 4 buildings. The model therefore describes a subset or a later phase, not the whole project. This record models the page 2 project. The spelling \"Partk\" and the Russian \"фаза 2\" are the source's own, quoted rather than corrected.",
-      "payload": {
-        "annex_label": "Layan Green Partk, фаза 2",
-        "annex_units": 28,
-        "annex_sellable_area_sqm": 2457.7,
-        "project_stated_units": 377,
-        "source_refs": [
-          "Layan Green Park - eng.pdf#page=2",
-          "Layan Green Park - eng.pdf#page=4"
-        ]
-      }
-    },
-    {
-      "entity": "project",
-      "code": "related_project_name_in_source",
-      "severity": "warning",
-      "message": "Page 6 of this project's own deck reads \"LA GREEN HOTEL & RESIDENCE represents an attractive investment...\". The onboarding register records \"La Green Hotel & Residence Layan\" as a separate provisional catalogue entry with no located source, and requires that it not be merged with Layan Green Park. This deck names it inside Layan Green Park material. The conflict is recorded, not resolved: no merge, no alias and no second record was created here, and an Owner ruling is required.",
-      "payload": {
-        "stated_name": "LA GREEN HOTEL & RESIDENCE",
-        "source_ref": "Layan Green Park - eng.pdf#page=6",
-        "register_reference": "docs/FOREVER_CATALOG_10_ONBOARDING.md §6.11"
-      }
-    },
-    {
-      "entity": "project",
-      "code": "units_sold_snapshot",
+      "code": "superseded_source_claims_removed",
       "severity": "info",
-      "message": "The source states \"Units sold: 45%\". That is a January 2026 snapshot, not a current availability figure, and it is recorded only with its date. It must never be rendered as current availability.",
+      "message": "This record was rebuilt from two current documents that replace the January 2026 agency deck pair the previous version was derived from. Each claim below was carried by the previous payload and is absent from both current sources; each was removed rather than migrated. Absence here means the phrase does not occur in either current document, not that it has been disproved.",
       "payload": {
-        "stated": "45%",
-        "as_of": "2026-01",
-        "source_ref": "Layan Green Park - eng.pdf#page=2"
+        "removed": [
+          {
+            "claim": "Total units: 377",
+            "replaced_by": "Phase 1: 248 apartments"
+          },
+          {
+            "claim": "Units sold: 45% (as of 2026-01)",
+            "replaced_by": "no Phase 1 sold figure stated"
+          },
+          {
+            "claim": "Completion Q1-2026 / construction_status_stale",
+            "replaced_by": "Phase 1 construction completed in 2024"
+          },
+          {
+            "claim": "distance_to_beach: 700 m",
+            "replaced_by": "\"two minutes from Layan Beach\""
+          },
+          {
+            "claim": "project_type \"Premium apart-hotel\" contradicted by \"Condominiums\"",
+            "replaced_by": "\"First premium condo-hotel certificated by EDGE\""
+          },
+          {
+            "claim": "LA GREEN HOTEL & RESIDENCE named inside Layan Green Park material",
+            "replaced_by": "no occurrence in either current source"
+          },
+          {
+            "claim": "project_scope_ambiguous — \"Layan Green Partk, фаза 2\" annex of 28 units",
+            "replaced_by": "explicit two-phase structure stated by the guide"
+          },
+          {
+            "claim": "location_area \"Layan\"",
+            "replaced_by": "\"Located in Bang Tao\""
+          },
+          {
+            "claim": "five-year investment model with ROI, IRR and an equity multiple",
+            "replaced_by": "no such model in either current source"
+          }
+        ],
+        "superseded_documents": [
+          "Layan Green Park - eng.pdf",
+          "Layan Green Park.pdf"
+        ],
+        "note": "The \"LA GREEN HOTEL & RESIDENCE\" residue is resolved as absent, not as merged or aliased. No alias, no merge and no second project record was created, and none should be: the onboarding register's separate provisional entry is neither confirmed nor refuted by these two documents."
       }
     },
     {
       "entity": "project",
       "code": "stated_facts_not_modelled",
       "severity": "info",
-      "message": "Source-stated facts with no column in the current schema were preserved here rather than discarded or forced into an unrelated field.",
+      "message": "Source-stated facts with no column in the current schema were preserved here rather than discarded or forced into an unrelated field. The beach proximity is recorded in the source's own words: the guide states a travel time and never a distance, so no metre figure was derived from it.",
       "payload": {
-        "distance_to_beach": "700 m",
-        "setting": "Close to the sea, Sirinat National Park, five-star hotels and the Laguna resort; described as one of the key projects shaping the infrastructure of the Layan area.",
-        "source_ref": "Layan Green Park - eng.pdf#pages=2-3"
+        "beach_proximity": "just two minutes from the serene, white-sand Layan Beach",
+        "beach_proximity_detail": "2 MIN — Layan beach, shuttle to the beach",
+        "beach_distance_metres": null,
+        "certification": "Phuket’s first eco-friendly development, officially recognized and certified by the international EDGE standard; first premium condo-hotel certificated by EDGE",
+        "on_site_facilities": "A total of 20,000 sq. m. of on-site facilities",
+        "amenity_share": "over 40% of the project area is dedicated to internal infrastructure; 40% of the development is dedicated to premium amenities",
+        "travel_times": {
+          "Layan beach": "2 MIN",
+          "Laguna area, tennis courts, golf courses, spa": "5 MIN",
+          "Tesco Lotus and Macros supermarkets, Boat Avenue mall": "15 MIN",
+          "Airport": "20 MIN"
+        },
+        "payment_options": [
+          "100% payment: THB 200,000 reservation deposit, balance within 14 days",
+          "Installment plan during construction: THB 200,000 deposit, 35% within 14 days, balance against construction milestones",
+          "Post-completion installment plan: THB 200,000 deposit, 35% within 14 days, 35% spread through 2026, remaining 30% over 3 years with interest"
+        ],
+        "project_website": "layangreenpark.com",
+        "source_refs": [
+          "Layan Green Park project guide.pdf#page=1;section=Overview",
+          "Layan Green Park project guide.pdf#page=1;section=Infrastructure",
+          "Layan Green Park project guide.pdf#page=1;section=investment performance"
+        ]
+      }
+    },
+    {
+      "entity": "project",
+      "code": "source_ref_section_based",
+      "severity": "info",
+      "message": "The guide is a single Figma artboard exported as one PDF page, so every citation into it reads page=1 and carries a section label instead. The section labels are the headings the document itself prints. The price list is an ordinary two-page document and is cited by page.",
+      "payload": {
+        "guide_producer": "Figma",
+        "guide_internal_title": "LGP_Guide_ENG",
+        "guide_pdf_pages": 1,
+        "price_list_pdf_pages": 2,
+        "guide_sections_cited": [
+          "Overview",
+          "Two construction phases",
+          "Infrastructure",
+          "Layout solutions",
+          "investment performance",
+          "Project information"
+        ]
+      }
+    },
+    {
+      "entity": "project",
+      "code": "source_documents_pinned",
+      "severity": "info",
+      "message": "The two documents this record is built from, pinned by Drive file ID, SHA-256 digest and byte length. Both digests were verified against the bytes read at build time, and every transcribed fact in this payload was asserted back against the text extracted from those same bytes. The Drive file IDs and folder paths come from the Drive listings captured by the preceding audit and were not re-fetched by this task.",
+      "payload": {
+        "documents": [
+          {
+            "file": "Layan Green Park project guide.pdf",
+            "role": "Phase 1 project guide",
+            "drive_file_id": "1S121eHy6YuHnhXcr3Xco5VTy65TWr2bR",
+            "drive_parent_folder_id": "1Y7bxJp1PnI7h_UgVhZl3HwfVoBK68u7a",
+            "drive_folder_path": "PHASE 1 / 1. ENGLISH VERSION",
+            "sha256": "b01ef1e39b9a0c6558230db7d8e7f34caee16c779f8966e8dec2a70c14a19dd4",
+            "bytes": 25417328,
+            "producer": "Figma",
+            "language": "English",
+            "transcribed_phrases_verified": 60
+          },
+          {
+            "file": "Layan Green Park price list.pdf",
+            "role": "Phase 1 price list",
+            "drive_file_id": "1OaKT8DqmmIVj62qau_m8jm76CxebpnSO",
+            "drive_parent_folder_id": "1degE4Hc-kd7xFRoCn3_OfxvXP7Vw4Q7L",
+            "drive_folder_path": "PHASE 1 / 1. ENGLISH VERSION / 4. Price lists - Phase 1",
+            "sha256": "e91695a0ac52dfc502fc9b6cc64e7c472432a8e5be4e26c07fb60540e40278d3",
+            "bytes": 6798516,
+            "producer": "iLovePDF",
+            "language": "English",
+            "transcribed_phrases_verified": 26
+          }
+        ]
       }
     },
     {
       "entity": "media",
       "code": "media_not_ingested",
       "severity": "info",
-      "message": "Both documents contain embedded imagery only, with no standalone media assets. No media row was created and no asset was uploaded or made public.",
+      "message": "Both documents contain embedded imagery only, with no standalone media assets. The price list's second page is a set of floor-plan drawings whose room areas extract as text but which carry no unit identifier. No media row was created and no asset was uploaded or made public.",
       "payload": {
         "documents": [
-          {
-            "file": "Layan Green Park - eng.pdf",
-            "sha256": "1203065c56b0bdbe97bdc190e09af7c9392df53ff4a1695e215d9705d59c70a2",
-            "bytes": 7338210,
-            "language": "English",
-            "role": "primary deck"
-          },
-          {
-            "file": "Layan Green Park.pdf",
-            "sha256": "e7beee1d6dce124d05ec7f3c84584afbabc9024b143908d36c56abf500b79c81",
-            "bytes": 3066949,
-            "language": "English",
-            "role": "shorter variant of the same English deck; closing contact page absent"
-          }
-        ]
+          "Layan Green Park project guide.pdf",
+          "Layan Green Park price list.pdf"
+        ],
+        "floor_plan_page": "Layan Green Park price list.pdf#page=2"
       }
     },
     {
@@ -245,12 +649,22 @@
       "field": "source_date",
       "code": "source_date_recorded",
       "severity": "info",
-      "message": "The deck states \"INVESTMENT OPPORTUNITY / January / 2026\" on its title page. That in-document statement is the source date; no file timestamp was used.",
+      "message": "Both documents state \"valid as of July 1, 2026\" against their prices, and that in-document statement is the source date. The price list's embedded ModDate agrees at 2026-07-01T09:39:17Z, but no file timestamp was used to establish the date. The floor-plan page carries an older internal date of 02.02.2026, which is recorded rather than reconciled.",
       "payload": {
-        "source_date": "2026-01",
-        "source_ref": "Layan Green Park - eng.pdf#page=1"
+        "source_date": "2026-07-01",
+        "stated_as": [
+          "price valid as of July 1, 2026",
+          "Price valid as of July 1, 2026"
+        ],
+        "price_list_moddate_corroboration": "D:20260701093917Z",
+        "floor_plan_page_internal_date": "02.02.2026",
+        "source_refs": [
+          "Layan Green Park price list.pdf#page=1",
+          "Layan Green Park project guide.pdf#page=1;section=Layout solutions",
+          "Layan Green Park price list.pdf#page=2"
+        ]
       }
     }
   ],
-  "batch_fingerprint": "ab6ab0aa4b57369933cc02ee8a70dae9c2869ef3b1f66a8cc6d78b7b9ce7a694"
+  "batch_fingerprint": "288fbca7d2419a50a79cb12dc3da8c2702db3b6f57bc8ffc6a678700b385c020"
 }

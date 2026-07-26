@@ -213,6 +213,103 @@ it follows Sierra rather than accompanying it.
 > `--only=<slug>[,<slug>]` so every project except Sierra can be built or verified
 > without it. Nothing about Casa de Monte's own readiness changed.
 
+> **Layan Green Park rebuilt on current sources — FOREVER-CATALOG-10-008,
+> 2026-07-26.** The deck-derived Layan record above is **superseded**. It was
+> rebuilt offline from the two current developer-side Phase 1 documents, verified
+> by full SHA-256 before use. No database contact of any kind was made: Layan is
+> prepared, not imported, and Wave 2 staging remains unstarted. AYANA Heights and
+> Casa de Monte were untouched, and all five other payloads are byte-identical to
+> their recorded digests.
+>
+> | Source                               | Drive file ID                       | SHA-256             | Bytes        |
+> | ------------------------------------ | ----------------------------------- | ------------------- | ------------ |
+> | `Layan Green Park project guide.pdf` | `1S121eHy6YuHnhXcr3Xco5VTy65TWr2bR` | `b01ef1e39b9a0c65…` | `25,417,328` |
+> | `Layan Green Park price list.pdf`    | `1OaKT8DqmmIVj62qau_m8jm76CxebpnSO` | `e91695a0ac52dfc5…` | `6,798,516`  |
+>
+> | Project            | Buildings | Units | Prices | Warnings | `payload.json` SHA-256 | `batch_fingerprint` |
+> | ------------------ | --------: | ----: | -----: | -------: | ---------------------- | ------------------- |
+> | `layan-green-park` |         0 |     0 |      0 |   **24** | `1a743966aff29868…`    | `288fbca7d2419a50…` |
+>
+> Still `mode: create`, `publish: false`. Passes the canonical offline validator,
+> `src/intake/validate-draft.ts` and the live `-ValidateOnly` PowerShell boundary;
+> three consecutive builds produced byte-identical output and two `--check` runs
+> reported `UNCHANGED`.
+>
+> **What the current evidence changed.** Every figure below is stated by the
+> guide, and every one of them contradicts the superseded deck:
+>
+> - **Phase 1 is 248 apartments across 4 buildings**, 30–144 m², site area
+>   9 940 m². The deck's `377` total appears nowhere in either current source.
+> - **Phase 1 construction completed in 2024**, stated twice. The deck's
+>   `Q1-2026` completion quarter is gone, and with it the whole premise of gate
+>   **G9** — the lapsed quarter it guarded against no longer exists. The
+>   build-time assertion was inverted accordingly: the payload must now _not_
+>   carry `construction_status_stale`. G9's intent is enforced more directly than
+>   before, not relaxed.
+> - **`construction_status` stays NULL.** Phase 1 is complete while Phase 2
+>   completes in 2026, so any single project-level status would misstate one
+>   phase.
+> - **No Phase 1 sold percentage exists.** The guide's "Over 60% of apartments
+>   sold" belongs to **Phase 2**, and its Phase 1 "100%" is _construction
+>   completed_, not units sold. The deck's `45% sold` is gone. **G10** is
+>   satisfied by absence rather than by dating a snapshot.
+> - **Location is Bang Tao, country Thailand**, both stated directly; the deck's
+>   area value "Layan" is not supported — Layan is only the neighbouring beach.
+>   The beach is recorded as **"two minutes from Layan Beach"**, the source's own
+>   words. The deck's `700 m` is gone and no metre distance was invented.
+> - **`LA GREEN HOTEL & RESIDENCE` does not occur in either current source.** It
+>   is resolved as _absent_, not merged and not aliased. No second record and no
+>   alias was created. The register's §6.11 provisional entry is neither confirmed
+>   nor refuted by this evidence, so the Owner ruling it asks for is still open.
+> - **The developer remains unresolved.** Neither document names one. A
+>   `10. Developer's portfolio` folder exists in the same Drive tree for both
+>   phases and is the obvious next evidence source; it was not retrieved.
+>
+> **`price_list_missing` is retired — but no price row was created.** A current
+> Phase 1 price list now exists and is ingested as the five type-level bands it
+> actually contains (studios, 1-BR, 2-BR, 3-BR, duplexes), each with a size floor
+> and a THB and USD range, priced as of 1 July 2026. It carries no unit
+> identifier, no per-unit price, no inventory and no availability column, and it
+> defers to the project website for the latest pricing. A price row requires a
+> `unit_code`, so materialising one would invent inventory: the bands are carried
+> as evidence, and `prices` stays at 0. Three findings came with it:
+>
+> - **The document disagrees with itself about FX in four ways.** Page 1 prints
+>   `1 USD = 33.3 THB`, page 2 prints `1 USD = 31,25 THB`, the studio-to-3-BR rows
+>   imply `33.27`, and the duplex row implies `31.44`. Both currencies are stored
+>   exactly as printed; nothing was normalised to a single rate.
+> - **Only the duplex band states a sold state**, and it states it in both
+>   documents. That `SOLD` marker is preserved on its band and nowhere else. No
+>   availability was inferred for any other typology.
+> - **The duplex band is the one band whose Phase 1 scope is uncorroborated.** It
+>   is also the only row printed with a Cyrillic `м` and a comma decimal
+>   separator, and the only one whose implied FX differs. Recorded, not resolved.
+>
+> **The price list never says "Phase 1" in its own text.** Its scope rests on its
+> Drive folder — `4. Price lists - Phase 1` — corroborated by three independent
+> arithmetic identities against the guide. It is recorded as **derived**, so it
+> can be audited rather than trusted.
+>
+> **An equally current Phase 2 guide and Phase 2 price list exist and were not
+> ingested.** They are out of scope, not missing. They also carry **byte-for-byte
+> identical filenames** to the two Phase 1 files, differing only by Drive file ID
+> and digest — so a filename can never identify which phase a document describes.
+> Both Phase 1 sources are now `strictPin` in the builder: a digest miss is fatal
+> rather than falling back to the newest same-named file, because that fallback
+> could silently substitute Phase 2 content into a Phase 1 record. Verified by a
+> negative test.
+>
+> Two further notes for whoever picks this up. The guide is a single Figma
+> artboard exported as **one** PDF page, so every citation into it reads `page=1`
+> and carries a section label instead. And Xpdf `pdftotext` **is** now resolvable
+> on the working machine, which removes the environmental blocker recorded above
+> for Casa de Monte; nothing else about Casa de Monte's readiness was assessed.
+>
+> The expected-warning row for Layan in the table below predicted 5 codes and
+> named `price_list_missing`, `unit_types_missing` and `construction_status_stale`.
+> All three are now false of the current evidence, and the payload carries 24
+> codes. As with Wave 1, warning counts are outputs of the source, never targets.
+
 ### Staging upload order
 
 1. `layan-green-park`
