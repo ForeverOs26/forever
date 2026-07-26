@@ -14,8 +14,8 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-import type { ProgressiveBatch } from "@/features/forever-ingestion/batch-types";
-import { createSupabaseFetch } from "@/import/database";
+import type { ProgressiveBatch } from "../forever-ingestion/batch-types";
+import { createSupabaseFetch } from "../../import/database";
 
 import {
   PUBLIC_IMAGE_BUCKET,

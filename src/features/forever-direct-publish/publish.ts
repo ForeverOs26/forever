@@ -25,9 +25,9 @@ import type {
   ProgressiveMediaItem,
   ProgressiveProjectPayload,
   ProgressiveWarning,
-} from "@/features/forever-ingestion/batch-types";
-import { fingerprintBatch } from "@/features/forever-ingestion/build-batch";
-import { createPublicDerivative } from "@/features/forever-studio/server/media-truth";
+} from "../forever-ingestion/batch-types";
+import { fingerprintBatch } from "../forever-ingestion/build-batch";
+import { createPublicDerivative } from "../forever-studio/server/media-truth";
 
 import { planPublicMedia, type MediaPlan, type PlannedMediaItem } from "./media-plan";
 import { assessPublishability } from "./publishability";
@@ -369,6 +369,13 @@ export async function publishProject(
     actorEmail?: string | null;
     sourceTrust?: string;
     publicationMode?: string;
+    /**
+     * Optional overrides for the planner's default publication caps, so a
+     * deliberately curated package can publish more than the unattended default.
+     * Omitted means the planner's own defaults apply.
+     */
+    maxGallery?: number;
+    maxPlans?: number;
   },
 ): Promise<DirectPublishResult> {
   const base: DirectPublishResult = {
@@ -431,6 +438,8 @@ export async function publishProject(
     const plan = planPublicMedia(pkg.media, {
       slug,
       otherProjectSlugs: otherSlugs.filter((candidate) => candidate !== slug),
+      maxGallery: authorizationInput.maxGallery,
+      maxFloorPlans: authorizationInput.maxPlans,
     });
     const bytesByPath = new Map(pkg.media.map((candidate) => [candidate.path, candidate.bytes]));
 

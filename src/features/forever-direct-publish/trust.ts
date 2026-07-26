@@ -26,7 +26,7 @@
  * are technical safety boundaries, not content-rights review.
  */
 
-import type { ProgressiveWarning } from "@/features/forever-ingestion/batch-types";
+import type { ProgressiveWarning } from "../forever-ingestion/batch-types";
 
 /** Provenance stamp every direct-publish request carries. */
 export const SOURCE_TRUST = "owner_approved_official" as const;

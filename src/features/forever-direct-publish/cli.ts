@@ -34,6 +34,10 @@ function printUsage(): void {
   console.log("  npm run publish:direct -- --package <dir> [--package <dir> ...] [--dry-run]");
   console.log("  npm run publish:direct -- --packages-in <parent-dir> [--dry-run]");
   console.log("");
+  console.log("Optional publication caps (defaults: 20 gallery, 6 plans per kind):");
+  console.log("  --max-gallery <n>   publish up to n gallery images");
+  console.log("  --max-plans <n>     publish up to n floor plans and n unit plans");
+  console.log("");
   console.log("Owner-only. Publishes directly to production; no draft and no staging.");
 }
 
@@ -49,6 +53,28 @@ function flagValue(args: string[], flag: string): string | undefined {
   return flagValues(args, flag)[0];
 }
 
+/**
+ * Optional overrides for the planner's default publication caps.
+ *
+ * The defaults (20 gallery, 6 plans per kind) keep an unattended run's page
+ * useful. A prepared package that deliberately curated more — one unit plan per
+ * available unit type, say — can raise them explicitly, and the raised value is
+ * still reported in the plan rather than applied silently.
+ */
+function mediaLimits(args: string[]): { maxGallery?: number; maxPlans?: number } {
+  const read = (flag: string): number | undefined => {
+    const raw = flagValue(args, flag);
+    if (raw === undefined) return undefined;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 1) {
+      console.error(`${flag} must be a positive whole number; received "${raw}".`);
+      process.exit(1);
+    }
+    return value;
+  };
+  return { maxGallery: read("--max-gallery"), maxPlans: read("--max-plans") };
+}
+
 async function collectPackageDirectories(args: string[]): Promise<string[]> {
   const directories = flagValues(args, "--package").map((value) => resolve(value));
   const parent = flagValue(args, "--packages-in");
@@ -62,7 +88,7 @@ async function collectPackageDirectories(args: string[]): Promise<string[]> {
   return [...new Set(directories)];
 }
 
-function printPlan(pkg: SourcePackage): void {
+function printPlan(pkg: SourcePackage, limits: { maxGallery?: number; maxPlans?: number }): void {
   const verdict = assessPublishability(pkg.batch);
   console.log(`\nPackage: ${pkg.ref}`);
   console.log(`  mode (declared):  ${pkg.batch.mode}`);
@@ -75,7 +101,11 @@ function printPlan(pkg: SourcePackage): void {
   console.log(`  publishable:      ${verdict.ok ? "yes" : `no — ${verdict.failure.code}`}`);
 
   if (verdict.ok) {
-    const plan = planPublicMedia(pkg.media, { slug: verdict.slug });
+    const plan = planPublicMedia(pkg.media, {
+      slug: verdict.slug,
+      maxGallery: limits.maxGallery,
+      maxFloorPlans: limits.maxPlans,
+    });
     const groups = new Map<string, number>();
     for (const item of plan.items)
       groups.set(item.mediaType, (groups.get(item.mediaType) ?? 0) + 1);
@@ -120,6 +150,7 @@ async function main(): Promise<void> {
   }
 
   const dryRun = args.includes("--dry-run");
+  const limits = mediaLimits(args);
   const packages: SourcePackage[] = [];
   for (const directory of directories) {
     try {
@@ -137,7 +168,7 @@ async function main(): Promise<void> {
     // Prove the intended target without constructing a client or a request.
     console.log(`Target: ${DIRECT_PUBLISH_TARGET} (${PRODUCTION_PROJECT_REF})`);
     console.log(`source_trust=${SOURCE_TRUST} publication_mode=${PUBLICATION_MODE}`);
-    for (const pkg of packages) printPlan(pkg);
+    for (const pkg of packages) printPlan(pkg, limits);
     console.log("\nDry run only. No client was created, no upload and no write was performed.");
     return;
   }
@@ -161,6 +192,8 @@ async function main(): Promise<void> {
     role,
     actorId,
     actorEmail: process.env.STUDIO_OWNER_EMAIL ?? null,
+    maxGallery: limits.maxGallery,
+    maxPlans: limits.maxPlans,
   });
 
   console.log("");

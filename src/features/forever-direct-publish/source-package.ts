@@ -22,8 +22,8 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, relative, sep } from "node:path";
 
-import type { ProgressiveBatch } from "@/features/forever-ingestion/batch-types";
-import { assertProgressiveBatchStructure } from "@/features/forever-ingestion/batch-types";
+import type { ProgressiveBatch } from "../forever-ingestion/batch-types";
+import { assertProgressiveBatchStructure } from "../forever-ingestion/batch-types";
 
 import type { SourceMediaCandidate } from "./media-plan";
 

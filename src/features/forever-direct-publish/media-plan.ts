@@ -22,9 +22,9 @@
 
 import { createHash } from "node:crypto";
 
-import type { ProgressiveWarning } from "@/features/forever-ingestion/batch-types";
-import { classifyPath } from "@/intake/classify";
-import type { IntakeCategory } from "@/intake/types";
+import type { ProgressiveWarning } from "../forever-ingestion/batch-types";
+import { classifyPath } from "../../intake/classify";
+import type { IntakeCategory } from "../../intake/types";
 
 /** Default useful gallery size for one project page. */
 export const DEFAULT_MAX_GALLERY = 20;
@@ -163,14 +163,33 @@ export function isCrossProjectMaterial(
   return null;
 }
 
+/** Filename tokens by which a package designates its own hero image. */
+const DESIGNATED_HERO_TOKENS: ReadonlySet<string> = new Set(["cover", "hero"]);
+
+/** Does this file name itself as the intended hero (`…-cover.jpg`, `hero.png`)? */
+function isDesignatedHero(path: string): boolean {
+  const base = path.toLowerCase().split("/").pop() ?? "";
+  return pathTokens(base).some((token) => DESIGNATED_HERO_TOKENS.has(token));
+}
+
 /**
- * Pick the hero from the eligible gallery images. Deterministic and explainable:
- * the largest image wins (developer hero renders are the highest-resolution
- * asset in practice), ties broken by path so the choice is reproducible.
+ * Pick the hero from the eligible gallery images. Deterministic and explainable.
+ *
+ * A package that names its hero (`…-cover.jpg`, `hero.png`) has already made the
+ * editorial choice, so that file wins: raw file size is a decent proxy for "the
+ * big marketing render" but a poor one for "the establishing shot", and a
+ * prepared package should not have its own selection silently overridden. With
+ * no designated file, the largest image wins (developer hero renders are the
+ * highest-resolution asset in practice). Ties break by path either way, so the
+ * choice is reproducible.
  */
 function selectHeroIndex(gallery: PlannedMediaItem[]): number {
-  let best = 0;
-  for (let index = 1; index < gallery.length; index += 1) {
+  const indices = gallery.map((_, index) => index);
+  const designated = indices.filter((index) => isDesignatedHero(gallery[index].path));
+  const pool = designated.length > 0 ? designated : indices;
+
+  let best = pool[0];
+  for (const index of pool.slice(1)) {
     const candidate = gallery[index];
     const incumbent = gallery[best];
     if (

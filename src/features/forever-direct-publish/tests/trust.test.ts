@@ -85,6 +85,35 @@ describe("Owner publication decision", () => {
     }
   });
 
+  it("clears every warning the prepared Legendary payload actually carries", () => {
+    // The exact 16 warning codes in the validated The Title Legendary batch
+    // (forever-data/projects/the-title-legendary/progressive/payload.json).
+    // Not one of them may block its direct publication.
+    const legendaryWarnings = [
+      "developer_unresolved",
+      "location_unresolved",
+      "coordinates_missing",
+      "ownership_type_missing",
+      "completion_date_not_exact",
+      "payment_schedule_missing",
+      "availability_list_only",
+      "availability_superseded_by_newer_source",
+      "repeated_sold_notification",
+      "mislabelled_repost_detected",
+      "unit_type_area_band_mismatch",
+      "land_area_discrepancy",
+      "stale_status_material_in_dossier",
+      "cross_project_material_excluded",
+      "source_marked_internal_use_only",
+      "building_unit_counts_not_published",
+    ];
+    for (const code of legendaryWarnings) {
+      expect(isPublicationBlocking({ code })).toBe(false);
+      // Each one is an explicitly retired blocker, not merely an unknown code.
+      expect(isOwnerRetiredBlocker(code)).toBe(true);
+    }
+  });
+
   it("recognizes agent-facing labels as provenance, not as a blocker", () => {
     expect(hasAgentFacingLabel("LEB Price List — Internal Use Only")).toBe(true);
     expect(hasAgentFacingLabel("For Agents")).toBe(true);

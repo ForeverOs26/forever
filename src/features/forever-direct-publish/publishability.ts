@@ -13,7 +13,7 @@
  * back in one field at a time.
  */
 
-import type { ProgressiveBatch } from "@/features/forever-ingestion/batch-types";
+import type { ProgressiveBatch } from "../forever-ingestion/batch-types";
 
 /** Same shape the database enforces for `projects.slug`. */
 export const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,79}$/;
