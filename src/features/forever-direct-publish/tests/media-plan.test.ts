@@ -142,3 +142,77 @@ describe("isCrossProjectMaterial", () => {
     ).toBe("layan-green-park");
   });
 });
+
+/** A byte-padded photo, so tests can control relative file size. */
+function sizedPhoto(path: string, salt: number, padding = 0): SourceMediaCandidate {
+  return {
+    path,
+    bytes: padding
+      ? Buffer.concat([syntheticJpeg(false, 1, salt), Buffer.alloc(padding, salt & 0xff)])
+      : syntheticJpeg(false, 1, salt),
+  };
+}
+
+describe("planPublicMedia hero selection", () => {
+  it("honours a package's designated cover over a merely larger image", () => {
+    const larger = sizedPhoto("photos/garden-fountain.jpg", 1, 8192);
+    const designated = sizedPhoto("photos/the-title-legendary-cover.jpg", 2);
+
+    const plan = planPublicMedia([larger, designated], { slug: "the-title-legendary" });
+
+    expect(plan.hero?.path).toBe("photos/the-title-legendary-cover.jpg");
+    expect(plan.hero?.mediaType).toBe("cover");
+    // The larger image is not discarded — it stays in the gallery.
+    expect(plan.items.find((item) => item.path === larger.path)?.mediaType).toBe("gallery");
+  });
+
+  it("falls back to the largest image when no file designates itself", () => {
+    const larger = sizedPhoto("photos/exterior-wide.jpg", 3, 8192);
+    const smaller = sizedPhoto("photos/exterior-detail.jpg", 4);
+
+    const plan = planPublicMedia([smaller, larger], { slug: "demo-project" });
+
+    expect(plan.hero?.path).toBe("photos/exterior-wide.jpg");
+  });
+});
+
+describe("planPublicMedia publication caps", () => {
+  const gallery = Array.from({ length: 24 }, (_unused, index) =>
+    sizedPhoto(`photos/p${String(index).padStart(2, "0")}.jpg`, index + 1),
+  );
+  const unitPlans = Array.from({ length: 13 }, (_unused, index) => ({
+    path: `unit-plans/u${String(index).padStart(2, "0")}.png`,
+    bytes: syntheticPng(false, 1, 100 + index),
+  }));
+
+  it("applies the conservative defaults and reports the truncation", () => {
+    const plan = planPublicMedia([...gallery, ...unitPlans], { slug: "demo-project" });
+
+    // 20 photos published in total: 19 gallery plus the promoted cover.
+    expect(plan.items.filter((item) => item.mediaType === "gallery")).toHaveLength(19);
+    expect(plan.items.filter((item) => item.mediaType === "cover")).toHaveLength(1);
+    expect(plan.items.filter((item) => item.mediaType === "unit_plan")).toHaveLength(6);
+    expect(plan.excluded.filter((item) => item.reason === "gallery_limit")).toHaveLength(4);
+    expect(plan.excluded.filter((item) => item.reason === "plan_limit")).toHaveLength(7);
+    expect(plan.warnings.map((warning) => warning.code)).toEqual(
+      expect.arrayContaining(["gallery_truncated", "plans_truncated"]),
+    );
+  });
+
+  it("publishes a deliberately curated package in full when the caps are raised", () => {
+    const plan = planPublicMedia([...gallery, ...unitPlans], {
+      slug: "demo-project",
+      maxGallery: 24,
+      maxFloorPlans: 13,
+    });
+
+    expect(plan.items.filter((item) => item.mediaType === "gallery")).toHaveLength(23);
+    expect(plan.items.filter((item) => item.mediaType === "cover")).toHaveLength(1);
+    expect(plan.items.filter((item) => item.mediaType === "unit_plan")).toHaveLength(13);
+    expect(plan.excluded).toHaveLength(0);
+    // Still a dense, stable order across the larger set.
+    expect(plan.items.map((item) => item.sortOrder)).toEqual(
+      Array.from({ length: 37 }, (_unused, index) => index),
+    );
+  });
+});
