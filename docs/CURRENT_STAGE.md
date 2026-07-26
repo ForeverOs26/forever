@@ -1,7 +1,7 @@
 # Forever Current Stage
 
 Status: Canonical active-stage document
-Last updated: 2026-07-23
+Last updated: 2026-07-26
 
 ## Stage name
 
@@ -44,7 +44,7 @@ The following remain canonical and unchanged:
 - universal Project Detail and Forever Passport foundations;
 - evidence-only Advisory, comparison, recommendation, and report foundations;
 - Supabase project data and one generic Progressive draft importer;
-- Coralina imported as an unpublished draft: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch;
+- Coralina prepared as an unpublished draft payload: 1 project, 8 buildings, 198 units, 198 prices, 6 warnings, 1 ingestion batch (reported loaded to dedicated staging in Wave 1; see Catalogue 10 state below);
 - Fast Intake v1;
 - Structured Input Preparation Design v1;
 - SIP-001A real Rainpalm text-PDF validation;
@@ -52,7 +52,39 @@ The following remain canonical and unchanged:
 - Partner Demo v1;
 - Forever Factory RC1 at A0 — Propose only.
 
-Coralina remains unpublished. Rainpalm remains unimported and unpublished.
+## Catalogue 10 state
+
+**Nothing in this section is a live query.** No staging or production database was
+contacted to write it. Each statement carries its footing.
+
+- **PR #100 is canonical on `main`** (merge commit `a9d275fc`). Its production
+  migration and deploy remain a separate, unexecuted Owner gate.
+- **Wave 1 was _reported_ imported to a dedicated staging project as four
+  unpublished drafts** — Coralina, Rainpalm Villas, Garden of Eden and The Title
+  Sierra — on 2026-07-26. Footing: **reported** by the session that performed the
+  import, recorded in `docs/FOREVER_CATALOG_10_WAVE1_STAGING_REPORT.md` §15. The
+  arithmetic in that record was recomputed against the committed payloads; the
+  live state was **not reverified** here.
+- **All four remain unpublished.** Footing: **code-derived** — every payload is
+  `mode: create` with `publish: false`, and the public catalogue requires
+  `public_status = 'published'`.
+- **Layan Green Park Phase 1 and AYANA Heights Seaview Residence are prepared
+  offline only.** Their payloads are built, validated and committed; neither has
+  been imported anywhere.
+- **No Wave 2 staging import occurred.**
+- **Production was untouched** throughout Catalogue 10. No project was published.
+- **Closed PR #104 was replaced, not merged.** It carried the same catalogue
+  work, but its documentation exposed inappropriate local and private metadata,
+  so it was closed unmerged and the legitimate work was reconstructed on a clean
+  sanitized branch. The replacement changes no payload data beyond the audit
+  corrections recorded with it.
+- **Forever Factory remains A0 — Propose only.**
+- **Forever Studio production launch remains a separate P0 task**, unaffected by
+  Catalogue 10 and still blocked on the Cloudflare host and environment-scope
+  decision recorded above.
+
+Coralina, Rainpalm, Garden of Eden and The Title Sierra remain unpublished. Layan
+and AYANA remain offline-only.
 
 ## Current business and product reality
 
@@ -204,7 +236,7 @@ The strategic North Star metric remains reservations or closed transactions in w
 - TG-WATCH-001A remains bounded offline tooling with no live-transport expansion;
 - Partner Demo or guest testing produces at least one external feedback record;
 - no unauthorized import, publication, lead mutation, or production write occurs;
-- Coralina remains unpublished and Rainpalm remains unimported/unpublished throughout this stage unless a later separately approved checkpoint changes that state;
+- Coralina and Rainpalm remain unpublished throughout this stage unless a later separately approved checkpoint changes that state; a Wave 1 load to a dedicated staging project is reported and is not publication;
 - Factory remains A0.
 
 ## Definition of done

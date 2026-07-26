@@ -1,0 +1,813 @@
+{
+  "schema_version": "1",
+  "mode": "create",
+  "project": {
+    "slug": "rainpalm-villas",
+    "name": "Rainpalm Villas",
+    "developer_id": null,
+    "location_id": null,
+    "publish": false,
+    "developer_name_raw": "Tonsai Company",
+    "location_name_raw": "Bang Tao, Phuket",
+    "location_area": "Bang Tao",
+    "project_type": "Pool Villa",
+    "short_description": "Luxury Modern Tropical Villa",
+    "field_provenance": {
+      "name": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "For PDF Presentation.pdf#page=1",
+        "confidence": 1
+      },
+      "developer_name_raw": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "For PDF Presentation.pdf#page=3",
+        "confidence": 1
+      },
+      "location_name_raw": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "For PDF Presentation.pdf#pages=7-8",
+        "confidence": 1
+      },
+      "location_area": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "For PDF Presentation.pdf#pages=7-8",
+        "confidence": 1
+      },
+      "project_type": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "For PDF Presentation.pdf#page=1",
+        "confidence": 1
+      },
+      "short_description": {
+        "status": "developer_provided",
+        "source_type": "official_project_material",
+        "source_ref": "For PDF Presentation.pdf#page=5",
+        "confidence": 1
+      }
+    }
+  },
+  "units": [
+    {
+      "unit_code": "A1",
+      "unit_type": "Pool Villa Type A",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 346.4,
+      "availability_status": "reserved"
+    },
+    {
+      "unit_code": "A2",
+      "unit_type": "Pool Villa Type A",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 346.4,
+      "availability_status": "reserved"
+    },
+    {
+      "unit_code": "A3",
+      "unit_type": "Pool Villa Type A",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 516.59,
+      "availability_status": "available"
+    },
+    {
+      "unit_code": "A4",
+      "unit_type": "Pool Villa Type A",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 349.77,
+      "availability_status": "sold"
+    },
+    {
+      "unit_code": "A5",
+      "unit_type": "Pool Villa Type A",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 349.77,
+      "availability_status": "available"
+    },
+    {
+      "unit_code": "A7",
+      "unit_type": "Pool Villa Type A",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 349.77,
+      "availability_status": "available"
+    },
+    {
+      "unit_code": "A8",
+      "unit_type": "Pool Villa Type A",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 349.77,
+      "availability_status": "sold"
+    },
+    {
+      "unit_code": "A9",
+      "unit_type": "Pool Villa Type A",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 349.77,
+      "availability_status": "sold"
+    },
+    {
+      "unit_code": "B1",
+      "unit_type": "Pool Villa Type B",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 335.63,
+      "availability_status": "available"
+    },
+    {
+      "unit_code": "B6",
+      "unit_type": "Pool Villa Type B",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 335.63,
+      "availability_status": "available"
+    },
+    {
+      "unit_code": "B7",
+      "unit_type": "Pool Villa Type B",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 335.63,
+      "availability_status": "available"
+    },
+    {
+      "unit_code": "B8",
+      "unit_type": "Pool Villa Type B",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 342.4,
+      "availability_status": "sold"
+    },
+    {
+      "unit_code": "C1",
+      "unit_type": "Pool Villa Type C",
+      "bedrooms": 4,
+      "bathrooms": 4,
+      "size_sqm": 320.25,
+      "availability_status": "available"
+    },
+    {
+      "unit_code": "C2",
+      "unit_type": "Pool Villa Type C",
+      "bedrooms": 4,
+      "bathrooms": 4,
+      "size_sqm": 309.38,
+      "availability_status": "sold"
+    },
+    {
+      "unit_code": "C3",
+      "unit_type": "Pool Villa Type C",
+      "bedrooms": 4,
+      "bathrooms": 4,
+      "size_sqm": 298.94,
+      "availability_status": "sold"
+    },
+    {
+      "unit_code": "C4",
+      "unit_type": "Pool Villa Type C",
+      "bedrooms": 4,
+      "bathrooms": 4,
+      "size_sqm": 307.97,
+      "availability_status": "sold"
+    },
+    {
+      "unit_code": "D1",
+      "unit_type": "Pool Villa Type D",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 303.59,
+      "availability_status": "reserved"
+    },
+    {
+      "unit_code": "D2",
+      "unit_type": "Pool Villa Type D",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 320.96,
+      "availability_status": "reserved"
+    },
+    {
+      "unit_code": "D3",
+      "unit_type": "Pool Villa Type D",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 303.59,
+      "availability_status": "available"
+    },
+    {
+      "unit_code": "D4",
+      "unit_type": "Pool Villa Type D",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 303.59,
+      "availability_status": "available"
+    },
+    {
+      "unit_code": "D5",
+      "unit_type": "Pool Villa Type D",
+      "bedrooms": 4,
+      "bathrooms": 5,
+      "size_sqm": 303.59,
+      "availability_status": "available"
+    }
+  ],
+  "prices": [
+    {
+      "unit_code": "A1",
+      "price": 32548752,
+      "currency": "THB",
+      "price_source": "developer_price_list",
+      "source_file": "Копия Rainpalm - Price List（for In house)-1.pdf",
+      "source_page": 1,
+      "metadata": {
+        "currency_decision": {
+          "value": "THB",
+          "status": "source_verified",
+          "confidence": "high",
+          "priceEvidence": [
+            {
+              "value": "THB",
+              "status": "source_verified",
+              "confidence": "high",
+              "sourceFile": "Rainpalm Legal and Ownership.pdf (1)-1.pdf",
+              "sourcePage": 1,
+              "context": "selling-price row"
+            }
+          ],
+          "reviewFindings": []
+        },
+        "field_provenance": {
+          "price": {
+            "status": "extracted"
+          },
+          "currency": {
+            "status": "extracted"
+          }
+        }
+      }
+    },
+    {
+      "unit_code": "A2",
+      "price": 31898492,
+      "currency": "THB",
+      "price_source": "developer_price_list",
+      "source_file": "Копия Rainpalm - Price List（for In house)-1.pdf",
+      "source_page": 1,
+      "metadata": {
+        "currency_decision": {
+          "value": "THB",
+          "status": "source_verified",
+          "confidence": "high",
+          "priceEvidence": [
+            {
+              "value": "THB",
+              "status": "source_verified",
+              "confidence": "high",
+              "sourceFile": "Rainpalm Legal and Ownership.pdf (1)-1.pdf",
+              "sourcePage": 1,
+              "context": "selling-price row"
+            }
+          ],
+          "reviewFindings": []
+        },
+        "field_provenance": {
+          "price": {
+            "status": "extracted"
+          },
+          "currency": {
+            "status": "extracted"
+          }
+        }
+      }
+    },
+    {
+      "unit_code": "A3",
+      "price": 47151443,
+      "currency": "THB",
+      "price_source": "developer_price_list",
+      "source_file": "Копия Rainpalm - Price List（for In house)-1.pdf",
+      "source_page": 1,
+      "metadata": {
+        "currency_decision": {
+          "value": "THB",
+          "status": "source_verified",
+          "confidence": "high",
+          "priceEvidence": [
+            {
+              "value": "THB",
+              "status": "source_verified",
+              "confidence": "high",
+              "sourceFile": "Rainpalm Legal and Ownership.pdf (1)-1.pdf",
+              "sourcePage": 1,
+              "context": "selling-price row"
+            }
+          ],
+          "reviewFindings": []
+        },
+        "field_provenance": {
+          "price": {
+            "status": "extracted"
+          },
+          "currency": {
+            "status": "extracted"
+          }
+        }
+      }
+    },
+    {
+      "unit_code": "A5",
+      "price": 33186548,
+      "currency": "THB",
+      "price_source": "developer_price_list",
+      "source_file": "Копия Rainpalm - Price List（for In house)-1.pdf",
+      "source_page": 1,
+      "metadata": {
+        "currency_decision": {
+          "value": "THB",
+          "status": "source_verified",
+          "confidence": "high",
+          "priceEvidence": [
+            {
+              "value": "THB",
+              "status": "source_verified",
+              "confidence": "high",
+              "sourceFile": "Rainpalm Legal and Ownership.pdf (1)-1.pdf",
+              "sourcePage": 1,
+              "context": "selling-price row"
+            }
+          ],
+          "reviewFindings": []
+        },
+        "field_provenance": {
+          "price": {
+            "status": "extracted"
+          },
+          "currency": {
+            "status": "extracted"
+          }
+        }
+      }
+    },
+    {
+      "unit_code": "A7",
+      "price": 36237866,
+      "currency": "THB",
+      "price_source": "developer_price_list",
+      "source_file": "Копия Rainpalm - Price List（for In house)-1.pdf",
+      "source_page": 1,
+      "metadata": {
+        "currency_decision": {
+          "value": "THB",
+          "status": "source_verified",
+          "confidence": "high",
+          "priceEvidence": [
+            {
+              "value": "THB",
+              "status": "source_verified",
+              "confidence": "high",
+              "sourceFile": "Rainpalm Legal and Ownership.pdf (1)-1.pdf",
+              "sourcePage": 1,
+              "context": "selling-price row"
+            }
+          ],
+          "reviewFindings": []
+        },
+        "field_provenance": {
+          "price": {
+            "status": "extracted"
+          },
+          "currency": {
+            "status": "extracted"
+          }
+        }
+      }
+    },
+    {
+      "unit_code": "B1",
+      "price": 30448502,
+      "currency": "THB",
+      "price_source": "developer_price_list",
+      "source_file": "Копия Rainpalm - Price List（for In house)-1.pdf",
+      "source_page": 1,
+      "metadata": {
+        "currency_decision": {
+          "value": "THB",
+          "status": "source_verified",
+          "confidence": "high",
+          "priceEvidence": [
+            {
+              "value": "THB",
+              "status": "source_verified",
+              "confidence": "high",
+              "sourceFile": "Rainpalm Legal and Ownership.pdf (1)-1.pdf",
+              "sourcePage": 1,
+              "context": "selling-price row"
+            }
+          ],
+          "reviewFindings": []
+        },
+        "field_provenance": {
+          "price": {
+            "status": "extracted"
+          },
+          "currency": {
+            "status": "extracted"
+          }
+        }
+      }
+    },
+    {
+      "unit_code": "B6",
+      "price": 29026458,
+      "currency": "THB",
+      "price_source": "developer_price_list",
+      "source_file": "Копия Rainpalm - Price List（for In house)-1.pdf",
+      "source_page": 1,
+      "metadata": {
+        "currency_decision": {
+          "value": "THB",
+          "status": "source_verified",
+          "confidence": "high",
+          "priceEvidence": [
+            {
+              "value": "THB",
+              "status": "source_verified",
+              "confidence": "high",
+              "sourceFile": "Rainpalm Legal and Ownership.pdf (1)-1.pdf",
+              "sourcePage": 1,
+              "context": "selling-price row"
+            }
+          ],
+          "reviewFindings": []
+        },
+        "field_provenance": {
+          "price": {
+            "status": "extracted"
+          },
+          "currency": {
+            "status": "extracted"
+          }
+        }
+      }
+    },
+    {
+      "unit_code": "B7",
+      "price": 28605602,
+      "currency": "THB",
+      "price_source": "developer_price_list",
+      "source_file": "Копия Rainpalm - Price List（for In house)-1.pdf",
+      "source_page": 1,
+      "metadata": {
+        "currency_decision": {
+          "value": "THB",
+          "status": "source_verified",
+          "confidence": "high",
+          "priceEvidence": [
+            {
+              "value": "THB",
+              "status": "source_verified",
+              "confidence": "high",
+              "sourceFile": "Rainpalm Legal and Ownership.pdf (1)-1.pdf",
+              "sourcePage": 1,
+              "context": "selling-price row"
+            }
+          ],
+          "reviewFindings": []
+        },
+        "field_provenance": {
+          "price": {
+            "status": "extracted"
+          },
+          "currency": {
+            "status": "extracted"
+          }
+        }
+      }
+    },
+    {
+      "unit_code": "C1",
+      "price": 27230068,
+      "currency": "THB",
+      "price_source": "developer_price_list",
+      "source_file": "Копия Rainpalm - Price List（for In house)-1.pdf",
+      "source_page": 1,
+      "metadata": {
+        "currency_decision": {
+          "value": "THB",
+          "status": "source_verified",
+          "confidence": "high",
+          "priceEvidence": [
+            {
+              "value": "THB",
+              "status": "source_verified",
+              "confidence": "high",
+              "sourceFile": "Rainpalm Legal and Ownership.pdf (1)-1.pdf",
+              "sourcePage": 1,
+              "context": "selling-price row"
+            }
+          ],
+          "reviewFindings": []
+        },
+        "field_provenance": {
+          "price": {
+            "status": "extracted"
+          },
+          "currency": {
+            "status": "extracted"
+          }
+        }
+      }
+    },
+    {
+      "unit_code": "D1",
+      "price": 28270287,
+      "currency": "THB",
+      "price_source": "developer_price_list",
+      "source_file": "Копия Rainpalm - Price List（for In house)-1.pdf",
+      "source_page": 1,
+      "metadata": {
+        "currency_decision": {
+          "value": "THB",
+          "status": "source_verified",
+          "confidence": "high",
+          "priceEvidence": [
+            {
+              "value": "THB",
+              "status": "source_verified",
+              "confidence": "high",
+              "sourceFile": "Rainpalm Legal and Ownership.pdf (1)-1.pdf",
+              "sourcePage": 1,
+              "context": "selling-price row"
+            }
+          ],
+          "reviewFindings": []
+        },
+        "field_provenance": {
+          "price": {
+            "status": "extracted"
+          },
+          "currency": {
+            "status": "extracted"
+          }
+        }
+      }
+    },
+    {
+      "unit_code": "D2",
+      "price": 28467645,
+      "currency": "THB",
+      "price_source": "developer_price_list",
+      "source_file": "Копия Rainpalm - Price List（for In house)-1.pdf",
+      "source_page": 1,
+      "metadata": {
+        "currency_decision": {
+          "value": "THB",
+          "status": "source_verified",
+          "confidence": "high",
+          "priceEvidence": [
+            {
+              "value": "THB",
+              "status": "source_verified",
+              "confidence": "high",
+              "sourceFile": "Rainpalm Legal and Ownership.pdf (1)-1.pdf",
+              "sourcePage": 1,
+              "context": "selling-price row"
+            }
+          ],
+          "reviewFindings": []
+        },
+        "field_provenance": {
+          "price": {
+            "status": "extracted"
+          },
+          "currency": {
+            "status": "extracted"
+          }
+        }
+      }
+    },
+    {
+      "unit_code": "D3",
+      "price": 27550098,
+      "currency": "THB",
+      "price_source": "developer_price_list",
+      "source_file": "Копия Rainpalm - Price List（for In house)-1.pdf",
+      "source_page": 1,
+      "metadata": {
+        "currency_decision": {
+          "value": "THB",
+          "status": "source_verified",
+          "confidence": "high",
+          "priceEvidence": [
+            {
+              "value": "THB",
+              "status": "source_verified",
+              "confidence": "high",
+              "sourceFile": "Rainpalm Legal and Ownership.pdf (1)-1.pdf",
+              "sourcePage": 1,
+              "context": "selling-price row"
+            }
+          ],
+          "reviewFindings": []
+        },
+        "field_provenance": {
+          "price": {
+            "status": "extracted"
+          },
+          "currency": {
+            "status": "extracted"
+          }
+        }
+      }
+    },
+    {
+      "unit_code": "D4",
+      "price": 29058274,
+      "currency": "THB",
+      "price_source": "developer_price_list",
+      "source_file": "Копия Rainpalm - Price List（for In house)-1.pdf",
+      "source_page": 1,
+      "metadata": {
+        "currency_decision": {
+          "value": "THB",
+          "status": "source_verified",
+          "confidence": "high",
+          "priceEvidence": [
+            {
+              "value": "THB",
+              "status": "source_verified",
+              "confidence": "high",
+              "sourceFile": "Rainpalm Legal and Ownership.pdf (1)-1.pdf",
+              "sourcePage": 1,
+              "context": "selling-price row"
+            }
+          ],
+          "reviewFindings": []
+        },
+        "field_provenance": {
+          "price": {
+            "status": "extracted"
+          },
+          "currency": {
+            "status": "extracted"
+          }
+        }
+      }
+    },
+    {
+      "unit_code": "D5",
+      "price": 26428666,
+      "currency": "THB",
+      "price_source": "developer_price_list",
+      "source_file": "Копия Rainpalm - Price List（for In house)-1.pdf",
+      "source_page": 1,
+      "metadata": {
+        "currency_decision": {
+          "value": "THB",
+          "status": "source_verified",
+          "confidence": "high",
+          "priceEvidence": [
+            {
+              "value": "THB",
+              "status": "source_verified",
+              "confidence": "high",
+              "sourceFile": "Rainpalm Legal and Ownership.pdf (1)-1.pdf",
+              "sourcePage": 1,
+              "context": "selling-price row"
+            }
+          ],
+          "reviewFindings": []
+        },
+        "field_provenance": {
+          "price": {
+            "status": "extracted"
+          },
+          "currency": {
+            "status": "extracted"
+          }
+        }
+      }
+    }
+  ],
+  "warnings": [
+    {
+      "entity": "project",
+      "code": "country_missing",
+      "severity": "warning",
+      "message": "No source-backed country was provided; currency cannot be inferred and remains NULL unless a price row states it."
+    },
+    {
+      "entity": "project",
+      "field": "latitude",
+      "code": "coordinates_missing",
+      "severity": "info",
+      "message": "Fast Intake v1 does not extract coordinates; latitude/longitude remain NULL."
+    },
+    {
+      "entity": "project",
+      "field": "construction_status",
+      "code": "construction_status_missing",
+      "severity": "info",
+      "message": "Fast Intake v1 does not extract construction status or completion date; these remain NULL."
+    },
+    {
+      "entity": "developer",
+      "code": "developer_unresolved",
+      "severity": "warning",
+      "message": "No canonical developer matches \"Tonsai Company\"; the raw value was preserved for later enrichment.",
+      "payload": {
+        "raw_name": "Tonsai Company"
+      }
+    },
+    {
+      "entity": "location",
+      "code": "location_unresolved",
+      "severity": "warning",
+      "message": "No canonical location matches \"Bang Tao, Phuket\"; the raw value was preserved for later enrichment.",
+      "payload": {
+        "raw_name": "Bang Tao, Phuket"
+      }
+    },
+    {
+      "entity": "price",
+      "field": "price",
+      "code": "price_missing",
+      "severity": "info",
+      "message": "Unit A4 has no source-backed price; the price row was omitted.",
+      "payload": {
+        "unit_code": "A4"
+      }
+    },
+    {
+      "entity": "price",
+      "field": "price",
+      "code": "price_missing",
+      "severity": "info",
+      "message": "Unit A8 has no source-backed price; the price row was omitted.",
+      "payload": {
+        "unit_code": "A8"
+      }
+    },
+    {
+      "entity": "price",
+      "field": "price",
+      "code": "price_missing",
+      "severity": "info",
+      "message": "Unit A9 has no source-backed price; the price row was omitted.",
+      "payload": {
+        "unit_code": "A9"
+      }
+    },
+    {
+      "entity": "price",
+      "field": "price",
+      "code": "price_missing",
+      "severity": "info",
+      "message": "Unit B8 has no source-backed price; the price row was omitted.",
+      "payload": {
+        "unit_code": "B8"
+      }
+    },
+    {
+      "entity": "price",
+      "field": "price",
+      "code": "price_missing",
+      "severity": "info",
+      "message": "Unit C2 has no source-backed price; the price row was omitted.",
+      "payload": {
+        "unit_code": "C2"
+      }
+    },
+    {
+      "entity": "price",
+      "field": "price",
+      "code": "price_missing",
+      "severity": "info",
+      "message": "Unit C3 has no source-backed price; the price row was omitted.",
+      "payload": {
+        "unit_code": "C3"
+      }
+    },
+    {
+      "entity": "price",
+      "field": "price",
+      "code": "price_missing",
+      "severity": "info",
+      "message": "Unit C4 has no source-backed price; the price row was omitted.",
+      "payload": {
+        "unit_code": "C4"
+      }
+    }
+  ],
+  "batch_fingerprint": "2ef6931168fc7b4c5c6cbba3e398f398de4b6ab9e5b7546962f570fcfded9781"
+}
