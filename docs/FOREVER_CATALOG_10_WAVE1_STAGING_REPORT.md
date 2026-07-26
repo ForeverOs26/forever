@@ -29,9 +29,13 @@ unpublished drafts.
 | ingestion_batches  |      106 |   110 |   **+4** |
 | ingestion_warnings |        8 |    48 |  **+40** |
 
-Every delta is exactly the sum of the four imports, so nothing unrelated
-changed. A repeated Coralina import was refused with
-`draft_import_duplicate_slug` and wrote nothing. §15 carries the full record.
+Every delta is exactly the sum of the four imports, so the **net** change outside
+Wave 1 is zero across all six tables. That is an aggregate result: it does not by
+itself exclude offsetting changes among unrelated projects, and the record holds
+no per-project baseline that would settle it either way — see §15.7. A repeated
+Coralina import was reported refused with `draft_import_duplicate_slug`, writing
+nothing. §15 carries the full record and marks which facts are recomputed and
+which are attested.
 
 Two earlier statuses are superseded and retained only as history:
 
@@ -152,10 +156,13 @@ Classification against the brief's four options:
 - **C — absent**, for staging, at high confidence. No import was ever aimed at
   staging, and the staging project was created 2026-07-21, three days after the
   last attempt.
-- **Now query-verified (2026-07-26).** The successful staging run began with no
-  Wave 1 slug present in `forever-staging` — the pre-import duplicate check
-  returned an empty set. Coralina was therefore **absent before import** and was
-  created fresh. The repository-evidence classification above was correct, and
+- **Resolved by the 2026-07-26 run (reported).** The execution record's
+  pre-import duplicate check reports an empty result (`existing_projects: []`),
+  so the run began with no Wave 1 slug present in `forever-staging`. Coralina was
+  therefore **absent before import** and created fresh. This upgrades the
+  classification from repository-document inference to a query result reported by
+  the executing session — it was not re-queried by the session writing this
+  report. On that basis the classification above was correct and
   `docs/CURRENT_STAGE.md` was wrong. See §15.
 
 Because Coralina was absent rather than partial, no idempotent update variant
@@ -803,7 +810,8 @@ of it ran. Nothing below is asserted from inference.
 
 **At that time Coralina's actual starting state remained unknown.** It was
 confirmed later: the successful run found no Wave 1 slug present, so the
-§4 classification (absent from staging) is now query-verified. See §15.
+§4 classification (absent from staging) is resolved by a query result reported
+in the execution record. See §15.
 
 ### 13.5 Payloads are ready and match the expected results exactly
 
@@ -1063,9 +1071,10 @@ unchanged and unchangeable from here: the import itself, database replay safety
 and post-import counts all require the interactive password gate in §13.8.
 Staging and production were never contacted during this audit.
 
-> **Outcome.** That import then ran successfully against `forever-staging` on
-> 2026-07-26 at this exact head, and the replay refusal and post-import counts
-> were all confirmed. See §15.
+> **Outcome.** That import then ran against `forever-staging` on 2026-07-26 at
+> this exact head and is reported successful, with the replay refused and the
+> post-import counts recorded. §15 sets out which of those facts were recomputed
+> here and which are reported or attested.
 
 ## 15. Wave 1 controlled staging import — COMPLETED 2026-07-26
 
@@ -1079,40 +1088,57 @@ sections identified as missing.
 
 This section was written from a sanitized execution record, not from a database
 connection: the session that produced this document ran no database command. The
-record's arithmetic and its agreement with the committed payloads were
-re-derived independently before anything here was written; §15.7 states exactly
-what that verification did and did not establish.
+record's arithmetic and its agreement with the committed payloads were recomputed
+before anything here was written.
+
+**How to read this section.** Its statements have three different footings, and
+they are labelled throughout rather than blended:
+
+| Footing        | Meaning                                                                  | Examples                                                                                             |
+| -------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| **Recomputed** | Derived here from the record plus committed repository files             | deltas, fingerprint and count agreement, marker/snapshot agreement                                   |
+| **Reported**   | Asserted by the record; not independently observable from this session   | baseline and final totals, replay refusal, `counts_unchanged`                                        |
+| **Attested**   | Supplied by the Owner in the task brief; absent from the record's fields | TLS mode and CA, production non-use, the aborted first attempt, draft retention, credential handling |
+
+§15.7 states exactly what the verification did and did not establish, including
+the one inference that was withdrawn as an overclaim.
 
 ### 15.1 Target and payloads
 
-| Item            | Value                                                                     |
-| --------------- | ------------------------------------------------------------------------- |
-| Staging project | `forever-staging`, ref `garji…zisu`                                       |
-| Host            | `db.garji…zisu.supabase.co`                                               |
-| Transport       | TLS `verify-full` with the pinned staging CA                              |
-| Production      | **not used** — no production ref appears anywhere in the execution record |
-| Repository head | `60e59d2316fec826aa1abe242439907e6089c2d6` — the head audited in §14      |
-| Branch          | `claude/forever-catalog-10-001`                                           |
-| Run window      | 2026-07-26T05:16:53Z → 05:17:39Z (45 s)                                   |
+| Item            | Value                                                                | Footing                                                                                   |
+| --------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Staging project | `forever-staging`, ref `garji…zisu`                                  | in the record                                                                             |
+| Host            | `db.garji…zisu.supabase.co`                                          | in the record                                                                             |
+| Repository head | `60e59d2316fec826aa1abe242439907e6089c2d6` — the head audited in §14 | in the record                                                                             |
+| Branch          | `claude/forever-catalog-10-001`                                      | in the record                                                                             |
+| Run window      | 2026-07-26T05:16:53Z → 05:17:39Z (45 s)                              | in the record                                                                             |
+| Transport       | TLS `verify-full` with the pinned staging CA                         | **attested** — the record carries no TLS field                                            |
+| Production      | **not used**                                                         | **attested** — corroborated only by the absence of a production ref in a sanitized record |
 
-The head in the execution record is byte-identical to the head §14 audited, so
-the payloads that landed are the ones whose digests and fingerprints that audit
-recomputed from source.
+The head in the record equals the head §14 audited, so the payloads referenced
+are the ones whose digests and fingerprints that audit recomputed from source.
 
-### 15.2 First attempt aborted before any write
+### 15.2 First attempt aborted before any write (attested)
 
-An initial read-only orchestration attempt aborted **before reaching any write**
-because an empty JSON list was mishandled locally — the well-known PowerShell
+**Footing: Owner-supplied execution fact.** The sanitized record contains no
+field describing this attempt — it reports only the successful run. What follows
+is recorded because it was supplied in the approved brief, and because a clean
+run preceded by an aborted one should not be reported as a single uneventful
+success. It is not independently established by the record.
+
+An initial read-only orchestration attempt aborted **before reaching any write**,
+because an empty JSON list was mishandled locally — the familiar PowerShell
 behaviour where an empty array deserialises to `$null` rather than an empty
-collection. **No database row changed in that attempt.** It is recorded here
-because a clean run preceded by an aborted one should never be reported as a
-single uneventful success.
+collection. **No database row changed in that attempt.**
 
-The successful run then started from a state with **no Wave 1 slug present**.
+The successful run then started from a state with no Wave 1 slug present. That
+last point _is_ in the record: `existing_projects` is an empty array.
 
 ### 15.3 Baseline
 
-Recorded staging-only, immediately before the first import.
+Reported by the record, staging-only, immediately before the first import. These
+are **aggregate totals with no per-project breakdown** — a limitation that
+matters for §15.7 and is stated there.
 
 | Table              | Baseline |
 | ------------------ | -------: |
@@ -1123,9 +1149,9 @@ Recorded staging-only, immediately before the first import.
 | ingestion_batches  |      106 |
 | ingestion_warnings |        8 |
 
-The pre-import duplicate check for `coralina`, `rainpalm-villas`,
-`garden-of-eden` and `the-title-sierra` returned **an empty set**. This is what
-resolves §4: Coralina was **absent from staging before the import**, confirming
+The record reports the pre-import duplicate check for `coralina`,
+`rainpalm-villas`, `garden-of-eden` and `the-title-sierra` returning **an empty
+set** (`existing_projects: []`). This is what resolves §4: Coralina was **absent from staging before the import**, confirming
 the repository-evidence classification and confirming that
 `docs/CURRENT_STAGE.md`'s "already imported" claim was wrong.
 
@@ -1145,7 +1171,7 @@ Every row equals the expected draft result **and** the committed payload's own
 counts. Each project reports `public_status = draft` and exactly one ingestion
 batch. No Wave 1 slug is duplicated.
 
-Ingestion batch fingerprints, as stored in staging:
+Ingestion batch fingerprints **as the record reports them stored**:
 
 | Project            | `batch_fingerprint`                                                | Matches committed payload |
 | ------------------ | ------------------------------------------------------------------ | ------------------------- |
@@ -1154,19 +1180,31 @@ Ingestion batch fingerprints, as stored in staging:
 | `garden-of-eden`   | `de458b059155e971d6bdbe99c521e0009a15ca552d901d12ea02c054fceefbca` | yes                       |
 | `the-title-sierra` | `4a3e9c17fb826a8f42ae32f17cac9a30f92a00a19efdf5b0e2872fb12d625b29` | yes                       |
 
-All four fingerprints are identical to the values in the committed payloads at
-this head, so what is in staging is provably what is in the pull request.
+All four fingerprints the record reports are identical to the values in the
+committed payloads at this head. Because the fingerprint is a content hash over
+the payload body, that is strong evidence the imported batches were built from
+exactly these committed payloads — but it is agreement between the record and the
+repository, not a value this session read from the database.
 
-### 15.5 Replay safety — verified
+### 15.5 Replay safety — reported refusal
 
-The exact Coralina import command was repeated once. The importer **refused**
-with `draft_import_duplicate_slug` and wrote nothing; total counts were
-unchanged afterwards.
+The exact Coralina import command was repeated once. The record reports the
+importer **refused** with `draft_import_duplicate_slug`, and asserts
+`counts_unchanged: true`.
 
-This is the stronger of the two acceptable behaviours: the duplicate-slug
-preflight fires inside the transaction before the ingestion RPC is reached, so a
-second identical import cannot create a second project row, duplicate buildings,
-duplicate units, duplicate prices, or a second effective ingestion.
+Precision on footing: the refusal outcome and the unchanged-counts flag are both
+**reported**. The record carries no post-replay totals, so the flag could not be
+recomputed here — it is an assertion, not an arithmetic result this session
+checked.
+
+The reported outcome is the stronger of the two behaviours the brief allowed,
+and it is what the committed code predicts: `Import-ForeverProjectDraft.ps1`
+raises `draft_import_duplicate_slug` from a preflight block inside the same
+`BEGIN`/`COMMIT` as the ingestion call, before `forever_progressive_ingest` is
+reached. On that path a second identical import cannot create a second project
+row, duplicate buildings, units or prices, or a second effective ingestion. That
+is a code-derived guarantee, verifiable in this repository, and it corroborates
+the reported result.
 
 ### 15.6 Final counts and exact deltas
 
@@ -1179,46 +1217,84 @@ duplicate units, duplicate prices, or a second effective ingestion.
 | ingestion_batches  |      106 |   110 |   **+4** |
 | ingestion_warnings |        8 |    48 |  **+40** |
 
-### 15.7 Independent verification of the execution record
+### 15.7 What was independently checked, and what is reported
 
-The record was not taken on trust. Every figure above was re-derived before this
-section was written.
+The record's arithmetic and its agreement with the repository were recomputed
+rather than transcribed. Each row below is labelled by what it actually rests
+on: **recomputed** from the record plus committed files, or **reported** by the
+record and not independently observable from here.
 
-| Check                                              | Result                                                                                                                         |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Deltas equal `final − baseline`                    | 6/6 exact                                                                                                                      |
-| Deltas equal the **sum of the four imports**       | 6/6 exact — 4 projects, 8+0+0+2=10 buildings, 198+21+0+180=399 units, 198+0+0+180=378 prices, 4 batches, 6+7+13+14=40 warnings |
-| Stored fingerprints vs committed payloads          | 4/4 identical                                                                                                                  |
-| Stored counts vs committed payload counts          | 4/4 identical                                                                                                                  |
-| `IMPORTED AS DRAFT` marker vs post-import snapshot | 4/4 agree                                                                                                                      |
-| Final-state snapshot vs imported-state snapshot    | 4/4 agree, all still `draft`                                                                                                   |
-| Exactly one ingestion batch per project            | 4/4                                                                                                                            |
-| Wave 1 slug duplication                            | none                                                                                                                           |
-| Production ref present anywhere in the record      | none                                                                                                                           |
-| Execution head vs audited head                     | identical                                                                                                                      |
+| Check                                                           | Basis                      | Result                                                                                                                         |
+| --------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Deltas equal `final − baseline`                                 | recomputed                 | 6/6 exact                                                                                                                      |
+| Deltas equal the sum of the four imports                        | recomputed                 | 6/6 exact — 4 projects, 8+0+0+2=10 buildings, 198+21+0+180=399 units, 198+0+0+180=378 prices, 4 batches, 6+7+13+14=40 warnings |
+| Fingerprints the record reports as stored vs committed payloads | recomputed                 | 4/4 identical                                                                                                                  |
+| Counts the record reports vs committed payload counts           | recomputed                 | 4/4 identical                                                                                                                  |
+| `IMPORTED AS DRAFT` marker vs post-import snapshot              | recomputed                 | 4/4 agree                                                                                                                      |
+| Final-state snapshot vs imported-state snapshot                 | recomputed                 | 4/4 agree, all `draft`                                                                                                         |
+| Exactly one ingestion batch per Wave 1 project                  | recomputed from the record | 4/4                                                                                                                            |
+| Wave 1 slug duplication within the record                       | recomputed                 | none                                                                                                                           |
+| Execution head vs the head audited in §14                       | recomputed                 | identical                                                                                                                      |
+| No production ref appears in the record                         | recomputed                 | none — but see the caveat below                                                                                                |
+| Baseline and final aggregate totals                             | **reported**               | not observable from here                                                                                                       |
+| Replay refusal and `counts_unchanged`                           | **reported**               | the record asserts a boolean; it carries no post-replay totals to recompute                                                    |
+| `success: true`, `error: null`                                  | **reported**               | —                                                                                                                              |
 
-The second row is the load-bearing one. Because the six deltas are **exactly**
-the sum of the four imports, nothing outside Wave 1 changed: no unrelated
-project gained or lost a building, unit, price, batch or warning. That is a
-stronger statement than "the totals moved by the right amount", and it is what
-justifies the claim that no unrelated project was touched.
+Two cautions on the "no production ref" row: the record is _sanitized_, so the
+absence of a production identifier is consistent with production not being used
+but does not by itself prove it. Production non-use rests on the Owner's
+attestation in §15.8, corroborated by the staging ref and host the record does
+carry.
+
+**What the second row does and does not prove.** An earlier revision of this
+report claimed that because the six deltas equal the sum of the four imports,
+"nothing outside Wave 1 changed" and "no unrelated project was touched." That
+was a logical overclaim and is withdrawn.
+
+What the identity actually establishes is weaker and precise: for each counted
+table, the **net** change outside Wave 1 is zero. It does not exclude offsetting
+changes — an unrelated project losing five units while another gained five would
+leave every aggregate delta identical. Ruling that out requires identity-level
+before/after evidence, and the sanitized record does not contain any:
+
+| Evidence needed to prove pointwise scope           | Present in the record?                                                   |
+| -------------------------------------------------- | ------------------------------------------------------------------------ |
+| Per-project baseline snapshot                      | **no** — baseline is six aggregate scalars                               |
+| Any non-Wave-1 project identity                    | **no** — the only slugs anywhere in the record are the four Wave 1 slugs |
+| Row identifiers or a checksum over non-Wave-1 rows | **no**                                                                   |
+
+So the honest statement is: _the net effect outside Wave 1 is zero across all six
+tables, and no per-project evidence about unrelated projects exists either way._
+
+Separately — and this is expectation, not evidence — the importer writes inside
+one transaction whose every statement is scoped to the resolved `project_id` of
+the payload being imported, so unrelated rows are not a path the code can reach.
+That is a code-derived reason to expect no unrelated change; it is not proof
+that none occurred, and it is not what the aggregate arithmetic shows.
 
 **What this verification does not establish.** It confirms internal consistency
 and agreement with the repository; it is not a fresh query against staging. The
-session writing this report ran no database command. A future reader wanting
-live confirmation should re-run the read-only checks in §9.
+session writing this report ran no database command, so every "stored" value
+above is what the record **reports** was stored, compared against the committed
+payloads — not a value this session read from the database. A future reader
+wanting live confirmation should re-run the read-only checks in §9, extended
+with a per-project baseline if pointwise scope matters.
 
 ### 15.8 Safety confirmations
 
-| Confirmation                                        | State                                                                                                                                         |
-| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| All four projects unpublished                       | `public_status = draft` on all four                                                                                                           |
-| Public catalogue output                             | **unchanged** — the public RLS policies require `public_status = 'published'`, so a draft is structurally invisible to anonymous readers (§8) |
-| Production contacted                                | **never** — no production ref, host or credential appears in the execution record                                                             |
-| Migrations applied                                  | none                                                                                                                                          |
-| Booth tables, Booth migrations, Cloudflare, PR #102 | untouched                                                                                                                                     |
-| Drafts retained                                     | yes — these are real staging catalogue data and were **not** deleted after the run                                                            |
-| Credentials                                         | the password was entered by the Owner at the masked prompt; it is not printed, saved, logged or committed anywhere                            |
+Footings differ here and are stated per row. Only the first two rest on the
+record or the repository; the rest are Owner attestations that the record has no
+field for.
+
+| Confirmation                                          | State                                                                                                                         | Footing                                                                                                                               |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| All four projects unpublished                         | `public_status = draft` on all four                                                                                           | reported by the record, and consistent with the committed payloads' `publish: false` and the RPC hard-coding `'draft'` on create      |
+| Public catalogue output unchanged                     | the public RLS policies require `public_status = 'published'`, so a draft is structurally invisible to anonymous readers (§8) | **code-derived** from the committed migrations — it follows from the drafts being drafts, and needs no database observation           |
+| Production contacted                                  | **never**                                                                                                                     | **attested** — the record is sanitized, so the absence of a production ref corroborates but does not prove this                       |
+| Migrations applied                                    | none                                                                                                                          | **attested**                                                                                                                          |
+| Booth tables, Booth migrations, Cloudflare, PR #102   | untouched                                                                                                                     | **attested**                                                                                                                          |
+| Drafts retained, not deleted after the run            | yes — real staging catalogue data                                                                                             | **attested**                                                                                                                          |
+| Credentials never printed, saved, logged or committed | password entered by the Owner at the masked prompt                                                                            | **attested** for the interactive run; **verified** for this repository, where a scan of the full PR diff finds no credential material |
 
 ### 15.9 Still open: the Rainpalm price-selection decision
 
