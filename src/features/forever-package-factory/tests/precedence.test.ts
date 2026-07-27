@@ -51,6 +51,42 @@ describe("precedence order", () => {
     expect(revisionRank(null)).toBe(-1);
   });
 
+  it("does not let a revision label outrank a source that has none", () => {
+    // The real case: a price list "V2" effective 2026-07-17, and the SOLD note
+    // correcting it seven hours later the same day. A revision orders documents
+    // within one series; a SOLD note is not "V0" of the price list.
+    const priceList = source({
+      effectiveDate: "2026-07-17",
+      revision: "V2",
+      publishedAt: "2026-07-17T03:20:55+00:00",
+    });
+    const soldNote = source({
+      effectiveDate: "2026-07-17",
+      revision: null,
+      publishedAt: "2026-07-17T10:04:15+00:00",
+    });
+    expect(compareSourceRecency(soldNote, priceList)).toBeGreaterThan(0);
+  });
+
+  it("still uses the revision when BOTH sources state one", () => {
+    const v1 = source({ effectiveDate: "2026-07-17", revision: "V1", publishedAt: "2026-07-20" });
+    const v2 = source({ effectiveDate: "2026-07-17", revision: "V2", publishedAt: "2026-07-01" });
+    // V2 wins despite being distributed earlier: same series, later revision.
+    expect(compareSourceRecency(v2, v1)).toBeGreaterThan(0);
+  });
+
+  it("orders same-day sources by the hour they were distributed", () => {
+    const morning = source({
+      effectiveDate: "2026-07-17",
+      publishedAt: "2026-07-17T03:20:55+00:00",
+    });
+    const evening = source({
+      effectiveDate: "2026-07-17",
+      publishedAt: "2026-07-17T10:04:15+00:00",
+    });
+    expect(compareSourceRecency(evening, morning)).toBeGreaterThan(0);
+  });
+
   it("falls back to the publication date, then to the fingerprint", () => {
     const early = source({ publishedAt: "2026-07-01" });
     const late = source({ publishedAt: "2026-07-20" });

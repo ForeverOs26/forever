@@ -337,6 +337,7 @@ async function readArchiveRegistry(archiveRoot: string): Promise<unknown | null>
 interface ArchiveProjectEntry {
   slug?: string;
   official_channel?: string;
+  current_price_list?: { message_id?: number; message_date_utc?: string };
   availability_overrides?: { messages?: ArchiveAvailabilityMessage[] };
 }
 
@@ -355,6 +356,37 @@ function archiveProjectsMatching(registry: unknown, channel: string): ArchivePro
 }
 
 /** The archive folder name the registry associates with a channel username. */
+/**
+ * Message id → distribution timestamp, from the archive's own registry.
+ *
+ * The lean archive stores a document at `downloads/<slug>/<messageId>/<file>`,
+ * so the message id is recoverable from the path. Recording WHEN the channel
+ * distributed a document is what lets two official sources dated the same day
+ * be ordered by the hour they were sent — the difference between a price list
+ * and the SOLD note that corrected it seven hours later.
+ */
+function archiveMessageTimestamps(registry: unknown, channel: string): Map<string, string> {
+  const timestamps = new Map<string, string>();
+  for (const project of archiveProjectsMatching(registry, channel)) {
+    const current = project.current_price_list;
+    if (current?.message_id != null && current.message_date_utc) {
+      timestamps.set(String(current.message_id), current.message_date_utc);
+    }
+    for (const message of project.availability_overrides?.messages ?? []) {
+      if (message.message_id != null && message.date_utc) {
+        timestamps.set(String(message.message_id), message.date_utc);
+      }
+    }
+  }
+  return timestamps;
+}
+
+/** The message id a lean-archive path encodes, e.g. `.../683/file.pdf` → "683". */
+export function messageIdFromArchivePath(logicalPath: string): string | null {
+  const match = /(?:^|\/)(\d{1,9})\//.exec(logicalPath);
+  return match ? match[1] : null;
+}
+
 async function archiveSlugForChannel(archiveRoot: string, channel: string): Promise<string | null> {
   const registry = await readArchiveRegistry(archiveRoot);
   if (!registry) return null;
@@ -398,7 +430,12 @@ async function readTelegramAvailabilityNotes(
       if (!message.explicit_sold) continue;
       const units = (message.units_marked_sold ?? []).filter(Boolean);
       if (units.length === 0) continue;
-      const date = (message.date_utc ?? "").slice(0, 10) || null;
+      // The effective date is a DATE (what the statement is about); the
+      // publication value keeps its full timestamp, because two official
+      // sources on the same day are ordered by the hour they were distributed
+      // and truncating that throws the answer away.
+      const timestamp = message.date_utc ?? null;
+      const date = timestamp ? timestamp.slice(0, 10) : null;
       // The note carries the statement only — never the permalink, never the
       // channel invite, never anything that could reach a public field.
       const text = `SOLD ${units.join(" ")}`;
@@ -410,7 +447,7 @@ async function readTelegramAvailabilityNotes(
         authority: authorityOf(entry),
         privateLocator: `${archiveRoot}#${project.slug ?? channelKey}/${message.message_id ?? ""}`,
         bytes: Buffer.from(text, "utf8"),
-        publishedAt: date,
+        publishedAt: timestamp,
         effectiveDate: date,
         revision: null,
       });
@@ -464,6 +501,10 @@ async function readTelegramChannel(
   // that is consulted FIRST; string similarity is only a fallback for an
   // archive with no registry.
   const key = normalizeChannelKey(channel);
+  const registry = await readArchiveRegistry(archiveRoot);
+  const messageTimestamps = registry
+    ? archiveMessageTimestamps(registry, channel)
+    : new Map<string, string>();
   const mapped = await archiveSlugForChannel(archiveRoot, channel);
   const match =
     (mapped ? projectDirectories.find((name) => name === mapped) : undefined) ??
@@ -502,13 +543,17 @@ async function readTelegramChannel(
       continue;
     }
     const name = basename(path);
+    // When the archive recorded when the channel distributed this message, use
+    // it: two sources dated the same day are ordered by the hour they were sent.
+    const messageId = messageIdFromArchivePath(path);
+    const distributedAt = messageId ? (messageTimestamps.get(messageId) ?? null) : null;
     output.artifacts.push({
       ref: name,
       logicalPath: path,
       kind: entry.type,
       authority: authorityOf(entry),
       privateLocator: absolute,
-      publishedAt: entry.published_at ?? null,
+      publishedAt: entry.published_at ?? distributedAt,
       bytes: await readFile(absolute),
       effectiveDate: entry.effective_date ?? effectiveDateFromFilename(name),
       revision: entry.revision ?? revisionFromFilename(name),
