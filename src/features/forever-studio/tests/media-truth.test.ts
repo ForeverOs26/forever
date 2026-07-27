@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { PRIVATE_SOURCE_BUCKET, PUBLIC_IMAGE_BUCKET } from "../server/extraction";
 import {
   createPublicDerivative,
+  isPlainSrgbIccProfile,
   MAX_MEDIA_DIMENSION,
   MAX_MEDIA_PIXELS,
   MAX_MEDIA_SANITIZE_BYTES,
@@ -20,8 +21,13 @@ import {
   syntheticJpegMultiScan,
   syntheticJpegTrailingBytes,
   syntheticJpegWithDimensions,
+  syntheticDisplayP3IccProfile,
+  syntheticGammaTrc,
+  syntheticIccProfile,
   syntheticJpegWithIcc,
+  syntheticJpegWithIccProfile,
   syntheticJpegWithJfifThumbnail,
+  syntheticSrgbIccProfile,
   syntheticPng,
   syntheticPngWithDimensions,
   syntheticWebp,
@@ -669,6 +675,36 @@ describe("FOREVER-MEDIA-TRUTH-001 complete JPEG scan/marker walk", () => {
 });
 
 describe("FOREVER-MEDIA-TRUTH-001 ICC / color-profile policy", () => {
+  it("classifies ICC profiles conservatively", () => {
+    const srgb = {
+      rXYZ: [0.4360337, 0.2225045, 0.0139322] as const,
+      gXYZ: [0.3851472, 0.7168786, 0.0971045] as const,
+      bXYZ: [0.1430796, 0.0606169, 0.7141733] as const,
+    };
+
+    // Accepted: the parametric sRGB curve, and the 2.2-gamma approximation.
+    expect(isPlainSrgbIccProfile(syntheticSrgbIccProfile())).toBe(true);
+    expect(isPlainSrgbIccProfile(syntheticSrgbIccProfile(syntheticGammaTrc(2.2)))).toBe(true);
+
+    // Rejected: wider gamut, wrong curve, wrong device class, LUT transform,
+    // truncated bytes, and anything that is not an ICC profile at all.
+    expect(isPlainSrgbIccProfile(syntheticDisplayP3IccProfile())).toBe(false);
+    expect(isPlainSrgbIccProfile(syntheticSrgbIccProfile(syntheticGammaTrc(1.0)))).toBe(false);
+    expect(
+      isPlainSrgbIccProfile(syntheticIccProfile({ primaries: srgb, deviceClass: "prtr" })),
+    ).toBe(false);
+    expect(
+      isPlainSrgbIccProfile(
+        syntheticIccProfile({
+          primaries: srgb,
+          extraTags: [{ signature: "A2B0", body: Buffer.alloc(32) }],
+        }),
+      ),
+    ).toBe(false);
+    expect(isPlainSrgbIccProfile(syntheticSrgbIccProfile().subarray(0, 100))).toBe(false);
+    expect(isPlainSrgbIccProfile(Buffer.alloc(200))).toBe(false);
+  });
+
   it("retains an ICC-bearing JPEG privately with a dedicated reason (not malformed)", () => {
     const result = derive(syntheticJpegWithIcc(1), "image/jpeg");
     expect(result.eligible).toBe(false);
@@ -689,6 +725,48 @@ describe("FOREVER-MEDIA-TRUTH-001 ICC / color-profile policy", () => {
   it("retains an incomplete/malformed ICC segment sequence privately (not malformed)", () => {
     // Declares 3 segments but supplies 1: still a color profile, still private.
     const result = derive(syntheticJpegWithIcc(1, 3), "image/jpeg");
+    expect(result.eligible).toBe(false);
+    if (!result.eligible) expect(result.reason).toBe("color_profile_unsupported");
+  });
+
+  it("publishes a JPEG whose ICC profile is provably plain sRGB", () => {
+    // An untagged JPEG is already interpreted as sRGB, so removing an sRGB
+    // profile changes nothing on screen — withholding the image would be a
+    // needless loss of the developer's own official photography.
+    const result = derive(syntheticJpegWithIccProfile(syntheticSrgbIccProfile()), "image/jpeg");
+    expect(result.eligible).toBe(true);
+    if (result.eligible) {
+      // The profile's own bytes never reach the derivative.
+      expect(result.bytes.toString("latin1")).not.toContain("ICC_PROFILE");
+      expect(result.bytes.toString("latin1")).not.toContain("acsp");
+      expect(verifyPublicDerivative(result.bytes, "jpeg", result.record.claims).ok).toBe(true);
+    }
+  });
+
+  it("publishes an sRGB profile split across several APP2 segments", () => {
+    const result = derive(syntheticJpegWithIccProfile(syntheticSrgbIccProfile(), 3), "image/jpeg");
+    expect(result.eligible).toBe(true);
+    if (result.eligible) expect(result.bytes.toString("latin1")).not.toContain("ICC_PROFILE");
+  });
+
+  it("still retains a genuinely wide-gamut profile privately", () => {
+    const result = derive(
+      syntheticJpegWithIccProfile(syntheticDisplayP3IccProfile()),
+      "image/jpeg",
+    );
+    expect(result.eligible).toBe(false);
+    if (!result.eligible) expect(result.reason).toBe("color_profile_unsupported");
+  });
+
+  it("still retains an sRGB-gamut profile whose transfer curve is not sRGB", () => {
+    // Same primaries, linear-light curve: dropping it WOULD change the pixels.
+    const linear = Buffer.alloc(12);
+    linear.write("curv", 0, 4, "latin1");
+    linear.writeUInt32BE(0, 8);
+    const result = derive(
+      syntheticJpegWithIccProfile(syntheticSrgbIccProfile(linear)),
+      "image/jpeg",
+    );
     expect(result.eligible).toBe(false);
     if (!result.eligible) expect(result.reason).toBe("color_profile_unsupported");
   });
