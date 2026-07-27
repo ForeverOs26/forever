@@ -91,7 +91,9 @@ describe("developer identity (F2)", () => {
   });
 
   it("ignores punctuation, case and diacritics", () => {
-    expect(developersMateriallyDisagree("Ôrigin Co., Ltd.", "origin")).toBe(false);
+    expect(normaliseDeveloperName("Ôrigin Co., Ltd.")).toEqual(["origin"]);
+    expect(normaliseDeveloperName("ORIGIN")).toEqual(["origin"]);
+    expect(developersMateriallyDisagree("Ôrigin", "origin")).toBe(false);
   });
 
   /**
@@ -177,18 +179,64 @@ describe("developer identity (F2)", () => {
    */
   it("survives the corporate-form shapes these sources actually use", () => {
     for (const [canonical, raw] of [
+      // The real Cielo case: the long legal form of the same developer.
       ["Rhom Bho Property", "Rhom Bho Property Public Company Limited"],
-      ["Sansiri PCL", "Sansiri Public Company Limited"],
-      ["Origin Property", "Origin Properties"],
-      ["Property Perfect", "Perfect Property"],
-      ["Title", "The Title Group"],
-      ["Ôrigin Co., Ltd.", "ORIGIN"],
+      ["Rhom Bho Property Co., Ltd.", "Rhom Bho Property"],
+      ["Sunrise Bay Holdings", "Sunrise Bay Property Group"],
     ] as const) {
       expect(
         developersMateriallyDisagree(canonical, raw),
         `"${canonical}" vs "${raw}" must not read as a conflict`,
       ).toBe(false);
     }
+  });
+
+  /**
+   * The deliberate cost of the one-token rule, recorded rather than hidden.
+   *
+   * "Sansiri PCL" and "Sansiri Public Company Limited" are the same developer,
+   * and this withholds the name anyway, because after stripping both are the
+   * single token "sansiri" and a single token is not enough to distinguish that
+   * pair from "Property Perfect" vs "Perfect Group". Omitting a name is
+   * recoverable; publishing the wrong one is not.
+   *
+   * It costs nothing on the nine public projects: eight have no canonical
+   * record at all, so only one source speaks and this branch is never reached.
+   * If a real project later trips it, the fix is a canonical developer record —
+   * a Factory/data decision — not a looser rule here.
+   */
+  it("accepts a conservative false withhold rather than risk a false claim", () => {
+    for (const [canonical, raw] of [
+      ["Sansiri PCL", "Sansiri Public Company Limited"],
+      ["Origin Property", "Origin Properties"],
+    ] as const) {
+      expect(developersMateriallyDisagree(canonical, raw)).toBe(true);
+    }
+  });
+
+  /**
+   * Stripping corporate-form words can manufacture an agreement between two
+   * genuinely different companies. "Property Perfect Public Company Limited"
+   * (SET:PF) and "Perfect Group" both reduce to ["perfect"]. Trusting that
+   * would print a contradicted name as fact — the exact failure F2 exists to
+   * prevent — so a one-token agreement is only trusted when the names were
+   * already identical before stripping.
+   */
+  it("does not let corporate-form stripping manufacture an agreement", () => {
+    for (const [canonical, raw] of [
+      ["Property Perfect Public Company Limited", "Perfect Group"],
+      ["Phuket Property Development", "Phuket Property Group"],
+      ["Property Perfect", "Perfect Property"],
+    ] as const) {
+      expect(
+        developersMateriallyDisagree(canonical, raw),
+        `"${canonical}" vs "${raw}" must not be reconciled by a single stripped token`,
+      ).toBe(true);
+    }
+
+    // Identical before stripping is still agreement.
+    expect(developersMateriallyDisagree("Sansiri", "sansiri")).toBe(false);
+    expect(developersMateriallyDisagree("Ôrigin", "ORIGIN")).toBe(false);
   });
 
   it("withholds rather than guess when two names cannot be reconciled", () => {
