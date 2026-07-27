@@ -9,6 +9,8 @@ import {
   compareSourceRecency,
   normalizeStatus,
   reconcileAvailability,
+  resolveStatementUnitCodes,
+  resolveUnitCodeAlias,
   revisionRank,
   selectCurrentSource,
   type AvailabilityStatement,
@@ -68,6 +70,79 @@ describe("precedence order", () => {
       source({ ref: "older.pdf", effectiveDate: "2026-05-22" }),
     ]);
     expect(current?.ref).toBe("new.pdf");
+  });
+});
+
+describe("unit-code aliases", () => {
+  // The real inventory shape: a project prefix plus tower, floor and index.
+  const known = new Set(["MBD620", "MBE703", "MBF611", "MBG710", "MBA101"]);
+
+  it("resolves a short SOLD code to the schedule's full unit code", () => {
+    expect(resolveUnitCodeAlias("D620", known)).toBe("MBD620");
+    expect(resolveUnitCodeAlias("G710", known)).toBe("MBG710");
+  });
+
+  it("prefers an exact match over any suffix match", () => {
+    expect(resolveUnitCodeAlias("MBA101", known)).toBe("MBA101");
+  });
+
+  it("refuses to guess when two units share the suffix", () => {
+    const ambiguous = new Set(["MBD620", "XD620"]);
+    expect(resolveUnitCodeAlias("D620", ambiguous)).toBeNull();
+  });
+
+  it("refuses a suffix whose stripped prefix is not a project prefix", () => {
+    // "620" would strip "MBD" — letters — but is only 3 chars of digits and
+    // would match far too eagerly, so require the remainder to be letters only.
+    expect(resolveUnitCodeAlias("620", new Set(["MBD620"]))).toBe("MBD620");
+    // A numeric remainder is never a project prefix.
+    expect(resolveUnitCodeAlias("B620", new Set(["12B620"]))).toBeNull();
+  });
+
+  it("refuses a code too short to be distinctive", () => {
+    expect(resolveUnitCodeAlias("20", known)).toBeNull();
+  });
+
+  it("returns null when nothing in the inventory matches", () => {
+    expect(resolveUnitCodeAlias("Z999", known)).toBeNull();
+  });
+
+  it("splits statements into resolved and unresolved without inventing units", () => {
+    const statement = (unitCode: string): AvailabilityStatement => ({
+      unitCode,
+      status: "SOLD",
+      effectiveDate: "2026-07-23",
+      sourceRef: "note.txt",
+      sha256: "9".repeat(64),
+    });
+    const { resolved, unresolved } = resolveStatementUnitCodes(
+      [statement("D620"), statement("Z999")],
+      known,
+    );
+    expect(resolved.map((s) => s.unitCode)).toEqual(["MBD620"]);
+    expect(unresolved.map((s) => s.unitCode)).toEqual(["Z999"]);
+  });
+
+  it("makes a short SOLD note override the schedule's row for the same home", () => {
+    const schedule: AvailabilityStatement = {
+      unitCode: "MBD620",
+      status: "Available",
+      effectiveDate: "2026-07-17",
+      sourceRef: "price-list.pdf",
+      sha256: "1".repeat(64),
+    };
+    const shortSold: AvailabilityStatement = {
+      unitCode: "D620",
+      status: "SOLD",
+      effectiveDate: "2026-07-23",
+      sourceRef: "note.txt",
+      sha256: "2".repeat(64),
+    };
+    const { resolved } = resolveStatementUnitCodes([schedule, shortSold], known);
+    const results = reconcileAvailability(resolved);
+    // One home, not two.
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ unitCode: "MBD620", status: "sold" });
   });
 });
 

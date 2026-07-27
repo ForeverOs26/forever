@@ -109,6 +109,70 @@ export interface ReconciledAvailability {
   supersededBy: string[];
 }
 
+/**
+ * Resolve a statement's unit code against the project's known unit inventory.
+ *
+ * Developers do not use one spelling for a unit. A price schedule prints the
+ * full code (`MBD620` = project prefix MB + tower D + floor 6 + index 20) while
+ * a short SOLD message names the same home as `D620`. Matching those two by
+ * string equality fails in the most damaging possible way: the SOLD statement
+ * becomes a unit of its own, and the real unit — the one carrying the price —
+ * stays advertised as available.
+ *
+ * The rule is deliberately narrow. A non-exact code resolves ONLY when exactly
+ * one known unit code ends with it and the part stripped off is purely letters
+ * (a project prefix). Two candidates, zero candidates, or a numeric remainder
+ * all leave the code unresolved, because a wrong match here would move a real
+ * sale onto the wrong home.
+ */
+export function resolveUnitCodeAlias(
+  code: string,
+  knownUnitCodes: ReadonlySet<string>,
+): string | null {
+  const candidate = code.trim().toUpperCase();
+  if (!candidate) return null;
+  if (knownUnitCodes.has(candidate)) return candidate;
+  // Too short to be distinctive; refuse rather than guess.
+  if (candidate.length < 3) return null;
+
+  const matches: string[] = [];
+  for (const known of knownUnitCodes) {
+    if (known === candidate || !known.endsWith(candidate)) continue;
+    const prefix = known.slice(0, known.length - candidate.length);
+    if (!/^[A-Z]+$/.test(prefix)) continue;
+    matches.push(known);
+  }
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export interface StatementResolution {
+  /** Statements whose unit code matched exactly one known unit. */
+  resolved: AvailabilityStatement[];
+  /** Statements naming a unit the inventory does not contain. */
+  unresolved: AvailabilityStatement[];
+}
+
+/**
+ * Canonicalize every statement's unit code against the known inventory.
+ *
+ * An unresolved statement is NOT turned into a unit of its own. A short message
+ * carries no size, floor, building or price, so inventing a row from it would
+ * publish a unit Forever has no evidence for. It is reported instead.
+ */
+export function resolveStatementUnitCodes(
+  statements: readonly AvailabilityStatement[],
+  knownUnitCodes: ReadonlySet<string>,
+): StatementResolution {
+  const resolved: AvailabilityStatement[] = [];
+  const unresolved: AvailabilityStatement[] = [];
+  for (const statement of statements) {
+    const canonical = resolveUnitCodeAlias(statement.unitCode, knownUnitCodes);
+    if (canonical) resolved.push({ ...statement, unitCode: canonical });
+    else unresolved.push(statement);
+  }
+  return { resolved, unresolved };
+}
+
 export function normalizeStatus(status: string): string {
   const value = status.trim().toLowerCase();
   if (["available", "avail", "for sale"].includes(value)) return "available";

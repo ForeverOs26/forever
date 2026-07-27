@@ -201,6 +201,41 @@ describe("source precedence in a real run", () => {
     expect(stillAvailable?.availability_status).toBe("available");
   });
 
+  it("applies a SHORT-code SOLD note to the schedule's full unit code", async () => {
+    const root = scratch();
+    writeSchedule(root, "Price List V.2. - Updated 17.07.26.pdf", CONDO_AREA_PSQM_TOTAL);
+    // The developer's short form: "A201" for the schedule's "CKA201".
+    writeFileSync(join(root, "update - 23.07.26.txt"), "SOLD A201");
+
+    const result = await run(
+      sourceSet([{ type: "local_folder", location: root }], { name: "The Example" }),
+    );
+    const units = result.package!.batch.units!;
+    // One home, not two: no phantom "A201" beside the real "CKA201".
+    expect(units.map((unit) => unit.unit_code)).not.toContain("A201");
+    expect(units.find((unit) => unit.unit_code === "CKA201")?.availability_status).toBe("sold");
+    expect(units).toHaveLength(3);
+    // The sold unit keeps its price row — the schedule still evidences it.
+    expect(result.package!.batch.prices!.map((price) => price.unit_code)).toContain("CKA201");
+  });
+
+  it("reports an unmatchable SOLD note instead of inventing a unit for it", async () => {
+    const root = scratch();
+    writeSchedule(root, "Price List V.2. - Updated 17.07.26.pdf", CONDO_AREA_PSQM_TOTAL);
+    writeFileSync(join(root, "update - 23.07.26.txt"), "SOLD ZZ999");
+
+    const result = await run(
+      sourceSet([{ type: "local_folder", location: root }], { name: "The Example" }),
+    );
+    expect(result.package!.batch.units!.map((unit) => unit.unit_code)).not.toContain("ZZ999");
+    expect(result.package!.batch.units).toHaveLength(3);
+    expect(result.report.exceptions.some((e) => e.code === "availability_unit_unmatched")).toBe(
+      true,
+    );
+    // Reported, but never a blocker.
+    expect(result.report.blocked).toBe(false);
+  });
+
   it("never marks a unit SOLD merely because a schedule omits it", async () => {
     const root = scratch();
     writeSchedule(root, "Price List V.2. - Updated 17.07.26.pdf", CONDO_AREA_PSQM_TOTAL);

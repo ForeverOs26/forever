@@ -190,25 +190,12 @@ export function buildPackage(input: BuildPackageInput): BuiltPackage {
     ),
   );
 
-  // A SOLD announcement may name a unit the current schedule no longer lists.
-  // It is still a true statement about that unit, so it becomes a unit row with
-  // a status and no price rather than being dropped.
-  const known = new Set(units.map((unit) => unit.unit_code.toUpperCase()));
-  for (const entry of input.availability) {
-    if (known.has(entry.unitCode.toUpperCase())) continue;
-    units.push({
-      unit_code: entry.unitCode,
-      availability_status: entry.status,
-      metadata: {
-        field_provenance: buildFieldProvenance({
-          fields: ["availability_status"],
-          sourceRef: entry.sourceRef,
-          sourceType: "developer_official_update",
-          sourceDate: entry.effectiveDate,
-        }),
-      },
-    });
-  }
+  // An availability statement never creates a unit of its own. A short official
+  // message carries a code and a status and nothing else — no size, no floor, no
+  // building, no price — so a row built from it would be a unit Forever has no
+  // evidence for, sitting beside the real one it was meant to describe. The
+  // pipeline resolves statement codes against the known inventory first and
+  // reports the ones it cannot match.
   units.sort((left, right) => left.unit_code.localeCompare(right.unit_code));
 
   const prices: ProgressivePrice[] = input.priceSource
