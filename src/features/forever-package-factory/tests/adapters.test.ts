@@ -11,6 +11,8 @@ import { deflateRawSync } from "node:zlib";
 import { afterAll, describe, expect, it } from "vitest";
 
 import {
+  createByteBudget,
+  DRIVE_PUBLIC_REF,
   effectiveDateFromFilename,
   isJunkFilename,
   parseDriveFolderHtml,
@@ -235,6 +237,19 @@ describe("google_drive_folder adapter", () => {
     expect(output.references).toHaveLength(1);
   });
 
+  it("never puts the folder id — an access token — in a public reference", async () => {
+    const folderId = "1tO05YwRcNpBkuxjVNVwANtu55KUWBpE1";
+    const output = await runAdapter(
+      { type: "google_drive_folder", folder_id: folderId },
+      { allowNetwork: false },
+    );
+    expect(output.references[0].ref).toBe(DRIVE_PUBLIC_REF);
+    expect(output.references[0].ref).not.toContain(folderId.slice(0, 8));
+    expect(output.failures[0].ref).not.toContain(folderId.slice(0, 8));
+    // The id is still available privately, so the operator can act on it.
+    expect(output.references[0].privateLocator).toBe(folderId);
+  });
+
   it("parses a public folder listing", () => {
     const html =
       '<div class="flip-entry" id="entry-ID1" aria-label="Folder"><div class="flip-entry-title">002_Brochure</div></div>' +
@@ -262,6 +277,39 @@ describe("google_drive_folder adapter", () => {
     );
     expect(output.artifacts).toHaveLength(0);
     expect(output.skipped.some((item) => item.reason === "drive_interstitial")).toBe(true);
+  });
+});
+
+describe("run byte budget", () => {
+  it("skips artifacts past the ceiling with a stated reason instead of failing", async () => {
+    const root = scratch();
+    writeFileSync(join(root, "a-render.jpg"), Buffer.alloc(4096, 1));
+    writeFileSync(join(root, "b-render.jpg"), Buffer.alloc(4096, 2));
+    writeFileSync(join(root, "c-render.jpg"), Buffer.alloc(4096, 3));
+
+    const budget = createByteBudget(9000); // room for two of the three
+    const output = await runAdapter(
+      { type: "local_folder", location: root },
+      { allowNetwork: false, budget },
+    );
+    expect(output.artifacts).toHaveLength(2);
+    expect(output.skipped).toContainEqual({ ref: "c-render.jpg", reason: "run_byte_budget" });
+    expect(output.failures).toHaveLength(0);
+  });
+
+  it("shares one budget across every adapter in a run", async () => {
+    const first = scratch();
+    const second = scratch();
+    writeFileSync(join(first, "a.jpg"), Buffer.alloc(4096, 1));
+    writeFileSync(join(second, "b.jpg"), Buffer.alloc(4096, 2));
+
+    const budget = createByteBudget(5000);
+    const context = { allowNetwork: false, budget };
+    const one = await runAdapter({ type: "local_folder", location: first }, context);
+    const two = await runAdapter({ type: "local_folder", location: second }, context);
+    expect(one.artifacts).toHaveLength(1);
+    expect(two.artifacts).toHaveLength(0);
+    expect(two.skipped[0].reason).toBe("run_byte_budget");
   });
 });
 

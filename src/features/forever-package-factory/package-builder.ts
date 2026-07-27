@@ -227,26 +227,26 @@ export function buildPackage(input: BuildPackageInput): BuiltPackage {
   const files = new Map<string, Buffer>();
   for (const item of input.media) files.set(item.filename, item.bytes);
 
-  const provenanceFields = [
-    "name",
-    ...(identity.developer ? ["developer_name_raw"] : []),
-    ...(identity.area ? ["location_area"] : []),
-  ];
+  // Only columns an official source actually evidenced are written. A null
+  // `identity.name` means the stored name is canonical and unknown here, so the
+  // column is omitted rather than overwritten with the hint's spelling.
+  const projectColumns: Record<string, unknown> = {
+    ...(identity.name ? { name: identity.name } : {}),
+    ...(identity.developer ? { developer_name_raw: identity.developer } : {}),
+    ...(identity.area ? { location_area: identity.area } : {}),
+  };
+
+  // Provenance keys the columns actually being written. `slug` is the fallback
+  // because a media-only or price-only enrichment writes no project column at
+  // all, and the publishability floor requires at least one piece of official-
+  // source evidence before it will make a public record.
+  const provenanceFields = Object.keys(projectColumns);
   const field_provenance = buildFieldProvenance({
-    fields: provenanceFields,
+    fields: provenanceFields.length > 0 ? provenanceFields : ["slug"],
     sourceRef,
     sourceType: "developer_official_document",
     sourceDate,
   });
-
-  const projectColumns: Record<string, unknown> = {
-    name: identity.name ?? undefined,
-    ...(identity.developer ? { developer_name_raw: identity.developer } : {}),
-    ...(identity.area ? { location_area: identity.area } : {}),
-  };
-  for (const key of Object.keys(projectColumns)) {
-    if (projectColumns[key] === undefined) delete projectColumns[key];
-  }
 
   const mode: "create" | "enrich" = identity.operation === "update" ? "enrich" : "create";
   const project =

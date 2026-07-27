@@ -235,7 +235,10 @@ export async function resolveIdentity(
       return {
         ...base,
         outcome: "resolved_existing",
-        name: searchNames[0] ?? null,
+        // Deliberately NO name. The stored name is the canonical one and we
+        // cannot see it here, so writing the hint's spelling would silently
+        // rename a live project. An update inherits the name it already has.
+        name: null,
         slug: explicitSlugs[0],
         operation: "update",
       };

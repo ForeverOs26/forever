@@ -27,6 +27,7 @@ import {
   syntheticSrgbIccProfile,
 } from "@/features/forever-studio/tests/media-truth-fixtures";
 
+import type { ProductionIdentityReader } from "../identity";
 import { runFactory, runFactoryBatch } from "../pipeline";
 import { SOURCE_SET_SCHEMA_VERSION, type SourceSet } from "../source-set";
 
@@ -69,11 +70,18 @@ function writeSchedule(directory: string, filename: string, text: string): void 
 
 const EMPTY_PRODUCTION = new FakeIdentityReader([]);
 
+/** No production view at all — what a generate-only run actually sees. */
+const NO_PRODUCTION_VIEW: ProductionIdentityReader = {
+  async listProjects() {
+    return null;
+  },
+};
+
 function sourceSet(sources: SourceSet["sources"], hint?: SourceSet["project_hint"]): SourceSet {
   return { schema_version: SOURCE_SET_SCHEMA_VERSION, project_hint: hint, sources };
 }
 
-async function run(set: SourceSet, reader = EMPTY_PRODUCTION) {
+async function run(set: SourceSet, reader: ProductionIdentityReader = EMPTY_PRODUCTION) {
   return runFactory(set, reader, { allowNetwork: false }, { textExtractor: textFrom });
 }
 
@@ -359,6 +367,25 @@ describe("generated package", () => {
       ]).toContain(warning.entity);
       expect(["info", "warning"]).toContain(warning.severity);
     }
+  });
+
+  it("never renames a live project when production was not consulted", async () => {
+    const root = scratch();
+    writeSchedule(root, "Price List V.2. - Updated 17.07.26.pdf", CONDO_AREA_TOTAL_PSQM);
+    // No production view (the default offline reader), plus an Owner-stated slug.
+    const result = await run(
+      sourceSet([{ type: "local_folder", location: root }], {
+        name: "The Modeva",
+        existing_slug: "modeva",
+      }),
+      NO_PRODUCTION_VIEW,
+    );
+    expect(result.package!.batch.mode).toBe("enrich");
+    expect(result.package!.batch.project.slug).toBe("modeva");
+    // The stored name is canonical and unknown here, so `name` is not written.
+    expect(result.package!.batch.project.set).not.toHaveProperty("name");
+    // Official-source evidence still exists, so publishability is satisfied.
+    expect(assessPublishability(result.package!.batch).ok).toBe(true);
   });
 
   it("builds an enrich package that preserves the stored slug for an update", async () => {

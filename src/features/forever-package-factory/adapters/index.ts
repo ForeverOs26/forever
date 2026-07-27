@@ -30,11 +30,34 @@ export function isJunkFilename(name: string): boolean {
 export const MAX_ARTIFACT_BYTES = 64 * 1024 * 1024;
 export const MAX_ARTIFACTS_PER_SOURCE = 3000;
 
+/**
+ * Total artifact bytes one run may hold in memory.
+ *
+ * Artifacts are held as Buffers so hashing, classification, parsing and
+ * sanitization all see the same bytes without re-reading them. Without a run-
+ * wide ceiling a single large official dossier (3000 files x up to 64 MiB each)
+ * could exhaust the heap and kill a run that should simply have published
+ * fewer images. Matches the 1 GiB source-media budget the Direct Publish
+ * package reader already enforces.
+ */
+export const MAX_RUN_BYTES = 1024 * 1024 * 1024;
+
+/** Mutable byte budget shared by every adapter in one run. */
+export interface ByteBudget {
+  remaining: number;
+}
+
+export function createByteBudget(total = MAX_RUN_BYTES): ByteBudget {
+  return { remaining: total };
+}
+
 export interface AdapterContext {
   /** Network adapters stay inert unless the operator opts in explicitly. */
   allowNetwork: boolean;
   /** Injected for tests; defaults to global fetch. */
   fetchImpl?: typeof fetch;
+  /** Shared across adapters so the ceiling is per RUN, not per source. */
+  budget?: ByteBudget;
 }
 
 export interface AdapterOutput {
@@ -56,6 +79,18 @@ function failure(kind: SourceKind, ref: string, code: string, message: string): 
 /** Logical, forward-slash, root-relative path. */
 function logical(root: string, absolute: string): string {
   return relative(root, absolute).split(sep).join("/");
+}
+
+/**
+ * Charge bytes against the run budget. False means the run has already reached
+ * its ceiling and this artifact must be skipped with a stated reason rather
+ * than read — degrading the package, never the process.
+ */
+function chargeBudget(context: AdapterContext, bytes: number): boolean {
+  if (!context.budget) return true;
+  if (bytes > context.budget.remaining) return false;
+  context.budget.remaining -= bytes;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +151,10 @@ async function listFilesRecursively(root: string): Promise<string[]> {
   return files.sort();
 }
 
-async function readLocalFolder(entry: SourceSetEntry): Promise<AdapterOutput> {
+async function readLocalFolder(
+  entry: SourceSetEntry,
+  context: AdapterContext,
+): Promise<AdapterOutput> {
   const output = emptyOutput();
   const root = resolve(entry.location!);
   let files: string[];
@@ -147,6 +185,10 @@ async function readLocalFolder(entry: SourceSetEntry): Promise<AdapterOutput> {
       output.skipped.push({ ref: basename(path), reason: "file_too_large" });
       continue;
     }
+    if (!chargeBudget(context, info.size)) {
+      output.skipped.push({ ref: basename(path), reason: "run_byte_budget" });
+      continue;
+    }
     const name = basename(path);
     output.artifacts.push({
       ref: name,
@@ -166,7 +208,10 @@ async function readLocalFolder(entry: SourceSetEntry): Promise<AdapterOutput> {
   return output;
 }
 
-async function readOfficialDocument(entry: SourceSetEntry): Promise<AdapterOutput> {
+async function readOfficialDocument(
+  entry: SourceSetEntry,
+  context: AdapterContext,
+): Promise<AdapterOutput> {
   const output = emptyOutput();
   const path = resolve(entry.location!);
   const name = basename(path);
@@ -180,6 +225,10 @@ async function readOfficialDocument(entry: SourceSetEntry): Promise<AdapterOutpu
     }
     if (info.size > MAX_ARTIFACT_BYTES) {
       output.skipped.push({ ref: name, reason: "file_too_large" });
+      return output;
+    }
+    if (!chargeBudget(context, info.size)) {
+      output.skipped.push({ ref: name, reason: "run_byte_budget" });
       return output;
     }
   } catch {
@@ -202,7 +251,10 @@ async function readOfficialDocument(entry: SourceSetEntry): Promise<AdapterOutpu
   return output;
 }
 
-async function readUploadedArchive(entry: SourceSetEntry): Promise<AdapterOutput> {
+async function readUploadedArchive(
+  entry: SourceSetEntry,
+  context: AdapterContext,
+): Promise<AdapterOutput> {
   const output = emptyOutput();
   const path = resolve(entry.location!);
   const archiveName = basename(path);
@@ -233,6 +285,10 @@ async function readUploadedArchive(entry: SourceSetEntry): Promise<AdapterOutput
   for (const item of entries.slice(0, MAX_ARTIFACTS_PER_SOURCE)) {
     if (isJunkFilename(item.path)) {
       output.skipped.push({ ref: basename(item.path), reason: "junk_file" });
+      continue;
+    }
+    if (!chargeBudget(context, item.bytes.length)) {
+      output.skipped.push({ ref: basename(item.path), reason: "run_byte_budget" });
       continue;
     }
     const name = basename(item.path);
@@ -363,7 +419,10 @@ async function readTelegramAvailabilityNotes(
   return artifacts;
 }
 
-async function readTelegramChannel(entry: SourceSetEntry): Promise<AdapterOutput> {
+async function readTelegramChannel(
+  entry: SourceSetEntry,
+  context: AdapterContext,
+): Promise<AdapterOutput> {
   const output = emptyOutput();
   const channel = entry.channel!;
   const archiveRoot = entry.archive_root ? resolve(entry.archive_root) : null;
@@ -438,6 +497,10 @@ async function readTelegramChannel(entry: SourceSetEntry): Promise<AdapterOutput
       output.skipped.push({ ref: basename(path), reason: "file_too_large" });
       continue;
     }
+    if (!chargeBudget(context, info.size)) {
+      output.skipped.push({ ref: basename(path), reason: "run_byte_budget" });
+      continue;
+    }
     const name = basename(path);
     output.artifacts.push({
       ref: name,
@@ -462,6 +525,15 @@ const DRIVE_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36";
 
 export const DRIVE_MAX_DEPTH = 4;
+
+/**
+ * Public-safe reference for a Drive source.
+ *
+ * A Drive folder id is an access token in URL form — anyone holding it can read
+ * the dossier. It is therefore treated exactly like a path: kept in
+ * privateLocator, never in a ref that reaches the source manifest.
+ */
+export const DRIVE_PUBLIC_REF = "google-drive-dossier";
 
 interface DriveEntry {
   id: string;
@@ -503,8 +575,12 @@ async function readGoogleDriveFolder(
 ): Promise<AdapterOutput> {
   const output = emptyOutput();
   const folderId = entry.folder_id!;
+  // The folder id is a private locator: it grants access. Even a truncated
+  // fragment must not reach the manifest, so the public reference is a stable
+  // non-identifying label and the id stays in privateLocator.
+  const publicRef = DRIVE_PUBLIC_REF;
   output.references.push({
-    ref: `drive:${folderId.slice(0, 8)}…`,
+    ref: publicRef,
     kind: entry.type,
     authority: authorityOf(entry),
     privateLocator: folderId,
@@ -515,7 +591,7 @@ async function readGoogleDriveFolder(
     output.failures.push(
       failure(
         entry.type,
-        `drive:${folderId.slice(0, 8)}…`,
+        publicRef,
         "network_not_enabled",
         "Google Drive was listed but --allow-network was not given; Drive contributed nothing.",
       ),
@@ -561,7 +637,7 @@ async function readGoogleDriveFolder(
       output.failures.push(
         failure(
           entry.type,
-          node.path || `drive:${folderId.slice(0, 8)}…`,
+          node.path || publicRef,
           "drive_folder_unreadable",
           "One Drive folder could not be listed; the rest of the dossier was still read.",
         ),
@@ -602,6 +678,13 @@ async function readGoogleDriveFolder(
       // directly. Never let that page become "project material".
       if (bytes.subarray(0, 15).toString("ascii").trim().toLowerCase().startsWith("<!doctype")) {
         output.skipped.push({ ref: file.name, reason: "drive_interstitial" });
+        continue;
+      }
+      // Charged after the response arrives, because Drive states no reliable
+      // content length up front. A dossier past the ceiling publishes fewer
+      // images; it never exhausts the heap.
+      if (!chargeBudget(context, bytes.length)) {
+        output.skipped.push({ ref: file.name, reason: "run_byte_budget" });
         continue;
       }
       output.artifacts.push({
@@ -681,13 +764,13 @@ export async function runAdapter(
   try {
     switch (entry.type) {
       case "local_folder":
-        return await readLocalFolder(entry);
+        return await readLocalFolder(entry, context);
       case "official_document":
-        return await readOfficialDocument(entry);
+        return await readOfficialDocument(entry, context);
       case "uploaded_archive":
-        return await readUploadedArchive(entry);
+        return await readUploadedArchive(entry, context);
       case "telegram_channel":
-        return await readTelegramChannel(entry);
+        return await readTelegramChannel(entry, context);
       case "google_drive_folder":
         return await readGoogleDriveFolder(entry, context);
       case "official_website":
