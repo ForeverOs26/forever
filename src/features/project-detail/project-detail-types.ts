@@ -56,6 +56,15 @@ export type ProjectDetailMediaItem = {
   title: string;
   url: string;
   sortOrder: number;
+  /**
+   * What the image depicts, from the fixed vocabulary in `hero-policy.ts`
+   * (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001).
+   *
+   * `null` means no classification was recorded — either the row predates the
+   * contract or the Factory formed no opinion. It is never a reason to hide an
+   * image. Only a positively recognised, excluded role is.
+   */
+  semanticRole: string | null;
 };
 
 export type ProjectDetailDocument = ProjectDetailMediaItem & {

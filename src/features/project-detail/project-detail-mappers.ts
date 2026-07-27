@@ -11,6 +11,7 @@ import type {
   UnitRowWithBuilding,
   InvestmentDataRow,
 } from "./project-detail-types";
+import { isGalleryEligibleRole } from "../forever-direct-publish/hero-policy";
 
 const DOCUMENT_LABELS: Record<string, string> = {
   brochure: "Brochure",
@@ -59,6 +60,10 @@ export function mapProjectMedia(row: ProjectMediaRow): ProjectDetailMediaItem {
     title: row.title ?? "",
     url: row.url,
     sortOrder: row.sort_order,
+    // Read defensively. Generated database types lag the migration, and a
+    // deployment where the column is not yet present must degrade to "no role
+    // recorded" — which shows every image — rather than throw.
+    semanticRole: (row as { semantic_role?: string | null }).semantic_role ?? null,
   };
 }
 
@@ -84,6 +89,10 @@ function mapProjectUrlMedia({
     title,
     url: cleanUrl,
     sortOrder,
+    // Synthesised from a project column, not a project_media row, so it has no
+    // recorded role. Null means "show it", which is correct for both the cover
+    // and the brochure.
+    semanticRole: null,
   };
 }
 
@@ -104,6 +113,44 @@ function uniqueMedia(items: ProjectDetailMediaItem[]): ProjectDetailMediaItem[] 
     seen.add(key);
     return true;
   });
+}
+
+/**
+ * The photographs a project gallery may show
+ * (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001).
+ *
+ * This is what closes the gap the reconciliation report raised as F7: the
+ * gallery had no way to exclude a launch-party photograph, a staff group shot,
+ * a seasonal advertisement or a logo, because the browser received a
+ * content-addressed URL and an empty title and nothing else. Sierra's five logo
+ * files and its "HOLIDAY MOMENTS" graphic, and Coralina's launch-event group
+ * photograph, all still reach the public photo strip today.
+ *
+ * The decision is made from the role the Factory recorded, never from the URL,
+ * the filename or the slug. Three properties matter:
+ *
+ *   1. **Exclusion requires positive evidence.** A row with no role, an empty
+ *      role, or a role this client does not recognise is shown. Written the
+ *      other way round — as an include-list — the first deploy would empty
+ *      every gallery Forever has published, because no existing row has a role.
+ *   2. **The cover is never filtered.** It comes from `main_image_url`, which
+ *      carries no role of its own, and it is the image the hero policy already
+ *      passed.
+ *   3. **A gallery is never emptied.** If filtering would remove everything
+ *      from a non-empty set, the unfiltered set is returned. A semantic
+ *      contract may improve a gallery; it may not delete one. If that floor is
+ *      ever hit it means the roles are wrong, and showing a bad gallery is
+ *      recoverable in a way that showing no photographs at all is not.
+ */
+export function galleryEligible(
+  items: ProjectDetailMediaItem[],
+  cover: ProjectDetailMediaItem | null,
+): ProjectDetailMediaItem[] {
+  const kept = items.filter(
+    (item) => item.url === cover?.url || isGalleryEligibleRole(item.semanticRole),
+  );
+  if (items.length > 0 && kept.length === 0) return items;
+  return kept;
 }
 
 export function groupProjectMedia(
@@ -136,7 +183,10 @@ export function groupProjectMedia(
     ]),
   );
   const cover = media.find((item) => item.type === "cover") ?? null;
-  const gallery = media.filter((item) => item.type === "gallery" || item.type === "cover");
+  const gallery = galleryEligible(
+    media.filter((item) => item.type === "gallery" || item.type === "cover"),
+    cover,
+  );
   const masterPlan = media.find((item) => item.type === "master_plan") ?? null;
   const brochures = media.filter((item) => item.type === "brochure");
   const unitPlans = media.filter((item) => item.type === "unit_plan");

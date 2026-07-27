@@ -26,7 +26,9 @@ import type { ProgressiveWarning } from "../forever-ingestion/batch-types";
 import { classifyPath } from "../../intake/classify";
 import type { IntakeCategory } from "../../intake/types";
 import {
+  isSemanticRole,
   selectHero,
+  SEMANTIC_ROLES,
   type HeroCandidate,
   type SemanticAssessment,
   type SemanticRole,
@@ -101,6 +103,43 @@ export interface PlannedMediaItem {
   height?: number | null;
   /** What the semantic hero policy decided this image depicts. */
   semanticRole?: SemanticRole;
+}
+
+/**
+ * Planned items whose semantic role is not in the vocabulary
+ * (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001).
+ *
+ * The database enforces the same list with a CHECK constraint, but a constraint
+ * violation surfaces after images have already been uploaded to public storage
+ * — the write fails and the bytes stay. Checking the plan first means an
+ * unknown role costs nothing: it fails in `--dry-run`, before a client is
+ * constructed.
+ *
+ * An item with no role at all is not an error. It means the Factory formed no
+ * opinion, which readers treat as "show it".
+ */
+export function invalidSemanticRoles(plan: MediaPlan): Array<{ path: string; role: string }> {
+  const invalid: Array<{ path: string; role: string }> = [];
+  for (const item of plan.items) {
+    if (item.semanticRole === undefined || item.semanticRole === null) continue;
+    if (!isSemanticRole(item.semanticRole)) {
+      invalid.push({ path: item.path, role: String(item.semanticRole) });
+    }
+  }
+  return invalid;
+}
+
+/** Throws before any upload or write when the plan carries an unknown role. */
+export function assertPlanSemanticRoles(plan: MediaPlan): void {
+  const invalid = invalidSemanticRoles(plan);
+  if (invalid.length === 0) return;
+  const detail = invalid.map((entry) => `${entry.path} -> "${entry.role}"`).join(", ");
+  const error = new Error(
+    `Unknown semantic role in media plan: ${detail}. ` +
+      `Permitted values: ${SEMANTIC_ROLES.join(", ")}.`,
+  ) as Error & { code?: string };
+  error.code = "semantic_role_unknown";
+  throw error;
 }
 
 export type MediaExclusionReason =

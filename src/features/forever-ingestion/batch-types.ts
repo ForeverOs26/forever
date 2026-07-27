@@ -101,6 +101,14 @@ export interface ProgressiveMediaItem {
   url: string;
   title?: string;
   sort_order?: number;
+  /**
+   * What the image depicts, from the closed vocabulary in `hero-policy.ts`
+   * (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001).
+   *
+   * Presentation data, never provenance. Omitted when no classification was
+   * made, so an unclassified item and a pre-contract row read the same way.
+   */
+  semantic_role?: string;
   /** Carries field provenance for title/sort_order enrichment. */
   metadata?: Record<string, unknown>;
 }

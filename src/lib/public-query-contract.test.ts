@@ -37,7 +37,11 @@ describe("public query privacy contract", () => {
     }
     for (const projection of [
       "developer:developers(id, name, description, website, logo_url)",
-      "media:project_media(id, media_type, title, url, sort_order)",
+      // `semantic_role` is presentation data — what the image depicts, from a
+      // closed vocabulary. It is the only column added to the public media
+      // projection, and `metadata` (source paths, package directories,
+      // sanitizer records) stays unreadable by the anonymous role.
+      "media:project_media(id, media_type, title, url, sort_order, semantic_role)",
       "units:units(id, unit_code, unit_type, bedrooms, bathrooms, size_sqm, floor, view_type, ownership_type, base_price_thb, discounted_price_thb, price_per_sqm, availability_status, payment_plan, furniture_package, rental_guarantee, roi_estimate, notes, building:buildings(building_code))",
       "investment:investment_data(id, project_id, unit_id, expected_daily_rate, expected_monthly_rent, expected_yearly_rent, occupancy_rate, annual_roi_percent, guaranteed_rental_percent, guarantee_years, management_company, notes, created_at)",
     ]) {
@@ -61,7 +65,9 @@ describe("public query privacy contract", () => {
 
     // Reading buildings publicly is only safe once the broad table grant from
     // 20260707101000 is replaced by a presentation-column grant.
-    expect(migration).toContain("REVOKE SELECT ON TABLE public.buildings FROM anon, authenticated;");
+    expect(migration).toContain(
+      "REVOKE SELECT ON TABLE public.buildings FROM anon, authenticated;",
+    );
     const columns = grantedColumns(migration, "buildings");
     for (const key of ["id", "project_id", "building_code"]) expect(columns).toContain(key);
     expect(columns).not.toContain("metadata");
@@ -70,7 +76,9 @@ describe("public query privacy contract", () => {
     );
 
     // The join key, and nothing more, is added to the units grant.
-    expect(migration).toContain("GRANT SELECT (building_id) ON public.units TO anon, authenticated;");
+    expect(migration).toContain(
+      "GRANT SELECT (building_id) ON public.units TO anon, authenticated;",
+    );
     expect(migration).not.toMatch(/GRANT SELECT \([^)]*\bmetadata\b[^)]*\) ON public\.units/);
 
     // The private price history is projected, never exposed.

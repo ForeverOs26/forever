@@ -34,7 +34,15 @@ interface AssetLike {
 }
 
 function toMediaItem(asset: AssetLike, type: string): ProjectDetailMediaItem {
-  return { id: asset.id, type, title: asset.title, url: asset.url, sortOrder: asset.sortOrder };
+  // The Coralina progressive payload carries no semantic classification.
+  return {
+    id: asset.id,
+    type,
+    title: asset.title,
+    url: asset.url,
+    sortOrder: asset.sortOrder,
+    semanticRole: null,
+  };
 }
 
 function toUnit(unit: ForeverUnit): ProjectDetailUnit {
@@ -174,6 +182,7 @@ export function buildCoralinaProjectDetail(
           title: d.title,
           url: d.url,
           sortOrder: d.sortOrder,
+          semanticRole: null,
           label: d.label ?? "",
           note: d.note ?? "",
         }),
