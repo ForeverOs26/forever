@@ -49,8 +49,15 @@ export function compareSourceRecency(left: DatedSource, right: DatedSource): num
   const byEffective = (left.effectiveDate ?? "").localeCompare(right.effectiveDate ?? "");
   if (byEffective !== 0) return byEffective;
 
-  const byRevision = revisionRank(left.revision) - revisionRank(right.revision);
-  if (byRevision !== 0) return byRevision;
+  // A revision label orders documents WITHIN one series. It says nothing about
+  // a source that carries no revision at all — a SOLD note is not "V0" of the
+  // price list. Comparing them would let a labelled document outrank a genuinely
+  // newer unlabelled one purely because it has a label, which is how a same-day
+  // "SOLD D620" lost to the price list it was correcting.
+  if (left.revision && right.revision) {
+    const byRevision = revisionRank(left.revision) - revisionRank(right.revision);
+    if (byRevision !== 0) return byRevision;
+  }
 
   const byPublished = (left.publishedAt ?? "").localeCompare(right.publishedAt ?? "");
   if (byPublished !== 0) return byPublished;
