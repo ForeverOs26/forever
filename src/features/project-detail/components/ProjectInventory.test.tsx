@@ -23,16 +23,51 @@ describe("ProjectInventory", () => {
 
     render(<ProjectInventory project={project} />);
 
-    expect(screen.getByRole("heading", { name: /2 buildings.*3 residences/ })).not.toBeNull();
+    expect(
+      screen.getByRole("heading", { name: /2 buildings.*3 listed residences/ }),
+    ).not.toBeNull();
     expect(screen.getByText("Building North Tower")).not.toBeNull();
     expect(screen.getByText("Building Garden Annex")).not.toBeNull();
   });
 
-  it("shows only the residence total when structured building data is absent", () => {
+  it("shows only the listed-residence total when structured building data is absent", () => {
     render(<ProjectInventory project={makeProjectDetail({ units: [makeUnit()] })} />);
 
-    expect(screen.getByText("1 residences")).not.toBeNull();
+    expect(screen.getByText("1 listed residence")).not.toBeNull();
     expect(screen.queryByText(/^Building /)).toBeNull();
+  });
+
+  /**
+   * F1. The heading counts the rows Forever lists, and has to say so. Cielo
+   * lists 15 of 171 units and Legendary 63 of 637, so a bare "15 residences"
+   * understates a development by an order of magnitude while sounding
+   * authoritative about it.
+   */
+  it("never states a listed-row count as though it were the development's size", () => {
+    const project = makeProjectDetail({
+      units: [makeUnit({ code: "A1" }), makeUnit({ code: "A2" })],
+    });
+
+    render(<ProjectInventory project={project} />);
+
+    const heading = screen.getByRole("heading", { name: /listed residences/ });
+    expect(heading.textContent).toContain("2 listed residences");
+    // No bare "N residences" phrasing survives anywhere in the section.
+    expect(screen.queryByText(/(?<!listed )\d+ residences/)).toBeNull();
+  });
+
+  it("shows no total-project-units fact, because none is in the public payload", () => {
+    render(
+      <ProjectInventory
+        project={makeProjectDetail({ units: [makeUnit(), makeUnit({ code: "B" })] })}
+      />,
+    );
+
+    // `projects` has no total_units column and the detail query does not request
+    // `buildings.units_count`, so the development-wide figure is unavailable and
+    // must not be improvised from the listed rows.
+    expect(screen.queryByTestId("project-scale-facts")).toBeNull();
+    expect(screen.queryByText(/total project units/i)).toBeNull();
   });
 
   it("renders each unit's building, floor, type, area and recorded price", () => {

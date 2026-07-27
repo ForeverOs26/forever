@@ -71,6 +71,9 @@ export function buildModevaPartnerDemoProjectDetail(): ProjectDetail {
   const rows = modevaPriceList.unit_inventory as ModevaPriceListRow[];
 
   return {
+    // Modeva holds no structured facility rows, so the demo shows no Facilities
+    // section either — the demo must not claim more than production (F3).
+    facilities: [],
     core: {
       id: "partner-demo-modeva",
       slug: "modeva",

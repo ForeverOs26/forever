@@ -82,7 +82,16 @@ export function unitRows(units: readonly ProjectDetailUnit[]): ProjectDetailUnit
   });
 }
 
-export type UnitSort = "recommended" | "price-asc" | "price-desc" | "area-asc" | "area-desc";
+/**
+ * How the unit list is ordered.
+ *
+ * `listed-order` is the default: available units first, then unit code. It is
+ * named for what it does. The earlier name for it — "recommended" — claimed an
+ * endorsement Forever cannot support, because per-unit price currentness is not
+ * provable (`units.price_effective_date` does not exist) and nothing in the
+ * ordering weighs suitability for a buyer. A neutral name carries no such claim.
+ */
+export type UnitSort = "listed-order" | "price-asc" | "price-desc" | "area-asc" | "area-desc";
 
 export interface UnitFilterState {
   bedrooms: string;
@@ -97,7 +106,7 @@ export const DEFAULT_UNIT_FILTERS: UnitFilterState = {
   building: "all",
   type: "all",
   includeSold: false,
-  sort: "recommended",
+  sort: "listed-order",
 };
 
 export interface UnitFacet {
@@ -165,7 +174,7 @@ export function applyUnitFilters(
     return true;
   });
 
-  if (filters.sort === "recommended") return unitRows(filtered);
+  if (filters.sort === "listed-order") return unitRows(filtered);
 
   // A unit with no recorded value sorts last in either direction, so an
   // incomplete record never displaces a priced one from the top of the list.

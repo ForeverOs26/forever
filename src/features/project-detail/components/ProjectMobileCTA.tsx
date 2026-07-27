@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { CalendarClock, MessageSquare } from "lucide-react";
 
 import type { ProjectDetail } from "../project-detail-types";
+import { projectContactActionsEnabled } from "../contact-actions";
 
 /**
  * Mobile contact bar (FOREVER-PROJECT-DETAIL-FAZWAZ-INSPIRED-UX-001).
@@ -19,6 +20,12 @@ export interface ProjectMobileCTAProps {
 }
 
 export function ProjectMobileCTA({ project }: ProjectMobileCTAProps) {
+  // Withheld until gate G0 passes (F5). Rendering nothing — not a disabled bar
+  // — is the point: the page must not reserve space for, or advertise, an
+  // action whose delivery has never been observed. `ProjectDetailEngine` drops
+  // its matching bottom padding through the same check.
+  if (!projectContactActionsEnabled()) return null;
+
   return (
     <div
       data-testid="project-mobile-cta"

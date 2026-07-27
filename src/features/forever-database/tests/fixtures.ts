@@ -77,11 +77,17 @@ type ProjectOverrides = {
   developer?: ProjectDetail["developer"];
   media?: Partial<ProjectDetail["media"]>;
   units?: ProjectDetailUnit[];
+  /** The structured facilities collection — never editorial highlights (F3). */
+  facilities?: string[];
 };
 
 /** A verified-but-sparse project, matching the Modeva seed shape. */
 export function makeProjectDetail(overrides: ProjectOverrides = {}): ProjectDetail {
   return {
+    // Defaults to production's truth: the structured facilities collection is
+    // empty for every public project, so the section is absent (finding F3).
+    // A test that wants the populated case must say so explicitly.
+    facilities: overrides.facilities ?? [],
     core: {
       id: "project-1",
       slug: "the-modeva-bang-tao",

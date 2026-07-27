@@ -29,12 +29,25 @@ export type UnitRowWithBuilding = UnitRow & {
   building?: { building_code: string | null } | null;
 };
 
+/**
+ * One row of the structured facilities collection (`project_facilities` joined
+ * to `facilities`), as the public projection would return it.
+ *
+ * Optional on the record because the public detail query does not request it
+ * yet — see `ProjectDetail.facilities` for why the shape exists regardless.
+ */
+export type ProjectFacilityRow = {
+  facility: { name: string | null } | null;
+  sort_order?: number | null;
+};
+
 export type ProjectDetailRecord = ProjectRow &
   ProgressiveProjectColumns & {
     developer: DeveloperRow | null;
     media: ProjectMediaRow[] | null;
     units: UnitRowWithBuilding[] | null;
     investment: InvestmentDataRow[] | null;
+    facilities?: ProjectFacilityRow[] | null;
   };
 
 export type ProjectDetailMediaType =
@@ -198,4 +211,21 @@ export type ProjectDetail = {
   developer: ProjectDetailDeveloper;
   media: ProjectDetailMedia;
   units: ProjectDetailUnit[];
+  /**
+   * Facilities the project record states outright, from the structured
+   * `facilities` / `project_facilities` collection — and from nothing else
+   * (finding F3).
+   *
+   * This is the ONLY input the Facilities section may read. It used to read
+   * `core.highlights`, which are editorial one-liners: Modeva's three are
+   * "Forever Verified project record", "Bang Tao location" and "Structured
+   * project foundation". Printed under "Facilities — What the project
+   * includes", those state three things the developer never said.
+   *
+   * It is empty for all nine public projects today, because the structured
+   * collection holds zero rows for every one of them, so the section and its
+   * navigation entry are absent everywhere. That is the correct current
+   * outcome, not a placeholder.
+   */
+  facilities: string[];
 };

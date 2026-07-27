@@ -3,7 +3,7 @@ import { Check } from "lucide-react";
 import { Section } from "@/components/layout/Section";
 
 import type { ProjectDetail } from "../project-detail-types";
-import { projectFacilities } from "../project-sections";
+import { hasFacilitiesSection, projectFacilities } from "../project-sections";
 
 /**
  * Facilities (FOREVER-PROJECT-DETAIL-FAZWAZ-INSPIRED-UX-001).
@@ -20,7 +20,7 @@ export interface ProjectFacilitiesProps {
 
 export function ProjectFacilities({ project }: ProjectFacilitiesProps) {
   const facilities = projectFacilities(project);
-  if (facilities.length === 0) return null;
+  if (!hasFacilitiesSection(project)) return null;
 
   return (
     <Section

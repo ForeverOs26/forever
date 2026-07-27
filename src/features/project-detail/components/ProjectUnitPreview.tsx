@@ -5,6 +5,7 @@ import { Section } from "@/components/layout/Section";
 import { Button } from "@/components/ui/button";
 
 import type { ProjectDetail, ProjectDetailUnit } from "../project-detail-types";
+import { projectContactActionsEnabled } from "../contact-actions";
 import {
   applyUnitFilters,
   areaLabel,
@@ -38,14 +39,22 @@ export interface ProjectUnitPreviewProps {
 }
 
 const SORTS: Array<{ value: UnitSort; label: string }> = [
-  { value: "recommended", label: "Recommended" },
+  { value: "listed-order", label: "Listed order" },
   { value: "price-asc", label: "Price: low to high" },
   { value: "price-desc", label: "Price: high to low" },
   { value: "area-asc", label: "Area: small to large" },
   { value: "area-desc", label: "Area: large to small" },
 ];
 
-function UnitCard({ unit, projectName }: { unit: ProjectDetailUnit; projectName: string }) {
+function UnitCard({
+  unit,
+  projectName,
+  contactActionsEnabled,
+}: {
+  unit: ProjectDetailUnit;
+  projectName: string;
+  contactActionsEnabled: boolean;
+}) {
   const available = isAvailable(unit);
   return (
     <li
@@ -94,18 +103,22 @@ function UnitCard({ unit, projectName }: { unit: ProjectDetailUnit; projectName:
         ) : null}
       </dl>
 
-      <div className="mt-4 pt-1">
-        {/*
-          One action, and it is real: the Forever contact route, carrying the
-          project and unit so the enquiry arrives with its context. There is no
-          unit-detail route, so no button pretends there is one.
-        */}
-        <Button asChild size="sm" variant="outline" className="w-full">
-          <Link to="/contact" search={{ project: projectName, unit: unit.code }}>
-            Request this unit
-          </Link>
-        </Button>
-      </div>
+      {/*
+        The per-unit action is withheld until gate G0 passes (F5). It is the
+        highest-volume contact surface on the page — one button per card, up to
+        24 at once — so it is the last one that should reach an unverified
+        submission path. Absent, not disabled: the card ends at its facts and
+        the trailing spacing goes with the button.
+      */}
+      {contactActionsEnabled ? (
+        <div className="mt-4 pt-1">
+          <Button asChild size="sm" variant="outline" className="w-full">
+            <Link to="/contact" search={{ project: projectName, unit: unit.code }}>
+              Request this unit
+            </Link>
+          </Button>
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -124,12 +137,13 @@ export function ProjectUnitPreview({ project }: ProjectUnitPreviewProps) {
 
   const shown = expanded ? filtered.slice(0, 24) : filtered.slice(0, PREVIEW_SIZE);
   const availableTotal = project.units.filter(isAvailable).length;
+  const contactActionsEnabled = projectContactActionsEnabled();
   const isFiltered =
     filters.bedrooms !== "all" ||
     filters.building !== "all" ||
     filters.type !== "all" ||
     filters.includeSold ||
-    filters.sort !== "recommended";
+    filters.sort !== "listed-order";
 
   const select =
     "rounded-full border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent";
@@ -138,7 +152,7 @@ export function ProjectUnitPreview({ project }: ProjectUnitPreviewProps) {
     <Section
       id="units"
       eyebrow="Availability"
-      title={`${availableTotal} of ${project.units.length} units available`}
+      title={`${availableTotal} of ${project.units.length} listed units available`}
       className="pt-0"
       data-testid="project-unit-preview"
     >
@@ -257,7 +271,12 @@ export function ProjectUnitPreview({ project }: ProjectUnitPreviewProps) {
       ) : (
         <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {shown.map((unit) => (
-            <UnitCard key={unit.id || unit.code} unit={unit} projectName={project.core.name} />
+            <UnitCard
+              key={unit.id || unit.code}
+              unit={unit}
+              projectName={project.core.name}
+              contactActionsEnabled={contactActionsEnabled}
+            />
           ))}
         </ul>
       )}

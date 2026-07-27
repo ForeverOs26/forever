@@ -3,6 +3,7 @@ import { MapPin } from "lucide-react";
 import { Section } from "@/components/layout/Section";
 
 import type { ProjectDetail } from "../project-detail-types";
+import { hasLocationSection, locationMapDocument } from "../project-sections";
 
 /**
  * Location (FOREVER-PROJECT-DETAIL-FAZWAZ-INSPIRED-UX-001).
@@ -23,16 +24,16 @@ export function ProjectLocation({ project }: ProjectLocationProps) {
   const address = project.core.address;
   const hasCoordinates =
     typeof project.location.latitude === "number" && typeof project.location.longitude === "number";
-  const locationDocument = project.media.documents.find(
-    (document) => document.type === "document" && /map/i.test(document.label + document.title),
-  );
+  const locationDocument = locationMapDocument(project);
 
   const nearby: Array<[string, string]> = [];
   if (project.location.distanceToBeach) nearby.push(["Beach", project.location.distanceToBeach]);
   if (project.location.distanceToAirport)
     nearby.push(["Airport", project.location.distanceToAirport]);
 
-  if (!area && !address && !hasCoordinates && !locationDocument) return null;
+  // One predicate, shared with the navigation, so a pill can never point at a
+  // section this returns null for.
+  if (!hasLocationSection(project)) return null;
 
   return (
     <Section
