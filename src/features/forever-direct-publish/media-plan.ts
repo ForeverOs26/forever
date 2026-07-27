@@ -25,6 +25,13 @@ import { createHash } from "node:crypto";
 import type { ProgressiveWarning } from "../forever-ingestion/batch-types";
 import { classifyPath } from "../../intake/classify";
 import type { IntakeCategory } from "../../intake/types";
+import {
+  selectHero,
+  type HeroCandidate,
+  type SemanticAssessment,
+  type SemanticRole,
+} from "./hero-policy";
+import { readImageDimensions } from "./image-geometry";
 
 /** Default useful gallery size for one project page. */
 export const DEFAULT_MAX_GALLERY = 20;
@@ -89,6 +96,11 @@ export interface PlannedMediaItem {
   /** True for the single automatically selected hero image. */
   isHero: boolean;
   sortOrder: number;
+  /** Declared pixel geometry, when the container stated it. */
+  width?: number | null;
+  height?: number | null;
+  /** What the semantic hero policy decided this image depicts. */
+  semanticRole?: SemanticRole;
 }
 
 export type MediaExclusionReason =
@@ -104,8 +116,28 @@ export interface ExcludedMedia {
   detail?: string;
 }
 
+/** One line of the hero decision, for the Owner's report. */
+export interface HeroConsideration {
+  path: string;
+  role: SemanticRole;
+  eligibility: SemanticAssessment["eligibility"];
+  reason: string;
+  exterior: boolean;
+  peopleProminent: boolean;
+  textDominant: boolean;
+  width: number | null;
+  height: number | null;
+  size: number;
+  sha256: string;
+  score: number;
+}
+
 export interface MediaPlan {
   hero: PlannedMediaItem | null;
+  /** What the policy decided about the chosen hero. */
+  heroAssessment: SemanticAssessment | null;
+  /** Every gallery candidate the hero policy considered, best first. */
+  heroConsidered: HeroConsideration[];
   /** Ordered public media records, hero first. */
   items: PlannedMediaItem[];
   excluded: ExcludedMedia[];
@@ -122,6 +154,16 @@ export interface MediaPlanOptions {
   otherProjectSlugs?: readonly string[];
   maxGallery?: number;
   maxFloorPlans?: number;
+  /**
+   * Explicit hero preference: the logical path of the image the package or
+   * source set asks for. Honoured only when it passes the semantic gate.
+   */
+  preferredHeroPath?: string | null;
+  /**
+   * Semantic roles a generated package already recorded, keyed by its own
+   * relative path. Consulted only where the path yields no evidence of its own.
+   */
+  declaredRoles?: ReadonlyMap<string, SemanticRole>;
 }
 
 function sha256(bytes: Buffer): string {
@@ -163,44 +205,13 @@ export function isCrossProjectMaterial(
   return null;
 }
 
-/** Filename tokens by which a package designates its own hero image. */
-const DESIGNATED_HERO_TOKENS: ReadonlySet<string> = new Set(["cover", "hero"]);
-
-/** Does this file name itself as the intended hero (`…-cover.jpg`, `hero.png`)? */
-function isDesignatedHero(path: string): boolean {
-  const base = path.toLowerCase().split("/").pop() ?? "";
-  return pathTokens(base).some((token) => DESIGNATED_HERO_TOKENS.has(token));
-}
-
 /**
- * Pick the hero from the eligible gallery images. Deterministic and explainable.
+ * Hero selection lives in `hero-policy.ts`.
  *
- * A package that names its hero (`…-cover.jpg`, `hero.png`) has already made the
- * editorial choice, so that file wins: raw file size is a decent proxy for "the
- * big marketing render" but a poor one for "the establishing shot", and a
- * prepared package should not have its own selection silently overridden. With
- * no designated file, the largest image wins (developer hero renders are the
- * highest-resolution asset in practice). Ties break by path either way, so the
- * choice is reproducible.
+ * What used to be here honoured any filename containing `cover` or `hero` and
+ * otherwise took the largest file. Both rules are gone: a filename is now only
+ * a preference inside the weakest tier, and byte size decides nothing at all.
  */
-function selectHeroIndex(gallery: PlannedMediaItem[]): number {
-  const indices = gallery.map((_, index) => index);
-  const designated = indices.filter((index) => isDesignatedHero(gallery[index].path));
-  const pool = designated.length > 0 ? designated : indices;
-
-  let best = pool[0];
-  for (const index of pool.slice(1)) {
-    const candidate = gallery[index];
-    const incumbent = gallery[best];
-    if (
-      candidate.size > incumbent.size ||
-      (candidate.size === incumbent.size && candidate.path < incumbent.path)
-    ) {
-      best = index;
-    }
-  }
-  return best;
-}
 
 /**
  * Build the deterministic public media plan for one source package.
@@ -259,6 +270,7 @@ export function planPublicMedia(
     }
     seenHashes.set(digest, candidate.path);
 
+    const geometry = readImageDimensions(candidate.bytes);
     const item: PlannedMediaItem = {
       path: candidate.path,
       category,
@@ -267,25 +279,105 @@ export function planPublicMedia(
       size: candidate.bytes.length,
       isHero: false,
       sortOrder: 0,
+      width: geometry?.width ?? null,
+      height: geometry?.height ?? null,
     };
     const bucket = byMediaType.get(mediaType);
     if (bucket) bucket.push(item);
     else byMediaType.set(mediaType, [item]);
   }
 
-  // Caps: keep the page useful without silently hiding the overflow.
+  // Hero FIRST, from every eligible photograph.
+  //
+  // Order matters. The cap used to run first, so a project whose establishing
+  // shot sorted past the 24th path could never be considered for its own cover
+  // — Coralina's entrance render lost to a launch-party photograph exactly that
+  // way. Choosing before truncating means the cap can only ever discard images
+  // the policy already ranked below the ones it kept.
   const gallery = byMediaType.get("gallery") ?? [];
-  if (gallery.length > maxGallery) {
-    for (const dropped of gallery.slice(maxGallery)) {
+  const heroCandidates: HeroCandidate[] = gallery.map((item) => ({
+    path: item.path,
+    size: item.size,
+    width: item.width ?? null,
+    height: item.height ?? null,
+    category: item.category,
+    sha256: item.sha256,
+    declaredRole: options.declaredRoles?.get(item.path) ?? null,
+    // Every file in a project carries the project's name; those words describe
+    // no individual image and must not be read as evidence about one.
+    slug: options.slug,
+  }));
+  const heroSelection = selectHero(heroCandidates, {
+    preferredPath: options.preferredHeroPath ?? null,
+  });
+  const assessmentByPath = new Map(
+    heroSelection.ranked.map((entry) => [entry.candidate.path, entry]),
+  );
+  for (const item of gallery) {
+    item.semanticRole = assessmentByPath.get(item.path)?.assessment.role;
+  }
+
+  // Rank the gallery the same way, so the images a visitor sees first are the
+  // ones that show the property and the cap keeps the best rather than the
+  // alphabetically earliest.
+  const rankedGallery = heroSelection.ranked
+    .map((entry) => gallery.find((item) => item.path === entry.candidate.path)!)
+    .filter(Boolean);
+
+  // The cap counts the cover, exactly as it did before, so correcting a hero
+  // never quietly publishes one more image than the project had.
+  const keptGallery = rankedGallery.slice(0, maxGallery);
+  if (rankedGallery.length > maxGallery) {
+    for (const dropped of rankedGallery.slice(maxGallery)) {
       excluded.push({ path: dropped.path, reason: "gallery_limit" });
     }
     warnings.push({
       entity: "media",
       code: "gallery_truncated",
       severity: "info",
-      message: `${gallery.length} gallery images were supplied; the first ${maxGallery} were published.`,
+      message: `${rankedGallery.length} gallery images were supplied; the ${maxGallery} that best depict the project were published.`,
     });
-    byMediaType.set("gallery", gallery.slice(0, maxGallery));
+  }
+  byMediaType.set("gallery", keptGallery);
+
+  let hero: PlannedMediaItem | null = null;
+  if (heroSelection.hero) {
+    // The hero is by construction the highest-ranked usable candidate, so it
+    // always survives a cap of at least one.
+    const chosen = keptGallery.find((item) => item.path === heroSelection.hero!.path);
+    if (chosen) {
+      chosen.isHero = true;
+      chosen.mediaType = "cover";
+      hero = chosen;
+      byMediaType.set("cover", [chosen]);
+      byMediaType.set(
+        "gallery",
+        keptGallery.filter((item) => item !== chosen),
+      );
+    }
+  }
+
+  if (heroSelection.preferenceRejected) {
+    warnings.push({
+      entity: "media",
+      code: "hero_preference_rejected",
+      severity: "warning",
+      message:
+        `The requested cover image was not used because ${heroSelection.preferenceRejected.detail}. ` +
+        "A cover must depict the property.",
+    });
+  }
+
+  if (!hero) {
+    warnings.push({
+      entity: "media",
+      code: gallery.length === 0 ? "hero_image_missing" : "hero_candidate_missing",
+      severity: gallery.length === 0 ? "info" : "warning",
+      message:
+        gallery.length === 0
+          ? "No publishable photograph was supplied, so the project has no hero image yet."
+          : `No supplied image depicts the property, so the project publishes without a cover rather than showing something else: ${heroSelection.missingReason}.`,
+    });
   }
 
   for (const planType of ["floor_plan", "unit_plan"] as const) {
@@ -304,26 +396,6 @@ export function planPublicMedia(
     }
   }
 
-  // Hero: promote one gallery image to `cover`.
-  let hero: PlannedMediaItem | null = null;
-  const finalGallery = byMediaType.get("gallery") ?? [];
-  if (finalGallery.length > 0) {
-    const heroIndex = selectHeroIndex(finalGallery);
-    hero = finalGallery[heroIndex];
-    hero.isHero = true;
-    hero.mediaType = "cover";
-    finalGallery.splice(heroIndex, 1);
-    byMediaType.set("cover", [hero]);
-    byMediaType.set("gallery", finalGallery);
-  } else {
-    warnings.push({
-      entity: "media",
-      code: "hero_image_missing",
-      severity: "info",
-      message: "No publishable photograph was supplied, so the project has no hero image yet.",
-    });
-  }
-
   // Stable global order across groups, then a dense sort_order.
   const items: PlannedMediaItem[] = [];
   for (const mediaType of MEDIA_TYPE_ORDER) {
@@ -333,5 +405,27 @@ export function planPublicMedia(
     item.sortOrder = index;
   });
 
-  return { hero, items, excluded, warnings };
+  const heroConsidered: HeroConsideration[] = heroSelection.ranked.map((entry) => ({
+    path: entry.candidate.path,
+    role: entry.assessment.role,
+    eligibility: entry.assessment.eligibility,
+    reason: entry.assessment.reason,
+    exterior: entry.assessment.exterior,
+    peopleProminent: entry.assessment.peopleProminent,
+    textDominant: entry.assessment.textDominant,
+    width: entry.candidate.width ?? null,
+    height: entry.candidate.height ?? null,
+    size: entry.candidate.size,
+    sha256: entry.candidate.sha256,
+    score: entry.score,
+  }));
+
+  return {
+    hero,
+    heroAssessment: heroSelection.assessment,
+    heroConsidered,
+    items,
+    excluded,
+    warnings,
+  };
 }

@@ -57,7 +57,20 @@ export interface SourceManifest {
     rejected_rows: number;
     unresolved_rows: number;
   } | null;
-  media: Array<{ file: string; media_type: string; sha256: string; source_ref: string }>;
+  media: Array<{
+    file: string;
+    media_type: string;
+    sha256: string;
+    source_ref: string;
+    /**
+     * What the semantic hero policy decided this image depicts.
+     *
+     * Recorded because packaging renames every file: without it, re-planning a
+     * finished package would see `<slug>-gallery-07.jpg` and no folder, and
+     * could hand the cover to material this run already rejected.
+     */
+    semantic_role?: string;
+  }>;
   batch_fingerprint: string;
 }
 
@@ -276,6 +289,7 @@ export function buildPackage(input: BuildPackageInput): BuiltPackage {
       media_type: item.mediaType,
       sha256: item.sha256,
       source_ref: item.sourceRef,
+      ...(item.semanticRole ? { semantic_role: item.semanticRole } : {}),
     })),
     batch_fingerprint: batch.batch_fingerprint,
   };

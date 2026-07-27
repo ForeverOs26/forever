@@ -27,9 +27,13 @@ import {
   type SourceMediaCandidate,
 } from "../forever-direct-publish/media-plan";
 import { detectSanitizableImageType } from "../forever-direct-publish/publish";
+import { readImageDimensions } from "../forever-direct-publish/image-geometry";
+import type { SemanticRole } from "../forever-direct-publish/hero-policy";
 import { classifyPath } from "../../intake/classify";
 
 import { isJunkFilename } from "./adapters";
+
+export { readImageDimensions };
 
 /** Default useful gallery size for one project page. */
 export const FACTORY_MAX_GALLERY = 24;
@@ -73,6 +77,8 @@ export interface SelectedMedia {
   sortOrder: number;
   /** Public-safe reference to the source artifact. */
   sourceRef: string;
+  /** What the semantic hero policy decided this image depicts. */
+  semanticRole?: SemanticRole;
 }
 
 export interface MediaSelection {
@@ -86,72 +92,31 @@ export interface MediaSelection {
 /**
  * Near-duplicate digest.
  *
- * Deliberately cheap and format-agnostic: the declared pixel geometry plus a
- * coarse quantization of the byte length. Two exports of the same render at
- * different JPEG qualities share geometry and land in the same size bucket; two
- * genuinely different photographs almost never do. This only ever *demotes* a
- * candidate to "near duplicate" when a larger sibling exists, so a false
- * positive costs one gallery slot, never a wrong publication.
+ * Cheap and format-agnostic: the declared pixel geometry plus a quantization of
+ * the byte length. Two copies of one render land in the same bucket; two
+ * different photographs should not.
+ *
+ * The original quantization — `log2(bytes) * 2` — made each bucket about 41%
+ * wide, which is far wider than "the same image twice". A developer exports
+ * every render at one size, so on Coralina all fifteen exterior renders shared
+ * 4500x2835 and five of them shared a bucket: the entrance render (4.51 MB) and
+ * the aerial (4.61 MB) are entirely different pictures, and one silently
+ * deleted the other. Fourteen of fifteen exteriors were discarded that way,
+ * before the hero policy could even consider them.
+ *
+ * `* 96` narrows a bucket to roughly 0.7%, which still catches the case this
+ * rule is for — the identical file arriving from two sources with a trivially
+ * different container — while leaving genuinely different images alone. Exact
+ * byte-identical copies never reach here: the planner's sha256 pass has already
+ * removed them.
  */
+const NEAR_DUPLICATE_SIZE_PRECISION = 96;
+
 export function nearDuplicateKey(bytes: Buffer): string | null {
   const dimensions = readImageDimensions(bytes);
   if (!dimensions) return null;
-  const bucket = Math.round(Math.log2(Math.max(1, bytes.length)) * 2);
+  const bucket = Math.round(Math.log2(Math.max(1, bytes.length)) * NEAR_DUPLICATE_SIZE_PRECISION);
   return `${dimensions.width}x${dimensions.height}:${bucket}`;
-}
-
-/** Declared pixel dimensions from the container header. Null when unknown. */
-export function readImageDimensions(bytes: Buffer): { width: number; height: number } | null {
-  // PNG: IHDR at a fixed offset.
-  if (
-    bytes.length >= 24 &&
-    bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
-  ) {
-    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
-  }
-  // JPEG: walk the marker chain to the first SOF.
-  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
-    let offset = 2;
-    while (offset + 9 < bytes.length) {
-      if (bytes[offset] !== 0xff) {
-        offset += 1;
-        continue;
-      }
-      const marker = bytes[offset + 1];
-      if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
-        offset += 2;
-        continue;
-      }
-      const length = bytes.readUInt16BE(offset + 2);
-      const isStartOfFrame =
-        marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
-      if (isStartOfFrame) {
-        return { height: bytes.readUInt16BE(offset + 5), width: bytes.readUInt16BE(offset + 7) };
-      }
-      offset += 2 + length;
-    }
-    return null;
-  }
-  // WebP (VP8X / VP8L / VP8 simple lossy).
-  if (
-    bytes.length >= 30 &&
-    bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
-    bytes.subarray(8, 12).toString("ascii") === "WEBP"
-  ) {
-    const chunk = bytes.subarray(12, 16).toString("ascii");
-    if (chunk === "VP8X") {
-      const width = 1 + (bytes[24] | (bytes[25] << 8) | (bytes[26] << 16));
-      const height = 1 + (bytes[27] | (bytes[28] << 8) | (bytes[29] << 16));
-      return { width, height };
-    }
-    if (chunk === "VP8 " && bytes.length >= 30) {
-      return {
-        width: bytes.readUInt16LE(26) & 0x3fff,
-        height: bytes.readUInt16LE(28) & 0x3fff,
-      };
-    }
-  }
-  return null;
 }
 
 function sha256(bytes: Buffer): string {
@@ -207,6 +172,15 @@ export interface MediaSelectionOptions {
   otherProjectSlugs?: readonly string[];
   maxGallery?: number;
   maxPlans?: number;
+  /**
+   * Public-safe basename of an image the source set asks to use as the cover.
+   *
+   * Matched against the candidate refs, not against a path, because a source
+   * set is written by hand and must never need a private locator. It is a
+   * preference: it still has to pass sanitization, the cross-project check and
+   * the semantic gate, and it can never promote a prohibited role.
+   */
+  heroPreferenceRef?: string | null;
 }
 
 /**
@@ -304,11 +278,18 @@ export function selectMedia(
     path: candidate.path,
     bytes: candidate.bytes,
   }));
+  const preferred = options.heroPreferenceRef?.trim().toLowerCase();
+  const preferredCandidate = preferred
+    ? survivors.find((candidate) => candidate.ref.toLowerCase() === preferred)
+    : undefined;
   const plan = planPublicMedia(planCandidates, {
     slug: options.slug,
     otherProjectSlugs: options.otherProjectSlugs,
     maxGallery: options.maxGallery ?? FACTORY_MAX_GALLERY,
     maxFloorPlans: options.maxPlans ?? FACTORY_MAX_PLANS,
+    // A preference that named a file this project does not publish is reported
+    // by the planner as rejected, rather than silently ignored here.
+    preferredHeroPath: preferred ? (preferredCandidate?.path ?? preferred) : null,
   });
 
   const byPath = new Map(survivors.map((candidate) => [candidate.path, candidate]));
@@ -336,6 +317,7 @@ export function selectMedia(
       isHero: item.isHero,
       sortOrder: item.sortOrder,
       sourceRef: candidate.ref,
+      semanticRole: item.semanticRole,
     };
   });
 

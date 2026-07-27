@@ -101,10 +101,15 @@ function printPlan(pkg: SourcePackage, limits: { maxGallery?: number; maxPlans?:
   console.log(`  publishable:      ${verdict.ok ? "yes" : `no — ${verdict.failure.code}`}`);
 
   if (verdict.ok) {
+    // The same inputs the publish step uses, including the semantic roles the
+    // package recorded. Without them the dry run plans from renamed filenames
+    // alone and can report a cover the publish would refuse — which is exactly
+    // what a dry run exists to prevent.
     const plan = planPublicMedia(pkg.media, {
       slug: verdict.slug,
       maxGallery: limits.maxGallery,
       maxFloorPlans: limits.maxPlans,
+      declaredRoles: pkg.declaredRoles,
     });
     const groups = new Map<string, number>();
     for (const item of plan.items)
