@@ -1,16 +1,27 @@
 import { FileText } from "lucide-react";
 import { Section } from "@/components/layout/Section";
 import { Button } from "@/components/ui/button";
+import { renderablePlans } from "../plan-media";
 import type { ProjectDetail } from "../project-detail-types";
 
 type ProjectUnitPlansProps = {
   project: ProjectDetail;
 };
 
+/**
+ * Unit layout plans, and nothing else (F-008).
+ *
+ * This section used to fall back to a grid of inventory unit cards whenever a
+ * project had units but no unit plans, which put an "Available layouts"
+ * heading on projects holding no plan at all — Serenity and Modeva both showed
+ * it. Those cards were also a strictly poorer copy of `ProjectInventory`,
+ * which already renders every unit with its building, floor, area, price and
+ * availability. The heading now follows the plans it names.
+ */
 export function ProjectUnitPlans({ project }: ProjectUnitPlansProps) {
-  const unitPlans = project.media.unitPlans;
+  const unitPlans = renderablePlans(project.media.unitPlans);
 
-  if (unitPlans.length === 0 && project.units.length === 0) return null;
+  if (unitPlans.length === 0) return null;
 
   return (
     <Section eyebrow="Unit Plans" title="Available layouts" className="pt-0">
@@ -35,40 +46,14 @@ export function ProjectUnitPlans({ project }: ProjectUnitPlansProps) {
             </div>
           </a>
         ))}
-        {project.units.length > 0 && (
-          <div className="grid gap-px bg-border/60 sm:grid-cols-2 lg:grid-cols-3">
-            {project.units.map((unit) => (
-              <div key={unit.id} className="bg-card p-5">
-                <div className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
-                  {unit.availabilityStatus}
-                </div>
-                <div className="mt-2 font-serif text-xl text-foreground">
-                  {unit.code || unit.type || "Unit"}
-                </div>
-                <div className="mt-2 text-sm text-muted-foreground">
-                  {[unit.bedrooms ? `${unit.bedrooms} beds` : "", unit.sizeSqm ? `${unit.sizeSqm} sqm` : ""]
-                    .filter(Boolean)
-                    .join(" - ")}
-                </div>
-                {unit.basePriceTHB && (
-                  <div className="mt-3 text-sm text-foreground">
-                    THB {unit.basePriceTHB.toLocaleString()}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
-      {unitPlans[0] && (
-        <div className="mt-6 flex justify-center">
-          <Button asChild size="sm" variant="outline">
-            <a href={unitPlans[0].url} target="_blank" rel="noopener noreferrer">
-              <FileText className="mr-1.5 h-4 w-4" /> Unit Plans PDF
-            </a>
-          </Button>
-        </div>
-      )}
+      <div className="mt-6 flex justify-center">
+        <Button asChild size="sm" variant="outline">
+          <a href={unitPlans[0].url} target="_blank" rel="noopener noreferrer">
+            <FileText className="mr-1.5 h-4 w-4" /> Unit Plans PDF
+          </a>
+        </Button>
+      </div>
     </Section>
   );
 }

@@ -20,6 +20,40 @@ function fillRequiredFields() {
   fireEvent.change(screen.getByLabelText("Phone"), { target: { value: "+66 81 234 5678" } });
 }
 
+/**
+ * F-011: the Interest placeholder read "e.g. Aurora Residences, 3-bed".
+ * Forever has no Aurora Residences, so the form invited a client to name a
+ * project that does not exist and read as unreplaced sample copy.
+ */
+describe("ContactForm interest placeholder", () => {
+  it("prompts with neutral guidance rather than an example project", () => {
+    render(<ContactForm source="home_page" />);
+    expect(screen.getByLabelText("Interest")).toHaveAttribute(
+      "placeholder",
+      "Project name, area, or property type",
+    );
+  });
+
+  it("names no project at all, so it cannot go stale", () => {
+    render(<ContactForm source="home_page" />);
+    const placeholder = screen.getByLabelText("Interest").getAttribute("placeholder") ?? "";
+    expect(placeholder).not.toMatch(/aurora/i);
+    // Any real catalogue name here would be wrong the moment the catalogue moves.
+    for (const project of [
+      "Modeva",
+      "Legendary",
+      "Cielo",
+      "Serenity",
+      "Katabello",
+      "Kirara",
+      "Adora",
+      "Coralina",
+    ]) {
+      expect(placeholder).not.toMatch(new RegExp(project, "i"));
+    }
+  });
+});
+
 describe("ContactForm demo-mode visibility (local development)", () => {
   beforeEach(() => {
     vi.stubEnv("VITE_PARTNER_DEMO", "true");

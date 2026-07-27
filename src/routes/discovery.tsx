@@ -9,15 +9,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DiscoveryCard } from "@/components/DiscoveryCard";
 import {
-  discoveryAreaOptions,
+  ALL_AREAS,
+  ALL_COMPLETION_STATUSES,
+  buildAreaOptions,
+  buildCompletionOptions,
   discoveryBeachOptions,
-  discoveryCompletionOptions,
   discoverySortOptions,
   discoveryTypeOptions,
   filterDiscoveryProjects,
   type DiscoveryAreaFilter,
   type DiscoveryBeachFilter,
   type DiscoveryCompletionFilter,
+  type DiscoveryOption,
   type DiscoverySortOption,
   type DiscoveryTypeFilter,
 } from "@/features/discovery/discovery-filters";
@@ -48,12 +51,15 @@ function DiscoveryPage() {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<DiscoverySortOption>(discoverySortOptions[0]);
   const [budget, setBudget] = useState("");
-  const [area, setArea] = useState<DiscoveryAreaFilter>(discoveryAreaOptions[0]);
+  const [area, setArea] = useState<DiscoveryAreaFilter>(ALL_AREAS);
   const [type, setType] = useState<DiscoveryTypeFilter>(discoveryTypeOptions[0]);
-  const [completion, setCompletion] = useState<DiscoveryCompletionFilter>(
-    discoveryCompletionOptions[0],
-  );
+  const [completion, setCompletion] = useState<DiscoveryCompletionFilter>(ALL_COMPLETION_STATUSES);
   const [beach, setBeach] = useState<DiscoveryBeachFilter>(discoveryBeachOptions[0]);
+
+  // Facets follow the catalogue that is actually loaded, so an option exists
+  // only when a project answers it (F-001, F-002).
+  const areaOptions = useMemo(() => buildAreaOptions(projects), [projects]);
+  const completionOptions = useMemo(() => buildCompletionOptions(projects), [projects]);
   const [compare, setCompare] = useState<string[]>([]);
   const [shortlist, setShortlist] = useState<string[]>([]);
 
@@ -113,38 +119,56 @@ function DiscoveryPage() {
       <Section id="refine" eyebrow="Refine" title="Refine your discovery">
         <div className="rounded-lg border border-border bg-background p-5 shadow-sm sm:p-6">
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            <Field label="Search">
+            <Field label="Search" controlId="discovery-search">
               <Input
+                id="discovery-search"
                 placeholder="Project, area, developer or type"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
             </Field>
-            <Field label="Sort">
-              <Select value={sortBy} onChange={setSortBy} options={discoverySortOptions} />
+            <Field label="Sort" controlId="discovery-sort">
+              <Select
+                id="discovery-sort"
+                value={sortBy}
+                onChange={setSortBy}
+                options={discoverySortOptions}
+              />
             </Field>
-            <Field label="Budget">
+            <Field label="Budget" controlId="discovery-budget">
               <Input
+                id="discovery-budget"
                 placeholder="e.g. ฿30M"
                 value={budget}
                 onChange={(e) => setBudget(e.target.value)}
               />
             </Field>
-            <Field label="Area">
-              <Select value={area} onChange={setArea} options={discoveryAreaOptions} />
+            <Field label="Area" controlId="discovery-area">
+              <Select id="discovery-area" value={area} onChange={setArea} options={areaOptions} />
             </Field>
-            <Field label="Property Type">
-              <Select value={type} onChange={setType} options={discoveryTypeOptions} />
-            </Field>
-            <Field label="Completion">
+            <Field label="Property Type" controlId="discovery-type">
               <Select
-                value={completion}
-                onChange={setCompletion}
-                options={discoveryCompletionOptions}
+                id="discovery-type"
+                value={type}
+                onChange={setType}
+                options={discoveryTypeOptions}
               />
             </Field>
-            <Field label="Beach Distance">
-              <Select value={beach} onChange={setBeach} options={discoveryBeachOptions} />
+            <Field label="Completion" controlId="discovery-completion">
+              <Select
+                id="discovery-completion"
+                value={completion}
+                onChange={setCompletion}
+                options={completionOptions}
+              />
+            </Field>
+            <Field label="Beach Distance" controlId="discovery-beach">
+              <Select
+                id="discovery-beach"
+                value={beach}
+                onChange={setBeach}
+                options={discoveryBeachOptions}
+              />
             </Field>
           </div>
         </div>
@@ -286,35 +310,58 @@ function DiscoveryPage() {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+/**
+ * A labelled filter control. The label is a real `<label htmlFor>` bound to the
+ * control's id, so the filter name is announced with the control rather than
+ * only being visually adjacent to it.
+ */
+function Field({
+  label,
+  controlId,
+  children,
+}: {
+  label: string;
+  controlId: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
+      <label
+        htmlFor={controlId}
+        className="mb-2 block text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground"
+      >
         {label}
-      </div>
+      </label>
       {children}
     </div>
   );
 }
 
 function Select<T extends string>({
+  id,
   value,
   onChange,
   options,
 }: {
+  id: string;
   value: T;
   onChange: (v: T) => void;
-  options: readonly T[];
+  /** Plain values, or `{ value, label }` when the two differ (F-001). */
+  options: readonly (T | DiscoveryOption<T>)[];
 }) {
+  const items = options.map((option) =>
+    typeof option === "string" ? { value: option, label: option } : option,
+  );
   return (
     <select
+      id={id}
       value={value}
       onChange={(e) => onChange(e.target.value as T)}
       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
-      {options.map((o) => (
-        <option key={o} value={o}>
-          {o}
+      {items.map((item) => (
+        <option key={item.value} value={item.value}>
+          {item.label}
         </option>
       ))}
     </select>

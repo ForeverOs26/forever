@@ -34,6 +34,17 @@
   background: var(--canvas);
 }
 
+/*
+ * Inside the public site chrome (F-007) the flow sits below the 4rem site
+ * header, so a full 100dvh canvas would push the footer a whole viewport
+ * below the fold. Reserving the header's height keeps the questionnaire
+ * full-height on screen with the footer immediately after it.
+ */
+.navigator-flow--embedded,
+.navigator-flow--embedded .navigator-flow__shell {
+  min-height: calc(100dvh - 4rem);
+}
+
 .navigator-progress-header {
   display: grid;
   min-height: 68px;

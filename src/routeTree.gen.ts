@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as StudioRouteImport } from './routes/studio'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
+import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as ReviewsRouteImport } from './routes/reviews'
 import { Route as OffersRouteImport } from './routes/offers'
 import { Route as NavigatorRouteImport } from './routes/navigator'
@@ -41,6 +42,11 @@ const StudioRoute = StudioRouteImport.update({
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
   path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
+  id: '/robots.txt',
+  path: '/robots.txt',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ReviewsRoute = ReviewsRouteImport.update({
@@ -160,6 +166,7 @@ export interface FileRoutesByFullPath {
   '/navigator': typeof NavigatorRoute
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
+  '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/studio': typeof StudioRouteWithChildren
   '/advisory/report': typeof AdvisoryReportRoute
@@ -185,6 +192,7 @@ export interface FileRoutesByTo {
   '/navigator': typeof NavigatorRoute
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
+  '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/advisory/report': typeof AdvisoryReportRoute
   '/internal/coralina': typeof InternalCoralinaRoute
@@ -210,6 +218,7 @@ export interface FileRoutesById {
   '/navigator': typeof NavigatorRoute
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
+  '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/studio': typeof StudioRouteWithChildren
   '/advisory_/report': typeof AdvisoryReportRoute
@@ -237,6 +246,7 @@ export interface FileRouteTypes {
     | '/navigator'
     | '/offers'
     | '/reviews'
+    | '/robots.txt'
     | '/sitemap.xml'
     | '/studio'
     | '/advisory/report'
@@ -262,6 +272,7 @@ export interface FileRouteTypes {
     | '/navigator'
     | '/offers'
     | '/reviews'
+    | '/robots.txt'
     | '/sitemap.xml'
     | '/advisory/report'
     | '/internal/coralina'
@@ -286,6 +297,7 @@ export interface FileRouteTypes {
     | '/navigator'
     | '/offers'
     | '/reviews'
+    | '/robots.txt'
     | '/sitemap.xml'
     | '/studio'
     | '/advisory_/report'
@@ -312,6 +324,7 @@ export interface RootRouteChildren {
   NavigatorRoute: typeof NavigatorRoute
   OffersRoute: typeof OffersRoute
   ReviewsRoute: typeof ReviewsRoute
+  RobotsDottxtRoute: typeof RobotsDottxtRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   StudioRoute: typeof StudioRouteWithChildren
   AdvisoryReportRoute: typeof AdvisoryReportRoute
@@ -336,6 +349,13 @@ declare module '@tanstack/react-router' {
       path: '/sitemap.xml'
       fullPath: '/sitemap.xml'
       preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/robots.txt': {
+      id: '/robots.txt'
+      path: '/robots.txt'
+      fullPath: '/robots.txt'
+      preLoaderRoute: typeof RobotsDottxtRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/reviews': {
@@ -518,6 +538,7 @@ const rootRouteChildren: RootRouteChildren = {
   NavigatorRoute: NavigatorRoute,
   OffersRoute: OffersRoute,
   ReviewsRoute: ReviewsRoute,
+  RobotsDottxtRoute: RobotsDottxtRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   StudioRoute: StudioRouteWithChildren,
   AdvisoryReportRoute: AdvisoryReportRoute,

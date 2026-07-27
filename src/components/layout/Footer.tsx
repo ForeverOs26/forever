@@ -24,19 +24,22 @@ export function Footer() {
                 Projects
               </Link>
             </li>
-            {partnerDemo ? (
-              <li>
-                <Link to="/navigator" className="hover:text-accent">
-                  Navigator
-                </Link>
-              </li>
-            ) : (
+            {!partnerDemo && (
               <li>
                 <Link to="/discovery" className="hover:text-accent">
                   Discovery
                 </Link>
               </li>
             )}
+            {/*
+              The Navigator was previously reachable only from the homepage
+              hero, which left it orphaned from every other page (F-007).
+            */}
+            <li>
+              <Link to="/navigator" className="hover:text-accent">
+                Navigator
+              </Link>
+            </li>
           </ul>
         </div>
         <div>

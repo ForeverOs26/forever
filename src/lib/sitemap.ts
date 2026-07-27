@@ -18,11 +18,15 @@
  * production build. It is a public identifier, never a credential, so inlining
  * it into the client bundle is intended.
  *
- * The fallback is the historical origin, kept so a developer build without the
- * variable still produces well-formed absolute URLs.
+ * The fallback is the live public origin, so a build that forgets the variable
+ * still advertises the host the site is actually served from. It previously
+ * named the superseded Lovable project host the site was first built on, which
+ * is how robots.txt came to point crawlers at a dead foreign domain (F-019).
+ * That hostname must never return here — `sitemap.test.ts` fails the build if
+ * any origin, sitemap or robots output mentions it again.
  */
 export const PUBLIC_SITE_ORIGIN = (
-  import.meta.env.VITE_PUBLIC_SITE_ORIGIN ?? "https://forever-home-core.lovable.app"
+  import.meta.env.VITE_PUBLIC_SITE_ORIGIN ?? "https://forever.phuketre22.workers.dev"
 ).replace(/\/+$/, "");
 
 export const SITEMAP_BASE_URL = PUBLIC_SITE_ORIGIN;
@@ -37,9 +41,27 @@ export const SITEMAP_STATIC_ENTRIES: readonly SitemapEntry[] = [
   { path: "/", changefreq: "weekly", priority: "1.0" },
   { path: "/projects", changefreq: "weekly", priority: "0.9" },
   { path: "/discovery", changefreq: "weekly", priority: "0.9" },
+  // The Navigator is the homepage's primary call to action and a real public
+  // surface, so it belongs in the sitemap. It was absent while being linked as
+  // the main CTA (F-007).
+  { path: "/navigator", changefreq: "monthly", priority: "0.7" },
   { path: "/about", changefreq: "monthly", priority: "0.5" },
   { path: "/contact", changefreq: "yearly", priority: "0.5" },
 ];
+
+/**
+ * robots.txt body, stating the sitemap on the configured origin.
+ *
+ * This used to be a static `public/robots.txt` with the origin typed into it
+ * by hand, which is why it still advertised the superseded Lovable project
+ * host long after the site moved (F-019). Deriving it from `PUBLIC_SITE_ORIGIN` —
+ * the same value canonical URLs and the sitemap already use — means the three
+ * can no longer disagree.
+ */
+export function buildRobotsTxt(origin: string = PUBLIC_SITE_ORIGIN): string {
+  const base = origin.replace(/\/+$/, "");
+  return ["User-agent: *", "Allow: /", "", `Sitemap: ${base}/sitemap.xml`, ""].join("\n");
+}
 
 export function buildSitemapXml(projectSlugs: string[]): string {
   const entries: SitemapEntry[] = [

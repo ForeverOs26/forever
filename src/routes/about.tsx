@@ -51,8 +51,8 @@ function AboutPage() {
               what supports a property and what uncertainty remains.
             </p>
             <p className="mt-4 text-muted-foreground">
-              The platform is demo-ready for Phuket and designed around one principle: reduce
-              uncertainty before a buyer takes the next step.
+              Forever is a live property discovery and comparison experience for Phuket, designed
+              around one principle: reduce uncertainty before a buyer takes the next step.
             </p>
           </div>
           <div className="grid gap-6 sm:grid-cols-2">

@@ -1,14 +1,14 @@
-import type { ConstructionStatus, Property, PropertyType } from "@/lib/data";
+import type { Property, PropertyType } from "@/lib/data";
+import { ALL_AREAS, deriveAreaOptions, normalizeArea } from "./discovery-areas";
+import {
+  ALL_COMPLETION_STATUSES,
+  COMPLETION_STATUS_LABELS,
+  deriveCompletionStatuses,
+  toCompletionStatus,
+  type CompletionStatus,
+} from "./completion-status";
 
-export const discoveryAreaOptions = [
-  "All areas",
-  "Surin Beach",
-  "Kamala",
-  "Layan",
-  "Bang Tao",
-  "Kata Noi",
-  "Rawai",
-] as const;
+export { ALL_AREAS, ALL_COMPLETION_STATUSES };
 
 export const discoveryTypeOptions = [
   "All types",
@@ -17,15 +17,44 @@ export const discoveryTypeOptions = [
   "Condominium",
 ] as const satisfies readonly ("All types" | PropertyType)[];
 
-export const discoveryCompletionOptions = [
-  "Any status",
-  "Ready",
-  "Nearing Completion",
-  "Under Construction",
-  "Pre-Launch",
-  "Planning",
-  "Sold Out",
-] as const satisfies readonly ("Any status" | ConstructionStatus)[];
+/** A `<select>` option: the value the filter compares, and what a buyer reads. */
+export type DiscoveryOption<T extends string> = { value: T; label: string };
+
+/**
+ * Area options for the catalogue actually loaded (F-002).
+ *
+ * "All areas" always leads, so the reset is present even for an empty
+ * catalogue; every other option is backed by at least one project.
+ */
+export function buildAreaOptions(
+  projects: readonly Property[],
+): DiscoveryOption<DiscoveryAreaFilter>[] {
+  return [
+    { value: ALL_AREAS, label: ALL_AREAS },
+    ...deriveAreaOptions(projects.map((project) => project.location)).map((area) => ({
+      value: area,
+      label: area,
+    })),
+  ];
+}
+
+/**
+ * Completion options for the catalogue actually loaded (F-001).
+ *
+ * Only statuses some project genuinely holds are offered, so no option can
+ * return the empty state. Projects whose stored status is unrecognised
+ * contribute no option but remain visible under "All statuses".
+ */
+export function buildCompletionOptions(
+  projects: readonly Property[],
+): DiscoveryOption<DiscoveryCompletionFilter>[] {
+  return [
+    { value: ALL_COMPLETION_STATUSES, label: ALL_COMPLETION_STATUSES },
+    ...deriveCompletionStatuses(projects.map((project) => project.constructionStatus)).map(
+      (status) => ({ value: status, label: COMPLETION_STATUS_LABELS[status] }),
+    ),
+  ];
+}
 
 export const discoveryBeachOptions = [
   "Any distance",
@@ -51,9 +80,10 @@ export const discoverySortOptions = [
   "Price high to low",
 ] as const;
 
-export type DiscoveryAreaFilter = (typeof discoveryAreaOptions)[number];
+/** Either the reset option, or an area label taken from the catalogue itself. */
+export type DiscoveryAreaFilter = typeof ALL_AREAS | (string & {});
 export type DiscoveryTypeFilter = (typeof discoveryTypeOptions)[number];
-export type DiscoveryCompletionFilter = (typeof discoveryCompletionOptions)[number];
+export type DiscoveryCompletionFilter = typeof ALL_COMPLETION_STATUSES | CompletionStatus;
 export type DiscoveryBeachFilter = (typeof discoveryBeachOptions)[number];
 export type DiscoverySortOption = (typeof discoverySortOptions)[number];
 
@@ -121,7 +151,10 @@ function matchesBudget(project: Property, budget: string): boolean {
 }
 
 function matchesArea(project: Property, area: DiscoveryAreaFilter): boolean {
-  return area === "All areas" || project.location === area;
+  if (area === ALL_AREAS) return true;
+  // Normalised on both sides: a casing or spacing difference in the record must
+  // not hide a project from its own area (F-002).
+  return normalizeArea(project.location) === normalizeArea(area);
 }
 
 function matchesPropertyType(project: Property, propertyType: DiscoveryTypeFilter): boolean {
@@ -132,7 +165,12 @@ function matchesCompletionStatus(
   project: Property,
   completionStatus: DiscoveryCompletionFilter,
 ): boolean {
-  return completionStatus === "Any status" || project.constructionStatus === completionStatus;
+  if (completionStatus === ALL_COMPLETION_STATUSES) return true;
+  // Both sides folded to the canonical model (F-001). A project whose stored
+  // status is unrecognised resolves to null and answers no specific status —
+  // it stays reachable under "All statuses" rather than being filed under a
+  // build stage its record never stated.
+  return toCompletionStatus(project.constructionStatus) === completionStatus;
 }
 
 function matchesBeachDistance(project: Property, beachDistance: DiscoveryBeachFilter): boolean {

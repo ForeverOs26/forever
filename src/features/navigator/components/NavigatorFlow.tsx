@@ -714,7 +714,17 @@ function ConfirmationScreen({ onStartAgain }: { onStartAgain: () => void }) {
   );
 }
 
-export function NavigatorFlow() {
+type NavigatorFlowProps = {
+  /**
+   * Render inside the public site chrome (F-007). The flow keeps its own
+   * full-height canvas, minus the site header, so the standard header and
+   * footer sit around it instead of adding a second viewport of scroll. The
+   * standalone Booth shell leaves this off and keeps the full-viewport canvas.
+   */
+  embedded?: boolean;
+};
+
+export function NavigatorFlow({ embedded = false }: NavigatorFlowProps = {}) {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState(emptyAnswers);
   const [storyStatus, setStoryStatus] = useState<StoryStatus>("idle");
@@ -851,7 +861,7 @@ export function NavigatorFlow() {
   };
 
   return (
-    <div className="navigator-flow">
+    <div className={`navigator-flow${embedded ? " navigator-flow--embedded" : ""}`}>
       <div className="navigator-flow__shell">
         {step >= 1 && step <= 4 ? (
           <ProgressHeader
