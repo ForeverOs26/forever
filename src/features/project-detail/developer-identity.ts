@@ -102,6 +102,25 @@ export function normaliseDeveloperName(value: string | null | undefined): string
   return identifying.length > 0 ? identifying : tokens;
 }
 
+/**
+ * The same normalisation, *without* dropping corporate-form words.
+ *
+ * Used only to check whether a one-token agreement was already an agreement
+ * before stripping — the stripping is what can make two different companies
+ * look identical.
+ */
+export function normaliseRawTokens(value: string | null | undefined): string[] {
+  if (!value) return [];
+  const cleaned = value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[\p{P}\p{S}]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned ? cleaned.split(" ").filter(Boolean) : [];
+}
+
 /** Whether `shorter` appears inside `longer` as an ordered subsequence. */
 function isOrderedSubsequence(shorter: readonly string[], longer: readonly string[]): boolean {
   let index = 0;
@@ -132,7 +151,28 @@ export function developersMateriallyDisagree(
   // Only one source speaking is not a disagreement.
   if (a.length === 0 || b.length === 0) return false;
 
-  if (a.length === b.length && a.every((token, index) => token === b[index])) return false;
+  const identical = a.length === b.length && a.every((token, index) => token === b[index]);
+
+  // A single shared token is not enough to conclude two names mean one company
+  // — and stripping corporate-form words can manufacture one. "Property Perfect
+  // Public Company Limited" and "Perfect Group" both reduce to ["perfect"],
+  // yet they are different companies; agreeing there would print a contradicted
+  // name as fact, which is the exact failure F2 exists to prevent.
+  //
+  // So a one-token agreement is only trusted when the two names were already
+  // identical before any stripping. Everything else falls through to
+  // "disagree", and the page says nothing.
+  //
+  // This errs toward withholding, deliberately. It can withhold a developer two
+  // sources genuinely agree on ("Sansiri PCL" vs "Sansiri Public Company
+  // Limited"), and omitting a name is recoverable in a way that publishing the
+  // wrong one is not. It costs nothing on the nine public projects: eight have
+  // no canonical record at all, so only one source speaks and this branch is
+  // never reached.
+  if (identical) {
+    if (a.length >= 2) return false;
+    return normaliseRawTokens(canonical).join(" ") !== normaliseRawTokens(raw).join(" ");
+  }
 
   const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
   if (shorter.length >= 2 && isOrderedSubsequence(shorter, longer)) return false;
