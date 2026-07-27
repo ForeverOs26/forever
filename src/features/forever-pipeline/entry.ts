@@ -64,8 +64,6 @@ export function findPipelineEntry(
 }
 
 /** Every enabled entry in the registry, in registry order. */
-export function listEnabledPipelineEntries(
-  registry: PipelineRegistry,
-): PipelineRegistryEntry[] {
+export function listEnabledPipelineEntries(registry: PipelineRegistry): PipelineRegistryEntry[] {
   return registry.entries.filter((entry) => entry.enabled);
 }

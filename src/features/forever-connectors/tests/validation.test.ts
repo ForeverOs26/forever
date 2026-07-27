@@ -77,9 +77,9 @@ describe("definition validation", () => {
   });
 
   it("flags a duplicate direction", () => {
-    const codes = validateConnectorDefinition(
-      makeDefinition({ directions: ["pull", "pull"] }),
-    ).map((i) => i.code);
+    const codes = validateConnectorDefinition(makeDefinition({ directions: ["pull", "pull"] })).map(
+      (i) => i.code,
+    );
     expect(codes).toContain("duplicate_direction");
   });
 
@@ -132,7 +132,9 @@ describe("registry validation", () => {
     const entry = makeEntry({
       definition: makeDefinition({
         configuration: {
-          fields: [{ key: "name", kind: "string", required: false, secret: false, enumValues: ["a"] }],
+          fields: [
+            { key: "name", kind: "string", required: false, secret: false, enumValues: ["a"] },
+          ],
         },
       }),
     });

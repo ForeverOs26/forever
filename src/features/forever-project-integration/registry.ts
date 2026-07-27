@@ -20,10 +20,7 @@ import type { ProjectIntegrationEntityKind, ProjectIntegrationId } from "./types
 
 /** In-memory registry of integration definitions keyed by their id. */
 export class ProjectIntegrationDefinitionRegistry {
-  private readonly definitions = new Map<
-    ProjectIntegrationId,
-    ProjectIntegrationDefinition
-  >();
+  private readonly definitions = new Map<ProjectIntegrationId, ProjectIntegrationDefinition>();
 
   /**
    * Register a definition. Re-registering the same id throws so a clash is caught

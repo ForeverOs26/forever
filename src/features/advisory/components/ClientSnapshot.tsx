@@ -53,16 +53,20 @@ export function ClientSnapshot({
         <Field label="Timeline">{data.timeline ?? unavailable}</Field>
         <Field label="Risk profile">{data.riskProfile ?? unavailable}</Field>
         <Field label="Top priorities">
-          {data.topPriorities.length === 0 ? unavailable : <ul className="flex flex-wrap gap-2">
-            {data.topPriorities.map((priority) => (
-              <li
-                key={priority}
-                className="rounded-full border border-[#EAE6DE] bg-[#F3EFE7] px-3 py-1 text-xs text-[#17150F]"
-              >
-                {priority}
-              </li>
-            ))}
-          </ul>}
+          {data.topPriorities.length === 0 ? (
+            unavailable
+          ) : (
+            <ul className="flex flex-wrap gap-2">
+              {data.topPriorities.map((priority) => (
+                <li
+                  key={priority}
+                  className="rounded-full border border-[#EAE6DE] bg-[#F3EFE7] px-3 py-1 text-xs text-[#17150F]"
+                >
+                  {priority}
+                </li>
+              ))}
+            </ul>
+          )}
         </Field>
       </dl>
     </section>

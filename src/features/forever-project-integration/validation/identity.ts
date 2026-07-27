@@ -7,10 +7,7 @@
  */
 
 import { isNonEmptyString } from "../helpers";
-import {
-  isKnownProjectIntegrationScope,
-  type ProjectIntegrationIdentity,
-} from "../identity";
+import { isKnownProjectIntegrationScope, type ProjectIntegrationIdentity } from "../identity";
 import { projectIntegrationError } from "../result";
 import type { ProjectIntegrationIssue } from "../types";
 

@@ -10,11 +10,7 @@ import { projectIntegrationError } from "../result";
 import type { ProjectIntegrationIssue } from "../types";
 import type { ProjectIntegrationVersion } from "../version";
 
-function validatePart(
-  value: number,
-  name: string,
-  issues: ProjectIntegrationIssue[],
-): void {
+function validatePart(value: number, name: string, issues: ProjectIntegrationIssue[]): void {
   if (!Number.isInteger(value) || value < 0) {
     issues.push(
       projectIntegrationError(

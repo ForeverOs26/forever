@@ -99,17 +99,30 @@ GRANT SELECT (
 -- Correcting `main_image_url` alone never fixed this, because the detail mapper
 -- folds every cover-typed row into the gallery.
 --
--- The policy is DEMOTE, not delete: a superseded cover becomes an ordinary
--- gallery row. It keeps its storage object, its private retained original and
--- its row, so no source media evidence is destroyed and the change is
--- reversible. It also never leaves a project cover-less: the new cover is
--- written before this runs, and the function is a no-op when the caller names
--- no replacement — which is what preserves the deliberate behaviour that a
--- price-only enrichment must not strip a good cover, and what leaves Villa
--- Kirara correctly cover-less until a safe exterior derivative exists.
+-- The policy is RETIRE, not delete. A superseded cover is moved to an explicit
+-- `superseded_cover` presentation state. It keeps its row, its storage object
+-- and its retained private original, so no source media evidence is destroyed
+-- and the change is a single UPDATE to reverse.
 --
--- Idempotent: running it twice with the same cover URL changes nothing the
--- second time, because the rows it would demote have already been demoted.
+-- `superseded_cover` rather than `gallery` for two reasons, both load-bearing:
+--
+--   1. The reader admits `gallery` and `cover` into the photo strip
+--      (project-detail-mappers.ts). Demoting to `gallery` would move a row
+--      between two members of the same set — a no-op for the public page, which
+--      is precisely the defect being fixed. `superseded_cover` is in neither
+--      set, so the retired image leaves the strip.
+--   2. `project_media`'s natural key is (project_id, media_type, url). A
+--      re-published project can already hold the same URL as both `cover` and
+--      `gallery`, so demoting to `gallery` risks colliding with a row that
+--      exists. A distinct state cannot collide.
+--
+-- It never leaves a project cover-less: the replacement is written before this
+-- runs, and the function is a no-op when no replacement is named — which
+-- preserves the deliberate behaviour that a price-only enrichment must not
+-- strip a good cover, and which leaves Villa Kirara correctly cover-less until
+-- a safe exterior derivative exists.
+--
+-- Idempotent: a second run finds nothing left to retire.
 CREATE OR REPLACE FUNCTION public.forever_project_cover_reconcile(
   p_project_id UUID,
   p_cover_url TEXT
@@ -120,21 +133,182 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
-  v_demoted INTEGER := 0;
+  v_retired INTEGER := 0;
 BEGIN
   -- No replacement named: leave the existing designation exactly as it is.
   IF p_cover_url IS NULL OR btrim(p_cover_url) = '' THEN
     RETURN 0;
   END IF;
 
+  -- Only act once the replacement actually exists, so there is never a moment
+  -- with no valid cover.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.project_media
+     WHERE project_id = p_project_id
+       AND media_type = 'cover'
+       AND url = btrim(p_cover_url)
+  ) THEN
+    RETURN 0;
+  END IF;
+
   UPDATE public.project_media
-     SET media_type = 'gallery'
+     SET media_type = 'superseded_cover'
    WHERE project_id = p_project_id
      AND media_type = 'cover'
-     AND url IS DISTINCT FROM p_cover_url;
+     AND url IS DISTINCT FROM btrim(p_cover_url);
 
-  GET DIAGNOSTICS v_demoted = ROW_COUNT;
-  RETURN v_demoted;
+  GET DIAGNOSTICS v_retired = ROW_COUNT;
+  RETURN v_retired;
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Write the semantic role the Factory chose onto the public media rows.
+--
+-- `forever_progressive_ingest` (20260718113000) is the only writer of
+-- project_media, and its media loop reads a fixed key set — project_id,
+-- media_type, title, url, sort_order, metadata. An unknown `semantic_role` key
+-- in the batch item is silently discarded by jsonb. That applied migration must
+-- not be edited, so the role is projected here instead, immediately afterwards
+-- and inside the same transaction — the precedent set by
+-- forever_project_price_projection in 20260726140000.
+--
+-- Presence-aware: a batch item that carries no `semantic_role` never overwrites
+-- a role already recorded. Matching is on the same natural key the ingest loop
+-- uses, so a row is identified exactly as it was written.
+CREATE OR REPLACE FUNCTION public.forever_project_media_semantic_projection(
+  p_project_id UUID,
+  p_media JSONB
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_item JSONB;
+  v_applied INTEGER := 0;
+  v_rows INTEGER := 0;
+BEGIN
+  IF p_media IS NULL OR jsonb_typeof(p_media) <> 'array' THEN
+    RETURN 0;
+  END IF;
+
+  FOR v_item IN SELECT value FROM jsonb_array_elements(p_media)
+  LOOP
+    CONTINUE WHEN NOT (v_item ? 'semantic_role');
+    CONTINUE WHEN NULLIF(btrim(COALESCE(v_item->>'semantic_role', '')), '') IS NULL;
+
+    UPDATE public.project_media
+       SET semantic_role = btrim(v_item->>'semantic_role')
+     WHERE project_id = p_project_id
+       AND media_type = btrim(v_item->>'media_type')
+       AND url = btrim(v_item->>'url');
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    v_applied := v_applied + v_rows;
+  END LOOP;
+
+  RETURN v_applied;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.forever_project_media_semantic_projection(UUID, JSONB) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.forever_project_media_semantic_projection(UUID, JSONB)
+  FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.forever_project_media_semantic_projection(UUID, JSONB)
+  TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Re-declare forever_direct_publish with the two new steps.
+--
+-- Identical to 20260726140000 except for steps 4 and 5. Replaced rather than
+-- altered so the shipped migration file stays byte-for-byte immutable and the
+-- migrations compose in ledger order.
+CREATE OR REPLACE FUNCTION public.forever_direct_publish(batch JSONB, options JSONB DEFAULT '{}'::jsonb)
+RETURNS JSONB
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+DECLARE
+  v_summary JSONB;
+  v_slug TEXT;
+  v_project_id UUID;
+  v_status TEXT;
+  v_priced INTEGER := 0;
+  v_roles INTEGER := 0;
+  v_retired INTEGER := 0;
+  v_cover_url TEXT;
+  v_options JSONB := COALESCE(options, '{}'::jsonb);
+BEGIN
+  IF v_options->>'source_trust' IS DISTINCT FROM 'owner_approved_official' THEN
+    RAISE EXCEPTION 'forever_direct_publish: source_trust_required';
+  END IF;
+  IF v_options->>'publication_mode' IS DISTINCT FROM 'direct' THEN
+    RAISE EXCEPTION 'forever_direct_publish: publication_mode_required';
+  END IF;
+
+  IF batch IS NULL OR jsonb_typeof(batch) <> 'object' THEN
+    RAISE EXCEPTION 'forever_direct_publish: batch_malformed';
+  END IF;
+  v_slug := batch->'project'->>'slug';
+  IF v_slug IS NULL OR btrim(v_slug) = '' THEN
+    RAISE EXCEPTION 'forever_direct_publish: project_slug_required';
+  END IF;
+
+  -- -------- 1. the unchanged progressive graph write --------
+  v_summary := public.forever_progressive_ingest(batch);
+
+  v_project_id := (v_summary->>'project_id')::uuid;
+  IF v_project_id IS NULL THEN
+    RAISE EXCEPTION 'forever_direct_publish: project_id_unresolved';
+  END IF;
+
+  -- -------- 2. publication, same transaction, this project only --------
+  UPDATE public.projects
+     SET public_status = 'published',
+         is_active = true,
+         updated_at = now()
+   WHERE id = v_project_id;
+
+  SELECT p.public_status INTO v_status
+    FROM public.projects p
+   WHERE p.id = v_project_id;
+
+  IF v_status IS DISTINCT FROM 'published' THEN
+    RAISE EXCEPTION 'forever_direct_publish: publication_not_applied';
+  END IF;
+
+  -- -------- 3. public price projection, same transaction --------
+  v_priced := public.forever_project_price_projection(v_project_id);
+
+  -- -------- 4. semantic roles, same transaction --------
+  -- After the graph write, so the rows exist; before the function returns, so a
+  -- published project is never briefly readable with its media unclassified.
+  v_roles := public.forever_project_media_semantic_projection(
+    v_project_id, batch->'media'
+  );
+
+  -- -------- 5. exactly one active cover, same transaction --------
+  -- Only when this batch actually declares a cover. A price-only enrichment
+  -- carries none and must leave the existing designation untouched.
+  SELECT btrim(m->>'url') INTO v_cover_url
+    FROM jsonb_array_elements(COALESCE(batch->'media', '[]'::jsonb)) AS m
+   WHERE btrim(m->>'media_type') = 'cover'
+   LIMIT 1;
+
+  v_retired := public.forever_project_cover_reconcile(v_project_id, v_cover_url);
+
+  RETURN v_summary
+         || jsonb_build_object(
+              'public_status', v_status,
+              'direct_published', true,
+              'public_prices_projected', v_priced,
+              'semantic_roles_applied', v_roles,
+              'covers_retired', v_retired,
+              'source_trust', v_options->>'source_trust',
+              'publication_mode', v_options->>'publication_mode'
+            );
 END;
 $$;
 
@@ -157,7 +331,11 @@ COMMIT;
 -- Rollback:
 --
 --   BEGIN;
+--   -- Restore forever_direct_publish from 20260726140000 verbatim first.
+--   DROP FUNCTION IF EXISTS public.forever_project_media_semantic_projection(UUID, JSONB);
 --   DROP FUNCTION IF EXISTS public.forever_project_cover_reconcile(UUID, TEXT);
+--   UPDATE public.project_media SET media_type = 'cover'
+--     WHERE media_type = 'superseded_cover';
 --   GRANT SELECT (
 --     id, project_id, media_type, title, url, sort_order
 --   ) ON public.project_media TO anon, authenticated;

@@ -10,10 +10,7 @@
  */
 
 import type { ProjectIntegrationDefinition } from "../definition";
-import type {
-  ProjectIntegrationRegistry,
-  ProjectIntegrationRegistryEntry,
-} from "../entry";
+import type { ProjectIntegrationRegistry, ProjectIntegrationRegistryEntry } from "../entry";
 import type { ProjectIntegrationIdentity } from "../identity";
 import { defaultProjectIntegrationPolicy } from "../policy";
 import { projectIntegrationStage, type ProjectIntegrationStage } from "../stage";

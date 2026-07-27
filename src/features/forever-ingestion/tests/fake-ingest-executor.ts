@@ -11,10 +11,7 @@
  * is verified by the static migration-contract tests.
  */
 
-import type {
-  ProgressiveBatch,
-  ProgressiveBatchSummary,
-} from "../batch-types";
+import type { ProgressiveBatch, ProgressiveBatchSummary } from "../batch-types";
 import { fingerprintBatch } from "../build-batch";
 import type { ProgressiveIngestClient } from "../ingest-client";
 
@@ -110,7 +107,15 @@ export interface FakeStore {
 }
 
 export function emptyStore(): FakeStore {
-  return { projects: [], buildings: [], units: [], prices: [], media: [], warnings: [], batches: [] };
+  return {
+    projects: [],
+    buildings: [],
+    units: [],
+    prices: [],
+    media: [],
+    warnings: [],
+    batches: [],
+  };
 }
 
 function present(item: Record<string, unknown> | undefined, key: string): boolean {
@@ -128,7 +133,8 @@ function mergeMetadata(
   incoming: Record<string, unknown>,
 ): Record<string, unknown> {
   const currentProvenance = (current.field_provenance as Record<string, unknown> | undefined) ?? {};
-  const incomingProvenance = (incoming.field_provenance as Record<string, unknown> | undefined) ?? {};
+  const incomingProvenance =
+    (incoming.field_provenance as Record<string, unknown> | undefined) ?? {};
   return {
     ...current,
     ...incoming,
@@ -156,9 +162,7 @@ export class FakeIngestExecutor implements ProgressiveIngestClient {
 
   /** Rows visible to the anonymous public under the migration's RLS. */
   publicProjects(): FakeProjectRow[] {
-    return this.store.projects.filter(
-      (row) => row.is_active && row.public_status === "published",
-    );
+    return this.store.projects.filter((row) => row.is_active && row.public_status === "published");
   }
 
   async ingest(batch: ProgressiveBatch): Promise<ProgressiveBatchSummary> {
@@ -199,7 +203,8 @@ export class FakeIngestExecutor implements ProgressiveIngestClient {
 
     if (project) {
       const stored = store.batches.find(
-        (row) => row.project_id === project!.id && row.batch_fingerprint === batch.batch_fingerprint,
+        (row) =>
+          row.project_id === project!.id && row.batch_fingerprint === batch.batch_fingerprint,
       );
       if (stored) {
         if (stored.payload_hash === payloadHash) {
@@ -311,8 +316,7 @@ export class FakeIngestExecutor implements ProgressiveIngestClient {
           buildingId =
             store.buildings.find(
               (row) =>
-                row.project_id === projectId &&
-                row.building_code === item.building_code!.trim(),
+                row.project_id === projectId && row.building_code === item.building_code!.trim(),
             )?.id ?? null;
         }
         if (!buildingId) {
@@ -329,9 +333,7 @@ export class FakeIngestExecutor implements ProgressiveIngestClient {
         }
       }
 
-      let unit = store.units.find(
-        (row) => row.project_id === projectId && row.unit_code === code,
-      );
+      let unit = store.units.find((row) => row.project_id === projectId && row.unit_code === code);
       if (!unit) {
         unit = {
           id: this.nextId("unit"),
@@ -365,7 +367,7 @@ export class FakeIngestExecutor implements ProgressiveIngestClient {
 
     for (const item of batch.prices ?? []) {
       const code = trimmed(item.unit_code);
-      let unitId = code ? batchUnitIds.get(code) ?? null : null;
+      let unitId = code ? (batchUnitIds.get(code) ?? null) : null;
       if (!unitId && code) {
         unitId =
           store.units.find((row) => row.project_id === projectId && row.unit_code === code)?.id ??

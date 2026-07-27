@@ -109,7 +109,10 @@ describe("policy model", () => {
   });
 
   it("applies overrides without mutating the default", () => {
-    const policy = defaultProjectIntegrationPolicy({ executionMode: "parallel", dryRunOnly: false });
+    const policy = defaultProjectIntegrationPolicy({
+      executionMode: "parallel",
+      dryRunOnly: false,
+    });
     expect(policy.executionMode).toBe("parallel");
     expect(policy.dryRunOnly).toBe(false);
     expect(defaultProjectIntegrationPolicy().executionMode).toBe("sequential");

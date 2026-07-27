@@ -10,8 +10,8 @@ export type CliPayload =
 export function classifyCliPayload(payload: unknown, dryRun: boolean): CliPayload {
   const ready = Boolean(
     payload &&
-      typeof payload === "object" &&
-      typeof (payload as Record<string, unknown>).batch_fingerprint === "string",
+    typeof payload === "object" &&
+    typeof (payload as Record<string, unknown>).batch_fingerprint === "string",
   );
   if (ready) {
     assertProgressiveBatchStructure(payload);

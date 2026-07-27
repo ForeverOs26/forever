@@ -27,7 +27,8 @@ export function scoreInvestment(input: IntelligenceInput): ScoreResult {
     score: finalScore,
     maxScore: 100,
     band: band(finalScore),
-    summary: "Investment score combines value rating, market position, growth estimate, and price evidence.",
+    summary:
+      "Investment score combines value rating, market position, growth estimate, and price evidence.",
     sourceFields: [
       "investment.investmentValue",
       "trust.marketPosition",

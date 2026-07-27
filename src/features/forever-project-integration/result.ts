@@ -44,9 +44,7 @@ export function projectIntegrationWarning(
 }
 
 /** Split a mixed issue list into its error and warning halves, order-preserving. */
-export function partitionProjectIntegrationIssues(
-  issues: readonly ProjectIntegrationIssue[],
-): {
+export function partitionProjectIntegrationIssues(issues: readonly ProjectIntegrationIssue[]): {
   errors: ProjectIntegrationError[];
   warnings: ProjectIntegrationWarning[];
 } {

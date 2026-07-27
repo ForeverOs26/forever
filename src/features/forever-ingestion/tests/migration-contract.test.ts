@@ -77,7 +77,9 @@ describe("progressive migration — one atomic unit, no strict-lane coupling", (
 
 describe("progressive migration — idempotency and server-side payload hash", () => {
   it("stores a server-computed payload hash next to the client fingerprint", () => {
-    expect(migration).toContain("payload_hash TEXT NOT NULL CHECK (payload_hash ~ '^[0-9a-f]{64}$')");
+    expect(migration).toContain(
+      "payload_hash TEXT NOT NULL CHECK (payload_hash ~ '^[0-9a-f]{64}$')",
+    );
     expect(migration).toContain(
       "encode(sha256(convert_to((batch - 'batch_fingerprint')::text, 'UTF8')), 'hex')",
     );
@@ -139,7 +141,9 @@ describe("progressive migration — currency truthfulness", () => {
   });
 
   it("gives listings a nullable currency with no default", () => {
-    expect(migration).toContain("currency TEXT CHECK (currency IS NULL OR currency ~ '^[A-Z]{3}$')");
+    expect(migration).toContain(
+      "currency TEXT CHECK (currency IS NULL OR currency ~ '^[A-Z]{3}$')",
+    );
     expect(migration).not.toContain("currency TEXT NOT NULL DEFAULT 'THB'");
   });
 
@@ -160,7 +164,9 @@ describe("progressive migration — accidental-overwrite protection", () => {
   });
 
   it("updates media title and sort_order only when explicitly supplied", () => {
-    expect(migration).toContain("title = CASE WHEN v_item ? 'title' AND v_item->>'title' IS NOT NULL");
+    expect(migration).toContain(
+      "title = CASE WHEN v_item ? 'title' AND v_item->>'title' IS NOT NULL",
+    );
     expect(migration).toContain(
       "sort_order = CASE WHEN v_item ? 'sort_order' AND v_item->>'sort_order' IS NOT NULL",
     );
@@ -198,9 +204,7 @@ describe("progressive migration — warnings schema", () => {
     expect(migration).toContain("'building', 'unit', 'price', 'media', 'document'");
     // internal-only: service_role grant, RLS on, and no public policy
     expect(migration).toContain("GRANT ALL ON public.ingestion_warnings TO service_role;");
-    expect(migration).toContain(
-      "ALTER TABLE public.ingestion_warnings ENABLE ROW LEVEL SECURITY;",
-    );
+    expect(migration).toContain("ALTER TABLE public.ingestion_warnings ENABLE ROW LEVEL SECURITY;");
     expect(migration).not.toContain("ON public.ingestion_warnings FOR SELECT");
   });
 });

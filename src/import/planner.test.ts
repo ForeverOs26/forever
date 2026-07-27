@@ -33,9 +33,9 @@ describe("canonical import source filenames", () => {
     expect(plan.units).toHaveLength(198);
     expect(plan.priceHistoryRows).toHaveLength(198);
     expect(plan.units.every((unit) => unit.sourceFile === CORALINA_SOURCE_FILENAME)).toBe(true);
-    expect(
-      plan.priceHistoryRows.every((row) => row.sourceFile === CORALINA_SOURCE_FILENAME),
-    ).toBe(true);
+    expect(plan.priceHistoryRows.every((row) => row.sourceFile === CORALINA_SOURCE_FILENAME)).toBe(
+      true,
+    );
     expect(plan.units.every((unit) => isSafeSourceFileName(unit.sourceFile!))).toBe(true);
     expect(plan.priceHistoryRows.every((row) => isSafeSourceFileName(row.sourceFile!))).toBe(true);
 

@@ -104,7 +104,8 @@ const getOptionLabels = <T extends string>(
     .map((key) => options.find((option) => option.key === key)?.label)
     .filter((label): label is string => Boolean(label));
 
-export const motivationLabel = (key: MotivationKey | null) => getOptionLabel(WHY_PHUKET_OPTIONS, key);
+export const motivationLabel = (key: MotivationKey | null) =>
+  getOptionLabel(WHY_PHUKET_OPTIONS, key);
 export const goalLabel = (key: GoalKey | null) => getOptionLabel(SUCCESS_OPTIONS, key);
 export const budgetLabel = (key: BudgetKey | null) => getOptionLabel(BUDGET_OPTIONS, key);
 export const timelineLabel = (key: TimelineKey | null) => getOptionLabel(TIMELINE_OPTIONS, key);

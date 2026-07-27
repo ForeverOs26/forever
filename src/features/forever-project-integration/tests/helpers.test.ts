@@ -100,7 +100,11 @@ describe("step dependency ordering", () => {
     const cycle = integrationStageStepCycle(stage);
     expect(cycle).toBeDefined();
     expect(cycle?.[0]).toBe(cycle?.[cycle.length - 1]);
-    expect(orderIntegrationStageSteps(stage).map((s) => s.id).sort()).toEqual(["a", "b", "c"]);
+    expect(
+      orderIntegrationStageSteps(stage)
+        .map((s) => s.id)
+        .sort(),
+    ).toEqual(["a", "b", "c"]);
   });
 
   it("ignores dependencies pointing outside the stage when ordering", () => {

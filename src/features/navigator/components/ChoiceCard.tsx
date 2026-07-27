@@ -64,7 +64,10 @@ const ChoiceCard = forwardRef<HTMLButtonElement, ChoiceCardProps>(function Choic
     >
       <span className="flex min-w-0 items-center gap-3">
         {icon ? (
-          <span aria-hidden="true" className="flex shrink-0 items-center justify-center text-[#9C7B4C]">
+          <span
+            aria-hidden="true"
+            className="flex shrink-0 items-center justify-center text-[#9C7B4C]"
+          >
             {icon}
           </span>
         ) : null}

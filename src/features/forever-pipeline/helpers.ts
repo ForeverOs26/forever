@@ -108,7 +108,10 @@ export function stageStepCycle(stage: PipelineStage): string[] | undefined {
   const ids = new Set(stage.steps.map((step) => step.id));
   const deps = new Map<string, string[]>();
   for (const step of stage.steps) {
-    deps.set(step.id, (step.dependsOn ?? []).filter((id) => ids.has(id)));
+    deps.set(
+      step.id,
+      (step.dependsOn ?? []).filter((id) => ids.has(id)),
+    );
   }
 
   const VISITING = 1;
@@ -170,7 +173,9 @@ export function orderStageSteps(stage: PipelineStage): PipelineStep[] {
       progressed = true;
       for (const other of stage.steps) {
         if (placed.has(other.id)) continue;
-        const deps = new Set((other.dependsOn ?? []).filter((id) => ids.has(id) && id !== other.id));
+        const deps = new Set(
+          (other.dependsOn ?? []).filter((id) => ids.has(id) && id !== other.id),
+        );
         if (deps.has(step.id)) remaining.set(other.id, (remaining.get(other.id) ?? 1) - 1);
       }
     }
@@ -198,5 +203,8 @@ export function mergePipelineStats(a: PipelineStats, b: PipelineStats): Pipeline
 
 /** Sum a list of stats into one, starting from an empty {@link PipelineStats}. */
 export function sumPipelineStats(stats: readonly PipelineStats[]): PipelineStats {
-  return stats.reduce<PipelineStats>((acc, next) => mergePipelineStats(acc, next), emptyPipelineStats());
+  return stats.reduce<PipelineStats>(
+    (acc, next) => mergePipelineStats(acc, next),
+    emptyPipelineStats(),
+  );
 }

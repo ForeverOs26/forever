@@ -92,12 +92,12 @@ describe("version model", () => {
   it("formats and compares deterministically, ignoring the label in ordering", () => {
     expect(formatConnectorVersion(connectorVersion(1, 2, 3))).toBe("1.2.3");
     expect(formatConnectorVersion(connectorVersion(1, 2, 3, "draft"))).toBe("1.2.3-draft");
-    expect(Math.sign(compareConnectorVersion(connectorVersion(1, 0, 0), connectorVersion(1, 1, 0)))).toBe(
-      -1,
-    );
-    expect(compareConnectorVersion(connectorVersion(1, 0, 0, "a"), connectorVersion(1, 0, 0, "b"))).toBe(
-      0,
-    );
+    expect(
+      Math.sign(compareConnectorVersion(connectorVersion(1, 0, 0), connectorVersion(1, 1, 0))),
+    ).toBe(-1);
+    expect(
+      compareConnectorVersion(connectorVersion(1, 0, 0, "a"), connectorVersion(1, 0, 0, "b")),
+    ).toBe(0);
   });
 });
 

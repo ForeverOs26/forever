@@ -31,9 +31,7 @@ export default function ChoiceGroup({
     <div
       role="group"
       aria-label={ariaLabel}
-      className={["grid grid-cols-1 gap-[10px] md:grid-cols-2 md:gap-[11px]", className].join(
-        " ",
-      )}
+      className={["grid grid-cols-1 gap-[10px] md:grid-cols-2 md:gap-[11px]", className].join(" ")}
     >
       {items.map((item) => {
         const card = (
@@ -51,7 +49,10 @@ export default function ChoiceGroup({
         if (item.dividerBefore) {
           return (
             <div key={item.key} className="contents">
-              <div aria-hidden="true" className="col-span-full mx-[2px] my-[4px] h-px bg-[#F1EDE6]" />
+              <div
+                aria-hidden="true"
+                className="col-span-full mx-[2px] my-[4px] h-px bg-[#F1EDE6]"
+              />
               {card}
             </div>
           );

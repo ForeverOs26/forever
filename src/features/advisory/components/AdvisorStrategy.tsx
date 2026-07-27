@@ -53,7 +53,9 @@ export function AdvisorStrategy({
 
       <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <GuidanceRow label="Discuss first">{data.discussFirst ?? "Not available"}</GuidanceRow>
-        <GuidanceRow label="Don't lead with">{data.avoidLeadingWith ?? "Not available"}</GuidanceRow>
+        <GuidanceRow label="Don't lead with">
+          {data.avoidLeadingWith ?? "Not available"}
+        </GuidanceRow>
         <GuidanceRow label="Show first">{showFirstName}</GuidanceRow>
         <GuidanceRow label="Must clarify">{data.mustClarify ?? "Not available"}</GuidanceRow>
       </dl>
@@ -64,19 +66,21 @@ export function AdvisorStrategy({
         </h3>
         {data.consultationSequence.length === 0 ? (
           <p className="text-sm text-[#9A958A]">Not available</p>
-        ) : <ol className="flex flex-col gap-2">
-          {data.consultationSequence.map((step, index) => (
-            <li key={step} className="flex gap-3 text-sm text-[#17150F]">
-              <span
-                aria-hidden="true"
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[#9C7B4C] text-xs text-[#9C7B4C]"
-              >
-                {index + 1}
-              </span>
-              <span>{step}</span>
-            </li>
-          ))}
-        </ol>}
+        ) : (
+          <ol className="flex flex-col gap-2">
+            {data.consultationSequence.map((step, index) => (
+              <li key={step} className="flex gap-3 text-sm text-[#17150F]">
+                <span
+                  aria-hidden="true"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[#9C7B4C] text-xs text-[#9C7B4C]"
+                >
+                  {index + 1}
+                </span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
     </section>
   );

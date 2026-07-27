@@ -59,10 +59,14 @@ export function createDependencyReader(client: SupabaseClient): DependencyReader
       client.from(table).select(`id,slug,${nameColumn}`).eq("slug", q.slug),
       client.from(table).select(`id,slug,${nameColumn}`).eq(nameColumn, q.name),
     ]);
-    if (slugResult.error) throw new Error(`${table} dependency read failed: ${slugResult.error.message}`);
-    if (nameResult.error) throw new Error(`${table} dependency read failed: ${nameResult.error.message}`);
+    if (slugResult.error)
+      throw new Error(`${table} dependency read failed: ${slugResult.error.message}`);
+    if (nameResult.error)
+      throw new Error(`${table} dependency read failed: ${nameResult.error.message}`);
     const byId = new Map<string, Record<string, unknown>>();
-    for (const row of [...(slugResult.data ?? []), ...(nameResult.data ?? [])] as Array<Record<string, unknown>>) {
+    for (const row of [...(slugResult.data ?? []), ...(nameResult.data ?? [])] as Array<
+      Record<string, unknown>
+    >) {
       byId.set(String(row.id), row);
     }
     const rows = [...byId.values()];

@@ -11,10 +11,7 @@
 
 import { integrationStageStepCycle, isNonEmptyString } from "../helpers";
 import { projectIntegrationError } from "../result";
-import {
-  isKnownProjectIntegrationStageKind,
-  type ProjectIntegrationStage,
-} from "../stage";
+import { isKnownProjectIntegrationStageKind, type ProjectIntegrationStage } from "../stage";
 import type { ProjectIntegrationIssue } from "../types";
 import { validateProjectIntegrationStep } from "./step";
 
@@ -28,7 +25,11 @@ export function validateProjectIntegrationStage(
 
   if (!isNonEmptyString(stage.id)) {
     issues.push(
-      projectIntegrationError("missing_stage_id", "Integration stage is missing an id", `${base}.id`),
+      projectIntegrationError(
+        "missing_stage_id",
+        "Integration stage is missing an id",
+        `${base}.id`,
+      ),
     );
   }
   if (!isNonEmptyString(stage.name)) {

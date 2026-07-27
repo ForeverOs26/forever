@@ -87,7 +87,11 @@ describe("step dependency ordering", () => {
     expect(cycle).toBeDefined();
     expect(cycle?.[0]).toBe(cycle?.[cycle.length - 1]);
     // Ordering a cyclic stage still returns every step exactly once.
-    expect(orderStageSteps(stage).map((s) => s.id).sort()).toEqual(["a", "b", "c"]);
+    expect(
+      orderStageSteps(stage)
+        .map((s) => s.id)
+        .sort(),
+    ).toEqual(["a", "b", "c"]);
   });
 
   it("ignores dependencies pointing outside the stage when ordering", () => {

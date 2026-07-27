@@ -22,12 +22,7 @@ export interface PipelineVersion {
 }
 
 /** Build a {@link PipelineVersion}; omitted parts default to `0`. */
-export function pipelineVersion(
-  major = 0,
-  minor = 0,
-  patch = 0,
-  label?: string,
-): PipelineVersion {
+export function pipelineVersion(major = 0, minor = 0, patch = 0, label?: string): PipelineVersion {
   return label === undefined ? { major, minor, patch } : { major, minor, patch, label };
 }
 

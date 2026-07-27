@@ -42,9 +42,7 @@ export function projectIntegrationIdentityKey(identity: ProjectIntegrationIdenti
 }
 
 /** Stable natural key for a definition, derived from its identity. */
-export function projectIntegrationDefinitionKey(
-  definition: ProjectIntegrationDefinition,
-): string {
+export function projectIntegrationDefinitionKey(definition: ProjectIntegrationDefinition): string {
   return projectIntegrationIdentityKey(definition.identity);
 }
 
@@ -82,9 +80,7 @@ function distinctBy<V>(
 }
 
 /** The distinct source ids referenced by a definition's steps, in first-seen order. */
-export function projectIntegrationSourceIds(
-  definition: ProjectIntegrationDefinition,
-): SourceId[] {
+export function projectIntegrationSourceIds(definition: ProjectIntegrationDefinition): SourceId[] {
   return distinctBy(definition, (step) => step.sourceId);
 }
 
@@ -103,9 +99,7 @@ export function projectIntegrationPipelineIds(
 }
 
 /** The distinct sync systems referenced by a definition's steps, in first-seen order. */
-export function projectIntegrationSystems(
-  definition: ProjectIntegrationDefinition,
-): SyncSystem[] {
+export function projectIntegrationSystems(definition: ProjectIntegrationDefinition): SyncSystem[] {
   return distinctBy(definition, (step) => step.system);
 }
 
@@ -124,13 +118,14 @@ export function projectIntegrationStepEntityKinds(
  * when the `dependsOn` graph is acyclic. Dependencies that point outside the
  * stage are ignored here — reference existence is a validation concern.
  */
-export function integrationStageStepCycle(
-  stage: ProjectIntegrationStage,
-): string[] | undefined {
+export function integrationStageStepCycle(stage: ProjectIntegrationStage): string[] | undefined {
   const ids = new Set(stage.steps.map((step) => step.id));
   const deps = new Map<string, string[]>();
   for (const step of stage.steps) {
-    deps.set(step.id, (step.dependsOn ?? []).filter((id) => ids.has(id)));
+    deps.set(
+      step.id,
+      (step.dependsOn ?? []).filter((id) => ids.has(id)),
+    );
   }
 
   const VISITING = 1;

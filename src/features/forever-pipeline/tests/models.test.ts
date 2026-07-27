@@ -122,9 +122,9 @@ describe("version model", () => {
   it("formats and compares deterministically, ignoring the label in ordering", () => {
     expect(formatPipelineVersion(pipelineVersion(1, 2, 3))).toBe("1.2.3");
     expect(formatPipelineVersion(pipelineVersion(1, 2, 3, "draft"))).toBe("1.2.3-draft");
-    expect(Math.sign(comparePipelineVersion(pipelineVersion(1, 0, 0), pipelineVersion(1, 1, 0)))).toBe(
-      -1,
-    );
+    expect(
+      Math.sign(comparePipelineVersion(pipelineVersion(1, 0, 0), pipelineVersion(1, 1, 0))),
+    ).toBe(-1);
     expect(
       comparePipelineVersion(pipelineVersion(1, 0, 0, "a"), pipelineVersion(1, 0, 0, "b")),
     ).toBe(0);

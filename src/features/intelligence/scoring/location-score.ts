@@ -36,7 +36,8 @@ export function scoreLocation(input: IntelligenceInput): ScoreResult {
     score: finalScore,
     maxScore: 100,
     band: band(finalScore),
-    summary: "Location score uses beach access, area, airport, schools, hospitals, and lifestyle anchors.",
+    summary:
+      "Location score uses beach access, area, airport, schools, hospitals, and lifestyle anchors.",
     sourceFields: [
       "location.distanceToBeach",
       "location.distanceToAirport",

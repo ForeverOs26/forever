@@ -32,7 +32,14 @@ type Confidence = {
   evidenceTotal: number;
 };
 
-const scoreGroups = ["trust", "investment", "rental", "location", "liquidity", "constructionRisk"] as const;
+const scoreGroups = [
+  "trust",
+  "investment",
+  "rental",
+  "location",
+  "liquidity",
+  "constructionRisk",
+] as const;
 
 function hasMeaningfulValue(value: unknown): boolean {
   if (value === null || value === undefined) {
@@ -56,7 +63,7 @@ function hasMeaningfulValue(value: unknown): boolean {
 
 function getConfidence(report: ForeverIntelligenceReport): Confidence {
   const evidenceCount = scoreGroups.filter((key) =>
-    Object.values(report.scores[key].sourceValues).some(hasMeaningfulValue)
+    Object.values(report.scores[key].sourceValues).some(hasMeaningfulValue),
   ).length;
   const percentage = Math.round((evidenceCount / scoreGroups.length) * 100);
 
@@ -71,7 +78,10 @@ function getConfidence(report: ForeverIntelligenceReport): Confidence {
   return { label: "Low", percentage, evidenceCount, evidenceTotal: scoreGroups.length };
 }
 
-function getTopItems(items: IntelligenceRecommendation[], count: number): IntelligenceRecommendation[] {
+function getTopItems(
+  items: IntelligenceRecommendation[],
+  count: number,
+): IntelligenceRecommendation[] {
   return items.filter((item) => item.title || item.summary).slice(0, count);
 }
 
@@ -120,13 +130,13 @@ function EvidenceList({
         <div
           key={`${item.title}-${item.summary}`}
           className={`rounded-lg border p-4 ${
-            tone === "risk"
-              ? "border-amber-500/25 bg-amber-500/5"
-              : "border-border bg-background"
+            tone === "risk" ? "border-amber-500/25 bg-amber-500/5" : "border-border bg-background"
           }`}
         >
           <p className="font-semibold text-foreground">{item.title}</p>
-          {item.summary ? <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{item.summary}</p> : null}
+          {item.summary ? (
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{item.summary}</p>
+          ) : null}
         </div>
       ))}
     </div>
@@ -228,7 +238,9 @@ export function ForeverIntelligenceSection({ project }: ForeverIntelligenceSecti
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                   Forever Score
                 </p>
-                <p className="mt-3 font-serif text-7xl leading-none text-foreground">{report.totalScore}</p>
+                <p className="mt-3 font-serif text-7xl leading-none text-foreground">
+                  {report.totalScore}
+                </p>
                 <p className="mt-2 text-sm font-medium text-muted-foreground">out of 100</p>
               </div>
             </div>
@@ -242,7 +254,8 @@ export function ForeverIntelligenceSection({ project }: ForeverIntelligenceSecti
                   </div>
                   <p className="text-3xl font-bold text-foreground">{confidence.label}</p>
                   <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    {confidence.percentage}% data coverage across {confidence.evidenceCount}/{confidence.evidenceTotal} scoring groups.
+                    {confidence.percentage}% data coverage across {confidence.evidenceCount}/
+                    {confidence.evidenceTotal} scoring groups.
                   </p>
                 </div>
 
@@ -267,7 +280,9 @@ export function ForeverIntelligenceSection({ project }: ForeverIntelligenceSecti
                 <div className="rounded-lg border border-border bg-background p-5 md:p-6">
                   <div className="mb-3 flex items-center gap-2">
                     <Lightbulb className="h-5 w-5 text-primary" />
-                    <h3 className="text-xl font-semibold text-foreground">Why Forever recommends this project</h3>
+                    <h3 className="text-xl font-semibold text-foreground">
+                      Why Forever recommends this project
+                    </h3>
                   </div>
                   <p className="text-base leading-8 text-muted-foreground">{whyRecommendation}</p>
                 </div>

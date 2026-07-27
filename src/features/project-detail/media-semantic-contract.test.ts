@@ -349,14 +349,65 @@ describe("the migration", () => {
     expect(executable).not.toMatch(/REVOKE SELECT/);
   });
 
-  it("reconciles covers by demoting, never by deleting media evidence", () => {
+  it("reconciles covers by retiring, never by deleting media evidence", () => {
     expect(sql).toContain("forever_project_cover_reconcile");
-    expect(sql).toContain("SET media_type = 'gallery'");
+    expect(sql).toContain("SET media_type = 'superseded_cover'");
     const executable = sql
       .split("\n")
       .filter((line) => !line.trim().startsWith("--"))
       .join("\n");
     expect(executable).not.toMatch(/DELETE FROM public\.project_media/);
+  });
+
+  /**
+   * The blocker independent review found. `forever_progressive_ingest` is the
+   * only writer of `project_media`, its media loop reads a fixed key set, and
+   * an unknown `semantic_role` key in a batch item is silently discarded by
+   * jsonb. Adding the key in TypeScript wrote nothing at all.
+   */
+  it("actually projects the role onto the rows the ingest function wrote", () => {
+    expect(sql).toContain("forever_project_media_semantic_projection");
+    expect(sql).toContain("SET semantic_role = btrim(v_item->>'semantic_role')");
+    // Matched on the same natural key the ingest loop uses.
+    expect(sql).toContain("AND media_type = btrim(v_item->>'media_type')");
+    expect(sql).toContain("AND url = btrim(v_item->>'url')");
+    // Presence-aware: a batch item without a role never clears a recorded one.
+    expect(sql).toContain("CONTINUE WHEN NOT (v_item ? 'semantic_role')");
+  });
+
+  /**
+   * A function nothing calls changes nothing. Both new steps must run inside
+   * `forever_direct_publish`, in the same transaction as the graph write.
+   */
+  it("calls both new steps from forever_direct_publish", () => {
+    expect(sql).toContain("CREATE OR REPLACE FUNCTION public.forever_direct_publish");
+    expect(sql).toContain("public.forever_project_media_semantic_projection(");
+    expect(sql).toContain("public.forever_project_cover_reconcile(v_project_id, v_cover_url)");
+    // After the graph write, so the rows exist. Scoped to the publish body:
+    // the projection function is *defined* earlier in the file than the
+    // function that calls it, so a whole-file index comparison would measure
+    // declaration order rather than execution order.
+    const body = sql.slice(sql.indexOf("CREATE OR REPLACE FUNCTION public.forever_direct_publish"));
+    expect(body.indexOf("public.forever_progressive_ingest(batch)")).toBeLessThan(
+      body.indexOf("public.forever_project_media_semantic_projection("),
+    );
+    expect(body.indexOf("public.forever_project_media_semantic_projection(")).toBeLessThan(
+      body.indexOf("public.forever_project_cover_reconcile(v_project_id, v_cover_url)"),
+    );
+    // And the unchanged earlier steps are preserved, not dropped.
+    expect(sql).toContain("public.forever_project_price_projection(v_project_id)");
+    expect(sql).toContain("SET public_status = 'published'");
+  });
+
+  it("does not edit the applied ingest migration", () => {
+    // 20260718113000 is applied. The role is projected afterwards instead.
+    expect(sql).not.toContain("CREATE OR REPLACE FUNCTION public.forever_progressive_ingest");
+  });
+
+  it("retires a cover only once its replacement exists", () => {
+    // No moment where a project has no valid cover while one is available.
+    expect(sql).toContain("IF NOT EXISTS (");
+    expect(sql).toContain("AND url = btrim(p_cover_url)");
   });
 
   it("keeps the cover reconciler off the public role", () => {

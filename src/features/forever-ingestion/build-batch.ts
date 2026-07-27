@@ -111,7 +111,12 @@ export interface ExistingProjectState {
   media?: Record<string, ExistingFieldState>;
 }
 
-export function priceStateKey(price: Pick<ProgressivePrice, "unit_code" | "price_source" | "source_file" | "source_page" | "price_list_date">): string {
+export function priceStateKey(
+  price: Pick<
+    ProgressivePrice,
+    "unit_code" | "price_source" | "source_file" | "source_page" | "price_list_date"
+  >,
+): string {
   return JSON.stringify([
     price.unit_code,
     price.price_source ?? null,
@@ -448,12 +453,14 @@ export async function buildProgressiveBatch(
       // whole update; the conflict warning is still persisted atomically.
       if (!("price" in filtered.accepted)) return [];
       const acceptedPrice = filtered.accepted.price as number;
-      return [{
-        unit_code,
-        ...filtered.accepted,
-        price: acceptedPrice,
-        metadata: { ...(metadata ?? {}), field_provenance: filtered.acceptedProvenance },
-      } as ProgressivePrice];
+      return [
+        {
+          unit_code,
+          ...filtered.accepted,
+          price: acceptedPrice,
+          metadata: { ...(metadata ?? {}), field_provenance: filtered.acceptedProvenance },
+        } as ProgressivePrice,
+      ];
     });
     media = media.map((item) => {
       const { media_type, url, metadata, ...fields } = item;

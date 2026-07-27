@@ -50,7 +50,9 @@ export const PROJECT_INTEGRATION_STATES = [
 
 /** Whether a state is terminal (the run has finished). */
 export function isTerminalProjectIntegrationState(state: ProjectIntegrationState): boolean {
-  return (PROJECT_INTEGRATION_TERMINAL_STATES as readonly ProjectIntegrationState[]).includes(state);
+  return (PROJECT_INTEGRATION_TERMINAL_STATES as readonly ProjectIntegrationState[]).includes(
+    state,
+  );
 }
 
 /** Runtime guard: whether a value is a known {@link ProjectIntegrationState}. */
@@ -69,8 +71,6 @@ export function isKnownProjectIntegrationState(value: unknown): value is Project
 export type ProjectIntegrationOutcome = "success" | "partial" | "failure" | "noop";
 
 /** Whether an outcome represents a clean run (nothing failed). */
-export function isSuccessfulProjectIntegrationOutcome(
-  outcome: ProjectIntegrationOutcome,
-): boolean {
+export function isSuccessfulProjectIntegrationOutcome(outcome: ProjectIntegrationOutcome): boolean {
   return outcome === "success" || outcome === "noop";
 }

@@ -61,16 +61,12 @@ export function projectIntegrationHandles(
 }
 
 /** The number of stages in a provider's integration. */
-export function projectIntegrationProviderStageCount(
-  provider: ProjectIntegrationProvider,
-): number {
+export function projectIntegrationProviderStageCount(provider: ProjectIntegrationProvider): number {
   return projectIntegrationStageCount(provider.definition);
 }
 
 /** The number of steps in a provider's integration. */
-export function projectIntegrationProviderStepCount(
-  provider: ProjectIntegrationProvider,
-): number {
+export function projectIntegrationProviderStepCount(provider: ProjectIntegrationProvider): number {
   return projectIntegrationStepCount(provider.definition);
 }
 

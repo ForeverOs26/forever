@@ -60,9 +60,12 @@ export function mapProjectMedia(row: ProjectMediaRow): ProjectDetailMediaItem {
     title: row.title ?? "",
     url: row.url,
     sortOrder: row.sort_order,
-    // Read defensively. Generated database types lag the migration, and a
-    // deployment where the column is not yet present must degrade to "no role
-    // recorded" — which shows every image — rather than throw.
+    // Read through a widening cast because the generated database types lag the
+    // migration. This is a TYPE accommodation, not a runtime safety net: if the
+    // column does not exist, PostgREST has already failed the whole embedded
+    // select with 42703 and this mapper is never reached. The migration must be
+    // applied before any build requesting `semantic_role` is deployed — see the
+    // note on PROJECT_DETAIL_SELECT.
     semanticRole: (row as { semantic_role?: string | null }).semantic_role ?? null,
   };
 }

@@ -49,11 +49,7 @@ export function validateProjectIntegrationRegistry(
 
   if (!isNonEmptyString(registry.id)) {
     issues.push(
-      projectIntegrationError(
-        "missing_registry_id",
-        "Integration registry is missing an id",
-        "id",
-      ),
+      projectIntegrationError("missing_registry_id", "Integration registry is missing an id", "id"),
     );
   }
 

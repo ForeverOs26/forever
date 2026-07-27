@@ -109,9 +109,9 @@ describe("definition validation", () => {
   });
 
   it("requires stages and entities and rejects duplicates", () => {
-    const codes = validatePipelineDefinition(
-      makeDefinition({ stages: [], entities: [] }),
-    ).map((i) => i.code);
+    const codes = validatePipelineDefinition(makeDefinition({ stages: [], entities: [] })).map(
+      (i) => i.code,
+    );
     expect(codes).toContain("no_stages");
     expect(codes).toContain("no_entities");
   });

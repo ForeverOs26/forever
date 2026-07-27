@@ -18,11 +18,7 @@ export function connectorError(code: string, message: string, path?: string): Co
 }
 
 /** Build a non-blocking warning issue. */
-export function connectorWarning(
-  code: string,
-  message: string,
-  path?: string,
-): ConnectorWarning {
+export function connectorWarning(code: string, message: string, path?: string): ConnectorWarning {
   return path === undefined
     ? { code, message, severity: "warning" }
     : { code, message, path, severity: "warning" };

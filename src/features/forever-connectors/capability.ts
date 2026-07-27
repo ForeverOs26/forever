@@ -86,11 +86,8 @@ export function supportedConnectorCapabilityKinds(
 }
 
 /** Runtime guard: whether a value is a known {@link ConnectorCapabilityKind}. */
-export function isKnownConnectorCapabilityKind(
-  value: unknown,
-): value is ConnectorCapabilityKind {
+export function isKnownConnectorCapabilityKind(value: unknown): value is ConnectorCapabilityKind {
   return (
-    typeof value === "string" &&
-    (CONNECTOR_CAPABILITY_KINDS as readonly string[]).includes(value)
+    typeof value === "string" && (CONNECTOR_CAPABILITY_KINDS as readonly string[]).includes(value)
   );
 }

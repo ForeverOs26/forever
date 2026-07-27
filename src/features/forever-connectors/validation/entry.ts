@@ -15,9 +15,7 @@ import type { ConnectorIssue } from "../types";
 import { validateConnectorDefinition } from "./definition";
 
 /** Validate one registry entry's status, health, and its definition. */
-export function validateConnectorRegistryEntry(
-  entry: ConnectorRegistryEntry,
-): ConnectorIssue[] {
+export function validateConnectorRegistryEntry(entry: ConnectorRegistryEntry): ConnectorIssue[] {
   const issues: ConnectorIssue[] = [];
   if (!isKnownConnectorStatus(entry.status)) {
     issues.push(

@@ -29,9 +29,7 @@ describe("connector provider contract", () => {
   it("reports whether configuration is required", () => {
     expect(connectorNeedsConfiguration(provider)).toBe(true);
     const configless = defineConnectorProvider({
-      definition: defineConnector(
-        makeDefinition({ configuration: emptyConnectorConfiguration() }),
-      ),
+      definition: defineConnector(makeDefinition({ configuration: emptyConnectorConfiguration() })),
     });
     expect(connectorNeedsConfiguration(configless)).toBe(false);
   });

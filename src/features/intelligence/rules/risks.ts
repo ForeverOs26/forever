@@ -41,7 +41,10 @@ export function getRisks(input: IntelligenceInput): IntelligenceRecommendation[]
     });
   }
 
-  if (fields.salesStatus === "Sold Out" || fields.availableUnitCount === 0 && fields.unitCount > 0) {
+  if (
+    fields.salesStatus === "Sold Out" ||
+    (fields.availableUnitCount === 0 && fields.unitCount > 0)
+  ) {
     risks.push({
       title: "Limited inventory access",
       summary: "Availability constraints may reduce buyer choice and negotiation leverage.",
