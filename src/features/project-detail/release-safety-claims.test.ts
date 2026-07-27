@@ -168,6 +168,57 @@ describe("developer identity (F2)", () => {
     // "Property" alone is too weak to conclude two names mean one company.
     expect(developersMateriallyDisagree("Sunrise", "Sunrise Bay Holdings Group")).toBe(true);
   });
+
+  /**
+   * Real-world shapes this has to survive. The rule errs toward withholding
+   * when two names cannot be shown to mean one company — the safe direction for
+   * a factual claim — but it must not withhold over corporate-form noise, which
+   * is what eight of the nine public projects would otherwise trip over.
+   */
+  it("survives the corporate-form shapes these sources actually use", () => {
+    for (const [canonical, raw] of [
+      ["Rhom Bho Property", "Rhom Bho Property Public Company Limited"],
+      ["Sansiri PCL", "Sansiri Public Company Limited"],
+      ["Origin Property", "Origin Properties"],
+      ["Property Perfect", "Perfect Property"],
+      ["Title", "The Title Group"],
+      ["Ôrigin Co., Ltd.", "ORIGIN"],
+    ] as const) {
+      expect(
+        developersMateriallyDisagree(canonical, raw),
+        `"${canonical}" vs "${raw}" must not read as a conflict`,
+      ).toBe(false);
+    }
+  });
+
+  it("withholds rather than guess when two names cannot be reconciled", () => {
+    for (const [canonical, raw] of [
+      ["Title", "Rhom Bho Property"],
+      ["AP Thailand", "Asian Property Development"],
+      ["Sansiri", "Origin"],
+    ] as const) {
+      expect(
+        developersMateriallyDisagree(canonical, raw),
+        `"${canonical}" vs "${raw}" must be treated as a conflict`,
+      ).toBe(true);
+    }
+  });
+
+  /**
+   * A name made entirely of corporate-form words still identifies that name.
+   * Collapsing it to an empty token list would read as "this source is silent"
+   * and let the other side print unopposed.
+   */
+  it("does not let a name of only legal-form words collapse to silence", () => {
+    expect(normaliseDeveloperName("Holdings Ltd")).not.toEqual([]);
+    expect(developersMateriallyDisagree("Holdings Ltd", "Rhom Bho Property")).toBe(true);
+  });
+
+  it("treats punctuation-only and empty names as silence, not conflict", () => {
+    expect(normaliseDeveloperName("   ")).toEqual([]);
+    expect(normaliseDeveloperName("—")).toEqual([]);
+    expect(developersMateriallyDisagree("—", "Rhom Bho Property")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
