@@ -553,6 +553,198 @@ function normalizeJfif(payload: Buffer): NormalizedJfif | null {
   return { payload: canonical, thumbnailRemoved: thumbnailBytes > 0 };
 }
 
+// ---------------------------------------------------------------------------
+// ICC colour profiles
+//
+// An untagged image is interpreted as sRGB by every browser, so an embedded
+// profile that IS sRGB carries no information: dropping it changes nothing on
+// screen. A profile that is not sRGB (Display P3, Adobe RGB, CMYK) does carry
+// information, and dropping it would silently mis-render the pixels — those
+// stay private, exactly as before.
+//
+// Everything below therefore exists to answer one question conservatively: is
+// this profile provably plain sRGB? Anything unrecognised answers "no".
+// ---------------------------------------------------------------------------
+
+/** D50-adapted sRGB primaries, as written by every sRGB v2/v4 profile. */
+const SRGB_PRIMARIES: Readonly<
+  Record<"rXYZ" | "gXYZ" | "bXYZ", readonly [number, number, number]>
+> = {
+  rXYZ: [0.4360337, 0.2225045, 0.0139322],
+  gXYZ: [0.3851472, 0.7168786, 0.0971045],
+  bXYZ: [0.1430796, 0.0606169, 0.7141733],
+};
+/** Encoders round s15Fixed16 differently; this covers rounding, not gamut. */
+const SRGB_PRIMARY_TOLERANCE = 0.004;
+const SRGB_TRC_TOLERANCE = 0.02;
+
+/** The sRGB electro-optical transfer function. */
+function srgbToLinear(value: number): number {
+  return value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+}
+
+function s15Fixed16(buffer: Buffer, offset: number): number {
+  return buffer.readInt32BE(offset) / 65536;
+}
+
+interface IccTag {
+  offset: number;
+  size: number;
+}
+
+function readIccTagTable(profile: Buffer): Map<string, IccTag> | null {
+  const tags = new Map<string, IccTag>();
+  const count = profile.readUInt32BE(128);
+  if (count > 256) return null;
+  const tableEnd = 132 + count * 12;
+  if (tableEnd > profile.length) return null;
+  for (let index = 0; index < count; index += 1) {
+    const entry = 132 + index * 12;
+    const signature = profile.subarray(entry, entry + 4).toString("latin1");
+    const offset = profile.readUInt32BE(entry + 4);
+    const size = profile.readUInt32BE(entry + 8);
+    if (offset + size > profile.length) return null;
+    tags.set(signature, { offset, size });
+  }
+  return tags;
+}
+
+function iccPrimaryMatchesSrgb(
+  profile: Buffer,
+  tags: Map<string, IccTag>,
+  signature: "rXYZ" | "gXYZ" | "bXYZ",
+): boolean {
+  const tag = tags.get(signature);
+  if (!tag || tag.size < 20) return false;
+  const body = profile.subarray(tag.offset, tag.offset + tag.size);
+  if (body.subarray(0, 4).toString("latin1") !== "XYZ ") return false;
+  const expected = SRGB_PRIMARIES[signature];
+  for (let axis = 0; axis < 3; axis += 1) {
+    const actual = s15Fixed16(body, 8 + axis * 4);
+    if (Math.abs(actual - expected[axis]) > SRGB_PRIMARY_TOLERANCE) return false;
+  }
+  return true;
+}
+
+/** Is this tone-reproduction curve the sRGB transfer function? */
+function iccToneCurveIsSrgb(
+  profile: Buffer,
+  tags: Map<string, IccTag>,
+  signature: string,
+): boolean {
+  const tag = tags.get(signature);
+  if (!tag || tag.size < 12) return false;
+  const body = profile.subarray(tag.offset, tag.offset + tag.size);
+  const type = body.subarray(0, 4).toString("latin1");
+
+  if (type === "curv") {
+    const count = body.readUInt32BE(8);
+    // A zero-entry curve is the identity (linear light), which is NOT sRGB.
+    if (count === 0) return false;
+    if (count === 1) {
+      if (body.length < 14) return false;
+      // u8Fixed8Number gamma. sRGB is commonly approximated as 2.2.
+      return Math.abs(body.readUInt16BE(12) / 256 - 2.2) <= 0.05;
+    }
+    if (12 + count * 2 > body.length) return false;
+    for (let sample = 0; sample <= 8; sample += 1) {
+      const position = Math.round((sample / 8) * (count - 1));
+      const actual = body.readUInt16BE(12 + position * 2) / 65535;
+      const expected = srgbToLinear(position / (count - 1));
+      if (Math.abs(actual - expected) > SRGB_TRC_TOLERANCE) return false;
+    }
+    return true;
+  }
+
+  if (type === "para") {
+    const functionType = body.readUInt16BE(8);
+    const parameter = (index: number): number | null => {
+      const at = 12 + index * 4;
+      return at + 4 <= body.length ? s15Fixed16(body, at) : null;
+    };
+    if (functionType === 0) {
+      const gamma = parameter(0);
+      return gamma != null && Math.abs(gamma - 2.2) <= 0.05;
+    }
+    if (functionType === 3) {
+      // Y = ((a·X + b)^g) for X >= d, else cX — the sRGB parametric form.
+      const expected = [2.4, 1 / 1.055, 0.055 / 1.055, 1 / 12.92, 0.04045];
+      for (let index = 0; index < expected.length; index += 1) {
+        const actual = parameter(index);
+        if (actual == null || Math.abs(actual - expected[index]) > 0.01) return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  return false;
+}
+
+/**
+ * True only when the profile is provably plain sRGB, so removing it leaves the
+ * pixels rendered exactly as the profile asked for. Anything else — a different
+ * gamut, a different transfer curve, a non-display class, a structurally odd
+ * profile — returns false and keeps the image private.
+ */
+export function isPlainSrgbIccProfile(profile: Buffer): boolean {
+  if (profile.length < 132) return false;
+  const declaredSize = profile.readUInt32BE(0);
+  // Trailing padding is tolerated; a profile claiming more than it has is not.
+  if (declaredSize < 132 || declaredSize > profile.length) return false;
+  if (profile.subarray(36, 40).toString("latin1") !== "acsp") return false;
+  if (profile.subarray(12, 16).toString("latin1") !== "mntr") return false;
+  if (profile.subarray(16, 20).toString("latin1") !== "RGB ") return false;
+  if (profile.subarray(20, 24).toString("latin1") !== "XYZ ") return false;
+
+  const tags = readIccTagTable(profile);
+  if (!tags) return false;
+  // A lookup-table profile can encode an arbitrary transform even when its
+  // primaries look ordinary, so only matrix/TRC profiles are considered.
+  for (const lut of ["A2B0", "A2B1", "A2B2", "B2A0", "B2A1", "B2A2"]) {
+    if (tags.has(lut)) return false;
+  }
+  for (const primary of ["rXYZ", "gXYZ", "bXYZ"] as const) {
+    if (!iccPrimaryMatchesSrgb(profile, tags, primary)) return false;
+  }
+  for (const curve of ["rTRC", "gTRC", "bTRC"]) {
+    if (!iccToneCurveIsSrgb(profile, tags, curve)) return false;
+  }
+  return true;
+}
+
+/**
+ * Reassemble the ICC profile from its APP2 segments.
+ *
+ * Returns `null` for a sequence that is absent, duplicated, out of range or
+ * incomplete — the caller then keeps the existing private-retention behaviour
+ * rather than guessing at a partial profile.
+ */
+function collectJpegIccProfile(tokens: readonly JpegToken[]): Buffer | null {
+  const parts = new Map<number, Buffer>();
+  let declaredTotal = 0;
+  for (const token of tokens) {
+    if (token.kind === "entropy" || token.marker !== 0xe2) continue;
+    const { payload } = token;
+    if (payload.length < 14 || payload.subarray(0, 12).toString("latin1") !== "ICC_PROFILE\0") {
+      continue;
+    }
+    const sequence = payload[12];
+    const total = payload[13];
+    if (sequence < 1 || total < 1 || sequence > total) return null;
+    if (declaredTotal !== 0 && total !== declaredTotal) return null;
+    declaredTotal = total;
+    if (parts.has(sequence)) return null;
+    parts.set(sequence, payload.subarray(14));
+  }
+  if (declaredTotal === 0 || parts.size !== declaredTotal) return null;
+  const ordered: Buffer[] = [];
+  for (let sequence = 1; sequence <= declaredTotal; sequence += 1) {
+    ordered.push(parts.get(sequence)!);
+  }
+  return Buffer.concat(ordered);
+}
+
 function rewriteJpeg(bytes: Buffer): RewriteOutcome {
   const parsed = parseJpeg(bytes);
   if (!parsed) return { rejected: "malformed" };
@@ -564,6 +756,10 @@ function rewriteJpeg(bytes: Buffer): RewriteOutcome {
   // which the derivative no longer references the source buffer.
   const body: Buffer[] = [];
   let sawJfif = false;
+  // Decided once, over the fully reassembled profile, before any segment is
+  // acted on: a split profile cannot be judged from its first segment alone.
+  const iccProfile = collectJpegIccProfile(parsed.tokens);
+  const iccIsPlainSrgb = iccProfile !== null && isPlainSrgbIccProfile(iccProfile);
   for (const token of parsed.tokens) {
     if (token.kind === "entropy") {
       body.push(token.bytes);
@@ -602,12 +798,22 @@ function rewriteJpeg(bytes: Buffer): RewriteOutcome {
       // A valid ICC/color-managed image is NOT malformed: without a profile-tag
       // rewriter or color conversion we retain it privately rather than strip
       // the profile and mis-render P3 pixels as sRGB.
+      //
+      // The one exception is a profile that is provably plain sRGB. An untagged
+      // image is already interpreted as sRGB, so removing that profile changes
+      // nothing on screen — while keeping it would needlessly withhold the
+      // developer's own official photography, which is overwhelmingly exported
+      // as tagged sRGB.
       if (
         marker === 0xe2 &&
         payload.length >= 12 &&
         payload.subarray(0, 12).toString("latin1") === "ICC_PROFILE\0"
       ) {
-        return { rejected: "color_profile" };
+        if (!iccIsPlainSrgb) return { rejected: "color_profile" };
+        // Dropped like any other non-structural segment; the pixels are
+        // unchanged and the profile's own bytes never reach the derivative.
+        metadataPresent = true;
+        continue;
       }
       const safeAdobe =
         marker === 0xee &&

@@ -382,6 +382,158 @@ export function syntheticJpegWithIcc(segmentCount = 1, declaredTotal = segmentCo
 }
 
 // ---------------------------------------------------------------------------
+// Structurally real ICC profiles
+// ---------------------------------------------------------------------------
+
+function s15Fixed16(value: number): Buffer {
+  const out = Buffer.alloc(4);
+  out.writeInt32BE(Math.round(value * 65536));
+  return out;
+}
+
+function xyzTag([x, y, z]: readonly [number, number, number]): Buffer {
+  return Buffer.concat([
+    Buffer.from("XYZ \0\0\0\0", "latin1"),
+    s15Fixed16(x),
+    s15Fixed16(y),
+    s15Fixed16(z),
+  ]);
+}
+
+/** `para` type 3 — the sRGB parametric transfer curve. */
+function srgbParametricTrc(): Buffer {
+  const header = Buffer.alloc(12);
+  header.write("para", 0, 4, "latin1");
+  header.writeUInt16BE(3, 8);
+  return Buffer.concat([
+    header,
+    s15Fixed16(2.4),
+    s15Fixed16(1 / 1.055),
+    s15Fixed16(0.055 / 1.055),
+    s15Fixed16(1 / 12.92),
+    s15Fixed16(0.04045),
+  ]);
+}
+
+/** `curv` with a single u8Fixed8 gamma. */
+function gammaTrc(gamma: number): Buffer {
+  const out = Buffer.alloc(14);
+  out.write("curv", 0, 4, "latin1");
+  out.writeUInt32BE(1, 8);
+  out.writeUInt16BE(Math.round(gamma * 256), 12);
+  return out;
+}
+
+/**
+ * A structurally valid v2 matrix/TRC display profile with the given primaries
+ * and tone curve. Real enough to be parsed exactly like a camera's profile.
+ */
+export function syntheticIccProfile(options: {
+  primaries: {
+    rXYZ: readonly [number, number, number];
+    gXYZ: readonly [number, number, number];
+    bXYZ: readonly [number, number, number];
+  };
+  trc?: Buffer;
+  deviceClass?: string;
+  extraTags?: Array<{ signature: string; body: Buffer }>;
+}): Buffer {
+  const trc = options.trc ?? srgbParametricTrc();
+  const entries: Array<{ signature: string; body: Buffer }> = [
+    { signature: "rXYZ", body: xyzTag(options.primaries.rXYZ) },
+    { signature: "gXYZ", body: xyzTag(options.primaries.gXYZ) },
+    { signature: "bXYZ", body: xyzTag(options.primaries.bXYZ) },
+    { signature: "rTRC", body: trc },
+    { signature: "gTRC", body: trc },
+    { signature: "bTRC", body: trc },
+    { signature: "wtpt", body: xyzTag([0.9642, 1.0, 0.8249]) },
+    ...(options.extraTags ?? []),
+  ];
+
+  const tableSize = 4 + entries.length * 12;
+  let cursor = 128 + tableSize;
+  const table = Buffer.alloc(tableSize);
+  table.writeUInt32BE(entries.length, 0);
+  const bodies: Buffer[] = [];
+  entries.forEach((entry, index) => {
+    const padded = Buffer.concat([entry.body, Buffer.alloc((4 - (entry.body.length % 4)) % 4)]);
+    const at = 4 + index * 12;
+    table.write(entry.signature, at, 4, "latin1");
+    table.writeUInt32BE(cursor, at + 4);
+    table.writeUInt32BE(entry.body.length, at + 8);
+    bodies.push(padded);
+    cursor += padded.length;
+  });
+
+  const header = Buffer.alloc(128);
+  header.write(options.deviceClass ?? "mntr", 12, 4, "latin1");
+  header.write("RGB ", 16, 4, "latin1");
+  header.write("XYZ ", 20, 4, "latin1");
+  header.write("acsp", 36, 4, "latin1");
+  const profile = Buffer.concat([header, table, ...bodies]);
+  profile.writeUInt32BE(profile.length, 0);
+  return profile;
+}
+
+/** Plain sRGB: dropping this profile is a no-op on screen. */
+export function syntheticSrgbIccProfile(trc?: Buffer): Buffer {
+  return syntheticIccProfile({
+    primaries: {
+      rXYZ: [0.4360337, 0.2225045, 0.0139322],
+      gXYZ: [0.3851472, 0.7168786, 0.0971045],
+      bXYZ: [0.1430796, 0.0606169, 0.7141733],
+    },
+    trc,
+  });
+}
+
+/** Display P3: genuinely wider than sRGB, so it must stay private. */
+export function syntheticDisplayP3IccProfile(): Buffer {
+  return syntheticIccProfile({
+    primaries: {
+      rXYZ: [0.5151, 0.2412, -0.0011],
+      gXYZ: [0.292, 0.6922, 0.0419],
+      bXYZ: [0.1571, 0.0666, 0.7841],
+    },
+  });
+}
+
+export { gammaTrc as syntheticGammaTrc };
+
+/** Baseline JPEG carrying the supplied ICC profile, split across segments. */
+export function syntheticJpegWithIccProfile(profile: Buffer, segmentCount = 1): Buffer {
+  const app0 = Buffer.concat([
+    Buffer.from("JFIF\0", "latin1"),
+    Buffer.from([1, 1, 0, 0, 1, 0, 1, 0, 0]),
+  ]);
+  const sof = Buffer.from([8, 0, 3, 0, 2, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0]);
+  const sos = Buffer.from([3, 1, 0, 2, 0, 3, 0, 0, 63, 0]);
+  const chunk = Math.ceil(profile.length / segmentCount);
+  const segments: Buffer[] = [];
+  for (let sequence = 1; sequence <= segmentCount; sequence += 1) {
+    const slice = profile.subarray((sequence - 1) * chunk, sequence * chunk);
+    segments.push(
+      jpegSegment(
+        0xe2,
+        Buffer.concat([
+          Buffer.from("ICC_PROFILE\0", "latin1"),
+          Buffer.from([sequence, segmentCount]),
+          slice,
+        ]),
+      ),
+    );
+  }
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8]),
+    jpegSegment(0xe0, app0),
+    ...segments,
+    jpegSegment(0xc0, sof),
+    jpegSegment(0xda, sos),
+    Buffer.from([0x00, 0xff, 0xd9]),
+  ]);
+}
+
+// ---------------------------------------------------------------------------
 // Multi-scan / inter-scan-metadata and trailing-byte fixtures
 // ---------------------------------------------------------------------------
 

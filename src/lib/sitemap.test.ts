@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { SITEMAP_STATIC_ENTRIES, buildSitemapXml } from "./sitemap";
+import { SITEMAP_BASE_URL, SITEMAP_STATIC_ENTRIES, buildSitemapXml } from "./sitemap";
 
 /**
  * FOREVER-TRUTH-001A: the sitemap advertises only surfaces with real,
@@ -33,7 +33,10 @@ describe("sitemap composition", () => {
 
   it("emits exactly the provided project slugs as project URLs", () => {
     const xml = buildSitemapXml(["modeva"]);
-    expect(xml).toContain("<loc>https://forever-home-core.lovable.app/projects/modeva</loc>");
+    // Asserted against the configured origin, not a literal: a production build
+    // sets VITE_PUBLIC_SITE_ORIGIN, and the sitemap must follow it.
+    expect(xml).toContain(`<loc>${SITEMAP_BASE_URL}/projects/modeva</loc>`);
+    expect(SITEMAP_BASE_URL).toMatch(/^https:\/\/[^/]+$/);
     expect(xml).not.toContain("/offers");
     expect(xml).not.toContain("/reviews");
     expect(xml).not.toContain("/areas");
