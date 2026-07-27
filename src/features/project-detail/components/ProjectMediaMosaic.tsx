@@ -62,7 +62,12 @@ export function ProjectMediaMosaic({ items, projectName, onOpen }: ProjectMediaM
   };
 
   return (
-    <div data-testid="project-media-mosaic">
+    // `min-w-0` is load-bearing. As a grid item this div defaults to
+    // `min-width: auto`, which refuses to shrink below its content — and its
+    // content is a 24-slide track. Without it the mobile carousel widened the
+    // page itself by ~2100 px at 375 px instead of scrolling inside its own
+    // container.
+    <div data-testid="project-media-mosaic" className="w-full min-w-0">
       {/* ---------------- Mobile: one swipeable image + thumbnail strip ------- */}
       <div className="md:hidden">
         <div className="relative">

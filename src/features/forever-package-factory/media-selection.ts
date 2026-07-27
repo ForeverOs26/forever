@@ -115,9 +115,7 @@ const NEAR_DUPLICATE_SIZE_PRECISION = 96;
 export function nearDuplicateKey(bytes: Buffer): string | null {
   const dimensions = readImageDimensions(bytes);
   if (!dimensions) return null;
-  const bucket = Math.round(
-    Math.log2(Math.max(1, bytes.length)) * NEAR_DUPLICATE_SIZE_PRECISION,
-  );
+  const bucket = Math.round(Math.log2(Math.max(1, bytes.length)) * NEAR_DUPLICATE_SIZE_PRECISION);
   return `${dimensions.width}x${dimensions.height}:${bucket}`;
 }
 

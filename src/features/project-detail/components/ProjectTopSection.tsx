@@ -85,7 +85,10 @@ export function ProjectTopSection({ project }: ProjectTopSectionProps) {
           ) : null}
         </div>
 
-        <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-8">
+        {/* `minmax(0,…)` on both axes: a grid track sized `auto` will not
+            shrink below its content, and the media column contains a
+            horizontally scrolling track. */}
+        <div className="mt-7 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-8">
           <ProjectMediaMosaic
             items={photographs}
             projectName={project.core.name}

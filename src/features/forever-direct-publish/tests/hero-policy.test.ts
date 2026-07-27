@@ -10,6 +10,9 @@
  */
 import { describe, expect, it } from "vitest";
 
+import type { ProgressiveBatch } from "@/features/forever-ingestion/batch-types";
+import { fingerprintBatch } from "@/features/forever-ingestion/build-batch";
+
 import {
   syntheticDisplayP3IccProfile,
   syntheticJpegWithDimensions,
@@ -24,8 +27,12 @@ import {
   isHeroProhibited,
   selectHero,
   type HeroCandidate,
+  type SemanticRole,
 } from "../hero-policy";
 import { planPublicMedia, type SourceMediaCandidate } from "../media-plan";
+import { declaredRolesFromManifest, type SourcePackage } from "../source-package";
+import { publishProject } from "../publish";
+import { FakeProductionWorld, OWNER_AUTHORIZATION } from "./fakes";
 import { selectMedia, type MediaCandidate } from "../../forever-package-factory/media-selection";
 
 // ---------------------------------------------------------------------------
@@ -135,6 +142,28 @@ describe("classifySemanticRole", () => {
     expect(classifySemanticRole({ ...candidate("b.jpg"), category: "brochure" }).role).toBe(
       "text_promo",
     );
+  });
+
+  it("does not read the project's own name as evidence about an image", () => {
+    // A generated package renames everything to `<slug>-gallery-NN.jpg`. With
+    // the slug unaccounted for, Villa Kirara's 24 launch-party photographs all
+    // matched "villa" and were classified `villa_exterior` -- reaching straight
+    // past the role the Factory had recorded.
+    expect(role("images/the-title-villa-kirara-gallery-00.jpg")).toBe("villa_exterior");
+    expect(
+      classifySemanticRole({
+        ...candidate("images/the-title-villa-kirara-gallery-00.jpg"),
+        slug: "the-title-villa-kirara",
+        declaredRole: "event",
+      }).role,
+    ).toBe("event");
+    // The same for a project whose slug names a pool or a garden.
+    expect(
+      classifySemanticRole({
+        ...candidate("images/bangtao-garden-pool-villas-gallery-03.jpg"),
+        slug: "bangtao-garden-pool-villas",
+      }).role,
+    ).toBe("unknown");
   });
 
   it("says unknown when nothing is known, rather than guessing", () => {
@@ -480,6 +509,40 @@ describe("planPublicMedia with the semantic policy", () => {
     expect(plan.hero?.path).toBe("images/x-gallery-01.jpg");
   });
 
+  it("refuses a cover for a package whose manifest records only event material", () => {
+    // Villa Kirara's generated package: 24 photographs, every one recorded as
+    // `event`. Nothing in the renamed paths says so, so the manifest is the
+    // only thing standing between the launch party and the project cover.
+    const files = Array.from({ length: 4 }, (_unused, index) =>
+      photo(`images/k-gallery-0${index}.jpg`, 6000 - index * 10, 4000),
+    );
+    const manifest = {
+      media: files.map((file, index) => ({
+        file: file.path,
+        media_type: "gallery",
+        sha256: String(index),
+        source_ref: `EV-${index}.jpg`,
+        semantic_role: "event",
+      })),
+    };
+    const plan = planPublicMedia(files, {
+      slug: "the-title-villa-kirara",
+      declaredRoles: declaredRolesFromManifest(manifest),
+    });
+    expect(plan.hero).toBeNull();
+    expect(plan.warnings.map((w) => w.code)).toContain("hero_candidate_missing");
+  });
+
+  it("ignores a manifest role that is not in the vocabulary", () => {
+    const files = [photo("images/x-gallery-00.jpg", 4000, 3000)];
+    const roles = declaredRolesFromManifest({
+      media: [{ file: "images/x-gallery-00.jpg", semantic_role: "definitely_the_hero" }],
+    });
+    expect(roles.size).toBe(0);
+    // Falls back to the path, which says nothing: last resort, not prohibited.
+    expect(planPublicMedia(files, { slug: "x", declaredRoles: roles }).hero).not.toBeNull();
+  });
+
   it("leaves an already-correct cover alone", () => {
     // Modeva's package, re-planned. Nothing about it should move.
     const files = [
@@ -494,6 +557,115 @@ describe("planPublicMedia with the semantic policy", () => {
     expect(after.items.map((i) => [i.path, i.mediaType])).toEqual(
       before.items.map((i) => [i.path, i.mediaType]),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The stored cover must not survive its own rejection
+// ---------------------------------------------------------------------------
+
+describe("publishing a project whose supplied images depict something else", () => {
+  const SLUG = "kirara-demo";
+
+  function batchFor(): ProgressiveBatch {
+    const body = {
+      schema_version: "1" as const,
+      mode: "create" as const,
+      project: {
+        slug: SLUG,
+        name: "Kirara Demo",
+        publish: false,
+        field_provenance: {
+          name: {
+            status: "official_source" as const,
+            source_type: "developer_official_source",
+            source_ref: "official-source.pdf",
+          },
+        },
+      },
+      warnings: [],
+    };
+    return { ...body, batch_fingerprint: fingerprintBatch(body) } as ProgressiveBatch;
+  }
+
+  function packageWith(
+    media: SourceMediaCandidate[],
+    declaredRoles: Map<string, SemanticRole>,
+    salt: number,
+  ): SourcePackage {
+    const body = {
+      ...batchFor(),
+      warnings: [
+        {
+          entity: "media" as const,
+          code: `run-${salt}`,
+          severity: "info" as const,
+          message: "run marker",
+        },
+      ],
+    };
+    return {
+      ref: SLUG,
+      directory: `/owner-local/${SLUG}`,
+      batch: { ...body, batch_fingerprint: fingerprintBatch(body) } as ProgressiveBatch,
+      media,
+      manifest: null,
+      declaredRoles,
+      skipped: [],
+    };
+  }
+
+  /** Publish once so the project exists; later runs are enrichments. */
+  async function seeded(world: FakeProductionWorld) {
+    await publishProject(
+      packageWith([photo("images/seed.jpg", 4000, 3000)], new Map(), 0),
+      world.deps(),
+      OWNER_AUTHORIZATION,
+    );
+    return world;
+  }
+
+  it("clears the stored cover, so the rejected image stops being shown", async () => {
+    const world = await seeded(new FakeProductionWorld());
+    const result = await publishProject(
+      packageWith(
+        [
+          photo("images/k-gallery-00.jpg", 6000, 4000),
+          photo("images/k-gallery-01.jpg", 5947, 3965),
+        ],
+        new Map([
+          ["images/k-gallery-00.jpg", "event"],
+          ["images/k-gallery-01.jpg", "event"],
+        ]),
+        1,
+      ),
+      world.deps(),
+      OWNER_AUTHORIZATION,
+    );
+
+    expect(result.status).toBe("published");
+    expect(result.warnings.map((w) => w.code)).toContain("hero_candidate_missing");
+    const sent = world.directPublishCalls.at(-1)!;
+    expect(sent.batch.project.set?.main_image_url).toBeNull();
+  });
+
+  it("does NOT clear it when the run simply supplied no photograph", async () => {
+    // A price-only or document-only enrichment must never strip a good cover.
+    const world = await seeded(new FakeProductionWorld());
+    const result = await publishProject(
+      packageWith(
+        [{ path: "master-plan/site.png", bytes: syntheticPng(false, 1, 3) }],
+        new Map(),
+        2,
+      ),
+      world.deps(),
+      OWNER_AUTHORIZATION,
+    );
+
+    expect(result.warnings.map((w) => w.code)).toContain("hero_image_missing");
+    expect(result.warnings.map((w) => w.code)).not.toContain("hero_candidate_missing");
+    const sent = world.directPublishCalls.at(-1)!;
+    expect(sent.batch.project.set ?? {}).not.toHaveProperty("main_image_url");
   });
 });
 

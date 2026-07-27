@@ -468,6 +468,16 @@ export async function publishProject(
     if (mediaOutcome.heroUrl) {
       if (adapted.mode === "create") project.main_image_url = mediaOutcome.heroUrl;
       else project.set = { ...(project.set ?? {}), main_image_url: mediaOutcome.heroUrl };
+    } else if (warnings.some((warning) => warning.code === "hero_candidate_missing")) {
+      // The policy did not merely find no photograph — it looked at the ones
+      // supplied and determined that none depicts the property. Leaving the
+      // stored cover in place would keep showing the very image just rejected,
+      // which would make `hero_candidate_missing` a report with no effect.
+      //
+      // Deliberately narrow: a run that supplied no publishable photograph at
+      // all raises `hero_image_missing` instead and is not matched here, so a
+      // price-only or document-only enrichment can never clear a good cover.
+      project.set = { ...(project.set ?? {}), main_image_url: null };
     }
 
     const finalBatch = rebuild({

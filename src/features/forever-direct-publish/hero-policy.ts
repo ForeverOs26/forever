@@ -496,6 +496,18 @@ export interface HeroCandidateEvidence {
   /** Category the shared path classifier already derived, when known. */
   category?: IntakeCategory | null;
   /**
+   * The project's own slug, so its words can be discounted as evidence.
+   *
+   * Every file in a project carries the project's name, so those words describe
+   * nothing about any individual image. Villa Kirara made this concrete: a
+   * generated package renames its photographs to
+   * `the-title-villa-kirara-gallery-00.jpg`, the word "villa" matched, and 24
+   * launch-party photographs were classified `villa_exterior` — reaching past
+   * the role the Factory had recorded, because a path that mentions a villa
+   * looks like evidence. It is not.
+   */
+  slug?: string | null;
+  /**
    * Role the source package already recorded for this file.
    *
    * A generated package renames every file to `<slug>-gallery-07.jpg`, which
@@ -637,10 +649,22 @@ export function classifySemanticRole(evidence: HeroCandidateEvidence): SemanticA
   const segments = segmentsOf(evidence.path);
   const nameSegment = segments.length > 0 ? segments[segments.length - 1] : evidence.path;
   const sectionSegments = segments.slice(0, -1);
-  const name = normalise(nameSegment);
-  const sections = sectionSegments.map(normalise);
+  const projectWords = new Set(
+    tokensOf(normalise(evidence.slug ?? "")).filter((token) => token.length >= 3),
+  );
+  const withoutProject = (text: string) =>
+    tokensOf(text)
+      .filter((token) => !projectWords.has(token))
+      .join(" ");
+  const name = withoutProject(normalise(nameSegment));
+  const sections = sectionSegments.map((segment) => withoutProject(normalise(segment)));
   const sectionText = sections.join(" ");
-  const designated = tokensOf(name).some((token) => DESIGNATION_TOKENS.has(token));
+  // The designation is read from the untouched name: a project slugged
+  // "…-cover-…" is vanishingly unlikely, and stripping it would lose the one
+  // signal a renamed package still carries.
+  const designated = tokensOf(normalise(nameSegment)).some((token) =>
+    DESIGNATION_TOKENS.has(token),
+  );
 
   const decide = (role: SemanticRole, reason: string): SemanticAssessment => ({
     role,
@@ -783,13 +807,14 @@ function compareCandidates(a: RankedHeroCandidate, b: RankedHeroCandidate): numb
   const tier = TIER_RANK[b.assessment.eligibility] - TIER_RANK[a.assessment.eligibility];
   if (tier !== 0) return tier;
 
-  // Within the last-resort tier only, an explicit package designation is the
-  // one piece of evidence available, so it decides. It can never lift a
-  // candidate out of a lower tier, and never reaches a prohibited role.
-  if (a.assessment.eligibility === "last_resort") {
-    const designated = Number(b.assessment.designated) - Number(a.assessment.designated);
-    if (designated !== 0) return designated;
-  }
+  // A package that names its own cover has already made the editorial choice
+  // among candidates this policy would accept, so it decides — but only inside
+  // its tier. It can never lift a candidate out of a lower tier and never
+  // reaches a prohibited role, because those are filtered out before ranking.
+  // This is also what survives packaging: a generated package's files are all
+  // renamed, and `<slug>-cover.jpg` is the only trace of the choice left.
+  const designated = Number(b.assessment.designated) - Number(a.assessment.designated);
+  if (designated !== 0) return designated;
 
   const role = ROLE_PRIORITY[b.assessment.role] - ROLE_PRIORITY[a.assessment.role];
   if (role !== 0) return role;

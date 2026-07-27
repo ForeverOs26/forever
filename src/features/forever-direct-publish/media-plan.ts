@@ -303,6 +303,9 @@ export function planPublicMedia(
     category: item.category,
     sha256: item.sha256,
     declaredRole: options.declaredRoles?.get(item.path) ?? null,
+    // Every file in a project carries the project's name; those words describe
+    // no individual image and must not be read as evidence about one.
+    slug: options.slug,
   }));
   const heroSelection = selectHero(heroCandidates, {
     preferredPath: options.preferredHeroPath ?? null,
