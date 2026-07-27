@@ -1,14 +1,20 @@
 import { Map as MapIcon } from "lucide-react";
 import { Section } from "@/components/layout/Section";
 import { Button } from "@/components/ui/button";
+import { renderablePlan } from "../plan-media";
 import type { ProjectDetail } from "../project-detail-types";
 
 type ProjectMasterPlanProps = {
   project: ProjectDetail;
 };
 
+/**
+ * The site plan, kept separate from unit layouts by media type: this reads
+ * only `media.masterPlan`, so a master plan never appears as an apartment unit
+ * plan and no unit plan is ever presented as the site plan (F-008).
+ */
 export function ProjectMasterPlan({ project }: ProjectMasterPlanProps) {
-  const masterPlan = project.media.masterPlan;
+  const masterPlan = renderablePlan(project.media.masterPlan);
 
   if (!masterPlan) return null;
 

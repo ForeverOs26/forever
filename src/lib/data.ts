@@ -9,6 +9,24 @@
 
 export type PropertyType = "Villa" | "Residence" | "Condominium" | "Not available";
 
+/**
+ * Construction status as recorded, not as wished for.
+ *
+ * `projects.construction_status` is a free-text column, and the values in it
+ * are the developer's own words — `Under construction`, `Completed` — which
+ * never matched the closed union this type used to declare. The mapper cast
+ * them in anyway (`as ConstructionStatus`), so the type said one thing and the
+ * data said another, and Discovery's filter compared the two by exact string
+ * equality and returned an empty catalogue for six of seven projects (F-001).
+ *
+ * The union is now open: the named members document the vocabulary the app
+ * knows and still autocomplete, while `(string & {})` admits the arbitrary
+ * text the column can actually hold. Semantics live in one place —
+ * `toCompletionStatus` in `@/features/discovery/completion-status` — which
+ * folds any spelling to a canonical value and answers `null` for anything it
+ * does not recognise, so an unfamiliar status is preserved rather than
+ * silently refiled or hidden.
+ */
 export type ConstructionStatus =
   | "Planning"
   | "Pre-Launch"
@@ -16,7 +34,8 @@ export type ConstructionStatus =
   | "Nearing Completion"
   | "Ready"
   | "Sold Out"
-  | "Not available";
+  | "Not available"
+  | (string & {});
 
 export type SalesStatus = "Available" | "Selling" | "Sold Out" | "Not available";
 

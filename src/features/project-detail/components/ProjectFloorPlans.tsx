@@ -1,6 +1,7 @@
 import { FileText, Map as MapIcon } from "lucide-react";
 import { Section } from "@/components/layout/Section";
 import { Button } from "@/components/ui/button";
+import { renderablePlan, renderablePlans } from "../plan-media";
 import type { ProjectDetail } from "../project-detail-types";
 
 type ProjectFloorPlansProps = {
@@ -8,7 +9,11 @@ type ProjectFloorPlansProps = {
 };
 
 export function ProjectFloorPlans({ project }: ProjectFloorPlansProps) {
-  const floorPlans = project.media.floorPlans;
+  // Records without a usable URL are not items: counting them would render the
+  // heading over an empty grid of broken tiles (F-008).
+  const floorPlans = renderablePlans(project.media.floorPlans);
+  const unitPlans = renderablePlans(project.media.unitPlans);
+  const masterPlan = renderablePlan(project.media.masterPlan);
 
   if (floorPlans.length === 0) return null;
 
@@ -42,23 +47,23 @@ export function ProjectFloorPlans({ project }: ProjectFloorPlansProps) {
             </a>
           ))}
         </div>
-        {(floorPlans.length > 6 || project.media.unitPlans.length > 0 || project.media.masterPlan) && (
+        {(floorPlans.length > 6 || unitPlans.length > 0 || masterPlan) && (
           <div className="mt-6 flex flex-wrap justify-center gap-2">
             {floorPlans.length > 6 && (
               <span className="inline-flex items-center rounded-full bg-secondary px-3 py-1 text-xs text-muted-foreground">
                 +{floorPlans.length - 6} more floor plans
               </span>
             )}
-            {project.media.unitPlans[0] && (
+            {unitPlans[0] && (
               <Button asChild size="sm" variant="outline">
-                <a href={project.media.unitPlans[0].url} target="_blank" rel="noopener noreferrer">
+                <a href={unitPlans[0].url} target="_blank" rel="noopener noreferrer">
                   <FileText className="mr-1.5 h-4 w-4" /> Unit Plans PDF
                 </a>
               </Button>
             )}
-            {project.media.masterPlan && (
+            {masterPlan && (
               <Button asChild size="sm" variant="outline">
-                <a href={project.media.masterPlan.url} target="_blank" rel="noopener noreferrer">
+                <a href={masterPlan.url} target="_blank" rel="noopener noreferrer">
                   <MapIcon className="mr-1.5 h-4 w-4" /> Master Plan
                 </a>
               </Button>

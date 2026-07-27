@@ -1,8 +1,15 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { makeProjectDetail, makeUnit } from "@/features/forever-database/tests/fixtures";
 import { ProjectInventory } from "./ProjectInventory";
+
+/**
+ * Since F-013 the same rows render twice — as the desktop table and as mobile
+ * cards — so table-specific assertions are scoped to the table. jsdom applies
+ * no media queries, so both are present in the DOM here regardless of viewport.
+ */
+const table = () => within(screen.getByTestId("inventory-unit-table"));
 
 describe("ProjectInventory", () => {
   it("groups arbitrary explicit building codes without parsing unit codes", () => {
@@ -46,10 +53,10 @@ describe("ProjectInventory", () => {
 
     render(<ProjectInventory project={project} />);
 
-    expect(screen.getByRole("rowheader", { name: "I109" })).not.toBeNull();
-    expect(screen.getByText("One Bedroom Legend")).not.toBeNull();
-    expect(screen.getByText("56.05 m²")).not.toBeNull();
-    expect(screen.getByText("฿9,011,564")).not.toBeNull();
+    expect(table().getByRole("rowheader", { name: "I109" })).not.toBeNull();
+    expect(table().getByText("One Bedroom Legend")).not.toBeNull();
+    expect(table().getByText("56.05 m²")).not.toBeNull();
+    expect(table().getByText("฿9,011,564")).not.toBeNull();
   });
 
   it("prefers a discounted price over the base price", () => {
@@ -61,7 +68,7 @@ describe("ProjectInventory", () => {
       />,
     );
 
-    expect(screen.getByText("฿8,500,000")).not.toBeNull();
+    expect(table().getByText("฿8,500,000")).not.toBeNull();
     expect(screen.queryByText("฿9,000,000")).toBeNull();
   });
 
@@ -75,10 +82,12 @@ describe("ProjectInventory", () => {
 
     render(<ProjectInventory project={project} />);
 
-    expect(screen.getByText("Sold")).not.toBeNull();
+    expect(table().getByText("Sold")).not.toBeNull();
     expect(screen.getByText("1 of 2 available")).not.toBeNull();
     // Available units are listed first, so a sold unit can never head the table.
-    const rowHeaders = screen.getAllByRole("rowheader").map((cell) => cell.textContent);
+    const rowHeaders = table()
+      .getAllByRole("rowheader")
+      .map((cell) => cell.textContent);
     expect(rowHeaders).toEqual(["I509", "I501"]);
   });
 
@@ -91,5 +100,130 @@ describe("ProjectInventory", () => {
 
     expect(screen.queryByText(/price on request/i)).toBeNull();
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * F-013. At 375 px the 40rem table needed 640 px inside a 343 px container, so
+ * Area, Price and Status sat behind a horizontal scroll with no gradient,
+ * shadow or hint that further columns existed. The two facts a buyer most
+ * wants were off-screen by default.
+ *
+ * The rows are now also rendered as cards below the tablet breakpoint. jsdom
+ * applies no media queries, so both presentations are in the DOM here; the
+ * assertions cover the content of each and the breakpoint classes that decide
+ * which one a given viewport sees. The rendered 375 / 768 / 1440 behaviour is
+ * verified separately in the browser.
+ */
+describe("ProjectInventory mobile presentation (F-013)", () => {
+  const project = makeProjectDetail({
+    units: [
+      makeUnit({
+        id: "u-1",
+        code: "I109",
+        buildingCode: "I",
+        floor: 1,
+        type: "One Bedroom Legend",
+        sizeSqm: 56.05,
+        basePriceTHB: 9011564,
+        availabilityStatus: "available",
+      }),
+      makeUnit({
+        id: "u-2",
+        code: "I501",
+        buildingCode: "I",
+        floor: 5,
+        type: "Two Bedroom Legend",
+        sizeSqm: 90.1,
+        basePriceTHB: 14530000,
+        availabilityStatus: "sold",
+      }),
+    ],
+  });
+
+  const cards = () => screen.getByTestId("inventory-unit-cards");
+
+  it("shows the price on the mobile card, not only in the table", () => {
+    render(<ProjectInventory project={project} />);
+    expect(cards()).toHaveTextContent("฿9,011,564");
+    expect(cards()).toHaveTextContent("฿14,530,000");
+  });
+
+  it("shows the availability status on the mobile card", () => {
+    render(<ProjectInventory project={project} />);
+    expect(cards()).toHaveTextContent("Available");
+  });
+
+  it("keeps a sold unit visibly sold on mobile", () => {
+    render(<ProjectInventory project={project} />);
+    expect(cards()).toHaveTextContent("Sold");
+    const sold = cards().querySelector('[data-available="false"]');
+    expect(sold).not.toBeNull();
+    expect(sold).toHaveTextContent("I501");
+  });
+
+  it("carries the unit code, type, area, building and floor", () => {
+    render(<ProjectInventory project={project} />);
+    const card = cards().firstElementChild as HTMLElement;
+    for (const fact of [
+      "I109",
+      "One Bedroom Legend",
+      "56.05 m²",
+      "Price",
+      "Area",
+      "Building",
+      "Floor",
+    ]) {
+      expect(card).toHaveTextContent(fact);
+    }
+  });
+
+  it("renders a neutral dash for a missing price", () => {
+    render(
+      <ProjectInventory
+        project={makeProjectDetail({ units: [makeUnit({ code: "A101", basePriceTHB: null })] })}
+      />,
+    );
+    const price = screen.getByTestId("inventory-unit-cards").querySelector("dd");
+    expect(price).toHaveTextContent("—");
+    expect(screen.getByTestId("inventory-unit-cards")).not.toHaveTextContent("฿0");
+  });
+
+  it("renders a neutral dash for optional building and floor", () => {
+    render(
+      <ProjectInventory
+        project={makeProjectDetail({
+          units: [makeUnit({ code: "V-01", buildingCode: undefined, floor: null })],
+        })}
+      />,
+    );
+    // A villa has no building and no floor; neither may become a zero.
+    const dds = [...screen.getByTestId("inventory-unit-cards").querySelectorAll("dd")];
+    expect(dds.filter((dd) => dd.textContent === "—").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByTestId("inventory-unit-cards")).not.toHaveTextContent(">0<");
+  });
+
+  it("keeps available-first ordering in the cards", () => {
+    render(<ProjectInventory project={project} />);
+    const codes = [...cards().children].map(
+      (li) => li.querySelector(".font-medium.text-foreground")?.textContent,
+    );
+    expect(codes).toEqual(["I109", "I501"]);
+  });
+
+  it("shows the cards only below the tablet breakpoint and the table only at or above it", () => {
+    render(<ProjectInventory project={project} />);
+    // md: is 768 px — the audit measured the table fitting from tablet upward.
+    expect(cards().className).toContain("md:hidden");
+    const table = screen.getByTestId("inventory-unit-table");
+    expect(table.className).toContain("hidden");
+    expect(table.className).toContain("md:block");
+    expect(table.querySelector("table")).not.toBeNull();
+  });
+
+  it("still renders the full desktop table with every column", () => {
+    render(<ProjectInventory project={project} />);
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers).toEqual(["Unit", "Building", "Floor", "Type", "Area", "Price", "Status"]);
   });
 });

@@ -15,7 +15,6 @@ import { queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import type {
-  ConstructionStatus,
   ForeverVerdict,
   MarketPosition,
   Property,
@@ -102,7 +101,9 @@ function mapToProperty(row: ProjectWithRelations): Property {
     developer: row.developer?.name ?? "",
     location: row.location_area ?? "",
     propertyType: (row.project_type ?? "Not available") as PropertyType,
-    constructionStatus: (row.construction_status ?? "Not available") as ConstructionStatus,
+    // Recorded verbatim. `ConstructionStatus` is an open union precisely so
+    // this no longer needs a cast that misdescribes what the column holds.
+    constructionStatus: row.construction_status ?? "Not available",
     status: (row.sales_status ?? "Not available") as SalesStatus,
     tagline: row.tagline ?? "",
     description: row.full_description ?? row.short_description ?? "",

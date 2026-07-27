@@ -164,7 +164,10 @@ export function ContactForm({
           id="interest"
           name="interest"
           defaultValue={defaultInterest}
-          placeholder="e.g. Aurora Residences, 3-bed"
+          // Neutral by design: the previous example named "Aurora Residences",
+          // a project Forever does not market, and any real project named here
+          // would go stale the moment the catalogue changed (F-011).
+          placeholder="Project name, area, or property type"
           disabled={submitting}
         />
       </div>

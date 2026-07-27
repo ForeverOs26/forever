@@ -103,8 +103,67 @@ export function ProjectInventory({ project }: ProjectInventoryProps) {
           </p>
         </div>
 
+        {/*
+          Below the tablet breakpoint the same rows render as cards (F-013).
+          The 40rem table needs 640 px, which at 375 px left Area, Price and
+          Status behind an unhinted horizontal scroll — the two facts a buyer
+          most wants were off-screen by default. Same rows, same ordering, same
+          formatting helpers; only the presentation differs.
+        */}
+        <ul
+          data-testid="inventory-unit-cards"
+          className="mt-4 grid gap-3 md:hidden"
+          aria-label="Availability and prices"
+        >
+          {rows.map((unit) => {
+            const available = isAvailable(unit);
+            return (
+              <li
+                key={unit.code}
+                className="rounded-2xl border border-border/60 bg-card p-4"
+                data-available={available ? "true" : "false"}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-foreground">{unit.code}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{unit.type || "—"}</div>
+                  </div>
+                  <span
+                    className={`inline-flex shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+                      available ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {statusLabel(unit.availabilityStatus)}
+                  </span>
+                </div>
+                <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Price</dt>
+                    <dd className="tabular-nums text-foreground">{priceLabel(unit)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Area</dt>
+                    <dd className="tabular-nums text-foreground">{areaLabel(unit)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Building</dt>
+                    <dd className="text-foreground">{unit.buildingCode ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Floor</dt>
+                    <dd className="text-foreground">{unit.floor ?? "—"}</dd>
+                  </div>
+                </dl>
+              </li>
+            );
+          })}
+        </ul>
+
         {/* Wide table scrolls inside its own container so the page never does. */}
-        <div className="mt-4 overflow-x-auto rounded-2xl border border-border/60 bg-card">
+        <div
+          data-testid="inventory-unit-table"
+          className="mt-4 hidden overflow-x-auto rounded-2xl border border-border/60 bg-card md:block"
+        >
           <table className="w-full min-w-[40rem] border-collapse text-sm">
             <thead>
               <tr className="border-b border-border/60 text-left text-muted-foreground">
