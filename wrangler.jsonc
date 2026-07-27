@@ -3,6 +3,12 @@
 // .output/server/wrangler.json deploy config. DEPLOY CONFIGURATION ONLY —
 // nothing in this repository deploys it.
 {
+  // Production Worker identity. Without this Nitro auto-generates a name from
+  // the template ("tanstack-start-ts"), which is a placeholder rather than a
+  // chosen identity and would put the public site on an arbitrary hostname.
+  // This name determines the workers.dev origin the site is served from, so it
+  // must stay stable: changing it moves the public site to a different URL.
+  "name": "forever",
   "triggers": {
     // Studio scheduled runner: every 5 minutes the platform invokes the
     // Worker's scheduled() export (no browser session, no HTTP endpoint, no
