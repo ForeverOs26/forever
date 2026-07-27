@@ -13,6 +13,7 @@ import { fingerprintBatch } from "@/features/forever-ingestion/build-batch";
 import { syntheticJpeg, syntheticPng } from "@/features/forever-studio/tests/media-truth-fixtures";
 
 import { adaptBatchMode, publicMediaPath, publishProject, publishProjects } from "../publish";
+import { WARNING_ENTITIES } from "../publishability";
 import type { SourcePackage } from "../source-package";
 import { FakeProductionWorld, OWNER_AUTHORIZATION, PRODUCTION_TARGET } from "./fakes";
 
@@ -292,6 +293,75 @@ describe("publishProject", () => {
     expect(result.status).toBe("failed");
     expect(result.errorCode).toBe("official_source_missing");
     expect(world.projects).toHaveLength(0);
+  });
+
+  it("refuses a warning the review queue cannot store, before anything is written", async () => {
+    // `ingestion_warnings.entity` is a closed set enforced by a CHECK
+    // constraint. Without this check the publish aborts only at the final
+    // transaction — after media upload, and in a batch after earlier projects
+    // have already been written.
+    const world = new FakeProductionWorld();
+    const result = await publishProject(
+      pkg({
+        batch: batch({
+          // Cast: a real package is JSON read from disk, so it can carry an
+          // entity the type system would have rejected at compile time.
+          warnings: [
+            {
+              entity: "source",
+              code: "official_repost_not_a_new_revision",
+              severity: "info",
+              message: "A repost is not a new revision.",
+            },
+          ] as never,
+        }),
+      }),
+      world.deps(),
+      OWNER_AUTHORIZATION,
+    );
+    expect(result.status).toBe("failed");
+    expect(result.errorCode).toBe("warning_entity_unsupported");
+    expect(result.error).toContain("source");
+    expect(world.directPublishCalls).toHaveLength(0);
+    expect(world.projects).toHaveLength(0);
+    expect(world.storage.size).toBe(0);
+  });
+
+  it("refuses an unstorable warning severity", async () => {
+    const world = new FakeProductionWorld();
+    const result = await publishProject(
+      pkg({
+        batch: batch({
+          warnings: [
+            { entity: "unit", code: "x", severity: "critical", message: "Too loud." },
+          ] as never,
+        }),
+      }),
+      world.deps(),
+      OWNER_AUTHORIZATION,
+    );
+    expect(result.status).toBe("failed");
+    expect(result.errorCode).toBe("warning_severity_unsupported");
+    expect(world.projects).toHaveLength(0);
+  });
+
+  it("accepts every entity and severity the review queue does store", async () => {
+    const world = new FakeProductionWorld();
+    const result = await publishProject(
+      pkg({
+        batch: batch({
+          warnings: [...WARNING_ENTITIES].map((entity, index) => ({
+            entity,
+            code: `w${index}`,
+            severity: index % 2 === 0 ? "info" : "warning",
+            message: `Warning for ${entity}.`,
+          })) as never,
+        }),
+      }),
+      world.deps(),
+      OWNER_AUTHORIZATION,
+    );
+    expect(result.status).toBe("published");
   });
 });
 

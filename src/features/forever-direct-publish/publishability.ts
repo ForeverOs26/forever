@@ -13,10 +13,50 @@
  * back in one field at a time.
  */
 
-import type { ProgressiveBatch } from "../forever-ingestion/batch-types";
+import type {
+  ProgressiveBatch,
+  ProgressiveWarning,
+  WarningEntity,
+} from "../forever-ingestion/batch-types";
 
 /** Same shape the database enforces for `projects.slug`. */
 export const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,79}$/;
+
+/**
+ * The persisted review-queue vocabulary, mirroring the
+ * `ingestion_warnings_entity_check` and severity CHECK constraints in
+ * `20260718113000_progressive_ingestion_v1.sql`.
+ *
+ * `WarningEntity` already states this set in the type system, but a source
+ * package is JSON read from disk at publish time, so nothing type-checks it. A
+ * value outside the set aborts the whole publish transaction at its very last
+ * step — after media has already been uploaded, and in a batch run after
+ * earlier projects have already been written. Checking it here moves that
+ * failure into `--dry-run`, where it costs nothing.
+ *
+ * The `satisfies` clause keeps this list and `WarningEntity` from drifting: a
+ * value added to one and not the other stops compiling.
+ */
+const WARNING_ENTITY_LIST = [
+  "project",
+  "listing",
+  "developer",
+  "location",
+  "building",
+  "unit",
+  "price",
+  "media",
+  "document",
+] as const satisfies readonly WarningEntity[];
+
+export const WARNING_ENTITIES: ReadonlySet<string> = new Set<string>(WARNING_ENTITY_LIST);
+
+const WARNING_SEVERITY_LIST = [
+  "info",
+  "warning",
+] as const satisfies readonly ProgressiveWarning["severity"][];
+
+export const WARNING_SEVERITIES: ReadonlySet<string> = new Set<string>(WARNING_SEVERITY_LIST);
 
 export interface PublishabilityFailure {
   code: string;
@@ -82,6 +122,34 @@ export function assessPublishability(batch: ProgressiveBatch): PublishabilityVer
         message: "A new project needs a name before it can have a public page.",
       },
     };
+  }
+
+  // Warnings are persisted rows, so a value the review queue cannot store is an
+  // irreducible technical fact, exactly like an unusable slug — and one the
+  // database would otherwise only report mid-publish.
+  for (const warning of batch.warnings ?? []) {
+    if (!WARNING_ENTITIES.has(warning.entity)) {
+      return {
+        ok: false,
+        failure: {
+          code: "warning_entity_unsupported",
+          message:
+            `Warning "${warning.code}" uses entity "${warning.entity}", which the review queue cannot store. ` +
+            `Use one of: ${[...WARNING_ENTITIES].join(", ")}.`,
+        },
+      };
+    }
+    if (!WARNING_SEVERITIES.has(warning.severity)) {
+      return {
+        ok: false,
+        failure: {
+          code: "warning_severity_unsupported",
+          message:
+            `Warning "${warning.code}" uses severity "${warning.severity}", which the review queue cannot store. ` +
+            `Use one of: ${[...WARNING_SEVERITIES].join(", ")}.`,
+        },
+      };
+    }
   }
 
   if (!hasOfficialSource(batch)) {
