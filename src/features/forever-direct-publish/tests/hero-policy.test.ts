@@ -160,8 +160,8 @@ describe("classifySemanticRole", () => {
     // The same for a project whose slug names a pool or a garden.
     expect(
       classifySemanticRole({
-        ...candidate("images/bangtao-garden-pool-villas-gallery-03.jpg"),
-        slug: "bangtao-garden-pool-villas",
+        ...candidate("images/demo-project-garden-pool-villas-gallery-03.jpg"),
+        slug: "demo-project-garden-pool-villas",
       }).role,
     ).toBe("unknown");
   });
