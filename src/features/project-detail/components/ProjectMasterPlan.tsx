@@ -19,7 +19,7 @@ export function ProjectMasterPlan({ project }: ProjectMasterPlanProps) {
   if (!masterPlan) return null;
 
   return (
-    <Section eyebrow="Master Plan" title="Site plan" className="pt-0">
+    <Section id="master-plan" eyebrow="Master Plan" title="Site plan" className="pt-0">
       <div className="rounded-3xl border border-border/60 bg-card p-6 sm:p-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">

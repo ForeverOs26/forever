@@ -84,6 +84,16 @@ export interface SourceSet {
   schema_version: typeof SOURCE_SET_SCHEMA_VERSION;
   project_hint?: ProjectHint;
   sources: SourceSetEntry[];
+  /**
+   * Basename of an image the Owner wants as the project cover.
+   *
+   * A preference, never an instruction. It must name a file this project
+   * actually publishes, and it still has to pass sanitization, the
+   * cross-project check and the semantic hero gate — an Owner-chosen group
+   * photograph called `hero.jpg` is still refused, with the reason recorded.
+   * Omit it and the policy chooses; that is the normal case.
+   */
+  hero_preference?: string;
 }
 
 export class SourceSetError extends Error {
@@ -250,10 +260,24 @@ export function parseSourceSet(raw: unknown): SourceSet {
     );
   }
   const sources = value.sources.map((entry, index) => validateEntry(entry, index));
+  if (value.hero_preference !== undefined && typeof value.hero_preference !== "string") {
+    throw new SourceSetError(
+      "hero_preference_malformed",
+      "hero_preference must be the basename of an official image.",
+    );
+  }
+  const heroPreference = (value.hero_preference as string | undefined)?.trim();
+  if (heroPreference && /[\\/]/.test(heroPreference)) {
+    throw new SourceSetError(
+      "hero_preference_not_a_basename",
+      "hero_preference must be a basename, never a path.",
+    );
+  }
   return {
     schema_version: SOURCE_SET_SCHEMA_VERSION,
     project_hint: validateHint(value.project_hint),
     sources,
+    ...(heroPreference ? { hero_preference: heroPreference } : {}),
   };
 }
 

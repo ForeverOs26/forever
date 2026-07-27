@@ -70,7 +70,16 @@ const KEYWORD_RULES: ReadonlyArray<{
     category: "master-plan",
   },
   {
-    test: (h) => h.includes("unit plan") || h.includes("unit-plan") || h.includes("unitplan"),
+    // A villa project calls its unit plan a house plan; both are the layout of
+    // one home. Without this, Villa Kirara's "5. House Plan" sheets classified
+    // as photographs and one of them became a candidate for the project cover.
+    test: (h) =>
+      h.includes("unit plan") ||
+      h.includes("unit-plan") ||
+      h.includes("unitplan") ||
+      h.includes("house plan") ||
+      h.includes("house-plan") ||
+      h.includes("houseplan"),
     category: "unit-plan",
   },
   { test: (h) => h.includes("floor") && h.includes("plan"), category: "floor-plan" },

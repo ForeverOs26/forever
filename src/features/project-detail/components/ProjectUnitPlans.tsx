@@ -24,7 +24,7 @@ export function ProjectUnitPlans({ project }: ProjectUnitPlansProps) {
   if (unitPlans.length === 0) return null;
 
   return (
-    <Section eyebrow="Unit Plans" title="Available layouts" className="pt-0">
+    <Section id="unit-plans" eyebrow="Unit Plans" title="Available layouts" className="pt-0">
       <div className="overflow-hidden rounded-3xl border border-border/60 bg-card">
         {unitPlans.map((plan) => (
           <a

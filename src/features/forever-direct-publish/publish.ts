@@ -440,6 +440,10 @@ export async function publishProject(
       otherProjectSlugs: otherSlugs.filter((candidate) => candidate !== slug),
       maxGallery: authorizationInput.maxGallery,
       maxFloorPlans: authorizationInput.maxPlans,
+      // A generated package renamed its files, so the hero policy would find no
+      // evidence in their paths. These are the roles the Factory recorded when
+      // the original source folders were still visible.
+      declaredRoles: pkg.declaredRoles,
     });
     const bytesByPath = new Map(pkg.media.map((candidate) => [candidate.path, candidate.bytes]));
 

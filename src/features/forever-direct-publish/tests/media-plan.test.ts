@@ -166,13 +166,18 @@ describe("planPublicMedia hero selection", () => {
     expect(plan.items.find((item) => item.path === larger.path)?.mediaType).toBe("gallery");
   });
 
-  it("falls back to the largest image when no file designates itself", () => {
+  it("does not hand the cover to an image merely for being larger", () => {
+    // Both are exteriors, so nothing separates them semantically. The choice
+    // must come from a stated tie-break, never from byte size — that rule is
+    // exactly what put a launch-party photograph on Coralina.
     const larger = sizedPhoto("photos/exterior-wide.jpg", 3, 8192);
     const smaller = sizedPhoto("photos/exterior-detail.jpg", 4);
 
-    const plan = planPublicMedia([smaller, larger], { slug: "demo-project" });
+    const first = planPublicMedia([smaller, larger], { slug: "demo-project" });
+    const second = planPublicMedia([larger, smaller], { slug: "demo-project" });
 
-    expect(plan.hero?.path).toBe("photos/exterior-wide.jpg");
+    expect(first.hero?.path).toBe(second.hero?.path);
+    expect(first.hero?.semanticRole).toBe("property_exterior");
   });
 });
 

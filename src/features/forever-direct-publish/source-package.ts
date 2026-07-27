@@ -26,6 +26,7 @@ import type { ProgressiveBatch } from "../forever-ingestion/batch-types";
 import { assertProgressiveBatchStructure } from "../forever-ingestion/batch-types";
 
 import type { SourceMediaCandidate } from "./media-plan";
+import { SEMANTIC_ROLES, type SemanticRole } from "./hero-policy";
 
 /** Payload locations checked in order. First match wins. */
 export const PAYLOAD_CANDIDATE_PATHS: readonly string[] = [
@@ -63,8 +64,36 @@ export interface SourcePackage {
   media: SourceMediaCandidate[];
   /** Parsed source-manifest.json when present; provenance only. */
   manifest: unknown | null;
+  /**
+   * Semantic roles the manifest recorded, keyed by package-relative path.
+   *
+   * A generated package renames every file, so the source section and filename
+   * the hero policy reads no longer exist inside it. This carries the decision
+   * the Factory already made across that boundary.
+   *
+   * Absent for a package with no manifest, which is the correct default: no
+   * record means no declaration, and the policy falls back to path evidence.
+   */
+  declaredRoles?: Map<string, SemanticRole>;
   /** Files skipped while reading, with the reason. */
   skipped: Array<{ path: string; reason: string }>;
+}
+
+/** Read `media[].semantic_role` out of a source manifest, ignoring anything else. */
+export function declaredRolesFromManifest(manifest: unknown): Map<string, SemanticRole> {
+  const roles = new Map<string, SemanticRole>();
+  if (!manifest || typeof manifest !== "object") return roles;
+  const media = (manifest as { media?: unknown }).media;
+  if (!Array.isArray(media)) return roles;
+  for (const entry of media) {
+    if (!entry || typeof entry !== "object") continue;
+    const file = (entry as { file?: unknown }).file;
+    const role = (entry as { semantic_role?: unknown }).semantic_role;
+    if (typeof file !== "string" || typeof role !== "string") continue;
+    if (!(SEMANTIC_ROLES as readonly string[]).includes(role)) continue;
+    roles.set(file.split("\\").join("/"), role as SemanticRole);
+  }
+  return roles;
 }
 
 export class SourcePackageError extends Error {
@@ -204,5 +233,13 @@ export async function readSourcePackage(directory: string): Promise<SourcePackag
     media.push({ path, bytes: await readFile(absolute) });
   }
 
-  return { ref: basename(directory), directory, batch, media, manifest, skipped };
+  return {
+    ref: basename(directory),
+    directory,
+    batch,
+    media,
+    manifest,
+    declaredRoles: declaredRolesFromManifest(manifest),
+    skipped,
+  };
 }

@@ -13,7 +13,7 @@ export function ProjectDeveloper({ project }: ProjectDeveloperProps) {
     const rawName = project.core.developerNameRaw;
     if (!rawName) return null;
     return (
-      <Section eyebrow="Developer" title={rawName} className="pt-0">
+      <Section id="developer" eyebrow="Developer" title={rawName} className="pt-0">
         <div className="rounded-3xl border border-border/60 bg-card p-6 sm:p-8">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/15 text-accent">
@@ -32,7 +32,7 @@ export function ProjectDeveloper({ project }: ProjectDeveloperProps) {
   }
 
   return (
-    <Section eyebrow="Developer" title={developer.name} className="pt-0">
+    <Section id="developer" eyebrow="Developer" title={developer.name} className="pt-0">
       <div className="rounded-3xl border border-border/60 bg-card p-6 sm:p-8">
         <div className="grid gap-8 lg:grid-cols-[1fr_auto] lg:items-start">
           <div>
