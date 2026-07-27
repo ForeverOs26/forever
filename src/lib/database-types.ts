@@ -12,7 +12,12 @@ export type UUID = string;
 export type ISODateTime = string;
 export type ISODate = string;
 
-export type ProjectType = "Villa" | "Residence" | "Condominium" | "Townhouse" | "Land";
+export type ProjectType =
+  | "Villa"
+  | "Residence"
+  | "Condominium"
+  | "Townhouse"
+  | "Land";
 
 export type ConstructionStatus =
   | "Planning"
@@ -24,9 +29,18 @@ export type ConstructionStatus =
 
 export type OwnershipType = "Freehold" | "Leasehold" | "Company" | "Mixed";
 
-export type UnitAvailabilityStatus = "available" | "reserved" | "sold" | "off_market";
+export type UnitAvailabilityStatus =
+  | "available"
+  | "reserved"
+  | "sold"
+  | "off_market";
 
-export type MediaType = "gallery" | "floor_plan" | "brochure" | "video" | "document";
+export type MediaType =
+  | "gallery"
+  | "floor_plan"
+  | "brochure"
+  | "video"
+  | "document";
 
 export interface Developer {
   id: UUID;

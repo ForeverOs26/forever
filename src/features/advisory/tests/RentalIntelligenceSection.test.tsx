@@ -111,7 +111,9 @@ describe("AdvisoryWorkspace with Rental Intelligence", () => {
 
   it("does not render the section when no rental intelligence is supplied", () => {
     render(<AdvisoryWorkspace session={SESSION} />);
-    expect(screen.queryByRole("heading", { name: /rental intelligence/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /rental intelligence/i }),
+    ).not.toBeInTheDocument();
     // Existing sections remain.
     expect(screen.getByRole("heading", { name: /risk panel/i })).toBeInTheDocument();
   });

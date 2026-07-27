@@ -10,7 +10,10 @@
  * none throw.
  */
 
-import { isKnownConfigFieldKind, type ConnectorConfiguration } from "../configuration";
+import {
+  isKnownConfigFieldKind,
+  type ConnectorConfiguration,
+} from "../configuration";
 import { isNonEmptyString } from "../helpers";
 import { connectorError, connectorWarning } from "../result";
 import type { ConnectorIssue } from "../types";

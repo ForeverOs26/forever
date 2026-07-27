@@ -23,8 +23,7 @@ export function scoreRental(input: IntelligenceInput): ScoreResult {
   score += demandScore(fields.rentalDemand);
   if (fields.rentalYieldPercent !== null) score += Math.min(fields.rentalYieldPercent * 6, 30);
   if (fields.averageOccupancyRate !== null) score += Math.min(fields.averageOccupancyRate / 3, 20);
-  if (fields.averageAnnualRoiPercent !== null)
-    score += Math.min(fields.averageAnnualRoiPercent * 3, 15);
+  if (fields.averageAnnualRoiPercent !== null) score += Math.min(fields.averageAnnualRoiPercent * 3, 15);
   if (fields.hasRentalGuarantee) score += 10;
 
   const finalScore = Math.min(100, Math.round(score));

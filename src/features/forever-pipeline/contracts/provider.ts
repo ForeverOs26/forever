@@ -44,7 +44,10 @@ export function definePipelineProvider<P extends PipelineProvider>(provider: P):
 }
 
 /** Whether a provider's pipeline declares that it handles the given entity kind. */
-export function pipelineHandles(provider: PipelineProvider, kind: PipelineEntityKind): boolean {
+export function pipelineHandles(
+  provider: PipelineProvider,
+  kind: PipelineEntityKind,
+): boolean {
   return provider.definition.entities.includes(kind);
 }
 

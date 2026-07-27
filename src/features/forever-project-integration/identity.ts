@@ -35,7 +35,9 @@ export const PROJECT_INTEGRATION_SCOPES = [
 ] as const satisfies readonly ProjectIntegrationScope[];
 
 /** Runtime guard: whether a value is a known {@link ProjectIntegrationScope}. */
-export function isKnownProjectIntegrationScope(value: unknown): value is ProjectIntegrationScope {
+export function isKnownProjectIntegrationScope(
+  value: unknown,
+): value is ProjectIntegrationScope {
   return (
     typeof value === "string" && (PROJECT_INTEGRATION_SCOPES as readonly string[]).includes(value)
   );

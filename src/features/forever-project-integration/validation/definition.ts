@@ -33,7 +33,11 @@ export function validateProjectIntegrationDefinition(
 
   if (definition.stages.length === 0) {
     issues.push(
-      projectIntegrationError("no_stages", "Integration must declare at least one stage", "stages"),
+      projectIntegrationError(
+        "no_stages",
+        "Integration must declare at least one stage",
+        "stages",
+      ),
     );
   }
 

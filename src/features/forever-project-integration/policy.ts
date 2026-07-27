@@ -16,7 +16,10 @@
  */
 
 import type { SyncRetryPolicy } from "@/features/forever-sync";
-import type { PipelineErrorStrategy, PipelineExecutionMode } from "@/features/forever-pipeline";
+import type {
+  PipelineErrorStrategy,
+  PipelineExecutionMode,
+} from "@/features/forever-pipeline";
 
 /**
  * How a future runtime would traverse an integration's stages. Reuses the RC3.5

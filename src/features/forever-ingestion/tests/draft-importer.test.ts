@@ -30,6 +30,6 @@ describe("generic draft project importer", () => {
     expect(importer).toContain("$process.StandardInput.Write($Sql)");
     expect(importer).not.toContain("-f', $PayloadPath");
     expect(launcher).toContain("Read-Host 'Database password' -AsSecureString");
-    expect(command).toContain('start "Forever Draft Project Import" powershell.exe');
+    expect(command).toContain("start \"Forever Draft Project Import\" powershell.exe");
   });
 });

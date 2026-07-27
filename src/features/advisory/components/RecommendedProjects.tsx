@@ -35,15 +35,13 @@ function ProjectCard({ project }: { project: RecommendedProject }) {
         >
           {project.name}
         </h3>
-        {project.matchScore !== null ? (
-          <span
-            className="shrink-0 text-sm font-semibold text-[#9C7B4C]"
-            aria-label={`Match score ${project.matchScore} out of 100`}
-          >
-            {project.matchScore}
-            <span className="text-[#9A958A]">/100</span>
-          </span>
-        ) : null}
+        {project.matchScore !== null ? <span
+          className="shrink-0 text-sm font-semibold text-[#9C7B4C]"
+          aria-label={`Match score ${project.matchScore} out of 100`}
+        >
+          {project.matchScore}
+          <span className="text-[#9A958A]">/100</span>
+        </span> : null}
       </div>
 
       {project.isPlaceholder ? (

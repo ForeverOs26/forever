@@ -9,7 +9,10 @@
  */
 
 import { connectorCapability, type ConnectorCapability } from "../capability";
-import { connectorConfigField, type ConnectorConfiguration } from "../configuration";
+import {
+  connectorConfigField,
+  type ConnectorConfiguration,
+} from "../configuration";
 import type { ConnectorDefinition } from "../definition";
 import type { ConnectorRegistry, ConnectorRegistryEntry } from "../entry";
 import type { ConnectorIdentity } from "../identity";

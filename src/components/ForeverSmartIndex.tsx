@@ -1,6 +1,11 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ForeverSmartIndexProps {
   trustScore: number;
@@ -75,7 +80,12 @@ export function ForeverSmartIndex({
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className={cn("rounded-3xl border border-border/60 bg-card p-6 sm:p-8", className)}>
+      <div
+        className={cn(
+          "rounded-3xl border border-border/60 bg-card p-6 sm:p-8",
+          className
+        )}
+      >
         <div className="grid grid-cols-1 gap-8 sm:grid-cols-3 sm:gap-6">
           {metricDetails.map((metric) => (
             <Tooltip key={metric.key}>
@@ -85,7 +95,8 @@ export function ForeverSmartIndex({
                   className="group relative flex flex-col items-start gap-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 rounded-xl -m-2 p-2"
                   aria-label={`${metric.label}: ${
                     metric.key === "fairPrice"
-                      ? (metric.format?.(values[metric.key], fairPriceLabel) ?? values[metric.key])
+                      ? metric.format?.(values[metric.key], fairPriceLabel) ??
+                        values[metric.key]
                       : values[metric.key].toFixed(metric.decimals) + metric.unit
                   }. ${metric.description}`}
                 >
@@ -95,7 +106,7 @@ export function ForeverSmartIndex({
                   <span
                     className={cn(
                       "font-serif text-3xl tracking-tight transition-colors duration-300",
-                      metric.getColor(values[metric.key]),
+                      metric.getColor(values[metric.key])
                     )}
                   >
                     {metric.key === "fairPrice" ? (
@@ -109,8 +120,8 @@ export function ForeverSmartIndex({
                             (fairPriceIndex > 0
                               ? "below market"
                               : fairPriceIndex < 0
-                                ? "above market"
-                                : "at market")}
+                              ? "above market"
+                              : "at market")}
                         </span>
                       </span>
                     ) : (
@@ -130,7 +141,9 @@ export function ForeverSmartIndex({
                 sideOffset={8}
                 className="max-w-[240px] rounded-xl border border-accent/10 bg-popover px-4 py-3 text-sm text-popover-foreground shadow-[0_12px_40px_rgba(30,30,30,0.06)]"
               >
-                <p className="leading-relaxed text-muted-foreground">{metric.description}</p>
+                <p className="leading-relaxed text-muted-foreground">
+                  {metric.description}
+                </p>
               </TooltipContent>
             </Tooltip>
           ))}
@@ -138,7 +151,8 @@ export function ForeverSmartIndex({
 
         <div className="mt-6 border-t border-border/40 pt-4">
           <p className="text-[11px] leading-relaxed text-muted-foreground/70">
-            Based on comparable projects, verified pricing, and Forever advisory review.
+            Based on comparable projects, verified pricing, and Forever advisory
+            review.
           </p>
         </div>
       </div>

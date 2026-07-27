@@ -427,8 +427,7 @@ export const BOUNDARY_ROUTINES: readonly BoundaryRoutine[] = Object.freeze([
   {
     schema: "forever_import",
     name: "register_prerequisite_approval",
-    identityArgs:
-      "p_issued_at timestamp with time zone, p_expires_at timestamp with time zone, p_request jsonb",
+    identityArgs: "p_issued_at timestamp with time zone, p_expires_at timestamp with time zone, p_request jsonb",
     prokind: "f",
     securityDefiner: false,
     purpose: "prerequisite approval registration",

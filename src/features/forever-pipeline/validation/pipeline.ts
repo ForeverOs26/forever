@@ -42,7 +42,9 @@ export function validatePipelineRegistry(registry: PipelineRegistry): PipelineVa
   const issues: PipelineIssue[] = [];
 
   if (!isNonEmptyString(registry.id)) {
-    issues.push(pipelineError("missing_registry_id", "Pipeline registry is missing an id", "id"));
+    issues.push(
+      pipelineError("missing_registry_id", "Pipeline registry is missing an id", "id"),
+    );
   }
 
   const seenIds = new Set<string>();

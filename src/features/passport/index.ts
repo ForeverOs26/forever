@@ -13,4 +13,7 @@ export type {
   SerializedForeverPassport,
 } from "./passport-types";
 export { createForeverPassport } from "./passport-mapper";
-export { serializeForeverPassport, serializeForeverPassportToJson } from "./passport-serializer";
+export {
+  serializeForeverPassport,
+  serializeForeverPassportToJson,
+} from "./passport-serializer";

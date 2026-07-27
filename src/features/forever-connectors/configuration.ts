@@ -107,7 +107,9 @@ export function requiredConfigFields(
 }
 
 /** The fields whose values are sensitive and must be sourced securely. */
-export function secretConfigFields(configuration: ConnectorConfiguration): ConnectorConfigField[] {
+export function secretConfigFields(
+  configuration: ConnectorConfiguration,
+): ConnectorConfigField[] {
   return configuration.fields.filter((field) => field.secret);
 }
 
@@ -119,6 +121,7 @@ export function hasConfigField(configuration: ConnectorConfiguration, key: strin
 /** Runtime guard: whether a value is a known {@link ConnectorConfigFieldKind}. */
 export function isKnownConfigFieldKind(value: unknown): value is ConnectorConfigFieldKind {
   return (
-    typeof value === "string" && (CONNECTOR_CONFIG_FIELD_KINDS as readonly string[]).includes(value)
+    typeof value === "string" &&
+    (CONNECTOR_CONFIG_FIELD_KINDS as readonly string[]).includes(value)
   );
 }

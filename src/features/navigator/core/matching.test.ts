@@ -176,11 +176,14 @@ describe("evaluateMatch — only source-backed reasons", () => {
     ["6% and 8%"], // ambiguous list
     ["1000% guaranteed"], // implausible / above 100%
     ["+6%"], // explicitly rejected: signed values are not accepted
-  ])("emits no investment reason for the zero/negative/ambiguous yield %j", (yieldText) => {
-    const profile = deriveDecisionProfile(investorAnswers);
-    const project = property({ rentalYield: yieldText });
-    expect(evaluateMatch(profile, project).map((r) => r.kind)).not.toContain("purpose_evidence");
-  });
+  ])(
+    "emits no investment reason for the zero/negative/ambiguous yield %j",
+    (yieldText) => {
+      const profile = deriveDecisionProfile(investorAnswers);
+      const project = property({ rentalYield: yieldText });
+      expect(evaluateMatch(profile, project).map((r) => r.kind)).not.toContain("purpose_evidence");
+    },
+  );
 
   it("still emits the investment reason for a valid quantified positive yield", () => {
     const profile = deriveDecisionProfile(investorAnswers);
@@ -272,12 +275,15 @@ describe("extractQuantifiedYieldPercent — conservative yield parsing", () => {
     expect(extractQuantifiedYieldPercent(signed)).toBeNull();
   });
 
-  it.each([["-6% to 8%"], ["6%–8%"], ["6% to 8%"], ["6% and 8%"], ["6-8%"]])(
-    "returns null for the ambiguous range/list %j",
-    (ambiguous) => {
-      expect(extractQuantifiedYieldPercent(ambiguous)).toBeNull();
-    },
-  );
+  it.each([
+    ["-6% to 8%"],
+    ["6%–8%"],
+    ["6% to 8%"],
+    ["6% and 8%"],
+    ["6-8%"],
+  ])("returns null for the ambiguous range/list %j", (ambiguous) => {
+    expect(extractQuantifiedYieldPercent(ambiguous)).toBeNull();
+  });
 });
 
 describe("location matching never fires on a sentinel location", () => {
@@ -355,10 +361,7 @@ describe("visibleResults — shared presentation rule for both shells", () => {
   });
 
   it("shows the complete catalogue under the fallback when nothing matched", () => {
-    const evaluation = evaluateCatalogue(profile, [
-      property({ slug: "a" }),
-      property({ slug: "b" }),
-    ]);
+    const evaluation = evaluateCatalogue(profile, [property({ slug: "a" }), property({ slug: "b" })]);
     expect(evaluation.noMatchMessage).toBe(NO_EXACT_MATCH_MESSAGE);
     expect(visibleResults(evaluation, false).map((r) => r.project.slug)).toEqual(["a", "b"]);
   });

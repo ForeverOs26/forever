@@ -31,8 +31,7 @@ export function scoreLiquidity(input: IntelligenceInput): ScoreResult {
     score: finalScore,
     maxScore: 100,
     band: band(finalScore),
-    summary:
-      "Liquidity score uses sales status, unit availability, demand, project type, location, and market position.",
+    summary: "Liquidity score uses sales status, unit availability, demand, project type, location, and market position.",
     sourceFields: [
       "core.status",
       "units.availabilityStatus",

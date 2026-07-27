@@ -56,9 +56,7 @@ describe("resale listings", () => {
     const draft = await buildListingDraft(
       {
         reader: emptyReader,
-        projects: {
-          findProjectBySlug: async (slug) => (slug === "coralina" ? { id: "p-1" } : null),
-        },
+        projects: { findProjectBySlug: async (slug) => (slug === "coralina" ? { id: "p-1" } : null) },
       },
       { title: "2BR resale", projectNameRaw: "Coralina" },
     );

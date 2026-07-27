@@ -271,7 +271,11 @@ describe("RC5.5B collision inspector — classifications", () => {
     expect(report.status).toBe("changes_detected");
     expect(report.prerequisitesStatus).toBe("ready");
     expect(report.projectAnchorStatus).toBe("absent_prerequisites_ready");
-    expect(emptyReader.calls).toEqual(["readProjectRows", "readDeveloperRows", "readLocationRows"]);
+    expect(emptyReader.calls).toEqual([
+      "readProjectRows",
+      "readDeveloperRows",
+      "readLocationRows",
+    ]);
   });
 
   it("distinguishes an absent project with missing prerequisites", async () => {
@@ -297,10 +301,7 @@ describe("RC5.5B collision inspector — classifications", () => {
     expect(report.prerequisitesStatus).toBe("blocked");
     expect(report.dependencies).toEqual([
       expect.objectContaining({ dependency: "developer", classification: "ambiguous" }),
-      expect.objectContaining({
-        dependency: "location",
-        classification: "invalid_or_null_natural_key",
-      }),
+      expect.objectContaining({ dependency: "location", classification: "invalid_or_null_natural_key" }),
     ]);
   });
 
@@ -530,7 +531,11 @@ describe("RC5.5B collision inspector — bounded reads and invariants", () => {
     const report = await inspectPlanCollisions(baseInput(operations, emptyReader));
     expect(report.totalInspectedOperations).toBe(405);
     expect(report.countsByClassification.absent).toBe(405);
-    expect(emptyReader.calls).toEqual(["readProjectRows", "readDeveloperRows", "readLocationRows"]);
+    expect(emptyReader.calls).toEqual([
+      "readProjectRows",
+      "readDeveloperRows",
+      "readLocationRows",
+    ]);
   });
 });
 

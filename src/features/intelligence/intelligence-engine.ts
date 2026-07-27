@@ -22,8 +22,7 @@ function getBestBuyerProfile(input: IntelligenceInput): IntelligenceRecommendati
   if (fields.nearbySchoolsCount > 0 && fields.projectType === "Villa") {
     return {
       title: "Family residence buyer",
-      summary:
-        "Best suited to family buyers seeking space, school access, and long-term lifestyle use.",
+      summary: "Best suited to family buyers seeking space, school access, and long-term lifestyle use.",
       sourceFields: ["core.type", "location.nearbySchools", "core.location"],
       sourceValues: {
         projectType: fields.projectType,
@@ -71,10 +70,7 @@ function getRentalStrategy(input: IntelligenceInput): IntelligenceRecommendation
     };
   }
 
-  if (
-    fields.rentalDemand === "Very High" ||
-    (fields.distanceToBeachMeters !== null && fields.distanceToBeachMeters <= 800)
-  ) {
+  if (fields.rentalDemand === "Very High" || fields.distanceToBeachMeters !== null && fields.distanceToBeachMeters <= 800) {
     return {
       title: "Short-stay premium rental strategy",
       summary: "High demand or close beach access supports a short-stay rental positioning.",
@@ -116,8 +112,7 @@ function getExitStrategy(input: IntelligenceInput): IntelligenceRecommendation {
   if (fields.marketPosition === "Below market") {
     return {
       title: "Exit after market repricing",
-      summary:
-        "Below-market positioning supports holding until comparable resale prices reset upward.",
+      summary: "Below-market positioning supports holding until comparable resale prices reset upward.",
       sourceFields: ["trust.marketPosition", "investment.capitalGrowthEstimate"],
       sourceValues: {
         marketPosition: fields.marketPosition,
@@ -128,8 +123,7 @@ function getExitStrategy(input: IntelligenceInput): IntelligenceRecommendation {
 
   return {
     title: "Lifestyle-led resale",
-    summary:
-      "Exit strategy should emphasize location, project quality, and buyer-fit rather than pure yield.",
+    summary: "Exit strategy should emphasize location, project quality, and buyer-fit rather than pure yield.",
     sourceFields: ["core.location", "core.type", "trust.marketPosition"],
     sourceValues: {
       locationArea: fields.locationArea,
@@ -145,8 +139,7 @@ function getInvestmentHorizon(input: IntelligenceInput): IntelligenceRecommendat
   if (fields.constructionStatus === "Planning" || fields.constructionStatus === "Pre-Launch") {
     return {
       title: "5-7 year horizon",
-      summary:
-        "Earlier-stage projects need a longer hold to absorb delivery risk and capture appreciation.",
+      summary: "Earlier-stage projects need a longer hold to absorb delivery risk and capture appreciation.",
       sourceFields: ["core.constructionStatus", "investment.capitalGrowthEstimate"],
       sourceValues: {
         constructionStatus: fields.constructionStatus,
@@ -158,8 +151,7 @@ function getInvestmentHorizon(input: IntelligenceInput): IntelligenceRecommendat
   if (fields.constructionStatus === "Ready" || fields.rentalDemand === "Very High") {
     return {
       title: "3-5 year horizon",
-      summary:
-        "Ready inventory or very high rental demand supports a medium-term investment horizon.",
+      summary: "Ready inventory or very high rental demand supports a medium-term investment horizon.",
       sourceFields: ["core.constructionStatus", "investment.rentalDemand"],
       sourceValues: {
         constructionStatus: fields.constructionStatus,

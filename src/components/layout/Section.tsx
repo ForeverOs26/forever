@@ -27,7 +27,12 @@ export function Section({
       ) : (
         <Container>
           {(eyebrow || title || description) && (
-            <div className={cn("mb-12 max-w-2xl", align === "center" && "mx-auto text-center")}>
+            <div
+              className={cn(
+                "mb-12 max-w-2xl",
+                align === "center" && "mx-auto text-center",
+              )}
+            >
               {eyebrow && (
                 <div className="mb-4 text-xs font-medium uppercase tracking-[0.2em] text-accent">
                   {eyebrow}

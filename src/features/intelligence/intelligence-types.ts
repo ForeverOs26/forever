@@ -7,7 +7,13 @@ export type ForeverVerdict =
   | "Lifestyle Purchase"
   | "Wait for Better Pricing";
 
-export type IntelligenceSourceValue = string | number | boolean | null | string[] | number[];
+export type IntelligenceSourceValue =
+  | string
+  | number
+  | boolean
+  | null
+  | string[]
+  | number[];
 
 export type IntelligenceEvidence = {
   sourceFields: string[];

@@ -28,7 +28,11 @@ export type DependencyResolution =
   | { outcome: "ambiguous"; candidateIds: string[] }
   | { outcome: "skipped" };
 
-function classify(raw: string, slug: string, rows: DependencyCandidate[]): DependencyResolution {
+function classify(
+  raw: string,
+  slug: string,
+  rows: DependencyCandidate[],
+): DependencyResolution {
   const normalizedName = raw.trim().toLowerCase();
   const bySlug = rows.filter((row) => row.slug === slug);
   if (bySlug.length === 1) return { outcome: "linked", id: bySlug[0].id };
@@ -52,11 +56,7 @@ export async function resolveDeveloper(
 ): Promise<DependencyResolution> {
   const raw = rawName?.trim();
   if (!raw) return { outcome: "skipped" };
-  return classify(
-    raw,
-    slugify(raw),
-    await reader.findDevelopers({ slug: slugify(raw), name: raw }),
-  );
+  return classify(raw, slugify(raw), await reader.findDevelopers({ slug: slugify(raw), name: raw }));
 }
 
 export async function resolveLocation(

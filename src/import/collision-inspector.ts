@@ -105,11 +105,7 @@ export interface CollisionInspectionReport {
   blockingFindings: CollisionFinding[];
   dependencies: DependencyFinding[];
   prerequisitesStatus: PrerequisitesStatus;
-  projectAnchorStatus:
-    | "absent_prerequisites_ready"
-    | "absent_prerequisites_missing"
-    | "present"
-    | "blocked";
+  projectAnchorStatus: "absent_prerequisites_ready" | "absent_prerequisites_missing" | "present" | "blocked";
   operationSetError: string | null;
   readOnlyConfirmed: true;
   executeEnabled: false;
@@ -555,7 +551,9 @@ export async function inspectPlanCollisions(
     dependencyFinding("location", locationSlug, locationRead, location),
   ];
   if (developer.error || location.error) {
-    projectDependencyError = diagnostic([developer.error, location.error].filter(isNonEmptyString));
+    projectDependencyError = diagnostic(
+      [developer.error, location.error].filter(isNonEmptyString),
+    );
   } else {
     expectedDeveloperId = developer.id;
     expectedLocationId = location.id;
@@ -739,65 +737,23 @@ function dependencyFinding(
   resolution: ReturnType<typeof resolveDependency>,
 ): DependencyFinding {
   if (!read.ok) {
-    return {
-      dependency,
-      naturalKey,
-      classification: "inspection_error",
-      targetRowCount: 0,
-      blocking: true,
-      detail: read.code,
-    };
+    return { dependency, naturalKey, classification: "inspection_error", targetRowCount: 0, blocking: true, detail: read.code };
   }
   const rows = read.value;
   if (rows.length === 0) {
-    return {
-      dependency,
-      naturalKey,
-      classification: "absent",
-      targetRowCount: 0,
-      blocking: true,
-      detail: "dependency_absent",
-    };
+    return { dependency, naturalKey, classification: "absent", targetRowCount: 0, blocking: true, detail: "dependency_absent" };
   }
   if (rows.length > 1) {
-    return {
-      dependency,
-      naturalKey,
-      classification: "ambiguous",
-      targetRowCount: rows.length,
-      blocking: true,
-      detail: "dependency_duplicate",
-    };
+    return { dependency, naturalKey, classification: "ambiguous", targetRowCount: rows.length, blocking: true, detail: "dependency_duplicate" };
   }
   const row = rows[0];
   if (!row || typeof row !== "object" || !isNonEmptyString(row.id) || !isNonEmptyString(row.slug)) {
-    return {
-      dependency,
-      naturalKey,
-      classification: "invalid_or_null_natural_key",
-      targetRowCount: 1,
-      blocking: true,
-      detail: resolution.error ?? "invalid_dependency_row",
-    };
+    return { dependency, naturalKey, classification: "invalid_or_null_natural_key", targetRowCount: 1, blocking: true, detail: resolution.error ?? "invalid_dependency_row" };
   }
   if (row.slug !== naturalKey) {
-    return {
-      dependency,
-      naturalKey,
-      classification: "identity_conflict",
-      targetRowCount: 1,
-      blocking: true,
-      detail: "slug_mismatch",
-    };
+    return { dependency, naturalKey, classification: "identity_conflict", targetRowCount: 1, blocking: true, detail: "slug_mismatch" };
   }
-  return {
-    dependency,
-    naturalKey,
-    classification: "present_exactly_once",
-    targetRowCount: 1,
-    blocking: false,
-    detail: "exact_natural_key",
-  };
+  return { dependency, naturalKey, classification: "present_exactly_once", targetRowCount: 1, blocking: false, detail: "exact_natural_key" };
 }
 
 // ---------------------------------------------------------------------------
@@ -1327,22 +1283,16 @@ function buildReport(
   const hasChanges = findings.some(
     (item) => item.classification === "absent" || item.classification === "update_required",
   );
-  const prerequisitesStatus: PrerequisitesStatus = dependencies.some(
-    (item) => item.classification !== "present_exactly_once",
-  )
-    ? dependencies.some(
-        (item) =>
-          item.classification !== "absent" && item.classification !== "present_exactly_once",
-      )
+  const prerequisitesStatus: PrerequisitesStatus = dependencies.some((item) => item.classification !== "present_exactly_once")
+    ? dependencies.some((item) => item.classification !== "absent" && item.classification !== "present_exactly_once")
       ? "blocked"
       : "missing"
     : "ready";
-  const status: CollisionInspectionStatus =
-    blockingFindings.length || prerequisitesStatus !== "ready"
-      ? "blocked"
-      : hasChanges
-        ? "changes_detected"
-        : "clean";
+  const status: CollisionInspectionStatus = blockingFindings.length || prerequisitesStatus !== "ready"
+    ? "blocked"
+    : hasChanges
+      ? "changes_detected"
+      : "clean";
 
   return {
     schemaVersion: COLLISION_REPORT_SCHEMA_VERSION,
@@ -1359,7 +1309,8 @@ function buildReport(
     blockingFindings,
     dependencies,
     prerequisitesStatus,
-    projectAnchorStatus: projectResolutionStatus(input, findings, prerequisitesStatus),
+    projectAnchorStatus:
+      projectResolutionStatus(input, findings, prerequisitesStatus),
     operationSetError,
     readOnlyConfirmed: true,
     executeEnabled: false,
@@ -1373,20 +1324,10 @@ function projectResolutionStatus(
   findings: CollisionFinding[],
   prerequisitesStatus: PrerequisitesStatus,
 ): CollisionInspectionReport["projectAnchorStatus"] {
-  const project = findings.find(
-    (item) => item.entity === "project" && item.naturalKey === input.manifest.project_slug,
-  );
-  if (
-    !project ||
-    project.classification === "inspection_error" ||
-    project.classification === "duplicate_target_rows" ||
-    project.classification === "identity_conflict"
-  )
-    return "blocked";
+  const project = findings.find((item) => item.entity === "project" && item.naturalKey === input.manifest.project_slug);
+  if (!project || project.classification === "inspection_error" || project.classification === "duplicate_target_rows" || project.classification === "identity_conflict") return "blocked";
   if (project.classification !== "absent") return "present";
-  return prerequisitesStatus === "ready"
-    ? "absent_prerequisites_ready"
-    : "absent_prerequisites_missing";
+  return prerequisitesStatus === "ready" ? "absent_prerequisites_ready" : "absent_prerequisites_missing";
 }
 
 // ---------------------------------------------------------------------------

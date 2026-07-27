@@ -28,7 +28,9 @@ export function validatePipelineDefinition(definition: PipelineDefinition): Pipe
   }
 
   if (definition.stages.length === 0) {
-    issues.push(pipelineError("no_stages", "Pipeline must declare at least one stage", "stages"));
+    issues.push(
+      pipelineError("no_stages", "Pipeline must declare at least one stage", "stages"),
+    );
   }
 
   const stageIds = new Set<string>();

@@ -65,11 +65,7 @@ function coralinaSizedBatch(): ProgressiveBatch {
     media: [
       { media_type: "cover", url: "https://example.test/cover.jpg" },
       { media_type: "brochure", url: "https://example.test/brochure.pdf", title: "Brochure" },
-      {
-        media_type: "document",
-        url: "https://example.test/payment-plan.pdf",
-        title: "Payment plan",
-      },
+      { media_type: "document", url: "https://example.test/payment-plan.pdf", title: "Payment plan" },
     ],
   });
 }
@@ -181,7 +177,9 @@ describe("progressive ingestion — minimal draft (in-memory behavioral)", () =>
 
     const nullSlug = await buildProgressiveBatch(
       readerWith({
-        developers: [{ id: "dev-3", slug: null, name: "Rhom Bho Property Public Company Limited" }],
+        developers: [
+          { id: "dev-3", slug: null, name: "Rhom Bho Property Public Company Limited" },
+        ],
       }),
       {
         mode: "create",

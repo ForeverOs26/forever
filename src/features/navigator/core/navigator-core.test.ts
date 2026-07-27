@@ -54,14 +54,21 @@ describe("approved NAV-001 questions and options", () => {
     ]);
     expect(SUCCESS_OPTIONS).toHaveLength(6);
     expect(BUDGET_OPTIONS.map((o) => o.key)).toContain("exploring");
-    expect(TIMELINE_OPTIONS.map((o) => o.key)).toEqual(["ready_now", "3_6m", "6_12m", "exploring"]);
+    expect(TIMELINE_OPTIONS.map((o) => o.key)).toEqual([
+      "ready_now",
+      "3_6m",
+      "6_12m",
+      "exploring",
+    ]);
     expect(CONCERN_OPTIONS.map((o) => o.label)).toContain("Legal & ownership rules");
   });
 
   it("does not introduce area / bedroom / property-type / new timing questions", () => {
-    const allKeys = [...WHY_PHUKET_OPTIONS, ...SUCCESS_OPTIONS, ...CONCERN_OPTIONS].map(
-      (o) => o.key,
-    );
+    const allKeys = [
+      ...WHY_PHUKET_OPTIONS,
+      ...SUCCESS_OPTIONS,
+      ...CONCERN_OPTIONS,
+    ].map((o) => o.key);
     expect(allKeys).not.toContain("bedrooms");
     expect(allKeys).not.toContain("property_type");
     expect(allKeys).not.toContain("area");
@@ -94,18 +101,16 @@ describe("shared derivations are deterministic (mode parity)", () => {
   });
 
   it("identical answers produce an identical recommendation path", () => {
-    expect(buildRecommendationPath(fullAnswers())).toEqual(buildRecommendationPath(fullAnswers()));
+    expect(buildRecommendationPath(fullAnswers())).toEqual(
+      buildRecommendationPath(fullAnswers()),
+    );
   });
 });
 
 describe("editing an answer recalculates downstream state", () => {
   it("changes DecisionProfile, Story, and recommendation when an answer changes", () => {
     const base = fullAnswers();
-    const edited: NavigatorAnswers = {
-      ...base,
-      goals: ["peace_privacy"],
-      motivations: ["retirement"],
-    };
+    const edited: NavigatorAnswers = { ...base, goals: ["peace_privacy"], motivations: ["retirement"] };
 
     expect(deriveDecisionProfile(edited)).not.toEqual(deriveDecisionProfile(base));
     expect(buildForeverStory(edited)).not.toEqual(buildForeverStory(base));

@@ -242,7 +242,10 @@ export function evaluateCatalogue(
  * Both shells route through this one function so their visible project sets can
  * never diverge for identical answers and catalogue data.
  */
-export function visibleResults(evaluation: CatalogueEvaluation, browseAll: boolean): MatchResult[] {
+export function visibleResults(
+  evaluation: CatalogueEvaluation,
+  browseAll: boolean,
+): MatchResult[] {
   if (browseAll || !evaluation.hasSupportedMatch) return evaluation.allResults;
   return evaluation.matchedResults;
 }

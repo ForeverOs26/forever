@@ -37,7 +37,9 @@ export function validateConnectorRegistry(registry: ConnectorRegistry): Connecto
   const issues: ConnectorIssue[] = [];
 
   if (!isNonEmptyString(registry.id)) {
-    issues.push(connectorError("missing_registry_id", "Connector registry is missing an id", "id"));
+    issues.push(
+      connectorError("missing_registry_id", "Connector registry is missing an id", "id"),
+    );
   }
 
   const seenIds = new Set<string>();

@@ -585,13 +585,17 @@ describe("RC5.5D migration security: dedicated execution-boundary owner (review 
     // granted TO the owner, and the owner is granted TO no broad identity.
     const ownerMembershipGrants =
       code.match(/GRANT\s+forever_import_execution_owner\s+TO\s+\w+\s*;/gi) ?? [];
-    expect(ownerMembershipGrants).toEqual(["GRANT forever_import_execution_owner TO postgres;"]);
+    expect(ownerMembershipGrants).toEqual([
+      "GRANT forever_import_execution_owner TO postgres;",
+    ]);
     expect(sql).not.toContain("GRANT forever_import_execution_owner TO CURRENT_USER;");
     expect(sql).not.toContain("GRANT forever_import_execution_owner TO SESSION_USER;");
     expect(code).not.toMatch(
       /GRANT\s+(service_role|anon|authenticated|postgres|supabase_admin|pg_\w+)\s+TO forever_import_execution_owner/i,
     );
-    expect(code).not.toMatch(/GRANT forever_import_execution_owner TO (service_role|anon)/i);
+    expect(code).not.toMatch(
+      /GRANT forever_import_execution_owner TO (service_role|anon)/i,
+    );
   });
 
   it("reassigns EXACTLY the boundary schemas, tables, and routines to the owner", () => {

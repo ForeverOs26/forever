@@ -38,7 +38,10 @@ export function defineConnectorProvider<P extends ConnectorProvider>(provider: P
 }
 
 /** Whether a provider's connector carries the given canonical entity kind. */
-export function connectorCarries(provider: ConnectorProvider, kind: ConnectorEntityKind): boolean {
+export function connectorCarries(
+  provider: ConnectorProvider,
+  kind: ConnectorEntityKind,
+): boolean {
   return provider.definition.supportedEntities.includes(kind);
 }
 

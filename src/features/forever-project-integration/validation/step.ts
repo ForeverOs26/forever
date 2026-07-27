@@ -20,7 +20,10 @@ import type { SyncDirection, SyncSystem } from "@/features/forever-sync";
 
 import { isNonEmptyString } from "../helpers";
 import { projectIntegrationError } from "../result";
-import { isKnownProjectIntegrationStepKind, type ProjectIntegrationStep } from "../step";
+import {
+  isKnownProjectIntegrationStepKind,
+  type ProjectIntegrationStep,
+} from "../step";
 import type { ProjectIntegrationIssue } from "../types";
 
 /** The RC3.2 systems, mirrored for runtime guarding and pinned to the type. */

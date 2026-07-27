@@ -34,8 +34,7 @@ export function scoreConstructionRisk(input: IntelligenceInput): ScoreResult {
     score: finalScore,
     maxScore: 100,
     band: band(finalScore),
-    summary:
-      "Construction risk score rewards readiness, inspection evidence, verification, and developer attribution.",
+    summary: "Construction risk score rewards readiness, inspection evidence, verification, and developer attribution.",
     sourceFields: [
       "core.constructionStatus",
       "trust.lastInspection",

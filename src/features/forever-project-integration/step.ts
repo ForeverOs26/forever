@@ -34,7 +34,12 @@ import type { PipelineId } from "@/features/forever-pipeline";
 import type { ProjectIntegrationEntityKind } from "./types";
 
 /** The closed vocabulary of operations an integration step may represent. */
-export type ProjectIntegrationStepKind = "source" | "connector" | "pipeline" | "sync" | "verify";
+export type ProjectIntegrationStepKind =
+  | "source"
+  | "connector"
+  | "pipeline"
+  | "sync"
+  | "verify";
 
 /** Every {@link ProjectIntegrationStepKind}, in a stable declared order. */
 export const PROJECT_INTEGRATION_STEP_KINDS = [

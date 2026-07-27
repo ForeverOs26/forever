@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { mediaStateKey, priceStateKey, type ExistingProjectState } from "./build-batch";
+import {
+  mediaStateKey,
+  priceStateKey,
+  type ExistingProjectState,
+} from "./build-batch";
 import type { FieldProvenanceMap } from "./provenance";
 
 function provenance(metadata: unknown): FieldProvenanceMap {
@@ -64,9 +68,7 @@ export async function fetchExistingProjectState(
   if (unitCodes.size) {
     const { data: prices, error: pricesError } = await client
       .from("unit_price_history")
-      .select(
-        "unit_id,price,currency,price_source,source_file,source_page,price_list_date,metadata",
-      )
+      .select("unit_id,price,currency,price_source,source_file,source_page,price_list_date,metadata")
       .in("unit_id", [...unitCodes.keys()]);
     if (pricesError) throw new Error(`existing prices read failed: ${pricesError.message}`);
     for (const row of (prices ?? []) as Array<Record<string, unknown>>) {
