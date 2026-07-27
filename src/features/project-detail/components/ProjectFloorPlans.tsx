@@ -3,6 +3,7 @@ import { Section } from "@/components/layout/Section";
 import { Button } from "@/components/ui/button";
 import { renderablePlan, renderablePlans } from "../plan-media";
 import type { ProjectDetail } from "../project-detail-types";
+import { hasFloorPlansSection } from "../project-sections";
 
 type ProjectFloorPlansProps = {
   project: ProjectDetail;
@@ -15,7 +16,7 @@ export function ProjectFloorPlans({ project }: ProjectFloorPlansProps) {
   const unitPlans = renderablePlans(project.media.unitPlans);
   const masterPlan = renderablePlan(project.media.masterPlan);
 
-  if (floorPlans.length === 0) return null;
+  if (!hasFloorPlansSection(project)) return null;
 
   return (
     <Section eyebrow="Floor Plans" title="Layouts by building" className="pt-0">

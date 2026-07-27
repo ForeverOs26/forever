@@ -1,9 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { Building2, CalendarCheck, KeySquare, Layers, MapPin, Ruler, Users } from "lucide-react";
+import { Building2, CalendarCheck, Layers, MapPin, Ruler, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
 import type { ProjectDetail } from "../project-detail-types";
+import { projectContactActionsEnabled } from "../contact-actions";
+import { presentableDeveloperName } from "../developer-identity";
 import { buildingCodes, isAvailable, unitSizeRange } from "../unit-presentation";
 
 /**
@@ -43,20 +45,34 @@ export function projectSummaryRows(project: ProjectDetail): SummaryRow[] {
   };
 
   push(MapPin, "Location", project.location.area || project.core.location);
-  push(Building2, "Developer", project.developer?.name || project.core.developerNameRaw);
+  // Withheld when the linked record and the project's own source name different
+  // developers (F2). Printing either side would assert one half of a
+  // contradiction as fact.
+  push(Building2, "Developer", presentableDeveloperName(project));
   push(Layers, "Property type", project.core.type);
   push(CalendarCheck, "Construction", project.core.constructionStatus);
   const buildings = buildingCodes(project.units);
   if (buildings.length > 0) push(Building2, "Buildings", buildings.length);
   if (project.units.length > 0) push(Users, "Listed units", project.units.length);
   push(Ruler, "Unit sizes", unitSizeRange(project.units));
-  push(KeySquare, "Ownership", project.core.ownershipType);
+
+  // Ownership is deliberately absent (finding F4). `projects.ownership_type` is
+  // populated on exactly one of the nine public projects, on a legacy row the
+  // Factory never writes, and no official source for any of them states
+  // freehold, leasehold or foreign quota. Printing "Ownership: Freehold" from
+  // that column states a legal fact about a purchase on no evidence.
+  //
+  // It stays absent until a source-backed, public-safe ownership contract
+  // exists. Nothing here may infer it from project type, developer, unit type
+  // or marketing copy.
+
   return rows;
 }
 
 export function ProjectSummaryPanel({ project, className }: ProjectSummaryPanelProps) {
   const rows = projectSummaryRows(project);
   const available = project.units.filter(isAvailable).length;
+  const contactActionsEnabled = projectContactActionsEnabled();
 
   return (
     <aside
@@ -90,24 +106,38 @@ export function ProjectSummaryPanel({ project, className }: ProjectSummaryPanelP
         </dl>
       ) : null}
 
-      <div className="mt-6 grid gap-2.5 border-t border-border/60 pt-5">
-        <Button asChild size="lg">
-          <Link to="/contact">Request details</Link>
-        </Button>
-        <Button asChild size="lg" variant="outline">
-          <Link to="/contact">Request a viewing</Link>
-        </Button>
-        {project.units.length > 0 ? (
-          <a
-            href="#units"
-            className="mt-1 text-center text-sm font-medium text-accent underline-offset-4 hover:underline"
-          >
-            {available > 0
-              ? `See ${available} available ${available === 1 ? "unit" : "units"}`
-              : "See the full unit list"}
-          </a>
-        ) : null}
-      </div>
+      {/*
+        The contact actions are withheld until gate G0 passes (F5). When they
+        are absent and the project has no units either, the whole block —
+        including its top border and spacing — is absent too, so the panel ends
+        cleanly at the last fact rather than on an empty ruled area.
+      */}
+      {contactActionsEnabled || project.units.length > 0 ? (
+        <div className="mt-6 grid gap-2.5 border-t border-border/60 pt-5">
+          {contactActionsEnabled ? (
+            <>
+              <Button asChild size="lg">
+                <Link to="/contact">Request details</Link>
+              </Button>
+              <Button asChild size="lg" variant="outline">
+                <Link to="/contact">Request a viewing</Link>
+              </Button>
+            </>
+          ) : null}
+          {project.units.length > 0 ? (
+            <a
+              href="#units"
+              className={`text-center text-sm font-medium text-accent underline-offset-4 hover:underline${
+                contactActionsEnabled ? " mt-1" : ""
+              }`}
+            >
+              {available > 0
+                ? `See ${available} available ${available === 1 ? "unit" : "units"}`
+                : "See the full unit list"}
+            </a>
+          ) : null}
+        </div>
+      ) : null}
     </aside>
   );
 }

@@ -1,4 +1,5 @@
 import { PUBLIC_SITE_ORIGIN } from "@/lib/sitemap";
+import { presentableDeveloperName } from "./developer-identity";
 import type { ProjectDetail } from "./project-detail-types";
 
 /**
@@ -50,6 +51,13 @@ export function buildProjectStructuredData(project: ProjectDetail, url: string, 
     ? mapRecordedStatusToAvailability(project.core.status)
     : undefined;
 
+  // The same developer decision the visible page makes (F2), so the two cannot
+  // diverge. `recorded()` still applies: a "Not available" sentinel is not a
+  // brand.
+  const presentableDeveloper = presentableDeveloperName(project);
+  const brandName =
+    presentableDeveloper && recorded(presentableDeveloper) ? presentableDeveloper : null;
+
   return [
     {
       type: "application/ld+json",
@@ -66,9 +74,11 @@ export function buildProjectStructuredData(project: ProjectDetail, url: string, 
         ...(image ? { image: [image] } : {}),
         url,
         ...(recorded(project.core.type) ? { category: project.core.type } : {}),
-        ...(project.developer && recorded(project.developer.name)
-          ? { brand: { "@type": "Organization", name: project.developer.name } }
-          : {}),
+        // Suppressed when Forever's two sources name different developers (F2).
+        // JSON-LD is the machine-readable copy of the page: publishing a
+        // contradicted brand to search engines is the same false claim, made
+        // somewhere it outlives the page and cannot be read in context.
+        ...(brandName ? { brand: { "@type": "Organization", name: brandName } } : {}),
         ...(project.pricing.startingPriceTHB > 0
           ? {
               offers: {

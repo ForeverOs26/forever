@@ -1,6 +1,13 @@
 import { Building2 } from "lucide-react";
 import { Section } from "@/components/layout/Section";
 import type { ProjectDetail, ProjectDetailUnit } from "../project-detail-types";
+import {
+  LISTED_IN_FOREVER_LABEL,
+  TOTAL_PROJECT_UNITS_LABEL,
+  listedInventoryHeading,
+  listedResidenceCount,
+  verifiedTotalProjectUnits,
+} from "../inventory-scale";
 
 type ProjectInventoryProps = {
   project: ProjectDetail;
@@ -73,10 +80,11 @@ export function ProjectInventory({ project }: ProjectInventoryProps) {
   const rows = unitRows(project.units);
   const availableCount = rows.filter(isAvailable).length;
 
-  const title =
-    buildings.size > 0
-      ? `${buildings.size} buildings · ${project.units.length} residences`
-      : `${project.units.length} residences`;
+  // States the number of listed rows as listed rows. It is never the size of
+  // the development, and `verifiedTotalProjectUnits` is the only thing that may
+  // ever speak for that — see ../inventory-scale.ts (finding F1).
+  const title = listedInventoryHeading(project);
+  const totalProjectUnits = verifiedTotalProjectUnits(project);
 
   return (
     <Section id="inventory" eyebrow="Inventory" title={title} className="pt-0">
@@ -91,6 +99,26 @@ export function ProjectInventory({ project }: ProjectInventoryProps) {
           ))}
         </div>
       ) : null}
+
+      {/*
+        The development's own unit total, when Forever holds a verified one —
+        shown as its own labelled fact beside the listed count, never merged
+        with it. Absent today for every project, so this renders nothing.
+      */}
+      {totalProjectUnits === null ? null : (
+        <dl data-testid="project-scale-facts" className="mt-6 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-2xl border border-border/60 bg-card p-5">
+            <dt className="text-sm text-muted-foreground">{TOTAL_PROJECT_UNITS_LABEL}</dt>
+            <dd className="mt-1 font-serif text-2xl text-foreground">{totalProjectUnits}</dd>
+          </div>
+          <div className="rounded-2xl border border-border/60 bg-card p-5">
+            <dt className="text-sm text-muted-foreground">{LISTED_IN_FOREVER_LABEL}</dt>
+            <dd className="mt-1 font-serif text-2xl text-foreground">
+              {listedResidenceCount(project)}
+            </dd>
+          </div>
+        </dl>
+      )}
 
       <div className="mt-8">
         <div className="flex flex-wrap items-baseline justify-between gap-2">

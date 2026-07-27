@@ -16,6 +16,9 @@ type ProjectMasterPlanProps = {
 export function ProjectMasterPlan({ project }: ProjectMasterPlanProps) {
   const masterPlan = renderablePlan(project.media.masterPlan);
 
+  // `hasMasterPlanSection` is this same `renderablePlan` call, and the
+  // navigation gates on it — the two cannot drift. Kept in this form so the
+  // non-null narrowing below survives.
   if (!masterPlan) return null;
 
   return (

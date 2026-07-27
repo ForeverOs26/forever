@@ -8,7 +8,10 @@
  * once, from the same data the sections render, is what keeps the two in step.
  */
 
+import { developerIdentity, presentableDeveloperName } from "./developer-identity";
+import { renderablePlan, renderablePlans } from "./plan-media";
 import type { ProjectDetail, ProjectDetailMediaItem } from "./project-detail-types";
+import { buildingCodes, isAvailable, unitSizeRange } from "./unit-presentation";
 
 /**
  * The project's photographs, cover first, in the order the publish lane
@@ -50,26 +53,30 @@ export function projectSocialImage(project: ProjectDetail): string | null {
   return projectPhotographs(project)[0]?.url ?? null;
 }
 
-/**
- * Above this many photographs, and only above it, `ProjectPhotos` renders the
- * grid that carries `id="photos"`. At or below it the mosaic on the first screen
- * already shows every photograph, so a second section would repeat itself.
- *
- * Exported and consumed by both sides so the navigation and the section cannot
- * disagree about whether the destination exists.
- */
-export const PHOTOS_SECTION_MINIMUM = 5;
-
 export interface ProjectSection {
   id: string;
   label: string;
 }
 
-/** Facilities the project record states outright, as a clean list. */
+/**
+ * Facilities the project record states outright, as a clean list (finding F3).
+ *
+ * Reads `project.facilities` — the structured `facilities` /
+ * `project_facilities` collection — and nothing else.
+ *
+ * It previously read `project.core.highlights`. Highlights are editorial
+ * one-liners, not facilities: Modeva's three are "Forever Verified project
+ * record", "Bang Tao location" and "Structured project foundation". Under a
+ * heading reading "Facilities — What the project includes", those assert three
+ * things the developer never said, about the only project that had any.
+ *
+ * Nothing may be inferred here from highlights, descriptions, photographs or
+ * generic project records.
+ */
 export function projectFacilities(project: ProjectDetail): string[] {
   const seen = new Set<string>();
   const facilities: string[] = [];
-  for (const raw of project.core.highlights) {
+  for (const raw of project.facilities) {
     const value = raw.trim();
     if (!value) continue;
     const key = value.toLowerCase();
@@ -91,33 +98,129 @@ export function paymentPlanDocument(project: ProjectDetail) {
   return project.media.documents.find((document) => document.type === "payment_plan") ?? null;
 }
 
+/**
+ * The gallery renders only when there are enough photographs to be a gallery.
+ *
+ * `ProjectPhotos` has always applied this threshold; the navigation did not,
+ * so any project with one to five photographs — the commonest case — got a
+ * "Photos" pill pointing at an `#photos` element that is never rendered. The
+ * observer in `ProjectSectionNav` silently skips a missing target, so the pill
+ * simply did nothing when clicked and could never become active.
+ */
+export const PHOTO_GALLERY_MINIMUM = 6;
+
+export function hasPhotosSection(project: ProjectDetail): boolean {
+  return projectPhotographs(project).length >= PHOTO_GALLERY_MINIMUM;
+}
+
+export function hasMasterPlanSection(project: ProjectDetail): boolean {
+  return renderablePlan(project.media.masterPlan) !== null;
+}
+
+export function hasFloorPlansSection(project: ProjectDetail): boolean {
+  return renderablePlans(project.media.floorPlans).length > 0;
+}
+
+export function hasUnitPlansSection(project: ProjectDetail): boolean {
+  return renderablePlans(project.media.unitPlans).length > 0;
+}
+
+export function hasFacilitiesSection(project: ProjectDetail): boolean {
+  return projectFacilities(project).length > 0;
+}
+
+export function hasDeveloperSection(project: ProjectDetail): boolean {
+  return developerIdentity(project).state === "named";
+}
+
+export function hasPaymentPlanSection(project: ProjectDetail): boolean {
+  return paymentPlanDocument(project) !== null;
+}
+
+export function hasUnitsSection(project: ProjectDetail): boolean {
+  return project.units.length > 0;
+}
+
+/** The map document `ProjectLocation` offers, when the project has one. */
+export function locationMapDocument(project: ProjectDetail) {
+  return (
+    project.media.documents.find(
+      (document) => document.type === "document" && document.semanticRole === "map",
+    ) ??
+    project.media.documents.find(
+      (document) =>
+        document.type === "document" &&
+        !document.semanticRole &&
+        /map/i.test(document.label + document.title),
+    ) ?? null
+  );
+}
+
+export function hasLocationSection(project: ProjectDetail): boolean {
+  const area = project.location.area || project.core.location;
+  const hasCoordinates =
+    typeof project.location.latitude === "number" && typeof project.location.longitude === "number";
+  return Boolean(area || project.core.address || hasCoordinates || locationMapDocument(project));
+}
+
+export function hasOverviewSection(project: ProjectDetail): boolean {
+  return (
+    Boolean(project.core.description || project.core.tagline) ||
+    projectOverviewFactCount(project) > 0
+  );
+}
+
+/**
+ * How many structured facts the Overview would list.
+ *
+ * `ProjectOverview` renders when it has a description *or* any fact, so the
+ * navigation has to count the facts too — otherwise a project with facts but no
+ * prose renders `id="overview"` with no pill pointing at it.
+ */
+export function projectOverviewFactCount(project: ProjectDetail): number {
+  let count = 0;
+  const has = (value: string | number | null | undefined) => {
+    const text = typeof value === "number" ? String(value) : (value ?? "").trim();
+    if (text) count += 1;
+  };
+
+  has(project.core.type);
+  has(presentableDeveloperName(project));
+  has(project.core.constructionStatus);
+  const buildings = buildingCodes(project.units);
+  if (buildings.length > 0) has(buildings.join(", "));
+  if (project.units.length > 0) has(project.units.length);
+  if (project.units.length > 0) has(project.units.filter(isAvailable).length);
+  has(unitSizeRange(project.units));
+  has(project.location.area || project.core.location);
+  has(project.core.address);
+  return count;
+}
+
+/**
+ * The sections this project actually renders.
+ *
+ * Every entry is decided by the *same* predicate the corresponding component
+ * renders on, imported from here rather than re-derived. That is the whole
+ * point: the original file promised "a link can never scroll to an empty
+ * destination" while gating six of its ten entries on looser conditions than
+ * the components applied.
+ */
 export function projectSections(project: ProjectDetail): ProjectSection[] {
   const sections: ProjectSection[] = [];
   const add = (id: string, label: string, present: boolean) => {
     if (present) sections.push({ id, label });
   };
 
-  add("overview", "Overview", Boolean(project.core.description || project.core.tagline));
-  // `id="photos"` belongs to `ProjectPhotos`, which renders nothing at five
-  // photographs or fewer — those are already all visible in the mosaic on the
-  // first screen. Linking to it below that threshold scrolls to a destination
-  // that is not in the document.
-  //
-  // Pre-existing, and this contract makes it likely rather than theoretical: a
-  // gallery that loses its launch-party photographs can land anywhere between
-  // one and five, which is precisely the range where the link went nowhere.
-  add("photos", "Photos", projectPhotographs(project).length > PHOTOS_SECTION_MINIMUM);
-  add("units", "Available Units", project.units.length > 0);
-  add("facilities", "Facilities", projectFacilities(project).length > 0);
-  add("master-plan", "Master Plan", Boolean(project.media.masterPlan));
-  add("floor-plans", "Floor Plans", project.media.floorPlans.length > 0);
-  add("unit-plans", "Unit Plans", project.media.unitPlans.length > 0);
-  add("payment-plan", "Payment Plan", Boolean(paymentPlanDocument(project)));
-  add("developer", "Developer", Boolean(project.developer?.name));
-  add(
-    "location",
-    "Location",
-    Boolean(project.location.area || project.core.location || project.core.address),
-  );
+  add("overview", "Overview", hasOverviewSection(project));
+  add("photos", "Photos", hasPhotosSection(project));
+  add("units", "Available Units", hasUnitsSection(project));
+  add("facilities", "Facilities", hasFacilitiesSection(project));
+  add("master-plan", "Master Plan", hasMasterPlanSection(project));
+  add("floor-plans", "Floor Plans", hasFloorPlansSection(project));
+  add("unit-plans", "Unit Plans", hasUnitPlansSection(project));
+  add("payment-plan", "Payment Plan", hasPaymentPlanSection(project));
+  add("developer", "Developer", hasDeveloperSection(project));
+  add("location", "Location", hasLocationSection(project));
   return sections;
 }
