@@ -397,6 +397,22 @@ describe("section navigation", () => {
     expect(container.querySelector("#photos")).not.toBeNull();
   });
 
+  /**
+   * The page keeps exactly one `<main>`, and it belongs to `SiteShell`. The
+   * detail engine is a fragment and the section navigation is a `<nav>`; a
+   * second landmark here would give assistive technology two "main" regions on
+   * one page. jsdom cannot verify the rendered width behaviour, but it can
+   * verify this.
+   */
+  it("adds no second <main> landmark", async () => {
+    const project = makeProjectDetail({
+      core: { description: "A project." },
+      units: [makeUnit()],
+    });
+    await renderInRouter(<ProjectDetailEngine project={project} />, "About this project");
+    expect(document.querySelectorAll("main")).toHaveLength(0);
+  });
+
   it("every navigation entry corresponds to a section the page actually renders", async () => {
     const project = makeProjectDetail({
       core: { description: "A project.", highlights: [] },
