@@ -13,8 +13,13 @@ import type {
  */
 
 /**
- * One amenity as the mapper would emit it: every field a plain string, with
- * `name` the only one a caller must supply.
+ * One amenity as the mapper would emit it, with `name` the only field a caller
+ * must supply.
+ *
+ * `isFeatured` and `sortOrder` default to the same values the database defaults
+ * give a link the Owner has never ordered — unfeatured, `0` — so a fixture that
+ * says nothing about ordering describes a real, common row rather than an
+ * invented one.
  */
 export function makeAmenity(overrides: Partial<ProjectAmenity> = {}): ProjectAmenity {
   const name = overrides.name ?? "Communal pool";
@@ -26,6 +31,8 @@ export function makeAmenity(overrides: Partial<ProjectAmenity> = {}): ProjectAme
     category: overrides.category ?? "",
     icon: overrides.icon ?? "",
     note: overrides.note ?? "",
+    isFeatured: overrides.isFeatured ?? false,
+    sortOrder: overrides.sortOrder ?? 0,
   };
 }
 

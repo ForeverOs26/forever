@@ -32,6 +32,8 @@ import { slugify } from "@/import/persistence-projection";
 import {
   projectPagePath,
   resalePagePath,
+  STUDIO_MAX_AMENITY_SORT_ORDER,
+  STUDIO_MAX_FEATURED_AMENITIES,
   STUDIO_WORKFLOWS,
   type StartJobInput,
   type StartJobResult,
@@ -55,11 +57,13 @@ import {
 import {
   StudioAccessError,
   type StudioActor,
+  type StudioAmenityCatalogueRow,
   type StudioAuditEntry,
   type StudioDeps,
   type StudioJobRow,
   type StudioListingPublishRow,
   type StudioPrivateContact,
+  type StudioProjectAmenityRow,
 } from "./contracts";
 import { logStudioFailure, redact, safeMessageFor, StudioError, toSafeError } from "./errors";
 import {
@@ -1411,6 +1415,242 @@ export async function saveProjectFacts(
     metadata: { slug: input.slug, fields: Object.keys(manual.fields) },
   });
   return { slug: input.slug, warnings: warningSummaries(batch.warnings ?? []) };
+}
+
+// ---------------------------------------------------------------------------
+// Project amenities (FOREVER-STUDIO-AMENITIES-CORE-001)
+// ---------------------------------------------------------------------------
+
+/** One amenity as the editor submits it: slug identity plus editorial fields. */
+export interface StudioProjectAmenityInput {
+  slug: string;
+  note: string;
+  isFeatured: boolean;
+  sortOrder: number;
+}
+
+/** One canonical amenity the Owner explicitly asked to create in this save. */
+export interface StudioCreatedAmenityInput {
+  name: string;
+  slug: string;
+  category: string;
+  icon: string;
+}
+
+/** The kebab-case shape a canonical amenity slug must have, per the migration. */
+const AMENITY_SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/**
+ * A refused amenity save. Never retryable: every one of these is a deterministic
+ * property of the submitted set, so the same request would be refused again —
+ * and the UI must offer a correction, not a retry.
+ */
+function amenityRefusal(code: string, message: string): StudioError {
+  return new StudioError(code, message, false);
+}
+
+/**
+ * Validate the complete requested set BEFORE the transaction runs.
+ *
+ * Defence in depth, not the enforcement point: `studio_save_project_amenities`
+ * re-checks every rule below inside the transaction, which is what actually
+ * protects the data. Checking here as well buys two things the database cannot
+ * give: the codes are raised with a sentence the Owner can act on rather than a
+ * bare SQL sentinel, and an unsaveable set never opens a transaction or takes a
+ * row lock on the project. The codes deliberately match the SQL sentinels
+ * one-for-one so a failure reads identically whichever layer caught it.
+ */
+function assertProjectAmenitiesValid(
+  amenities: StudioProjectAmenityInput[],
+  createdAmenities: StudioCreatedAmenityInput[],
+): void {
+  const seen = new Set<string>();
+  for (const entry of amenities) {
+    const slug = entry.slug.trim();
+    if (!slug) {
+      throw amenityRefusal(
+        "studio_project_amenities_slug_required",
+        "Every selected amenity needs an identifier.",
+      );
+    }
+    if (seen.has(slug)) {
+      throw amenityRefusal(
+        "studio_project_amenities_duplicate_slug",
+        "The same amenity was selected twice.",
+      );
+    }
+    seen.add(slug);
+    // The upper bound is not cosmetic. Above int4 the function's `::integer`
+    // cast raises a raw `value out of range`, which reaches the browser as the
+    // generic retryable failure — a permanent refusal dressed up as a transient
+    // one. Refusing it here names the reason.
+    if (
+      !Number.isInteger(entry.sortOrder) ||
+      entry.sortOrder < 0 ||
+      entry.sortOrder > STUDIO_MAX_AMENITY_SORT_ORDER
+    ) {
+      throw amenityRefusal(
+        "studio_project_amenities_invalid_sort_order",
+        "Amenity order positions must be whole numbers between zero and 1,000,000.",
+      );
+    }
+  }
+
+  // At most 8 featured. A public page that leads with everything leads with
+  // nothing — the same reason the migration states.
+  const featured = amenities.filter((entry) => entry.isFeatured).length;
+  if (featured > STUDIO_MAX_FEATURED_AMENITIES) {
+    throw amenityRefusal(
+      "studio_project_amenities_featured_limit",
+      "At most 8 amenities can be featured.",
+    );
+  }
+
+  const createdSlugs = new Set<string>();
+  for (const created of createdAmenities) {
+    const slug = created.slug.trim();
+    if (!slug || !created.name.trim()) {
+      throw amenityRefusal(
+        "studio_amenity_name_and_slug_required",
+        "A new amenity needs both a name and an identifier.",
+      );
+    }
+    if (!AMENITY_SLUG_PATTERN.test(slug)) {
+      throw amenityRefusal(
+        "studio_amenity_slug_invalid",
+        "An amenity identifier must be lower-case words joined by single hyphens.",
+      );
+    }
+    if (createdSlugs.has(slug)) {
+      throw amenityRefusal(
+        "studio_amenity_slug_duplicate",
+        "The same new amenity identifier was submitted twice.",
+      );
+    }
+    createdSlugs.add(slug);
+  }
+
+  // A created amenity must be one this project is selecting. `amenities` is a
+  // shared catalogue with no delete path, so a row created and then not used is
+  // permanent clutter for every project — exactly what the editor's close-match
+  // warning exists to prevent, but reachable straight past it. Creation is a
+  // side effect of selecting something that does not exist yet.
+  for (const slug of createdSlugs) {
+    if (!seen.has(slug)) {
+      throw amenityRefusal(
+        "studio_amenity_created_unused",
+        "A new amenity can only be created as part of selecting it for this project.",
+      );
+    }
+  }
+}
+
+/**
+ * The catalogue plus this project's current selection, for the editor's
+ * first render.
+ *
+ * Read-only, so it runs for any actor with access to the project — a Trusted
+ * Publisher may see what a project offers. Only the SAVE is Owner-only.
+ */
+export async function getProjectAmenities(
+  deps: StudioDeps,
+  actor: StudioActor,
+  input: { slug: string },
+): Promise<{
+  slug: string;
+  catalogue: StudioAmenityCatalogueRow[];
+  selected: StudioProjectAmenityRow[];
+}> {
+  assertNotPartnerDemo(deps);
+  const project = await requireProjectAccess(deps, actor, input.slug);
+  const [catalogue, selected] = await Promise.all([
+    deps.data.listAmenityCatalogue(),
+    deps.data.listProjectAmenities(project.id),
+  ]);
+  return { slug: input.slug, catalogue, selected };
+}
+
+/**
+ * Reconcile one project's canonical amenity set in a single transaction.
+ *
+ * Owner-only, and asserted here as well as inside the function. The role is a
+ * property of the ACTOR, so the server boundary can refuse before any project
+ * row is locked; the in-transaction check is what makes the guarantee
+ * unbypassable. Neither is redundant — removing either one would leave a path
+ * (a future non-endpoint caller, or a direct service-role connection) that the
+ * other does not cover.
+ *
+ * What comes back is the transaction's canonical state, never the caller's
+ * input: notes are trimmed, sort orders defaulted, newly created slugs resolved
+ * to real rows, and the whole set already in public display order. An editor
+ * that re-hydrated from its own optimistic value would drift from the page it
+ * just published.
+ */
+export async function saveProjectAmenities(
+  deps: StudioDeps,
+  actor: StudioActor,
+  input: {
+    slug: string;
+    amenities: StudioProjectAmenityInput[];
+    createdAmenities: StudioCreatedAmenityInput[];
+  },
+): Promise<{
+  slug: string;
+  selected: StudioProjectAmenityRow[];
+  selectedCount: number;
+  featuredCount: number;
+  createdAmenitySlugs: string[];
+}> {
+  assertNotPartnerDemo(deps);
+  const project = await requireProjectAccess(deps, actor, input.slug);
+  assertOwner(actor);
+  assertProjectAmenitiesValid(input.amenities, input.createdAmenities);
+
+  const saved = await deps.data.saveProjectAmenities({
+    projectId: project.id,
+    actorId: actor.userId,
+    // The EXACT final set. An empty array is valid and clears the project's
+    // amenities; it is never read as "no change".
+    amenities: input.amenities.map((entry) => ({
+      amenity_slug: entry.slug.trim(),
+      note: entry.note,
+      is_featured: entry.isFeatured,
+      sort_order: entry.sortOrder,
+    })),
+    createdAmenities: input.createdAmenities.map((created) => ({
+      name: created.name.trim(),
+      slug: created.slug.trim(),
+      category: created.category,
+      icon: created.icon,
+    })),
+    suppliedAt: deps.now(),
+    injectFailure: false,
+  });
+
+  await recordAuditSafely(deps, {
+    actor_id: actor.userId,
+    actor_email: actor.email,
+    action: "studio_project_amenities_saved",
+    table_name: "project_amenities",
+    record_id: project.id,
+    // Counts and slugs only. A note is project editorial copy that belongs on
+    // the project row, not duplicated into an append-only audit trail nothing
+    // ever edits.
+    metadata: {
+      slug: input.slug,
+      selected: saved.selectedCount,
+      featured: saved.featuredCount,
+      created: saved.createdAmenitySlugs,
+    },
+  });
+
+  return {
+    slug: input.slug,
+    selected: saved.amenities,
+    selectedCount: saved.selectedCount,
+    featuredCount: saved.featuredCount,
+    createdAmenitySlugs: saved.createdAmenitySlugs,
+  };
 }
 
 export async function setProjectHeroImage(

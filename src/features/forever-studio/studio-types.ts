@@ -299,6 +299,73 @@ export interface StudioProjectDetail {
   lastSourceDate: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Project amenities (FOREVER-STUDIO-AMENITIES-CORE-001)
+// ---------------------------------------------------------------------------
+
+/**
+ * Ceiling on featured amenities per project, mirroring the CHECK the
+ * `studio_save_project_amenities` function enforces. Declared here so the
+ * browser can disable the control BEFORE a save is attempted rather than
+ * letting the Owner discover the rule as a server refusal — the database
+ * remains the authority, this is only the earlier, kinder statement of it.
+ */
+export const STUDIO_MAX_FEATURED_AMENITIES = 8;
+
+/**
+ * Ceiling on a single `sortOrder` value, mirroring the bound
+ * `studio_save_project_amenities` enforces.
+ *
+ * It exists to stop a value above int4 reaching the function's `::integer`
+ * cast, where it would raise a raw `value out of range` instead of a named
+ * refusal the app layer can explain. A million is four orders of magnitude
+ * above anything a hand-ordered list of amenities needs — the editor renumbers
+ * in steps of ten — so a payload beyond it is a bug in the caller, not an
+ * unusually long list.
+ */
+export const STUDIO_MAX_AMENITY_SORT_ORDER = 1_000_000;
+
+/** One row of the canonical amenity catalogue, for the Studio picker. */
+export type StudioAmenityCatalogueEntry = {
+  id: string;
+  slug: string;
+  name: string;
+  category: string;
+  icon: string;
+};
+
+/**
+ * One amenity assigned to a project, as the editor holds and submits it.
+ *
+ * `slug` — not the amenity id — is the identity that crosses the wire: a
+ * newly created amenity has no id until the save commits, so the slug is the
+ * only key that can name both an existing catalogue row and one being created
+ * in the same request.
+ */
+export type StudioProjectAmenity = {
+  slug: string;
+  name: string;
+  category: string;
+  icon: string;
+  note: string;
+  isFeatured: boolean;
+  sortOrder: number;
+};
+
+/**
+ * A canonical amenity the Owner explicitly asked to create in this save.
+ *
+ * Creation is always explicit. A requested slug that matches nothing is a
+ * refusal, never an implicit insert, so the shared catalogue cannot grow by
+ * typo.
+ */
+export type StudioCreatedAmenity = {
+  name: string;
+  slug: string;
+  category: string;
+  icon: string;
+};
+
 /** Resale detail for the edit form. Includes private contact (Studio may view). */
 export interface StudioListingDetail {
   id: string;

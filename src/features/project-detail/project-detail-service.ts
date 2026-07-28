@@ -14,6 +14,14 @@ import type { ProjectDetail, ProjectDetailRecord } from "./project-detail-types"
  * and returns the projects unchanged, with an empty `amenities` array where the
  * relation holds no rows. That matters because a failing embed does not hide
  * one section — it fails the whole project query and takes every page down.
+ *
+ * `is_featured` and `sort_order` join that embed as of
+ * `20260728160000_studio_project_amenities_editor.sql`. The grant they rely on
+ * is the table-level `GRANT SELECT ON public.project_amenities TO anon,
+ * authenticated` from the base migration, which covers columns added later, so
+ * they need no grant of their own. Both are `NOT NULL` with a default, so the
+ * embed returns them for every visible row including rows written before the
+ * columns existed.
  */
 export const PROJECT_DETAIL_SELECT = `
   id, name, slug, project_type, location_area, address,
@@ -27,7 +35,7 @@ export const PROJECT_DETAIL_SELECT = `
   media:project_media(id, media_type, title, url, sort_order),
   units:units(id, unit_code, unit_type, bedrooms, bathrooms, size_sqm, floor, view_type, ownership_type, base_price_thb, discounted_price_thb, price_per_sqm, availability_status, payment_plan, furniture_package, rental_guarantee, roi_estimate, notes, building:buildings(building_code)),
   investment:investment_data(id, project_id, unit_id, expected_daily_rate, expected_monthly_rent, expected_yearly_rent, occupancy_rate, annual_roi_percent, guaranteed_rental_percent, guarantee_years, management_company, notes, created_at),
-  amenities:project_amenities(note, amenity:amenities(id, name, slug, category, icon))
+  amenities:project_amenities(note, is_featured, sort_order, amenity:amenities(id, name, slug, category, icon))
 ` as const;
 
 /**
