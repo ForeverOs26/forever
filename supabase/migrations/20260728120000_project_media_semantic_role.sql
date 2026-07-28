@@ -317,9 +317,13 @@ REVOKE ALL ON FUNCTION public.forever_project_cover_reconcile(UUID, TEXT) FROM a
 GRANT EXECUTE ON FUNCTION public.forever_project_cover_reconcile(UUID, TEXT) TO service_role;
 
 COMMENT ON FUNCTION public.forever_project_cover_reconcile(UUID, TEXT) IS
-  'Demotes superseded cover rows of one project to gallery so exactly one '
-  'active cover remains. Deletes nothing. No-op when no replacement cover is '
-  'named, so an enrichment run cannot strip a good cover.';
+  'Retires superseded cover rows of one project to media_type = superseded_cover '
+  'so exactly one active cover remains. Deliberately NOT gallery: the public '
+  'reader admits both cover and gallery, so moving a row between them would be '
+  'invisible, and (project_id, media_type, url) could collide with an existing '
+  'gallery row. Deletes nothing. No-op when no replacement cover is named, and '
+  'no-op until the replacement row exists, so an enrichment run cannot strip a '
+  'good cover and a project is never briefly cover-less.';
 
 COMMENT ON COLUMN public.project_media.semantic_role IS
   'What the image depicts, from the fixed vocabulary in hero-policy.ts. '
@@ -344,10 +348,13 @@ COMMIT;
 --   ALTER TABLE public.project_media DROP COLUMN IF EXISTS semantic_role;
 --   COMMIT;
 --
--- Rolling back does NOT re-promote a demoted cover row. Demotion is recorded in
--- `media_type` and a project's active cover is whatever `main_image_url` names,
--- so the public page is correct either way; restoring a superseded designation
--- would mean re-introducing the defect.
+-- The rollback restores every `superseded_cover` row to `cover`, because the
+-- `superseded_cover` value only has meaning while this migration's reader and
+-- reconciler are in place. That deliberately re-introduces the two-cover state
+-- the migration corrects — which is what a rollback is for. A project's
+-- displayed cover is whatever `main_image_url` names either way, so the hero
+-- slot stays correct; what returns is the superseded row's visibility in the
+-- photo strip.
 --
 -- Dropping the column discards classifications but no source media: every
 -- published asset remains in storage and every private original remains
