@@ -36,8 +36,6 @@ export function mapRecordedStatusToAvailability(status: string): string | undefi
 }
 
 export function buildProjectStructuredData(project: ProjectDetail, url: string, image?: string) {
-  const images = image ? [image] : [];
-
   const additionalProperty = [
     recorded(project.core.constructionStatus)
       ? {
@@ -60,7 +58,12 @@ export function buildProjectStructuredData(project: ProjectDetail, url: string, 
         "@type": "Product",
         name: project.core.name,
         ...(recorded(project.core.description) ? { description: project.core.description } : {}),
-        image: images,
+        // Omitted, not emitted empty. The module's own rule is that an absent
+        // fact is never serialized, and `image: []` broke it — it stated that
+        // the project's pictures had been considered and there were none, in a
+        // field consumers read as the project's photograph. A project whose only
+        // photographs depict something else has no image to give.
+        ...(image ? { image: [image] } : {}),
         url,
         ...(recorded(project.core.type) ? { category: project.core.type } : {}),
         ...(project.developer && recorded(project.developer.name)

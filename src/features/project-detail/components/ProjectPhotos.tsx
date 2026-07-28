@@ -1,7 +1,7 @@
 import { Section } from "@/components/layout/Section";
 
 import type { ProjectDetail } from "../project-detail-types";
-import { projectPhotographs } from "../project-sections";
+import { PHOTOS_SECTION_MINIMUM, projectPhotographs } from "../project-sections";
 import { ProjectLightbox, useLightbox } from "./ProjectLightbox";
 
 /**
@@ -24,7 +24,7 @@ export function ProjectPhotos({ project }: ProjectPhotosProps) {
   const photographs = projectPhotographs(project);
   const lightbox = useLightbox();
 
-  if (photographs.length <= 5) return null;
+  if (photographs.length <= PHOTOS_SECTION_MINIMUM) return null;
 
   return (
     <Section

@@ -23,6 +23,13 @@ import type {
   SalesStatus,
 } from "@/lib/data";
 import { isKnownFictitiousProjectSlug } from "@/lib/public-truth";
+import {
+  isPublicPhotograph,
+  isPubliclyPresentable,
+  neverPublicUrls,
+  presentableCoverUrl,
+  prohibitedPhotographUrls,
+} from "@/lib/public-media-policy";
 
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 type DeveloperRow = Database["public"]["Tables"]["developers"]["Row"];
@@ -42,7 +49,20 @@ function resolveMediaUrl(url: string | null | undefined): string {
 
 type ProjectWithRelations = ProjectRow & {
   developer: Pick<DeveloperRow, "name"> | null;
-  media: Pick<MediaRow, "media_type" | "url" | "sort_order">[];
+  // `semantic_role` is declared here rather than read from `MediaRow` because
+  // the generated database types lag migration 20260728120000. This is a TYPE
+  // accommodation only: if the column were absent, PostgREST would already have
+  // failed the whole embedded select with 42703 and this shape is never built.
+  //
+  // REQUIRED, not optional, and that is deliberate. Optional would let a future
+  // edit drop `semantic_role` from `SELECT` and still compile, after which every
+  // row arrives with the field `undefined`, the readers answer "show it" for all
+  // of them — correctly, that is the pre-backfill rollout guarantee — and the
+  // contract fails open in silence. `public-query-contract.test.ts` pins the
+  // select string itself; this pins the shape the code is written against.
+  media: (Pick<MediaRow, "media_type" | "url" | "sort_order"> & {
+    semantic_role: string | null;
+  })[];
 };
 
 /**
@@ -50,6 +70,35 @@ type ProjectWithRelations = ProjectRow & {
  * internal provenance and progressive-ingestion metadata which must not cross
  * the anonymous client boundary. The matching database column grants live in
  * migration 20260723130000_public_projection_privacy.sql.
+ *
+ * DEPLOY ORDER IS PART OF THIS CONTRACT — the same hard gate the Project Detail
+ * projection carries. This select requests `project_media.semantic_role`
+ * (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001), and PostgREST fails an ENTIRE
+ * embedded select with 42703 when a requested column does not exist. Deploying
+ * this client before
+ * `supabase/migrations/20260728120000_project_media_semantic_role.sql` has been
+ * applied would empty the catalogue, not merely one card. For that direction it
+ * is not a new gate: the migration already had to precede any build carrying
+ * `PROJECT_DETAIL_SELECT`.
+ *
+ * THERE IS A SECOND, DIFFERENT ORDERING HAZARD, and an earlier version of this
+ * comment denied it. `20260723130000_public_projection_privacy.sql` is
+ * documented in its own header as intentionally UNAPPLIED, so on this database
+ * it necessarily arrives AFTER `20260728120000`. It does
+ * `REVOKE SELECT ON TABLE public.project_media FROM anon` and re-grants a column
+ * list written before `semantic_role` existed — and a column-less REVOKE removes
+ * column-level grants too. Applying it in that order takes `semantic_role` away
+ * again and blanks the catalogue and every project page together.
+ *
+ * Apply `20260723130000` BEFORE `20260728120000`, or add `semantic_role` to its
+ * grant list first. The release gate measures the outcome rather than trusting
+ * the order: `npm run media:role-census -- --stage before_backfill` blocks when
+ * `anon` cannot read `semantic_role`.
+ *
+ * The role is requested because it is the only way this reader can tell a pool
+ * render from a launch-party photograph. Reading `media_type` alone — which is
+ * what this did — let a prohibited image be a catalogue card's picture.
+ * `metadata` remains unreadable by the anonymous role.
  */
 const SELECT = `
   id, slug, name, project_type, location_area, short_description,
@@ -59,7 +108,7 @@ const SELECT = `
   tagline, highlights, beds_display, area_range, nearby_schools,
   nearby_hospitals, lifestyle, start_date_display, completion_date_display,
   developer:developers(name),
-  media:project_media(media_type, url, sort_order)
+  media:project_media(media_type, url, sort_order, semantic_role)
 ` as const;
 
 /**
@@ -78,9 +127,41 @@ const SELECT = `
  * prices, distances, media) continues to map through normally.
  */
 function mapToProperty(row: ProjectWithRelations): Property {
-  const media = [...(row.media ?? [])].sort((a, b) => a.sort_order - b.sort_order);
+  const all = [...(row.media ?? [])].sort((a, b) => a.sort_order - b.sort_order);
+
+  // The floor for every bucket below, applied once — the same floor
+  // `groupProjectMedia` applies on the detail side. Retired covers and anything
+  // whose recorded subject is people are not this project's plans, brochures or
+  // videos either, and leaving these six buckets on a bare `media_type` match
+  // while the detail reader had a floor would recreate, one field at a time,
+  // exactly the asymmetry blocker 117-4 was.
+  // Per URL, not per row: a re-published project holds the same URL as both a
+  // `cover` row and a `gallery` row, so a per-row filter lets a prohibited image
+  // back in through its sibling.
+  const asPolicyRows = all.map((m) => ({
+    mediaType: m.media_type,
+    url: m.url,
+    semanticRole: m.semantic_role,
+  }));
+  const barredEverywhere = neverPublicUrls(asPolicyRows);
+  const barredPhotographs = prohibitedPhotographUrls(asPolicyRows);
+  const media = all.filter(
+    (m) =>
+      isPubliclyPresentable({ mediaType: m.media_type, semanticRole: m.semantic_role }) &&
+      !barredEverywhere.has((m.url ?? "").trim()),
+  );
+
+  // Every card image on the site passes through here. It used to select on
+  // `media_type` alone, which admits a retired cover's replacement-era row and
+  // every prohibited role, so a catalogue card could show the launch party while
+  // the project page it linked to had already learned not to. One policy, asked
+  // by both. See `@/lib/public-media-policy`.
   const gallery = media
-    .filter((m) => m.media_type === "gallery" || m.media_type === "cover")
+    .filter(
+      (m) =>
+        !barredPhotographs.has((m.url ?? "").trim()) &&
+        isPublicPhotograph({ mediaType: m.media_type, semanticRole: m.semantic_role }),
+    )
     .map((m) => resolveMediaUrl(m.url))
     .filter((url) => url !== "");
   const floorPlans = media.filter((m) => m.media_type === "floor_plan").map((m) => m.url);
@@ -92,7 +173,19 @@ function mapToProperty(row: ProjectWithRelations): Property {
   )?.url;
   const priceList = media.find((m) => m.media_type === "price_list")?.url;
 
-  const image = resolveMediaUrl(row.main_image_url) || gallery[0] || "";
+  // `main_image_url` is a bare column with no role of its own, which is exactly
+  // how Sierra's seasonal graphic stayed on its card. It is resolved against the
+  // project's own recorded rows for the same URL first; when that URL is a
+  // prohibited role or a retired cover the column yields nothing and the fallback
+  // is the already-filtered gallery. The fallback never leaves this project, and
+  // when nothing is left the card renders its "Media preview pending" state
+  // rather than a picture of something else.
+  // Resolved against ALL recorded rows, retired ones included: a retired row is
+  // the evidence that its URL is no longer the cover, and filtering it out first
+  // would leave the column pointing at a retired image with nothing left to
+  // contradict it.
+  const coverUrl = presentableCoverUrl(row.main_image_url, asPolicyRows);
+  const image = resolveMediaUrl(coverUrl) || gallery[0] || "";
   const startingPriceTHB = row.starting_price_thb ?? 0;
 
   return {

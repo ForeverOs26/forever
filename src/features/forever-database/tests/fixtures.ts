@@ -20,6 +20,9 @@ export function makeMediaItem(
     title: "Gallery image",
     url: "https://cdn.example.com/g1.jpg",
     sortOrder: 0,
+    // Matches production before the backfill: no role recorded, which readers
+    // must treat as "show it".
+    semanticRole: null,
     ...overrides,
   };
 }

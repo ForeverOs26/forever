@@ -23,9 +23,24 @@ export function ProjectLocation({ project }: ProjectLocationProps) {
   const address = project.core.address;
   const hasCoordinates =
     typeof project.location.latitude === "number" && typeof project.location.longitude === "number";
-  const locationDocument = project.media.documents.find(
-    (document) => document.type === "document" && /map/i.test(document.label + document.title),
-  );
+  // This section renders its document as a full-width <img> captioned "Official
+  // location map", so which row it picks is a public-image decision.
+  //
+  // The recorded role decides it: `map` is what the publish lane assigns to the
+  // `map-location` category, so a classified row identifies itself. The title
+  // match survives only as a fallback for rows published before the semantic
+  // contract, which carry no role at all — and it reads the recorded title, not
+  // the URL or the filename.
+  const locationDocument =
+    project.media.documents.find(
+      (document) => document.type === "document" && document.semanticRole === "map",
+    ) ??
+    project.media.documents.find(
+      (document) =>
+        document.type === "document" &&
+        !document.semanticRole &&
+        /map/i.test(document.label + document.title),
+    );
 
   const nearby: Array<[string, string]> = [];
   if (project.location.distanceToBeach) nearby.push(["Beach", project.location.distanceToBeach]);

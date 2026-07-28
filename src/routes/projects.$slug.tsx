@@ -3,6 +3,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { ProjectDetailEngine } from "@/features/project-detail/components/ProjectDetailEngine";
 import { projectDetailQuery } from "@/features/project-detail/project-detail-query";
 import { buildProjectStructuredData } from "@/features/project-detail/project-structured-data";
+import { projectSocialImage } from "@/features/project-detail/project-sections";
 import type { ProjectDetail } from "@/features/project-detail/project-detail-types";
 import { SiteShell } from "@/components/SiteShell";
 import { Section } from "@/components/layout/Section";
@@ -22,7 +23,9 @@ export const Route = createFileRoute("/projects/$slug")({
 });
 
 function buildProjectHead(slug: string, project?: ProjectDetail) {
-  const image = project?.media.hero?.url ?? project?.media.gallery[0]?.url;
+  // The same filtered photograph list the page itself renders. Not a second
+  // "hero ?? gallery[0]" of its own — that expression is how a reader drifts.
+  const image = project ? (projectSocialImage(project) ?? undefined) : undefined;
   const title = project
     ? `${project.core.name} - Forever Project Record`
     : "Project Record - Forever";

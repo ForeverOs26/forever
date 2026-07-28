@@ -26,7 +26,10 @@ import type { ProgressiveWarning } from "../forever-ingestion/batch-types";
 import { classifyPath } from "../../intake/classify";
 import type { IntakeCategory } from "../../intake/types";
 import {
+  classifySemanticRole,
+  isSemanticRole,
   selectHero,
+  SEMANTIC_ROLES,
   type HeroCandidate,
   type SemanticAssessment,
   type SemanticRole,
@@ -101,6 +104,48 @@ export interface PlannedMediaItem {
   height?: number | null;
   /** What the semantic hero policy decided this image depicts. */
   semanticRole?: SemanticRole;
+}
+
+/**
+ * Planned items whose semantic role is not in the vocabulary
+ * (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001).
+ *
+ * The database enforces the same list with a CHECK constraint, but a constraint
+ * violation surfaces after images have already been uploaded to public storage
+ * — the write fails and the bytes stay. Checking the plan first means an
+ * unknown role costs nothing: it is caught in the planning step, before a client
+ * is constructed and before a byte is uploaded.
+ *
+ * Precisely: `assertPlanSemanticRoles` throws from `publishProject` ahead of
+ * `publishPlannedMedia`. `--dry-run` prints the plan and exits 0 whatever it
+ * contains, so it reports an unknown role rather than failing on one — an
+ * earlier version of this comment said otherwise.
+ *
+ * An item with no role at all is not an error. It means the Factory formed no
+ * opinion, which readers treat as "show it".
+ */
+export function invalidSemanticRoles(plan: MediaPlan): Array<{ path: string; role: string }> {
+  const invalid: Array<{ path: string; role: string }> = [];
+  for (const item of plan.items) {
+    if (item.semanticRole === undefined || item.semanticRole === null) continue;
+    if (!isSemanticRole(item.semanticRole)) {
+      invalid.push({ path: item.path, role: String(item.semanticRole) });
+    }
+  }
+  return invalid;
+}
+
+/** Throws before any upload or write when the plan carries an unknown role. */
+export function assertPlanSemanticRoles(plan: MediaPlan): void {
+  const invalid = invalidSemanticRoles(plan);
+  if (invalid.length === 0) return;
+  const detail = invalid.map((entry) => `${entry.path} -> "${entry.role}"`).join(", ");
+  const error = new Error(
+    `Unknown semantic role in media plan: ${detail}. ` +
+      `Permitted values: ${SEMANTIC_ROLES.join(", ")}.`,
+  ) as Error & { code?: string };
+  error.code = "semantic_role_unknown";
+  throw error;
 }
 
 export type MediaExclusionReason =
@@ -315,6 +360,36 @@ export function planPublicMedia(
   );
   for (const item of gallery) {
     item.semanticRole = assessmentByPath.get(item.path)?.assessment.role;
+  }
+
+  // Everything that is NOT a photograph also gets a role
+  // (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001).
+  //
+  // The hero policy only ever assessed gallery candidates, so every plan, map,
+  // brochure, video and document this lane published carried `semantic_role =
+  // NULL` permanently. That made two things the readers advertise unreachable:
+  // the `NEVER_PUBLIC_ROLES` floor could never exclude anything in the sections
+  // it was written for, and the role-completeness gate could never be extended
+  // past the photographs without blocking forever on rows nothing classifies.
+  //
+  // Nothing new is decided here. `classifySemanticRole` already routes these
+  // categories — a master plan is a `plan`, a location map is a `map`, a
+  // brochure is `text_promo` — and this simply records the answer for the items
+  // the hero policy never looked at.
+  for (const [mediaType, items] of byMediaType) {
+    if (mediaType === "gallery" || mediaType === "cover") continue;
+    for (const item of items) {
+      if (item.semanticRole) continue;
+      const assessed = classifySemanticRole({
+        path: item.path,
+        size: item.size,
+        width: item.width ?? null,
+        height: item.height ?? null,
+        category: item.category,
+        slug: options.slug,
+      });
+      item.semanticRole = assessed.role;
+    }
   }
 
   // Rank the gallery the same way, so the images a visitor sees first are the

@@ -32,12 +32,14 @@ import {
   paymentPlanDocument,
   projectPhotographs,
 } from "../project-sections";
+import { groupProjectMedia } from "../project-detail-mappers";
 import { projectQuickFacts } from "./ProjectQuickFacts";
 import { projectSummaryRows } from "./ProjectSummaryPanel";
 import { ProjectMediaMosaic } from "./ProjectMediaMosaic";
 import { ProjectLightbox } from "./ProjectLightbox";
 import { ProjectUnitPreview } from "./ProjectUnitPreview";
 import { ProjectFacilities } from "./ProjectFacilities";
+import { ProjectPhotos } from "./ProjectPhotos";
 import { ProjectPaymentPlan } from "./ProjectPaymentPlan";
 import { ProjectMobileCTA } from "./ProjectMobileCTA";
 
@@ -140,6 +142,48 @@ describe("the media mosaic", () => {
   it("says so plainly when a project has no photographs yet", () => {
     render(<ProjectMediaMosaic items={[]} projectName="X" onOpen={() => {}} />);
     expect(screen.getByTestId("project-media-empty")).not.toBeNull();
+  });
+
+  /**
+   * Villa Kirara, end to end through the real mapper
+   * (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001).
+   *
+   * The test above hands the component an empty array, which proves the
+   * component but not the path. This one starts from the rows the database
+   * holds — twenty-four launch-party photographs and nothing else — and asserts
+   * that what reaches the screen is the neutral empty state and that no
+   * launch-party URL appears anywhere in the rendered DOM.
+   */
+  it("renders the neutral empty state for a project whose every photograph is prohibited", () => {
+    const media = groupProjectMedia(
+      Array.from({ length: 24 }, (_unused, index) => ({
+        id: `k-${index}`,
+        project_id: "villa-kirara",
+        media_type: "gallery",
+        title: null,
+        url: `https://cdn.example.com/kirara-launch-${index}.jpg`,
+        sort_order: index,
+        semantic_role: "event",
+      })) as unknown as Parameters<typeof groupProjectMedia>[0],
+      { projectId: "villa-kirara", mainImageUrl: null },
+    );
+    const project = makeProjectDetail({ media });
+
+    const { container } = render(
+      <ProjectMediaMosaic
+        items={projectPhotographs(project)}
+        projectName="Villa Kirara"
+        onOpen={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("project-media-empty").textContent).toContain(
+      "Official photography for this project is being prepared",
+    );
+    expect(container.querySelectorAll("img")).toHaveLength(0);
+    expect(container.innerHTML).not.toContain("kirara-launch");
+    // And the page offers no Photos section at all, rather than an empty one.
+    expect(projectSections(project).map((section) => section.id)).not.toContain("photos");
   });
 
   it("opens the viewer from a tile", () => {
@@ -299,9 +343,52 @@ describe("section navigation", () => {
       },
     });
     const ids = projectSections(project).map((section) => section.id);
-    expect(ids).toEqual(expect.arrayContaining(["overview", "photos", "units", "facilities"]));
+    expect(ids).toEqual(expect.arrayContaining(["overview", "units", "facilities"]));
     render(<ProjectFacilities project={project} />);
     expect(screen.getByTestId("project-facilities").getAttribute("id")).toBe("facilities");
+  });
+
+  /**
+   * The "Photos" entry has to track the SECTION, not the photographs.
+   *
+   * `id="photos"` belongs to `ProjectPhotos`, which renders nothing at five
+   * photographs or fewer because the mosaic on the first screen already shows
+   * them all. The nav listed the entry whenever a single photograph existed, so
+   * between one and five the link scrolled to a destination that was not in the
+   * document. Pre-existing — and this contract made it likely rather than
+   * theoretical, because a gallery that loses its launch-party photographs lands
+   * squarely in that range.
+   */
+  it("offers Photos only when the Photos section is actually rendered", () => {
+    const withCount = (count: number) =>
+      makeProjectDetail({
+        media: {
+          hero: null,
+          gallery: photos(count),
+          floorPlans: [],
+          masterPlan: null,
+          unitPlans: [],
+          brochures: [],
+          videos: [],
+          documents: [],
+        },
+      });
+
+    for (const count of [0, 1, 3, 5]) {
+      const project = withCount(count);
+      expect(
+        projectSections(project).map((section) => section.id),
+        `${count} photographs must not offer a Photos link`,
+      ).not.toContain("photos");
+      const { container, unmount } = render(<ProjectPhotos project={project} />);
+      expect(container.querySelector("#photos"), `${count} renders no #photos`).toBeNull();
+      unmount();
+    }
+
+    const many = withCount(6);
+    expect(projectSections(many).map((section) => section.id)).toContain("photos");
+    const { container } = render(<ProjectPhotos project={many} />);
+    expect(container.querySelector("#photos")).not.toBeNull();
   });
 });
 

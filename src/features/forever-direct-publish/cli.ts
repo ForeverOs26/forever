@@ -22,7 +22,7 @@
 import { readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
-import { planPublicMedia } from "./media-plan";
+import { invalidSemanticRoles, planPublicMedia } from "./media-plan";
 import { assessPublishability } from "./publishability";
 import { publishProjects, type DirectPublishResult } from "./publish";
 import { readSourcePackage, type SourcePackage } from "./source-package";
@@ -111,13 +111,35 @@ function printPlan(pkg: SourcePackage, limits: { maxGallery?: number; maxPlans?:
       maxFloorPlans: limits.maxPlans,
       declaredRoles: pkg.declaredRoles,
     });
+    // A dry run is where an unknown semantic role must surface: here it costs
+    // nothing, and in a live run it would fail after the uploads.
+    const invalidRoles = invalidSemanticRoles(plan);
+    if (invalidRoles.length > 0) {
+      for (const entry of invalidRoles) {
+        console.log(`  INVALID semantic_role: ${entry.path} -> "${entry.role}"`);
+      }
+    }
+
     const groups = new Map<string, number>();
     for (const item of plan.items)
       groups.set(item.mediaType, (groups.get(item.mediaType) ?? 0) + 1);
+    const roleCounts = new Map<string, number>();
+    for (const item of plan.items) {
+      const role = item.semanticRole ?? "(none)";
+      roleCounts.set(role, (roleCounts.get(role) ?? 0) + 1);
+    }
+    const roleSummary =
+      [...roleCounts.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0], "en"))
+        .map(([role, count]) => `${role}=${count}`)
+        .join(" ") || "none";
     const summary =
       [...groups.entries()].map(([type, count]) => `${type}=${count}`).join(" ") || "none";
     console.log(`  media candidates: ${pkg.media.length}`);
     console.log(`  media planned:    ${summary}`);
+    // The expected semantic-role counts, so a backfill can be compared against
+    // a stated before/after rather than inspected by eye.
+    console.log(`  semantic roles:   ${roleSummary}`);
     console.log(`  hero selected:    ${plan.hero ? basename(plan.hero.path) : "none"}`);
     console.log(`  media excluded:   ${plan.excluded.length}`);
   }
