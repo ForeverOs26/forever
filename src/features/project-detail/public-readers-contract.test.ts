@@ -387,6 +387,128 @@ describe("the image that leaves the site", () => {
 });
 
 // ---------------------------------------------------------------------------
+// The sibling row
+// ---------------------------------------------------------------------------
+
+/**
+ * The shape the migration itself says re-published projects already have: one
+ * URL carried by BOTH a `cover` row and a `gallery` row.
+ *
+ * A per-row filter is theatre against it. `presentableCoverUrl` refuses the
+ * cover because its row records `text_promo`; the sibling gallery row for the
+ * identical URL is still role-less, passes on its own terms, and
+ * `hero: cover ?? gallery[0]` hands the page the graphic anyway.
+ *
+ * So the rule is per URL: if ANY row records a prohibited role for a URL, that
+ * URL is prohibited everywhere.
+ */
+describe("one URL on two rows", () => {
+  const SIERRA_SIBLING: MediaSeed[] = [
+    {
+      media_type: "cover",
+      url: "https://cdn/sierra-holiday-moments.png",
+      semantic_role: "text_promo",
+    },
+    // The same image, published again as a gallery entry, still unclassified.
+    { media_type: "gallery", url: "https://cdn/sierra-holiday-moments.png", sort_order: 1 },
+    { url: "https://cdn/sierra-exterior.jpg", semantic_role: "property_exterior", sort_order: 2 },
+  ];
+
+  it("cannot re-enter the project page through its role-less sibling", () => {
+    const media = groupProjectMedia(SIERRA_SIBLING.map(detailRow), {
+      projectId: "sierra",
+      mainImageUrl: "https://cdn/sierra-holiday-moments.png",
+    });
+
+    expect(JSON.stringify(media)).not.toContain("holiday-moments");
+    expect(media.hero?.url).toBe("https://cdn/sierra-exterior.jpg");
+  });
+
+  it("cannot re-enter a catalogue card through its role-less sibling", async () => {
+    stubCatalogue([
+      catalogueRow("sierra", SIERRA_SIBLING, "https://cdn/sierra-holiday-moments.png"),
+    ]);
+    const [project] = await ProjectService.listActive();
+
+    expect(JSON.stringify(project)).not.toContain("holiday-moments");
+    expect(project.image).toBe("https://cdn/sierra-exterior.jpg");
+  });
+
+  it("cannot re-enter og:image or JSON-LD through its role-less sibling", () => {
+    const project = makeProjectDetail({
+      media: groupProjectMedia(SIERRA_SIBLING.map(detailRow), {
+        projectId: "sierra",
+        mainImageUrl: "https://cdn/sierra-holiday-moments.png",
+      }),
+    });
+    const image = projectSocialImage(project) ?? undefined;
+    expect(image).toBe("https://cdn/sierra-exterior.jpg");
+    expect(
+      JSON.stringify(buildProjectStructuredData(project, "https://forever.example/p", image)),
+    ).not.toContain("holiday-moments");
+  });
+
+  /**
+   * NEGATIVE CONTROL — the per-row rule, restored.
+   *
+   * Judged one row at a time, the sibling passes. If the real reader ever agrees
+   * with this on the fixture above, the per-URL rule is gone.
+   */
+  it("negative control: judging each row alone lets the graphic back in", () => {
+    const perRowSurvivors = SIERRA_SIBLING.filter(
+      (item) => !item.semantic_role || item.semantic_role === "property_exterior",
+    ).map((item) => item.url);
+    expect(perRowSurvivors).toContain("https://cdn/sierra-holiday-moments.png");
+
+    const media = groupProjectMedia(SIERRA_SIBLING.map(detailRow), {
+      projectId: "sierra",
+      mainImageUrl: null,
+    });
+    expect(media.gallery.map((item) => item.url)).not.toEqual(perRowSurvivors);
+  });
+
+  /**
+   * Retirement is NOT part of the per-URL rule, and must not become part of it.
+   *
+   * `superseded_cover` withdraws a designation, not an image. Coralina's previous
+   * cover is a fine exterior photograph and belongs in the gallery it was
+   * promoted out of — deleting it would be the mirror image of the defect this
+   * contract exists to fix.
+   */
+  it("keeps a demoted cover in the gallery, because retirement is not a verdict on the image", () => {
+    const media = groupProjectMedia(
+      [
+        detailRow({
+          media_type: "superseded_cover",
+          url: "https://cdn/coralina-old-exterior.jpg",
+          semantic_role: "property_exterior",
+        }),
+        detailRow({
+          media_type: "gallery",
+          url: "https://cdn/coralina-old-exterior.jpg",
+          semantic_role: "property_exterior",
+          sort_order: 1,
+        }),
+        detailRow({
+          media_type: "cover",
+          url: "https://cdn/coralina-new-exterior.jpg",
+          semantic_role: "property_exterior",
+          sort_order: 2,
+        }),
+      ],
+      { projectId: "coralina", mainImageUrl: "https://cdn/coralina-new-exterior.jpg" },
+    );
+
+    expect(media.hero?.url).toBe("https://cdn/coralina-new-exterior.jpg");
+    expect(media.gallery.map((item) => item.url)).toContain(
+      "https://cdn/coralina-old-exterior.jpg",
+    );
+    // The retired ROW is gone; the image it named is not.
+    expect(media.gallery.filter((item) => item.type === "superseded_cover")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Surface: the sections that are not the gallery
 // ---------------------------------------------------------------------------
 

@@ -26,7 +26,9 @@ import { isKnownFictitiousProjectSlug } from "@/lib/public-truth";
 import {
   isPublicPhotograph,
   isPubliclyPresentable,
+  neverPublicUrls,
   presentableCoverUrl,
+  prohibitedPhotographUrls,
 } from "@/lib/public-media-policy";
 
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
@@ -119,8 +121,20 @@ function mapToProperty(row: ProjectWithRelations): Property {
   // videos either, and leaving these six buckets on a bare `media_type` match
   // while the detail reader had a floor would recreate, one field at a time,
   // exactly the asymmetry blocker 117-4 was.
-  const media = all.filter((m) =>
-    isPubliclyPresentable({ mediaType: m.media_type, semanticRole: m.semantic_role }),
+  // Per URL, not per row: a re-published project holds the same URL as both a
+  // `cover` row and a `gallery` row, so a per-row filter lets a prohibited image
+  // back in through its sibling.
+  const asPolicyRows = all.map((m) => ({
+    mediaType: m.media_type,
+    url: m.url,
+    semanticRole: m.semantic_role,
+  }));
+  const barredEverywhere = neverPublicUrls(asPolicyRows);
+  const barredPhotographs = prohibitedPhotographUrls(asPolicyRows);
+  const media = all.filter(
+    (m) =>
+      isPubliclyPresentable({ mediaType: m.media_type, semanticRole: m.semantic_role }) &&
+      !barredEverywhere.has((m.url ?? "").trim()),
   );
 
   // Every card image on the site passes through here. It used to select on
@@ -129,7 +143,11 @@ function mapToProperty(row: ProjectWithRelations): Property {
   // the project page it linked to had already learned not to. One policy, asked
   // by both. See `@/lib/public-media-policy`.
   const gallery = media
-    .filter((m) => isPublicPhotograph({ mediaType: m.media_type, semanticRole: m.semantic_role }))
+    .filter(
+      (m) =>
+        !barredPhotographs.has((m.url ?? "").trim()) &&
+        isPublicPhotograph({ mediaType: m.media_type, semanticRole: m.semantic_role }),
+    )
     .map((m) => resolveMediaUrl(m.url))
     .filter((url) => url !== "");
   const floorPlans = media.filter((m) => m.media_type === "floor_plan").map((m) => m.url);
@@ -152,10 +170,7 @@ function mapToProperty(row: ProjectWithRelations): Property {
   // the evidence that its URL is no longer the cover, and filtering it out first
   // would leave the column pointing at a retired image with nothing left to
   // contradict it.
-  const coverUrl = presentableCoverUrl(
-    row.main_image_url,
-    all.map((m) => ({ mediaType: m.media_type, url: m.url, semanticRole: m.semantic_role })),
-  );
+  const coverUrl = presentableCoverUrl(row.main_image_url, asPolicyRows);
   const image = resolveMediaUrl(coverUrl) || gallery[0] || "";
   const startingPriceTHB = row.starting_price_thb ?? 0;
 

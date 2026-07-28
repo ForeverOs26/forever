@@ -217,9 +217,12 @@ function evaluateGrants(grants) {
   const failures = [];
   const notes = [];
   if (grants.semanticRole === "no_anon_role") {
-    notes.push(
-      "This database has no `anon` role, so the public grant could not be checked. " +
-        "That is expected on a bare cluster and NOT acceptable as release evidence.",
+    // A gate that cannot verify must not pass. Saying "not acceptable as release
+    // evidence" in a note and then exiting 0 is how a note gets ignored.
+    failures.push(
+      "This database has no `anon` role, so the public grant could not be checked at all. " +
+        "A gate that cannot measure the thing it exists to measure is not evidence: run it " +
+        "against the actual target, not a bare cluster.",
     );
     return { failures, notes };
   }

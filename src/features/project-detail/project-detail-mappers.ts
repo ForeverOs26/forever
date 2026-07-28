@@ -14,7 +14,9 @@ import type {
 import {
   isPublicPhotograph,
   isPubliclyPresentable,
+  neverPublicUrls,
   presentableCoverUrl,
+  prohibitedPhotographUrls,
 } from "@/lib/public-media-policy";
 
 const DOCUMENT_LABELS: Record<string, string> = {
@@ -198,6 +200,7 @@ export function groupProjectMedia(
     })),
   );
 
+
   // The floor for EVERY section, applied once.
   //
   // Retired covers never enter the presentation model — they are kept in the
@@ -210,9 +213,22 @@ export function groupProjectMedia(
   //
   // Deliberately NOT the gallery deny-list, which would delete every plan, map
   // and brochure — see `NEVER_PUBLIC_ROLES`.
-  const recorded = allRecorded.filter((item) =>
-    isPubliclyPresentable({ mediaType: item.type, semanticRole: item.semanticRole }),
+  //
+  // Applied per URL, not per row. A re-published project holds the same URL as
+  // both a `cover` row and a `gallery` row, so a per-row filter lets a
+  // prohibited image back in through its sibling — the exact shape Sierra has.
+  const asPolicyRows = allRecorded.map((item) => ({
+    mediaType: item.type,
+    url: item.url,
+    semanticRole: item.semanticRole,
+  }));
+  const barredEverywhere = neverPublicUrls(asPolicyRows);
+  const recorded = allRecorded.filter(
+    (item) =>
+      isPubliclyPresentable({ mediaType: item.type, semanticRole: item.semanticRole }) &&
+      !barredEverywhere.has(item.url.trim()),
   );
+  const barredPhotographs = prohibitedPhotographUrls(asPolicyRows);
   const projectMainImage = mapProjectUrlMedia({
     id: `${projectMedia.projectId}:main-image`,
     type: "cover",
@@ -247,10 +263,15 @@ export function groupProjectMedia(
     media.find(
       (item) =>
         item.type === "cover" &&
+        !barredPhotographs.has(item.url.trim()) &&
         isPublicPhotograph({ mediaType: item.type, semanticRole: item.semanticRole }),
     ) ?? null;
   const gallery = galleryEligible(
-    media.filter((item) => item.type === "gallery" || item.type === "cover"),
+    media.filter(
+      (item) =>
+        (item.type === "gallery" || item.type === "cover") &&
+        !barredPhotographs.has(item.url.trim()),
+    ),
   );
   const masterPlan = media.find((item) => item.type === "master_plan") ?? null;
   const brochures = media.filter((item) => item.type === "brochure");

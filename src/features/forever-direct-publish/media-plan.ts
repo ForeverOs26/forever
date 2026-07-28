@@ -26,6 +26,7 @@ import type { ProgressiveWarning } from "../forever-ingestion/batch-types";
 import { classifyPath } from "../../intake/classify";
 import type { IntakeCategory } from "../../intake/types";
 import {
+  classifySemanticRole,
   isSemanticRole,
   selectHero,
   SEMANTIC_ROLES,
@@ -354,6 +355,36 @@ export function planPublicMedia(
   );
   for (const item of gallery) {
     item.semanticRole = assessmentByPath.get(item.path)?.assessment.role;
+  }
+
+  // Everything that is NOT a photograph also gets a role
+  // (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001).
+  //
+  // The hero policy only ever assessed gallery candidates, so every plan, map,
+  // brochure, video and document this lane published carried `semantic_role =
+  // NULL` permanently. That made two things the readers advertise unreachable:
+  // the `NEVER_PUBLIC_ROLES` floor could never exclude anything in the sections
+  // it was written for, and the role-completeness gate could never be extended
+  // past the photographs without blocking forever on rows nothing classifies.
+  //
+  // Nothing new is decided here. `classifySemanticRole` already routes these
+  // categories — a master plan is a `plan`, a location map is a `map`, a
+  // brochure is `text_promo` — and this simply records the answer for the items
+  // the hero policy never looked at.
+  for (const [mediaType, items] of byMediaType) {
+    if (mediaType === "gallery" || mediaType === "cover") continue;
+    for (const item of items) {
+      if (item.semanticRole) continue;
+      const assessed = classifySemanticRole({
+        path: item.path,
+        size: item.size,
+        width: item.width ?? null,
+        height: item.height ?? null,
+        category: item.category,
+        slug: options.slug,
+      });
+      item.semanticRole = assessed.role;
+    }
   }
 
   // Rank the gallery the same way, so the images a visitor sees first are the

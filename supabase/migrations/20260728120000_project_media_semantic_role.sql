@@ -124,7 +124,24 @@ GRANT SELECT (
 --      (project-detail-mappers.ts). Demoting to `gallery` would move a row
 --      between two members of the same set — a no-op for the public page, which
 --      is precisely the defect being fixed. `superseded_cover` is in neither
---      set, so the retired image leaves the strip.
+--      set, so the retired ROW leaves the strip.
+--
+--      Note carefully what that does and does not achieve. It removes the
+--      retired *designation*. It does NOT, on its own, remove the *image* —
+--      because, as point 2 says, a re-published project can already hold the
+--      same URL as both `cover` and `gallery`, and retiring the cover row does
+--      not touch its sibling. An earlier version of this comment said "the
+--      retired image leaves the strip", and for exactly the projects described
+--      above that was false: Sierra's graphic would have come straight back
+--      through its gallery row.
+--
+--      What removes a prohibited image is its semantic ROLE, applied per URL
+--      rather than per row (`prohibitedPhotographUrls` in
+--      `src/lib/public-media-policy.ts`). Retirement and role do different jobs
+--      and neither substitutes for the other: retirement is why Coralina has one
+--      cover instead of two, and the role is why Sierra's advertisement is not
+--      on the page at all. Conflating them is what made two independent reviews
+--      necessary.
 --   2. `project_media`'s natural key is (project_id, media_type, url). A
 --      re-published project can already hold the same URL as both `cover` and
 --      `gallery`, so demoting to `gallery` would collide with a row that

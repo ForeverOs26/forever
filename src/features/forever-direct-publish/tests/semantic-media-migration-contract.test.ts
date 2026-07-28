@@ -8,10 +8,19 @@
  * never read it, and every assertion still passed because none of them looked
  * at the write path.
  *
- * So each case here is paired with a **negative control**: the same assertion
- * re-run against a deliberately mutated copy of the migration, proving the test
- * fails when the property is removed. A contract test that cannot fail is not a
- * contract test.
+ * The load-bearing cases here are paired with a **negative control**: the same
+ * assertion re-run against a deliberately mutated copy of the migration, proving
+ * the test fails when the property is removed. A contract test that cannot fail
+ * is not a contract test.
+ *
+ * NOT every case — an earlier version of this header claimed that, and it was
+ * not true of the file it described. The controls cover the properties whose
+ * silent loss would leave the contract looking correct while doing nothing: that
+ * the projection is called, that the reconciler is called, that the vocabulary is
+ * pinned, that the grant excludes provenance, and that the retirement deletes
+ * nothing but a stale designation. The remainder are shape assertions whose
+ * failure is obvious, and the behaviour they describe is proved by execution in
+ * `run-semantic-media-pg-tests.mjs` rather than by a mutated string here.
  *
  * The behavioural proof — that this SQL actually runs on PostgreSQL and does
  * what it says — is `scripts/media/run-semantic-media-pg-tests.mjs`. This file
@@ -169,9 +178,30 @@ describe("semantic media migration — contract", () => {
     expect(body).toContain("SET public_status = 'published'");
   });
 
+  /**
+   * Scoped to the reconciler's own body. Asserted against the whole file, both
+   * of these strings appear elsewhere — `IF NOT EXISTS (` in the DO-block guard
+   * around the CHECK constraint, `AND url = btrim(p_cover_url)` in the DELETE —
+   * so the test passed with the guard removed. It was checking that the file
+   * contains some text, not that the function has the property.
+   */
   it("retires a cover only once its replacement exists", () => {
-    expect(sql).toContain("IF NOT EXISTS (");
-    expect(sql).toContain("AND url = btrim(p_cover_url)");
+    const start = sql.indexOf("CREATE OR REPLACE FUNCTION public.forever_project_cover_reconcile");
+    expect(start).toBeGreaterThan(-1);
+    const body = sql.slice(start, sql.indexOf("$$;", start) + 3);
+
+    // The guard, and the UPDATE it protects, both inside this one function.
+    const guard = body.indexOf("IF NOT EXISTS (");
+    const update = body.indexOf("SET media_type = 'superseded_cover'");
+    expect(guard).toBeGreaterThan(-1);
+    expect(update).toBeGreaterThan(guard);
+
+    // The guard asks whether the REPLACEMENT row exists — a cover with the
+    // incoming URL — and returns without retiring anything when it does not.
+    const guardBlock = body.slice(guard, update);
+    expect(guardBlock).toContain("media_type = 'cover'");
+    expect(guardBlock).toContain("AND url = btrim(p_cover_url)");
+    expect(guardBlock).toContain("RETURN 0;");
   });
 
   /**

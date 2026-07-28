@@ -92,7 +92,15 @@ export function isRetiredMediaType(mediaType: string | null | undefined): boolea
  * brochure — so a row claiming to be one of those while recording one of these
  * roles is misfiled, and rendering it is the same defect the gallery contract
  * exists to prevent. `ProjectFloorPlans` and `ProjectLocation` render their rows
- * as `<img>` tiles, so this is not hypothetical.
+ * as `<img>` tiles, so a misfiled row is a launch party on the project page,
+ * reached through a section the gallery contract never covered.
+ *
+ * Honest about its reach. Owner Direct Publish classifies each file from its own
+ * source structure and now records a role for plans and documents as well as
+ * photographs, so it will not normally file a launch party as a floor plan. This
+ * is the floor for every OTHER writer — Studio, a manual correction, a future
+ * lane — and for a source package whose folders lie. Defence in depth, not the
+ * primary defence.
  */
 export const NEVER_PUBLIC_ROLES: ReadonlySet<string> = new Set([
   "event",
@@ -156,12 +164,68 @@ export interface RecordedMedia extends PublicMediaCandidate {
 function isAnyRecordedRowUnpresentable(url: string, rows: readonly RecordedMedia[]): boolean {
   const target = url.trim();
   if (!target) return false;
+  let sawRow = false;
+  let everyRowRetired = true;
   for (const row of rows) {
     if ((row.url ?? "").trim() !== target) continue;
-    if (isRetiredMediaType(row.mediaType)) return true;
+    sawRow = true;
+    if (!isRetiredMediaType(row.mediaType)) everyRowRetired = false;
     if (!isGalleryEligibleRole(row.semanticRole)) return true;
   }
-  return false;
+  // A URL whose ONLY row is a retired cover means the column is stale — it names
+  // a designation that has been withdrawn and nothing live replaces it. A URL
+  // that also has a live row is a different thing: a demoted cover that is still
+  // a perfectly good photograph keeps its gallery entry, and the column pointing
+  // at it is not wrong, merely redundant.
+  return sawRow && everyRowRetired;
+}
+
+/**
+ * URLs this project may not show as a photograph, on any surface.
+ *
+ * The rule is per-URL, not per-row, and that distinction is the whole point.
+ *
+ * A re-published project holds the same URL as BOTH a `cover` row and a
+ * `gallery` row — the migration's own reasoning for choosing `superseded_cover`
+ * over `gallery` says so explicitly. So a per-row filter lets a prohibited image
+ * back in through its sibling: `presentableCoverUrl` refuses Sierra's
+ * "HOLIDAY MOMENTS" because the `cover` row records `text_promo`, the
+ * still-role-less `gallery` row for the identical URL passes on its own terms,
+ * and `hero: cover ?? gallery[0]` hands the page the graphic anyway. The cover
+ * check would have been theatre.
+ *
+ * So: if ANY row records a prohibited role for a URL, that URL is prohibited
+ * everywhere, whatever its other rows say. The strictest recorded answer wins,
+ * and it wins for the whole URL rather than for one row of it.
+ *
+ * Retirement is deliberately NOT part of this. `superseded_cover` withdraws a
+ * *designation*, not an image: Coralina's previous cover is a fine exterior
+ * photograph and belongs in the gallery it was promoted out of. What removes a
+ * prohibited image is its role. Nothing else ever did.
+ */
+export function prohibitedPhotographUrls(rows: readonly RecordedMedia[]): ReadonlySet<string> {
+  const barred = new Set<string>();
+  for (const row of rows) {
+    const url = (row.url ?? "").trim();
+    if (!url) continue;
+    if (!isGalleryEligibleRole(row.semanticRole)) barred.add(url);
+  }
+  return barred;
+}
+
+/**
+ * URLs that may not appear in ANY section — the same per-URL rule applied to the
+ * floor. A launch-party photograph filed once as a plan is a launch-party
+ * photograph however many other rows call it something else.
+ */
+export function neverPublicUrls(rows: readonly RecordedMedia[]): ReadonlySet<string> {
+  const barred = new Set<string>();
+  for (const row of rows) {
+    const url = (row.url ?? "").trim();
+    const role = (row.semanticRole ?? "").trim();
+    if (url && role && NEVER_PUBLIC_ROLES.has(role)) barred.add(url);
+  }
+  return barred;
 }
 
 /**
