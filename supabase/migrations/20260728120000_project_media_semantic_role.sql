@@ -113,8 +113,14 @@ GRANT SELECT (
 --      set, so the retired image leaves the strip.
 --   2. `project_media`'s natural key is (project_id, media_type, url). A
 --      re-published project can already hold the same URL as both `cover` and
---      `gallery`, so demoting to `gallery` risks colliding with a row that
---      exists. A distinct state cannot collide.
+--      `gallery`, so demoting to `gallery` would collide with a row that
+--      already exists.
+--
+--      A distinct state does NOT make collision impossible — an earlier version
+--      of this comment claimed it did, and that was wrong. A cover that returns
+--      (A -> B -> A) leaves both a retired and a live row for A, and retiring A
+--      again would write a duplicate. The reconciler collapses that exact
+--      duplicate before retiring; see the DELETE below.
 --
 -- It never leaves a project cover-less: the replacement is written before this
 -- runs, and the function is a no-op when no replacement is named — which
@@ -150,6 +156,31 @@ BEGIN
   ) THEN
     RETURN 0;
   END IF;
+
+  -- A cover can return. Coralina A -> B -> A leaves this project holding a
+  -- `superseded_cover` row for A *and* a live `cover` row for A, and retiring A
+  -- again would write a second (project_id, 'superseded_cover', A) — which
+  -- `project_media_natural_key` forbids. Independent review found this; the
+  -- earlier claim that "a distinct state cannot collide" was wrong.
+  --
+  -- The invariant that makes retirement safe: **a URL is never both the active
+  -- cover and a retired one.** The incoming cover is, by definition, not
+  -- superseded, so any retirement recorded for it on an earlier cycle is now
+  -- obsolete and is cleared here.
+  --
+  -- Holding that invariant is what prevents the collision. Without it, A -> B
+  -- -> A leaves `superseded_cover` A beside a live `cover` A, and the next
+  -- retirement of A writes a duplicate key. With it, that state cannot form,
+  -- so the UPDATE below can never collide.
+  --
+  -- Nothing is lost: the row removed names the same project and the same URL as
+  -- the live cover row that supersedes it, so the storage object, the retained
+  -- private original and the public URL are all untouched. This removes a
+  -- stale *designation*, never source media evidence.
+  DELETE FROM public.project_media
+   WHERE project_id = p_project_id
+     AND media_type = 'superseded_cover'
+     AND url = btrim(p_cover_url);
 
   UPDATE public.project_media
      SET media_type = 'superseded_cover'
@@ -338,8 +369,21 @@ COMMIT;
 --   -- Restore forever_direct_publish from 20260726140000 verbatim first.
 --   DROP FUNCTION IF EXISTS public.forever_project_media_semantic_projection(UUID, JSONB);
 --   DROP FUNCTION IF EXISTS public.forever_project_cover_reconcile(UUID, TEXT);
---   UPDATE public.project_media SET media_type = 'cover'
---     WHERE media_type = 'superseded_cover';
+--   UPDATE public.project_media pm SET media_type = 'cover'
+--     WHERE pm.media_type = 'superseded_cover'
+--       AND NOT EXISTS (
+--         SELECT 1 FROM public.project_media live
+--          WHERE live.project_id = pm.project_id
+--            AND live.media_type = 'cover'
+--            AND live.url = pm.url
+--       );
+--   -- The NOT EXISTS guard is required, not defensive. An unguarded restore
+--   -- violates project_media_natural_key the moment any project holds both a
+--   -- live cover and a retired row for the same URL, which two publishes can
+--   -- produce. A row it skips keeps media_type = 'superseded_cover': its
+--   -- current cover already carries that URL, so nothing is lost.
+--   -- This statement is deliberately unscoped — a rollback reverses the whole
+--   -- migration. Add `AND pm.project_id = '<uuid>'` to reverse one project.
 --   GRANT SELECT (
 --     id, project_id, media_type, title, url, sort_order
 --   ) ON public.project_media TO anon, authenticated;

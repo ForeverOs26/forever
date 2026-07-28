@@ -169,10 +169,41 @@ describe("semantic media migration — contract", () => {
     expect(body).toContain("SET public_status = 'published'");
   });
 
-  it("retires a cover only once its replacement exists, and deletes nothing", () => {
+  it("retires a cover only once its replacement exists", () => {
     expect(sql).toContain("IF NOT EXISTS (");
     expect(sql).toContain("AND url = btrim(p_cover_url)");
-    expect(executable).not.toMatch(/DELETE FROM public\.project_media/);
+  });
+
+  /**
+   * The reconciler does delete one thing, and the scope of that deletion is the
+   * whole safety argument.
+   *
+   * Independent review proved the retire was not collision-proof: a cover that
+   * returns (A -> B -> A) left a retired row for A beside a live cover A, and
+   * the next retirement of A duplicated the natural key. The invariant that
+   * fixes it is "a URL is never both the active cover and a retired one", which
+   * requires clearing the obsolete retirement of the incoming cover.
+   *
+   * That row names the same project and the same URL as the live cover that
+   * supersedes it, so the storage object and the retained private original are
+   * untouched — a stale designation goes, never source media. The assertion
+   * pins exactly that scope: the DELETE must target `superseded_cover` rows
+   * whose url IS the incoming cover, and nothing else.
+   */
+  it("deletes only the obsolete retirement of the incoming cover", () => {
+    const deletes = [...executable.matchAll(/DELETE FROM public\.project_media[\s\S]*?;/g)].map(
+      (match) => match[0],
+    );
+    expect(deletes, "exactly one DELETE against project_media").toHaveLength(1);
+
+    const [statement] = deletes;
+    expect(statement).toContain("media_type = 'superseded_cover'");
+    expect(statement).toContain("url = btrim(p_cover_url)");
+    expect(statement).toContain("project_id = p_project_id");
+    // It must never be able to reach a live cover, a gallery row or a plan.
+    expect(statement).not.toMatch(
+      /media_type\s*=\s*'(cover|gallery|floor_plan|master_plan|unit_plan)'/,
+    );
   });
 
   it("never erases a recorded role with a batch that omits one", () => {
@@ -194,9 +225,15 @@ describe("semantic media migration — contract", () => {
     expect(rollback).toContain("DROP CONSTRAINT IF EXISTS project_media_semantic_role_vocabulary;");
     expect(rollback).toContain("DROP COLUMN IF EXISTS semantic_role;");
     // The superseded state only means anything while this migration is in
-    // place, so rolling back must return those rows.
+    // place, so rolling back must return those rows — but not blindly. An
+    // unguarded restore violates project_media_natural_key the moment a project
+    // holds a live cover and a retired row for the same URL, which independent
+    // review reproduced. The guard is mandatory, not defensive.
     expect(rollback).toContain("SET media_type = 'cover'");
-    expect(rollback).toContain("WHERE media_type = 'superseded_cover'");
+    expect(rollback).toContain("pm.media_type = 'superseded_cover'");
+    expect(rollback).toContain("NOT EXISTS (");
+    expect(rollback).toContain("live.media_type = 'cover'");
+    expect(rollback).toContain("live.url = pm.url");
     // And it must restore the pre-existing grant rather than leave the new one.
     expect(rollback).toMatch(
       /GRANT SELECT \(\s*\n?--\s*id, project_id, media_type, title, url, sort_order/,

@@ -744,6 +744,89 @@ try {
     ? ok("Villa Kirara remains honestly cover-less — none fabricated")
     : bad("Villa Kirara cover-less", `covers=${kiraraCovers} hero=${kiraraHero}`);
 
+  // -- a returning cover: A -> B -> A -> B ---------------------------------
+  // Independent review found the retire was not collision-proof. A cover that
+  // comes back leaves a retired AND a live row for the same URL, and retiring
+  // it again would duplicate (project_id,'superseded_cover',url). The original
+  // fixtures never re-covered a previously retired URL, so they could not see
+  // it.
+  console.log("\n[media-pg] Direct Publish — a cover that returns (A/B/A/B)");
+  const FLIP = "dd000000-0000-4000-8000-000000000009";
+  const FA = "https://cdn.example.com/flip/a.jpg";
+  const FB = "https://cdn.example.com/flip/b.jpg";
+  Bc.sql(
+    `INSERT INTO public.projects (id,name,slug,is_active,main_image_url)
+       VALUES ('${FLIP}','Flip','flip-project',true,'${FA}');
+     INSERT INTO public.project_media (project_id,media_type,url,sort_order)
+       VALUES ('${FLIP}','cover','${FA}',0);`,
+  );
+  const flipPublish = (cover, tag) =>
+    directPublish(
+      Bc,
+      batch({
+        slug: "flip-project",
+        set: { main_image_url: cover },
+        media: [
+          { media_type: "cover", url: cover, sort_order: 0, semantic_role: "property_exterior" },
+          {
+            media_type: "gallery",
+            url: `${cover}#${tag}`,
+            sort_order: 1,
+            semantic_role: "amenity",
+          },
+        ],
+      }),
+    );
+  let flipError = "";
+  try {
+    flipPublish(FB, "r1");
+    flipPublish(FA, "r2");
+    flipPublish(FB, "r3");
+    flipPublish(FA, "r4");
+  } catch (error) {
+    flipError = String(error.stderr ?? "") + String(error.stdout ?? "");
+  }
+  flipError === ""
+    ? ok("a returning cover republishes without a natural-key violation")
+    : bad("returning cover republishes", flipError.slice(0, 400));
+
+  const flipDupes = Bc.scalar(
+    `SELECT count(*) FROM (
+       SELECT url FROM public.project_media
+        WHERE project_id='${FLIP}' AND media_type IN ('cover','superseded_cover')
+        GROUP BY url HAVING count(*) > 1) s`,
+  );
+  flipDupes === "0"
+    ? ok("no URL is ever both an active and a retired cover at once")
+    : bad("no URL is both active and retired", `duplicated urls=${flipDupes}`);
+
+  const flipCovers = Bc.scalar(
+    `SELECT count(*) FROM public.project_media WHERE project_id='${FLIP}' AND media_type='cover'`,
+  );
+  flipCovers === "1"
+    ? ok("a returning cover still ends with exactly one active cover")
+    : bad("returning cover leaves one active cover", `count=${flipCovers}`);
+
+  // -- the documented rollback must actually RUN ----------------------------
+  // The contract test only string-matches the rollback block, so a rollback
+  // that cannot execute would pass the suite. Execute it here instead.
+  console.log("\n[media-pg] rollback — executed, not string-matched");
+  let rollbackError = "";
+  try {
+    Bc.sql(`UPDATE public.project_media pm SET media_type = 'cover'
+              WHERE pm.media_type = 'superseded_cover'
+                AND NOT EXISTS (
+                  SELECT 1 FROM public.project_media live
+                   WHERE live.project_id = pm.project_id
+                     AND live.media_type = 'cover'
+                     AND live.url = pm.url)`);
+  } catch (error) {
+    rollbackError = String(error.stderr ?? "") + String(error.stdout ?? "");
+  }
+  rollbackError === ""
+    ? ok("the documented rollback executes without violating the natural key")
+    : bad("documented rollback executes", rollbackError.slice(0, 400));
+
   // -- natural-key collision probe -----------------------------------------
   // The retired URL also exists as a gallery row on another project shape; a
   // retire that collided would have raised here already. Prove no duplicate.
