@@ -16,66 +16,7 @@ import { adaptBatchMode, publicMediaPath, publishProject, publishProjects } from
 import { WARNING_ENTITIES } from "../publishability";
 import type { SourcePackage } from "../source-package";
 import { FakeProductionWorld, OWNER_AUTHORIZATION, PRODUCTION_TARGET } from "./fakes";
-
-function batch(overrides: Partial<ProgressiveBatch> = {}): ProgressiveBatch {
-  const body = {
-    schema_version: "1" as const,
-    mode: "create" as const,
-    project: {
-      slug: "the-title-legendary",
-      name: "The Title Legendary Bang-Tao",
-      developer_id: null,
-      location_id: null,
-      developer_name_raw: "Rhom Bho Property",
-      location_name_raw: "Bang Tao, Phuket, Thailand",
-      construction_status: "Completed",
-      ownership_type: undefined,
-      publish: false,
-      field_provenance: {
-        name: {
-          status: "official_source" as const,
-          source_type: "developer_official_source",
-          source_ref: "https://drive.google.com/file/d/abc/view",
-        },
-      },
-    },
-    buildings: [{ building_code: "A", floors_count: 7 }],
-    units: [{ unit_code: "A308", building_code: "A", availability_status: "available" }],
-    prices: [{ unit_code: "A308", price: 9244800, currency: "THB", source_file: "price-list.pdf" }],
-    warnings: [
-      {
-        entity: "project" as const,
-        code: "source_marked_internal_use_only",
-        severity: "warning" as const,
-        message: "The official price list is marked Internal Use Only.",
-      },
-      {
-        entity: "project" as const,
-        code: "developer_unresolved",
-        severity: "warning" as const,
-        message: "No canonical developer row matched.",
-      },
-    ],
-    ...overrides,
-  };
-  return { ...body, batch_fingerprint: fingerprintBatch(body) } as ProgressiveBatch;
-}
-
-function pkg(overrides: Partial<SourcePackage> = {}): SourcePackage {
-  return {
-    ref: "the-title-legendary",
-    directory: "/owner-local/the-title-legendary",
-    batch: batch(),
-    media: [
-      { path: "photos/pool.jpg", bytes: syntheticJpeg(false, 1, 1) },
-      { path: "photos/lobby.jpg", bytes: syntheticJpeg(false, 1, 2) },
-      { path: "master-plan/site.png", bytes: syntheticPng(false, 1, 3) },
-    ],
-    manifest: null,
-    skipped: [],
-    ...overrides,
-  };
-}
+import { batch, pkg } from "./publish-fixtures";
 
 describe("publishProject", () => {
   it("publishes directly with no persisted draft and returns the public URL", async () => {

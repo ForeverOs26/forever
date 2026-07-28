@@ -94,6 +94,81 @@ const ELIGIBILITY: Record<SemanticRole, HeroEligibility> = {
 };
 
 /**
+ * Which roles belong in a project's photograph gallery
+ * (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001).
+ *
+ * Deliberately NOT `ELIGIBILITY`. That map answers a different question — "may
+ * this be the single image that represents the project?" — and to answer it, it
+ * marks `amenity` and `landscape` prohibited. Neither is prohibited *content*:
+ * a photograph of the pool deck or the gardens is exactly what someone
+ * browsing a development wants to see. It simply must not be the cover.
+ *
+ * What this map excludes is material that is not photography of the property at
+ * all: a launch party, a staff group shot, a portrait, a seasonal advertisement,
+ * a logo, a close-up of a fabric swatch, a drawing, a map.
+ *
+ * `unknown` is included, and that is the load-bearing decision. Every image
+ * published before this contract existed carries no role, and an undescribed
+ * photograph is not evidence of anything wrong. Excluding it would empty every
+ * gallery in production the moment this shipped.
+ */
+export const GALLERY_ELIGIBILITY: Record<SemanticRole, boolean> = {
+  property_exterior: true,
+  property_aerial: true,
+  property_pool_exterior: true,
+  villa_exterior: true,
+  architecture_render: true,
+  property_interior: true,
+  amenity: true,
+  landscape: true,
+  unknown: true,
+  lifestyle: false,
+  event: false,
+  group_photo: false,
+  portrait: false,
+  decorative_detail: false,
+  text_promo: false,
+  plan: false,
+  map: false,
+};
+
+/**
+ * The roles a gallery must not show, as a set of plain strings.
+ *
+ * Exported as the *excluded* set on purpose. A caller that asks "is this role
+ * included?" has to decide what to do about `null` and about a role it does not
+ * recognise, and the safe answer to both is "show it" — so the question the
+ * caller should be asking is the negative one. See `isGalleryEligibleRole`.
+ */
+export const GALLERY_EXCLUDED_ROLES: ReadonlySet<string> = new Set(
+  SEMANTIC_ROLES.filter((role) => !GALLERY_ELIGIBILITY[role]),
+);
+
+/**
+ * Whether a stored role permits a photograph into the gallery.
+ *
+ * Exclusion requires a positive, recognised, excluded role. Anything else is
+ * included:
+ *
+ *   - `null` — the row predates the contract, or the Factory had no opinion.
+ *   - `""` — the same, written differently.
+ *   - an unrecognised value — a role added to the database ahead of this
+ *     client. A newer server must never blank an older page.
+ *
+ * Written as a positive include-list this function would exclude all three, and
+ * the first deploy would empty every gallery Forever has published.
+ */
+export function isGalleryEligibleRole(role: string | null | undefined): boolean {
+  if (!role) return true;
+  return !GALLERY_EXCLUDED_ROLES.has(role);
+}
+
+/** Whether a value is one of the seventeen roles the vocabulary defines. */
+export function isSemanticRole(value: unknown): value is SemanticRole {
+  return typeof value === "string" && (SEMANTIC_ROLES as readonly string[]).includes(value);
+}
+
+/**
  * Role priority, highest first — the Owner's stated preference order.
  *
  * Clear exterior, then render, then aerial, then pool-with-buildings, then

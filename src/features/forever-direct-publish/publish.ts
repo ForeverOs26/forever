@@ -29,7 +29,12 @@ import type {
 import { fingerprintBatch } from "../forever-ingestion/build-batch";
 import { createPublicDerivative } from "../forever-studio/server/media-truth";
 
-import { planPublicMedia, type MediaPlan, type PlannedMediaItem } from "./media-plan";
+import {
+  assertPlanSemanticRoles,
+  planPublicMedia,
+  type MediaPlan,
+  type PlannedMediaItem,
+} from "./media-plan";
 import { assessPublishability } from "./publishability";
 import type { SourcePackage } from "./source-package";
 import { assertProductionTarget, type VerifiedTarget } from "./target";
@@ -344,10 +349,22 @@ async function publishPlannedMedia(
 
     // Deliberately minimal public metadata: no sanitizer record, no embedded
     // claims, no source path. Public rows carry presentation data only.
+    //
+    // `semantic_role` joins that set. It is what the Factory already decided the
+    // image depicts, drawn from a closed seventeen-value vocabulary — a
+    // presentation fact, not provenance. Without it the browser receives a
+    // content-addressed URL and an empty title, and cannot tell a launch-party
+    // photograph from a pool render; with it, the gallery can exclude by
+    // evidence instead of by guessing at filenames.
+    //
+    // Omitted rather than written as null when the planner recorded no role, so
+    // an unclassified item is indistinguishable from a pre-contract row and
+    // both are treated the same way by readers.
     media.push({
       media_type: item.mediaType,
       url,
       sort_order: item.sortOrder,
+      ...(item.semanticRole ? { semantic_role: item.semanticRole } : {}),
     });
   }
 
@@ -445,6 +462,12 @@ export async function publishProject(
       // the original source folders were still visible.
       declaredRoles: pkg.declaredRoles,
     });
+
+    // Before a single byte is uploaded. The database enforces the same
+    // vocabulary, but a CHECK violation arrives after the images are already in
+    // public storage: the write fails and the bytes stay.
+    assertPlanSemanticRoles(plan);
+
     const bytesByPath = new Map(pkg.media.map((candidate) => [candidate.path, candidate.bytes]));
 
     // 6. Sanitize, verify and upload the public derivatives.

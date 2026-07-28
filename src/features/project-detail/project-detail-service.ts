@@ -3,6 +3,24 @@ import { isKnownFictitiousProjectSlug } from "@/lib/public-truth";
 import { mapProjectDetail } from "./project-detail-mappers";
 import type { ProjectDetail, ProjectDetailRecord } from "./project-detail-types";
 
+/**
+ * DEPLOY ORDER IS PART OF THIS CONTRACT.
+ *
+ * This projection requests `project_media.semantic_role`
+ * (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001). PostgREST fails an ENTIRE
+ * embedded select with 42703 when a requested column does not exist — so
+ * deploying this client before
+ * `supabase/migrations/20260728120000_project_media_semantic_role.sql` has been
+ * applied would blank every project page, not merely one section.
+ *
+ * The migration must be applied, and the grant verified, BEFORE any build
+ * containing this line reaches production. The release sequence records this as
+ * a hard gate.
+ *
+ * The column carries presentation data only. No provenance column is added
+ * here: `metadata` holds source paths, package directories and sanitizer
+ * records and remains unreadable by the anonymous role.
+ */
 export const PROJECT_DETAIL_SELECT = `
   id, name, slug, project_type, location_area, address,
   short_description, full_description, construction_status,
@@ -12,7 +30,7 @@ export const PROJECT_DETAIL_SELECT = `
   tagline, highlights, beds_display, area_range, nearby_schools,
   nearby_hospitals, lifestyle, developer_name_raw, location_name_raw,
   developer:developers(id, name, description, website, logo_url),
-  media:project_media(id, media_type, title, url, sort_order),
+  media:project_media(id, media_type, title, url, sort_order, semantic_role),
   units:units(id, unit_code, unit_type, bedrooms, bathrooms, size_sqm, floor, view_type, ownership_type, base_price_thb, discounted_price_thb, price_per_sqm, availability_status, payment_plan, furniture_package, rental_guarantee, roi_estimate, notes, building:buildings(building_code)),
   investment:investment_data(id, project_id, unit_id, expected_daily_rate, expected_monthly_rent, expected_yearly_rent, occupancy_rate, annual_roi_percent, guaranteed_rental_percent, guarantee_years, management_company, notes, created_at)
 ` as const;
