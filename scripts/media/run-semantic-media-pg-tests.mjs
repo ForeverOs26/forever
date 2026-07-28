@@ -1171,14 +1171,37 @@ try {
         `db=${retiredInDb} reported=${retiredReported}`,
       );
 
-  // Governed counts exclude them: cover + gallery only.
+  // Governed counts are cover + gallery of PUBLICLY VISIBLE projects only.
+  //
+  // `projects.public_status` defaults to 'draft' and the RLS policy admits a
+  // media row only when its project is is_active AND published, so a draft's
+  // rows are not public image rows. Counting them would refuse a production
+  // release over media no anonymous client can fetch — and staging holds
+  // exactly such drafts.
   const governedInDb = Number(
+    Bc.scalar(
+      `SELECT count(*) FROM public.project_media m JOIN public.projects p ON p.id = m.project_id
+        WHERE m.media_type IN ('cover','gallery')
+          AND p.is_active AND p.public_status = 'published'`,
+    ),
+  );
+  const allInDb = Number(
     Bc.scalar("SELECT count(*) FROM public.project_media WHERE media_type IN ('cover','gallery')"),
   );
   const governedReported = Number(/governed rows\s*:\s*(\d+)/.exec(after.out)?.[1] ?? -1);
   governedReported === governedInDb
-    ? ok(`the census governs exactly the ${governedInDb} cover/gallery row(s)`)
+    ? ok(`the census governs exactly the ${governedInDb} publicly visible cover/gallery row(s)`)
     : bad("governed count matches the database", `db=${governedInDb} reported=${governedReported}`);
+
+  // ...and says out loud what it left out, rather than reporting a clean sheet
+  // it narrowed its way into.
+  const excludedReported = Number(/not counted\s*:\s*(\d+)/.exec(after.out)?.[1] ?? -1);
+  allInDb > governedInDb && excludedReported === allInDb - governedInDb
+    ? ok(`the census states the ${excludedReported} unpublished row(s) it did not count`)
+    : bad(
+        "census reports what it excluded",
+        `all=${allInDb} governed=${governedInDb} reported-excluded=${excludedReported}`,
+      );
 
   // The grant the whole contract rests on, checked by the gate rather than
   // argued in a comment.

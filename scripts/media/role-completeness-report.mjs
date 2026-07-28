@@ -112,9 +112,32 @@ const CENSUS_SQL = `
          m.url,
          coalesce(m.semantic_role, '') AS semantic_role
     FROM public.project_media m
-    LEFT JOIN public.projects p ON p.id = m.project_id
+    JOIN public.projects p ON p.id = m.project_id
    WHERE m.media_type IN ('cover', 'gallery', 'superseded_cover')
+     AND p.is_active
+     AND p.public_status = 'published'
    ORDER BY project_slug, m.media_type, m.url
+`;
+
+/**
+ * What the census deliberately does not count, stated rather than hidden.
+ *
+ * `projects.public_status` defaults to `'draft'`, and the RLS policy on
+ * `project_media` admits a row only when its project is `is_active` AND
+ * `public_status = 'published'`. So a draft project's rows are not public image
+ * rows — no anonymous client can fetch them — and counting them would block a
+ * production release on media nobody can see. Staging in particular holds
+ * unpublished drafts.
+ *
+ * The excluded count is reported anyway. A gate that silently narrows what it
+ * looks at is a gate that reports a clean sheet it has not earned.
+ */
+const EXCLUDED_SQL = `
+  SELECT count(*)
+    FROM public.project_media m
+    LEFT JOIN public.projects p ON p.id = m.project_id
+   WHERE m.media_type IN ('cover', 'gallery')
+     AND (p.id IS NULL OR NOT p.is_active OR p.public_status IS DISTINCT FROM 'published')
 `;
 
 /**
@@ -289,6 +312,12 @@ async function main() {
     await loadCensus();
 
   const rawGrants = readGrants(databaseUrl);
+  const { url: safeUrl, env: pgEnv } = splitCredential(databaseUrl);
+  const excluded = execFileSync(
+    psqlPath(),
+    [safeUrl, "-X", "-A", "-t", "--no-psqlrc", "-c", EXCLUDED_SQL],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...pgEnv } },
+  ).trim();
   const grants = evaluateGrants(rawGrants);
   const rows = readCensus(databaseUrl);
   const report = buildRoleCompletenessReport(rows, readExceptions(arg("exceptions")));
@@ -313,6 +342,8 @@ async function main() {
     `anon grant      : project_media.semantic_role/metadata SELECT = "${rawGrants.raw}"`,
     formatRoleCompletenessReport(report, verdict),
     `retired rows    : ${retired} (superseded_cover; never presentation media)`,
+    `not counted     : ${excluded} cover/gallery row(s) of projects that are not ` +
+      `is_active AND public_status='published' — no anonymous client can fetch them`,
   ].join("\n");
 
   console.log(text);
