@@ -51,6 +51,16 @@ import { isGalleryEligibleRole, isSemanticRole } from "./hero-policy";
  * `superseded_cover` is deliberately absent: it is not presentation media, so
  * whether it carries a role changes nothing a visitor can see. The census counts
  * them separately and reports the number.
+ *
+ * `payment_plan` was missing from the first version of this list, and that was a
+ * hole rather than a judgement. The publish lane produces the type itself —
+ * `publicMediaTypeForCategory("payment-plan")` returns `payment_plan` — and both
+ * readers render it: `DOCUMENT_LABELS.payment_plan` is "Payment Plan" and
+ * `project-sections.ts` looks it up in `project.media.documents`. A role-less
+ * payment plan was therefore publicly linkable while this gate reported PASS,
+ * because `CENSUS_SQL` fetched the row (it excludes only `price_list`) and
+ * `isGoverned` then dropped it out of the numerator, the denominator and the
+ * report — the exact standing hole this module exists to close.
  */
 export const GOVERNED_MEDIA_TYPES: readonly string[] = [
   "cover",
@@ -60,6 +70,7 @@ export const GOVERNED_MEDIA_TYPES: readonly string[] = [
   "unit_plan",
   "document",
   "brochure",
+  "payment_plan",
   "video",
 ];
 

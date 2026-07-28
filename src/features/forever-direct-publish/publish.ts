@@ -35,6 +35,7 @@ import {
   type MediaPlan,
   type PlannedMediaItem,
 } from "./media-plan";
+import { detectSanitizableImageType, publicMediaPath } from "./public-object-path";
 import { assessPublishability } from "./publishability";
 import type { SourcePackage } from "./source-package";
 import { assertProductionTarget, type VerifiedTarget } from "./target";
@@ -51,39 +52,28 @@ export const PUBLIC_IMAGE_BUCKET = "project-images";
 /** Private bucket the untouched official originals are retained in. */
 export const PRIVATE_EVIDENCE_BUCKET = "forever-direct-evidence";
 
-/** Content types `createPublicDerivative` can sanitize and verify. */
-const SANITIZABLE_CONTENT_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
-type SanitizableContentType = (typeof SANITIZABLE_CONTENT_TYPES)[number];
-
-const DERIVATIVE_EXTENSION: Record<string, string> = {
-  jpeg: "jpg",
-  png: "png",
-  webp: "webp",
-};
-
 /**
- * Content type from the actual leading bytes, restricted to what the sanitizer
- * can verify. Anything else is not published in this lane.
+ * Object identity moved to ./public-object-path and is re-exported here.
+ *
+ * `publicMediaPath` and `detectSanitizableImageType` are the only way to
+ * recompute a live storage object path from bytes on disk, and the semantic
+ * backfill controller — a `.mjs` runner loading TypeScript through jiti — needs
+ * both. It cannot load THIS module: `../forever-ingestion/build-batch` above
+ * transitively imports `@/import/currency-policy`, and jiti does not resolve
+ * tsconfig path aliases, so the import fails before any code runs.
+ *
+ * Re-exporting rather than duplicating keeps one implementation. A second copy
+ * of the path rule would eventually address a different storage object than the
+ * publish lane wrote, which is precisely how a role gets written onto a row
+ * depicting something else.
  */
-export function detectSanitizableImageType(bytes: Buffer): SanitizableContentType | null {
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return "image/jpeg";
-  }
-  if (
-    bytes.length >= 8 &&
-    bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
-  ) {
-    return "image/png";
-  }
-  if (
-    bytes.length >= 12 &&
-    bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
-    bytes.subarray(8, 12).toString("ascii") === "WEBP"
-  ) {
-    return "image/webp";
-  }
-  return null;
-}
+export {
+  detectSanitizableImageType,
+  publicMediaPath,
+  DERIVATIVE_EXTENSION,
+  SANITIZABLE_CONTENT_TYPES,
+  type SanitizableContentType,
+} from "./public-object-path";
 
 export interface DirectPublishSummary extends ProgressiveBatchSummary {
   direct_published?: boolean;
@@ -147,18 +137,6 @@ export function projectPagePath(slug: string): string {
 
 function warningSummaries(warnings: readonly ProgressiveWarning[]): DirectPublishWarning[] {
   return warnings.map((warning) => ({ code: warning.code, message: warning.message }));
-}
-
-/**
- * Deterministic, content-addressed public object path.
- *
- * Identical bytes always land on the identical path, which is what makes a
- * repeated publish create no second storage object and no second media row.
- */
-export function publicMediaPath(slug: string, derivativeSha256: string, format: string): string {
-  if (!/^[a-f0-9]{64}$/.test(derivativeSha256)) throw new Error("invalid_derivative_sha256");
-  const extension = DERIVATIVE_EXTENSION[format] ?? "jpg";
-  return `direct/${slug}/${derivativeSha256.slice(0, 24)}.${extension}`;
 }
 
 /** Private evidence path for the untouched original. */
