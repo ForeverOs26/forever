@@ -42,10 +42,17 @@
  * claims to be right.
  */
 
+// Relative, not `@/features/…`, and deliberately so. jiti does not resolve
+// tsconfig path aliases, so with the alias this module could not be loaded by a
+// `.mjs` runner at all — and the semantic backfill has to ask THIS policy what
+// its proposed roles would do to each page before it writes one. The
+// alternative was a second copy of the presentation rule inside the runner,
+// which is how a backfill ends up disagreeing with the reader it is meant to
+// satisfy. Behaviour is identical; only the specifier changed.
 import {
   GALLERY_EXCLUDED_ROLES,
   isGalleryEligibleRole,
-} from "@/features/forever-direct-publish/hero-policy";
+} from "../features/forever-direct-publish/hero-policy";
 
 export { GALLERY_EXCLUDED_ROLES, isGalleryEligibleRole };
 

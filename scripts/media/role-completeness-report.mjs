@@ -350,7 +350,11 @@ async function main() {
     `anon grant      : project_media.semantic_role/metadata SELECT = "${rawGrants.raw}"`,
     formatRoleCompletenessReport(report, verdict),
     `retired rows    : ${retired} (superseded_cover; never presentation media)`,
-    `not counted     : ${excluded} cover/gallery row(s) of projects that are not ` +
+    // "cover/gallery" was a lie about what was counted. EXCLUDED_SQL counts
+    // every media_type except `price_list`, so a draft project holding a
+    // brochure, a floor plan, a video or a retired cover had those rows
+    // reported to the Owner as cover/gallery rows in the release record.
+    `not counted     : ${excluded} media row(s) of projects that are not ` +
       `is_active AND public_status='published' — no anonymous client can fetch them`,
   ].join("\n");
 
