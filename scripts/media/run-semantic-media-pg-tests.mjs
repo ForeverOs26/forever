@@ -93,26 +93,50 @@ class Cluster {
     this.started = false;
   }
 
+  /**
+   * Bring the cluster up, walking forward if the port is taken.
+   *
+   * This proof is meant to be re-run by reviewers, and two people running it at
+   * once is the normal case, not the exceptional one. A fixed port turns that
+   * into `pg_ctl ... start` failing with no explanation and a `-1/0 checks`
+   * summary that looks like the migration broke. Eight attempts is enough for
+   * any plausible number of concurrent runs; the port is reported so a run can
+   * be identified.
+   */
   start() {
     execFileSync(bin("initdb"), ["-D", this.data, "-U", "postgres", "--auth=trust", "-E", "UTF8"], {
       stdio: "pipe",
       encoding: "utf8",
     });
-    execFileSync(
-      bin("pg_ctl"),
-      [
-        "-D",
-        this.data,
-        "-o",
-        `-h 127.0.0.1 -p ${this.port} -c fsync=off -c synchronous_commit=off`,
-        "-w",
-        "-l",
-        join(this.work, "log"),
-        "start",
-      ],
-      WINDOWS ? { stdio: "ignore" } : { stdio: "pipe", encoding: "utf8" },
-    );
-    this.started = true;
+    let lastError;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const port = String(Number(this.port) + attempt * 10);
+      try {
+        execFileSync(
+          bin("pg_ctl"),
+          [
+            "-D",
+            this.data,
+            "-o",
+            `-h 127.0.0.1 -p ${port} -c fsync=off -c synchronous_commit=off`,
+            "-w",
+            "-l",
+            join(this.work, "log"),
+            "start",
+          ],
+          WINDOWS ? { stdio: "ignore" } : { stdio: "pipe", encoding: "utf8" },
+        );
+        this.port = port;
+        this.started = true;
+        return;
+      } catch (error) {
+        lastError = error;
+        // pg_ctl leaves a postmaster.pid behind on a bind failure, which blocks
+        // the next attempt with "another server might be running".
+        rmSync(join(this.data, "postmaster.pid"), { force: true });
+      }
+    }
+    throw lastError;
   }
 
   args(extra) {
@@ -1118,9 +1142,32 @@ try {
         `exit ${after.code}\n${after.out.slice(-400)}`,
       );
 
-  after.out.includes("superseded_cover; never presentation media")
-    ? ok("the census reports retired rows separately and never governs them")
-    : bad("retired rows reported but not governed", after.out.slice(-400));
+  // Assert the NUMBER against the database, not the label.
+  //
+  // The first version of this check tested only that the output contained
+  // "superseded_cover; never presentation media" — a static string the script
+  // prints whatever the count says. It passed while the script was reading a
+  // snake_case property off a camelCase row and reporting 0 retired rows on
+  // every database. A check that cannot fail is worse than no check.
+  const retiredInDb = Number(
+    Bc.scalar("SELECT count(*) FROM public.project_media WHERE media_type = 'superseded_cover'"),
+  );
+  const retiredReported = Number(/retired rows\s*:\s*(\d+)/.exec(after.out)?.[1] ?? -1);
+  retiredInDb > 0 && retiredReported === retiredInDb
+    ? ok(`the census counts all ${retiredInDb} retired row(s), and governs none of them`)
+    : bad(
+        "retired rows counted and excluded from the governed set",
+        `db=${retiredInDb} reported=${retiredReported}`,
+      );
+
+  // Governed counts exclude them: cover + gallery only.
+  const governedInDb = Number(
+    Bc.scalar("SELECT count(*) FROM public.project_media WHERE media_type IN ('cover','gallery')"),
+  );
+  const governedReported = Number(/governed rows\s*:\s*(\d+)/.exec(after.out)?.[1] ?? -1);
+  governedReported === governedInDb
+    ? ok(`the census governs exactly the ${governedInDb} cover/gallery row(s)`)
+    : bad("governed count matches the database", `db=${governedInDb} reported=${governedReported}`);
 
   // Simulate the controlled backfill on this throwaway cluster only.
   Bc.sql(

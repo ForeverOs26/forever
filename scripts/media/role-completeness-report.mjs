@@ -158,7 +158,11 @@ async function main() {
   const rows = readCensus(databaseUrl);
   const report = buildRoleCompletenessReport(rows, readExceptions(arg("exceptions")));
   const verdict = evaluateReleaseGate(report, stage);
-  const retired = rows.filter((row) => row.media_type === "superseded_cover").length;
+  // `readCensus` returns camelCase. Reading `row.media_type` here counted
+  // `undefined === "superseded_cover"` and reported 0 retired rows on every
+  // database — and the harness check that was supposed to catch it asserted on
+  // the static label text, which is present whatever the number says.
+  const retired = rows.filter((row) => row.mediaType === "superseded_cover").length;
 
   const text = [
     "[role-census] FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001",
