@@ -69,4 +69,18 @@ describe("project contact actions gate (F5)", () => {
     // in any build that has not deliberately set it.
     expect(projectContactActionsEnabled()).toBe(false);
   });
+
+  /**
+   * FOREVER-CONTACT-G0-DELIVERY-AUDIT-001 records the verdict `G0_PARTIAL`:
+   * leads persist in a durable RLS-protected table, but nobody is notified, no
+   * authorized person has an in-app read path, there is no assignment queue, no
+   * consent contract, and no project/unit context is preserved.
+   *
+   * So the gate must be closed in every environment that produces release
+   * evidence. A build that quietly set it would make that evidence worthless.
+   */
+  it("is closed in this build, which is a release-evidence environment", () => {
+    expect(import.meta.env.VITE_PROJECT_CONTACT_ACTIONS).toBeUndefined();
+    expect(projectContactActionsEnabled()).toBe(false);
+  });
 });
