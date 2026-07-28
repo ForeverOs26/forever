@@ -10,7 +10,7 @@
 
 import { developerIdentity, presentableDeveloperName } from "./developer-identity";
 import { renderablePlan, renderablePlans } from "./plan-media";
-import type { ProjectDetail, ProjectDetailMediaItem } from "./project-detail-types";
+import type { ProjectAmenity, ProjectDetail, ProjectDetailMediaItem } from "./project-detail-types";
 import { buildingCodes, isAvailable, unitSizeRange } from "./unit-presentation";
 
 /**
@@ -40,32 +40,42 @@ export interface ProjectSection {
 }
 
 /**
- * Facilities the project record states outright, as a clean list (finding F3).
+ * Amenities the project record states outright (finding F3).
  *
- * Reads `project.facilities` — the structured `facilities` /
- * `project_facilities` collection — and nothing else.
+ * Reads `project.amenities` — the canonical `project_amenities` → `amenities`
+ * relation — and nothing else.
  *
  * It previously read `project.core.highlights`. Highlights are editorial
- * one-liners, not facilities: Modeva's three are "Forever Verified project
+ * one-liners, not amenities: Modeva's three are "Forever Verified project
  * record", "Bang Tao location" and "Structured project foundation". Under a
- * heading reading "Facilities — What the project includes", those assert three
- * things the developer never said, about the only project that had any.
+ * heading promising what the project includes, those assert three things the
+ * developer never said, about the only project that had any.
  *
  * Nothing may be inferred here from highlights, descriptions, photographs or
- * generic project records.
+ * generic project records. The mapper has already deduplicated and ordered the
+ * rows; this guard exists because `ProjectDetail` is also built by demo and
+ * fixture code paths that do not go through the mapper.
  */
-export function projectFacilities(project: ProjectDetail): string[] {
+export function projectAmenities(project: ProjectDetail): ProjectAmenity[] {
   const seen = new Set<string>();
-  const facilities: string[] = [];
-  for (const raw of project.facilities) {
-    const value = raw.trim();
-    if (!value) continue;
-    const key = value.toLowerCase();
+  const amenities: ProjectAmenity[] = [];
+  for (const amenity of project.amenities ?? []) {
+    if (!amenity) continue;
+    const name = (amenity.name ?? "").trim();
+    if (!name) continue;
+    const key = ((amenity.id ?? "").trim() || (amenity.slug ?? "").trim() || name).toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    facilities.push(value);
+    amenities.push(amenity);
   }
-  return facilities;
+  return amenities;
+}
+
+/**
+ * The amenity names alone, for callers that only need a list of labels.
+ */
+export function projectAmenityNames(project: ProjectDetail): string[] {
+  return projectAmenities(project).map((amenity) => amenity.name);
 }
 
 /**
@@ -106,8 +116,8 @@ export function hasUnitPlansSection(project: ProjectDetail): boolean {
   return renderablePlans(project.media.unitPlans).length > 0;
 }
 
-export function hasFacilitiesSection(project: ProjectDetail): boolean {
-  return projectFacilities(project).length > 0;
+export function hasAmenitiesSection(project: ProjectDetail): boolean {
+  return projectAmenities(project).length > 0;
 }
 
 export function hasDeveloperSection(project: ProjectDetail): boolean {
@@ -190,7 +200,7 @@ export function projectSections(project: ProjectDetail): ProjectSection[] {
   add("overview", "Overview", hasOverviewSection(project));
   add("photos", "Photos", hasPhotosSection(project));
   add("units", "Available Units", hasUnitsSection(project));
-  add("facilities", "Facilities", hasFacilitiesSection(project));
+  add("amenities", "Facilities & Amenities", hasAmenitiesSection(project));
   add("master-plan", "Master Plan", hasMasterPlanSection(project));
   add("floor-plans", "Floor Plans", hasFloorPlansSection(project));
   add("unit-plans", "Unit Plans", hasUnitPlansSection(project));

@@ -24,6 +24,7 @@ import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
 import {
+  makeAmenity,
   makeMediaItem,
   makeProjectDetail,
   makeUnit,
@@ -31,7 +32,7 @@ import {
 
 import {
   projectSections,
-  projectFacilities,
+  projectAmenities,
   paymentPlanDocument,
   projectPhotographs,
 } from "../project-sections";
@@ -40,7 +41,7 @@ import { projectSummaryRows } from "./ProjectSummaryPanel";
 import { ProjectMediaMosaic } from "./ProjectMediaMosaic";
 import { ProjectLightbox } from "./ProjectLightbox";
 import { ProjectUnitPreview } from "./ProjectUnitPreview";
-import { ProjectFacilities } from "./ProjectFacilities";
+import { ProjectAmenities } from "./ProjectAmenities";
 import { ProjectPaymentPlan } from "./ProjectPaymentPlan";
 import { ProjectMobileCTA } from "./ProjectMobileCTA";
 import { ProjectPhotos } from "./ProjectPhotos";
@@ -286,13 +287,13 @@ describe("section navigation", () => {
     expect(ids).not.toContain("units");
     expect(ids).not.toContain("floor-plans");
     expect(ids).not.toContain("payment-plan");
-    expect(ids).not.toContain("facilities");
+    expect(ids).not.toContain("amenities");
   });
 
   it("lists a section once its content exists, and anchors match the rendered ids", () => {
     const project = makeProjectDetail({
       core: { description: "A project.", highlights: [] },
-      facilities: ["Communal pool"],
+      amenities: [makeAmenity({ name: "Communal pool" })],
       units: [makeUnit()],
       media: {
         hero: makeMediaItem({ type: "cover" }),
@@ -308,9 +309,9 @@ describe("section navigation", () => {
       },
     });
     const ids = projectSections(project).map((section) => section.id);
-    expect(ids).toEqual(expect.arrayContaining(["overview", "photos", "units", "facilities"]));
-    render(<ProjectFacilities project={project} />);
-    expect(screen.getByTestId("project-facilities").getAttribute("id")).toBe("facilities");
+    expect(ids).toEqual(expect.arrayContaining(["overview", "photos", "units", "amenities"]));
+    render(<ProjectAmenities project={project} />);
+    expect(screen.getByTestId("project-amenities").getAttribute("id")).toBe("amenities");
   });
 
   /**
@@ -359,7 +360,7 @@ describe("section navigation", () => {
   it("every navigation entry corresponds to a section the page actually renders", async () => {
     const project = makeProjectDetail({
       core: { description: "A project.", highlights: [] },
-      facilities: ["Communal pool"],
+      amenities: [makeAmenity({ name: "Communal pool" })],
       units: [makeUnit()],
       media: {
         hero: makeMediaItem({ type: "cover" }),
@@ -536,27 +537,45 @@ describe("sections Forever cannot support stay hidden", () => {
     expect(screen.queryByText(/Installment/i)).toBeNull();
   });
 
-  it("hides facilities when the record states none", () => {
-    const project = makeProjectDetail({ facilities: [] });
-    expect(projectFacilities(project)).toEqual([]);
-    const { container } = render(<ProjectFacilities project={project} />);
+  it("hides the amenities section when the relation holds no rows", () => {
+    const project = makeProjectDetail({ amenities: [] });
+    expect(projectAmenities(project)).toEqual([]);
+    const { container } = render(<ProjectAmenities project={project} />);
     expect(container.innerHTML).toBe("");
   });
 
-  it("lists only the facilities the structured collection states", () => {
+  it("shows Facilities & Amenities once the relation holds rows", () => {
     const project = makeProjectDetail({
-      facilities: ["Communal pool", "Communal pool", "24h security"],
+      amenities: [makeAmenity({ name: "Communal pool" }), makeAmenity({ name: "24h security" })],
     });
-    expect(projectFacilities(project)).toEqual(["Communal pool", "24h security"]);
+
+    render(<ProjectAmenities project={project} />);
+    expect(screen.getByText("Facilities & Amenities")).not.toBeNull();
+    expect(screen.getByText("Communal pool")).not.toBeNull();
+    expect(screen.getByText("24h security")).not.toBeNull();
+  });
+
+  it("lists only the amenities the relation states, deduplicated on identity", () => {
+    const project = makeProjectDetail({
+      amenities: [
+        makeAmenity({ id: "a-pool", name: "Communal pool" }),
+        makeAmenity({ id: "a-pool", name: "Communal pool" }),
+        makeAmenity({ id: "a-security", name: "24h security" }),
+      ],
+    });
+    expect(projectAmenities(project).map((amenity) => amenity.name)).toEqual([
+      "Communal pool",
+      "24h security",
+    ]);
   });
 
   /**
    * F3. Highlights are editorial one-liners. Modeva's three are "Forever
    * Verified project record", "Bang Tao location" and "Structured project
-   * foundation" — printed under "Facilities — What the project includes", they
-   * assert three things the developer never said.
+   * foundation" — printed under a heading promising what the project includes,
+   * they assert three things the developer never said.
    */
-  it("never builds a facility out of an editorial highlight", () => {
+  it("never builds an amenity out of an editorial highlight", () => {
     const project = makeProjectDetail({
       core: {
         highlights: [
@@ -565,12 +584,12 @@ describe("sections Forever cannot support stay hidden", () => {
           "Structured project foundation",
         ],
       },
-      facilities: [],
+      amenities: [],
     });
 
-    expect(projectFacilities(project)).toEqual([]);
-    expect(projectSections(project).map((section) => section.id)).not.toContain("facilities");
-    const { container } = render(<ProjectFacilities project={project} />);
+    expect(projectAmenities(project)).toEqual([]);
+    expect(projectSections(project).map((section) => section.id)).not.toContain("amenities");
+    const { container } = render(<ProjectAmenities project={project} />);
     expect(container.innerHTML).toBe("");
   });
 

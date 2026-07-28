@@ -3,6 +3,18 @@ import { isKnownFictitiousProjectSlug } from "@/lib/public-truth";
 import { mapProjectDetail } from "./project-detail-mappers";
 import type { ProjectDetail, ProjectDetailRecord } from "./project-detail-types";
 
+/**
+ * Every column and relation the public detail page reads.
+ *
+ * The `amenities` embed is `project_amenities` with its `amenities` parent —
+ * the canonical relation, and the only relation of its kind in the generated
+ * types. Both tables grant `SELECT` to `anon` and their row-level policies
+ * expose amenities of published projects, so the embed resolves for anonymous
+ * visitors; it was exercised against the live database as part of this change
+ * and returns the projects unchanged, with an empty `amenities` array where the
+ * relation holds no rows. That matters because a failing embed does not hide
+ * one section — it fails the whole project query and takes every page down.
+ */
 export const PROJECT_DETAIL_SELECT = `
   id, name, slug, project_type, location_area, address,
   short_description, full_description, construction_status,
@@ -14,7 +26,8 @@ export const PROJECT_DETAIL_SELECT = `
   developer:developers(id, name, description, website, logo_url),
   media:project_media(id, media_type, title, url, sort_order),
   units:units(id, unit_code, unit_type, bedrooms, bathrooms, size_sqm, floor, view_type, ownership_type, base_price_thb, discounted_price_thb, price_per_sqm, availability_status, payment_plan, furniture_package, rental_guarantee, roi_estimate, notes, building:buildings(building_code)),
-  investment:investment_data(id, project_id, unit_id, expected_daily_rate, expected_monthly_rent, expected_yearly_rent, occupancy_rate, annual_roi_percent, guaranteed_rental_percent, guarantee_years, management_company, notes, created_at)
+  investment:investment_data(id, project_id, unit_id, expected_daily_rate, expected_monthly_rent, expected_yearly_rent, occupancy_rate, annual_roi_percent, guaranteed_rental_percent, guarantee_years, management_company, notes, created_at),
+  amenities:project_amenities(note, amenity:amenities(id, name, slug, category, icon))
 ` as const;
 
 /**

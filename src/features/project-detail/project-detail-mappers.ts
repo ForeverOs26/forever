@@ -6,7 +6,8 @@ import type {
   ProjectDetailMediaItem,
   ProjectDetailRecord,
   ProjectDetailInvestmentRow,
-  ProjectFacilityRow,
+  ProjectAmenity,
+  ProjectAmenityRow,
   ProjectMediaRow,
   UnitRow,
   UnitRowWithBuilding,
@@ -165,40 +166,63 @@ export function groupProjectMedia(
 }
 
 /**
- * The structured facilities collection, as a clean list of names (finding F3).
+ * The canonical amenities relation, as structured rows (finding F3).
  *
- * The only source is `project_facilities` joined to `facilities`. Highlights,
+ * The only source is `project_amenities` embedded with `amenities`. Highlights,
  * descriptions, photographs and generic project records are deliberately not
  * consulted: a render that happens to show water is not evidence of a communal
- * pool, and an editorial one-liner is not a facility.
+ * pool, and an editorial one-liner is not an amenity.
  *
- * The public detail query does not request the collection yet, so `rows` is
- * `undefined` in production today and every project maps to an empty list —
- * which is also the truthful answer, because the collection holds zero rows for
- * all nine public projects. Wiring the query is a separate, separately
- * verifiable step: a PostgREST embed that cannot be exercised against a real
- * database does not belong in a release-safety change, and adding one that
- * fails would take down every project page rather than hide one section.
+ * Ordering is by category, then name, then slug. Neither table has a
+ * `sort_order` column, so there is nothing curated to honour; this ordering is
+ * chosen because it is total and stable — PostgREST does not promise an order
+ * for embedded rows, and an unordered list would reshuffle between requests.
+ * A real `sort_order` belongs to the Studio Amenities contract, and this
+ * comparator gives way to it when it lands.
+ *
+ * Rows are deduplicated on amenity identity, not on name, so two distinct
+ * amenities that share a display name both survive while a relation that
+ * somehow links the same amenity twice yields one entry.
  */
-export function mapProjectFacilities(rows: ProjectFacilityRow[] | null | undefined): string[] {
+export function mapProjectAmenities(
+  rows: ProjectAmenityRow[] | null | undefined,
+): ProjectAmenity[] {
   const seen = new Set<string>();
-  const facilities: string[] = [];
-  const ordered = [...(rows ?? [])].sort((left, right) => {
-    const a = left.sort_order ?? 0;
-    const b = right.sort_order ?? 0;
-    if (a !== b) return a - b;
-    return (left.facility?.name ?? "").localeCompare(right.facility?.name ?? "", "en");
-  });
+  const amenities: ProjectAmenity[] = [];
 
-  for (const row of ordered) {
-    const value = (row.facility?.name ?? "").trim();
-    if (!value) continue;
-    const key = value.toLowerCase();
+  for (const row of rows ?? []) {
+    // A malformed embed — null row, missing parent, unnamed amenity — is
+    // skipped rather than rendered as a blank bullet.
+    if (!row || typeof row !== "object") continue;
+    const amenity = row.amenity;
+    if (!amenity || typeof amenity !== "object") continue;
+
+    const name = text(amenity.name).trim();
+    if (!name) continue;
+
+    const id = text(amenity.id).trim();
+    const slug = text(amenity.slug).trim();
+    const key = (id || slug || name).toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    facilities.push(value);
+
+    amenities.push({
+      id,
+      slug,
+      name,
+      category: text(amenity.category).trim(),
+      icon: text(amenity.icon).trim(),
+      note: text(row.note).trim(),
+    });
   }
-  return facilities;
+
+  return amenities.sort((left, right) => {
+    return (
+      left.category.localeCompare(right.category, "en") ||
+      left.name.localeCompare(right.name, "en") ||
+      left.slug.localeCompare(right.slug, "en")
+    );
+  });
 }
 
 export function mapProjectDeveloper(row: DeveloperRow | null | undefined) {
@@ -339,6 +363,6 @@ export function mapProjectDetail(row: ProjectDetailRecord): ProjectDetail {
     developer: mapProjectDeveloper(row.developer),
     media,
     units: [...(row.units ?? [])].sort(byUnitCode).map(mapProjectUnit),
-    facilities: mapProjectFacilities(row.facilities),
+    amenities: mapProjectAmenities(row.amenities),
   };
 }
