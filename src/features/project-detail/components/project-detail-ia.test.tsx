@@ -39,6 +39,7 @@ import { ProjectMediaMosaic } from "./ProjectMediaMosaic";
 import { ProjectLightbox } from "./ProjectLightbox";
 import { ProjectUnitPreview } from "./ProjectUnitPreview";
 import { ProjectFacilities } from "./ProjectFacilities";
+import { ProjectPhotos } from "./ProjectPhotos";
 import { ProjectPaymentPlan } from "./ProjectPaymentPlan";
 import { ProjectMobileCTA } from "./ProjectMobileCTA";
 
@@ -342,9 +343,52 @@ describe("section navigation", () => {
       },
     });
     const ids = projectSections(project).map((section) => section.id);
-    expect(ids).toEqual(expect.arrayContaining(["overview", "photos", "units", "facilities"]));
+    expect(ids).toEqual(expect.arrayContaining(["overview", "units", "facilities"]));
     render(<ProjectFacilities project={project} />);
     expect(screen.getByTestId("project-facilities").getAttribute("id")).toBe("facilities");
+  });
+
+  /**
+   * The "Photos" entry has to track the SECTION, not the photographs.
+   *
+   * `id="photos"` belongs to `ProjectPhotos`, which renders nothing at five
+   * photographs or fewer because the mosaic on the first screen already shows
+   * them all. The nav listed the entry whenever a single photograph existed, so
+   * between one and five the link scrolled to a destination that was not in the
+   * document. Pre-existing — and this contract made it likely rather than
+   * theoretical, because a gallery that loses its launch-party photographs lands
+   * squarely in that range.
+   */
+  it("offers Photos only when the Photos section is actually rendered", () => {
+    const withCount = (count: number) =>
+      makeProjectDetail({
+        media: {
+          hero: null,
+          gallery: photos(count),
+          floorPlans: [],
+          masterPlan: null,
+          unitPlans: [],
+          brochures: [],
+          videos: [],
+          documents: [],
+        },
+      });
+
+    for (const count of [0, 1, 3, 5]) {
+      const project = withCount(count);
+      expect(
+        projectSections(project).map((section) => section.id),
+        `${count} photographs must not offer a Photos link`,
+      ).not.toContain("photos");
+      const { container, unmount } = render(<ProjectPhotos project={project} />);
+      expect(container.querySelector("#photos"), `${count} renders no #photos`).toBeNull();
+      unmount();
+    }
+
+    const many = withCount(6);
+    expect(projectSections(many).map((section) => section.id)).toContain("photos");
+    const { container } = render(<ProjectPhotos project={many} />);
+    expect(container.querySelector("#photos")).not.toBeNull();
   });
 });
 

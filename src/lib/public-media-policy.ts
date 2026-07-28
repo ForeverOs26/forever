@@ -109,6 +109,19 @@ export const NEVER_PUBLIC_ROLES: ReadonlySet<string> = new Set([
   "lifestyle",
 ]);
 
+/**
+ * `decorative_detail` is deliberately absent, and that is a judgement rather
+ * than an oversight.
+ *
+ * Subtracting plans, maps and brochures from `GALLERY_EXCLUDED_ROLES` leaves
+ * five roles, not four. The fifth is `decorative_detail` — a fabric swatch, a
+ * material board, a close-up of an ornament. It has no business among the
+ * photographs, which is why the gallery excludes it. But a material board filed
+ * as a document is a document a buyer may genuinely want, and unlike a launch
+ * party it is at least *about* the property. Excluding it everywhere would
+ * delete a legitimate specification sheet to prevent nothing.
+ */
+
 /** The minimum a caller must know about a row to ask this policy about it. */
 export interface PublicMediaCandidate {
   /** `project_media.media_type`, or the synthesised type of a project column. */

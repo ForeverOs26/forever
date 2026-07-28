@@ -161,7 +161,12 @@ describe("semantic media migration — contract", () => {
     ]);
   });
 
-  it("issues no REVOKE, so it cannot change another column's reachability", () => {
+  // Named for what it asserts. It used to be "issues no REVOKE" while the
+  // migration contains nine of them — all `REVOKE ALL ON FUNCTION`, which is the
+  // point: revoking EXECUTE on the new functions is required, and revoking
+  // SELECT on a column is the thing that must never happen here. Test names get
+  // pasted into release records.
+  it("issues no REVOKE SELECT, so it cannot change another column's reachability", () => {
     expect(executable).not.toMatch(/REVOKE SELECT/);
   });
 

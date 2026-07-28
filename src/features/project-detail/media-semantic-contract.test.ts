@@ -609,7 +609,11 @@ describe("the migration", () => {
     expect(columns).not.toContain("created_at");
   });
 
-  it("issues no REVOKE, so it cannot change another column's reachability", () => {
+  // "no REVOKE SELECT", not "no REVOKE": the migration issues nine
+  // `REVOKE ALL ON FUNCTION` statements on purpose, and this file also asserts
+  // one of them exists. Two assertions in one suite must not contradict each
+  // other in their names.
+  it("issues no REVOKE SELECT, so it cannot change another column's reachability", () => {
     const executable = sql
       .split("\n")
       .filter((line) => !line.trim().startsWith("--"))

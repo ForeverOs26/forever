@@ -113,8 +113,13 @@ export interface PlannedMediaItem {
  * The database enforces the same list with a CHECK constraint, but a constraint
  * violation surfaces after images have already been uploaded to public storage
  * — the write fails and the bytes stay. Checking the plan first means an
- * unknown role costs nothing: it fails in `--dry-run`, before a client is
- * constructed.
+ * unknown role costs nothing: it is caught in the planning step, before a client
+ * is constructed and before a byte is uploaded.
+ *
+ * Precisely: `assertPlanSemanticRoles` throws from `publishProject` ahead of
+ * `publishPlannedMedia`. `--dry-run` prints the plan and exits 0 whatever it
+ * contains, so it reports an unknown role rather than failing on one — an
+ * earlier version of this comment said otherwise.
  *
  * An item with no role at all is not an error. It means the Factory formed no
  * opinion, which readers treat as "show it".

@@ -50,6 +50,16 @@ export function projectSocialImage(project: ProjectDetail): string | null {
   return projectPhotographs(project)[0]?.url ?? null;
 }
 
+/**
+ * Above this many photographs, and only above it, `ProjectPhotos` renders the
+ * grid that carries `id="photos"`. At or below it the mosaic on the first screen
+ * already shows every photograph, so a second section would repeat itself.
+ *
+ * Exported and consumed by both sides so the navigation and the section cannot
+ * disagree about whether the destination exists.
+ */
+export const PHOTOS_SECTION_MINIMUM = 5;
+
 export interface ProjectSection {
   id: string;
   label: string;
@@ -88,7 +98,15 @@ export function projectSections(project: ProjectDetail): ProjectSection[] {
   };
 
   add("overview", "Overview", Boolean(project.core.description || project.core.tagline));
-  add("photos", "Photos", project.media.gallery.length > 0 || Boolean(project.media.hero));
+  // `id="photos"` belongs to `ProjectPhotos`, which renders nothing at five
+  // photographs or fewer — those are already all visible in the mosaic on the
+  // first screen. Linking to it below that threshold scrolls to a destination
+  // that is not in the document.
+  //
+  // Pre-existing, and this contract makes it likely rather than theoretical: a
+  // gallery that loses its launch-party photographs can land anywhere between
+  // one and five, which is precisely the range where the link went nowhere.
+  add("photos", "Photos", projectPhotographs(project).length > PHOTOS_SECTION_MINIMUM);
   add("units", "Available Units", project.units.length > 0);
   add("facilities", "Facilities", projectFacilities(project).length > 0);
   add("master-plan", "Master Plan", Boolean(project.media.masterPlan));
