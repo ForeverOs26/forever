@@ -1,4 +1,5 @@
 import type {
+  ProjectAmenity,
   ProjectDetail,
   ProjectDetailInvestmentRow,
   ProjectDetailMediaItem,
@@ -10,6 +11,23 @@ import type {
  * tests. No randomness and no timestamps: identical calls are identical, so
  * the "deterministic mapping" guarantee can be asserted by deep equality.
  */
+
+/**
+ * One amenity as the mapper would emit it: every field a plain string, with
+ * `name` the only one a caller must supply.
+ */
+export function makeAmenity(overrides: Partial<ProjectAmenity> = {}): ProjectAmenity {
+  const name = overrides.name ?? "Communal pool";
+  const slug = overrides.slug ?? name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return {
+    id: overrides.id ?? `amenity-${slug}`,
+    slug,
+    name,
+    category: overrides.category ?? "",
+    icon: overrides.icon ?? "",
+    note: overrides.note ?? "",
+  };
+}
 
 export function makeMediaItem(
   overrides: Partial<ProjectDetailMediaItem> = {},
@@ -80,17 +98,17 @@ type ProjectOverrides = {
   developer?: ProjectDetail["developer"];
   media?: Partial<ProjectDetail["media"]>;
   units?: ProjectDetailUnit[];
-  /** The structured facilities collection — never editorial highlights (F3). */
-  facilities?: string[];
+  /** The canonical amenities relation — never editorial highlights (F3). */
+  amenities?: ProjectDetail["amenities"];
 };
 
 /** A verified-but-sparse project, matching the Modeva seed shape. */
 export function makeProjectDetail(overrides: ProjectOverrides = {}): ProjectDetail {
   return {
-    // Defaults to production's truth: the structured facilities collection is
-    // empty for every public project, so the section is absent (finding F3).
-    // A test that wants the populated case must say so explicitly.
-    facilities: overrides.facilities ?? [],
+    // Defaults to production's truth: the amenities relation is empty for
+    // every public project, so the section is absent (finding F3). A test that
+    // wants the populated case must say so explicitly.
+    amenities: overrides.amenities ?? [],
     core: {
       id: "project-1",
       slug: "the-modeva-bang-tao",

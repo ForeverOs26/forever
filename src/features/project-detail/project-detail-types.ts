@@ -42,15 +42,24 @@ export type UnitRowWithBuilding = UnitRow & {
 };
 
 /**
- * One row of the structured facilities collection (`project_facilities` joined
- * to `facilities`), as the public projection would return it.
+ * One row of the canonical amenities relation — `project_amenities` embedded
+ * with its `amenities` parent — as the public projection returns it.
  *
- * Optional on the record because the public detail query does not request it
- * yet — see `ProjectDetail.facilities` for why the shape exists regardless.
+ * The column set is exactly what the two tables hold. `project_amenities` is
+ * `(project_id, amenity_id, note, created_at)` and `amenities` is
+ * `(id, name, slug, category, icon, created_at, updated_at)`. There is no
+ * `sort_order` and no `is_featured` on either table, so neither is typed here;
+ * introducing them is a schema change, not a mapping detail.
  */
-export type ProjectFacilityRow = {
-  facility: { name: string | null } | null;
-  sort_order?: number | null;
+export type ProjectAmenityRow = {
+  note?: string | null;
+  amenity: {
+    id: string | null;
+    name: string | null;
+    slug: string | null;
+    category: string | null;
+    icon: string | null;
+  } | null;
 };
 
 export type ProjectDetailRecord = ProjectRow &
@@ -59,8 +68,25 @@ export type ProjectDetailRecord = ProjectRow &
     media: ProjectMediaRow[] | null;
     units: UnitRowWithBuilding[] | null;
     investment: InvestmentDataRow[] | null;
-    facilities?: ProjectFacilityRow[] | null;
+    amenities?: ProjectAmenityRow[] | null;
   };
+
+/**
+ * One amenity as the public page consumes it.
+ *
+ * Every field is a plain string — absent values collapse to `""` rather than
+ * `null`, so a renderer never has to distinguish "no category" from "null
+ * category". Only `name` is guaranteed non-empty: a row without one is dropped
+ * during mapping, because an amenity that cannot be named cannot be shown.
+ */
+export type ProjectAmenity = {
+  id: string;
+  slug: string;
+  name: string;
+  category: string;
+  icon: string;
+  note: string;
+};
 
 export type ProjectDetailMediaType =
   | "cover"
@@ -233,20 +259,24 @@ export type ProjectDetail = {
   media: ProjectDetailMedia;
   units: ProjectDetailUnit[];
   /**
-   * Facilities the project record states outright, from the structured
-   * `facilities` / `project_facilities` collection — and from nothing else
+   * Amenities the project record states outright, from the canonical
+   * `project_amenities` → `amenities` relation — and from nothing else
    * (finding F3).
    *
-   * This is the ONLY input the Facilities section may read. It used to read
-   * `core.highlights`, which are editorial one-liners: Modeva's three are
-   * "Forever Verified project record", "Bang Tao location" and "Structured
-   * project foundation". Printed under "Facilities — What the project
-   * includes", those state three things the developer never said.
+   * This is the ONLY input the "Facilities & Amenities" section may read. It
+   * used to read `core.highlights`, which are editorial one-liners: Modeva's
+   * three are "Forever Verified project record", "Bang Tao location" and
+   * "Structured project foundation". Printed under a heading promising what
+   * the project includes, those state three things the developer never said.
    *
-   * It is empty for all nine public projects today, because the structured
-   * collection holds zero rows for every one of them, so the section and its
-   * navigation entry are absent everywhere. That is the correct current
-   * outcome, not a placeholder.
+   * The structured relation is kept, not flattened to `string[]`: the tables
+   * already carry `slug`, `category`, `icon` and a per-project `note`, and
+   * discarding them at the mapping boundary would mean re-querying to group or
+   * annotate. A renderer that only wants names maps over `name`.
+   *
+   * It is empty for every public project today, because the relation holds
+   * zero rows for all of them, so the section and its navigation entry are
+   * absent everywhere. That is the correct current outcome, not a placeholder.
    */
-  facilities: string[];
+  amenities: ProjectAmenity[];
 };

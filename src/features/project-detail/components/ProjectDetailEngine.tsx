@@ -5,7 +5,7 @@ import { ForeverPassportCard } from "@/features/passport/components/ForeverPassp
 import { ForeverIntelligenceSection } from "./ForeverIntelligenceSection";
 import { ProjectDeveloper } from "./ProjectDeveloper";
 import { ProjectDocuments } from "./ProjectDocuments";
-import { ProjectFacilities } from "./ProjectFacilities";
+import { ProjectAmenities } from "./ProjectAmenities";
 import { ProjectFloorPlans } from "./ProjectFloorPlans";
 import { ProjectInvestmentAnalysis } from "./ProjectInvestmentAnalysis";
 import { ProjectInventory } from "./ProjectInventory";
@@ -69,7 +69,7 @@ export function ProjectDetailEngine({ project }: ProjectDetailEngineProps) {
         <ProjectOverview project={project} />
         <ProjectUnitPreview project={project} />
         <ProjectPhotos project={project} />
-        <ProjectFacilities project={project} />
+        <ProjectAmenities project={project} />
         <ProjectMasterPlan project={project} />
         <ProjectFloorPlans project={project} />
         <ProjectUnitPlans project={project} />

@@ -96,10 +96,10 @@ export function buildCoralinaProjectDetail(
   const otherDocs = documents.filter((d) => d.documentType !== "brochure");
 
   return {
-    // Coralina's progressive payload carries no structured facilities
-    // collection, so the Facilities section stays absent (finding F3). It is
-    // never populated from highlights or descriptions.
-    facilities: [],
+    // Coralina's progressive payload carries no amenity rows, so the
+    // Facilities & Amenities section stays absent (finding F3). It is never
+    // populated from highlights or descriptions.
+    amenities: [],
     core: {
       id: project.id,
       slug: project.slug,
