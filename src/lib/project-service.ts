@@ -77,9 +77,23 @@ type ProjectWithRelations = ProjectRow & {
  * embedded select with 42703 when a requested column does not exist. Deploying
  * this client before
  * `supabase/migrations/20260728120000_project_media_semantic_role.sql` has been
- * applied would empty the catalogue, not merely one card. It is not a new gate:
- * the migration already had to precede any build carrying
- * `PROJECT_DETAIL_SELECT`. It is the same gate, now covering the catalogue too.
+ * applied would empty the catalogue, not merely one card. For that direction it
+ * is not a new gate: the migration already had to precede any build carrying
+ * `PROJECT_DETAIL_SELECT`.
+ *
+ * THERE IS A SECOND, DIFFERENT ORDERING HAZARD, and an earlier version of this
+ * comment denied it. `20260723130000_public_projection_privacy.sql` is
+ * documented in its own header as intentionally UNAPPLIED, so on this database
+ * it necessarily arrives AFTER `20260728120000`. It does
+ * `REVOKE SELECT ON TABLE public.project_media FROM anon` and re-grants a column
+ * list written before `semantic_role` existed — and a column-less REVOKE removes
+ * column-level grants too. Applying it in that order takes `semantic_role` away
+ * again and blanks the catalogue and every project page together.
+ *
+ * Apply `20260723130000` BEFORE `20260728120000`, or add `semantic_role` to its
+ * grant list first. The release gate measures the outcome rather than trusting
+ * the order: `npm run media:role-census -- --stage before_backfill` blocks when
+ * `anon` cannot read `semantic_role`.
  *
  * The role is requested because it is the only way this reader can tell a pool
  * render from a launch-party photograph. Reading `media_type` alone — which is
