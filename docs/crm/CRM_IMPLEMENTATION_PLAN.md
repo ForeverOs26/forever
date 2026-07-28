@@ -103,7 +103,7 @@ Response marking (`public.audit_log` with `action = 'crm.lead.first_response'`) 
 | **Start with server-side capture (S2)** | R2 (shared contract), produces no number and no screen, and collides with Draft PR #118, which is actively *withdrawing* capture surfaces pending the same G0 gate Slice 0 answers |
 | **Start with the decision profile** | Needs `/booth` gated (no `beforeLoad` today), three tables, three Navigator-core changes, and it collides with PR #102's shared-contract lock on `public.leads` |
 | **Start with alerts** | Nothing on `main` can send; Workers has no SMTP; and `CURRENT_STAGE.md:212` says alert **design**, not delivery |
-| **The simplicity review's Step 1 alone** | Correct but produces only tool usage, which is not on `NORTH_STAR:272`'s list of external signals. The `contact.tsx` repair is the one element that restores commercial evidence on a real guest enquiry, and it costs a props change |
+| **The simplicity review's Step 1 alone** | Correct but produces only tool usage, which is not on `NORTH_STAR:273`'s list of external signals. The `contact.tsx` repair is the one element that restores commercial evidence on a real guest enquiry, and it costs a props change |
 | **The fuller promotion proposed by the over-engineering review** | Right about the external-signal test, wrong to also promote Navigator persistence, which is Phase-1 work behind a stage change |
 
 **The asymmetry that makes this safe:** Slice 1 is deleted by removing two files and one route. Every alternative first move is either irreversible (collected personal data), R2 (shared contract), or blocked on a deploy nobody has demonstrated.
@@ -126,7 +126,7 @@ Response marking (`public.audit_log` with `action = 'crm.lead.first_response'`) 
 9. `bundle-boundary.test.ts` passes with the new files enumerated.
 10. `src/lib/lead-service.ts` is byte-identical; `validateLead` / `hasLeadValidationErrors` / `LeadFormValues` unchanged.
 
-**External signal** (`NORTH_STAR:272` — "a phase is not complete solely because code merged")
+**External signal** (`NORTH_STAR:273` — "a phase is not complete solely because code merged")
 
 11. Within 14 days of ship: at least one guest enquiry arrives with its project context intact and is responded to; and the Owner can state last month's enquiry count without opening Supabase.
 
@@ -480,7 +480,7 @@ Real-Postgres behaviour is proven separately by `npm run studio:pg-test`, whose 
 |---|---|---|
 | **Issue #103 — Studio production launch (P0)** | [Repository fact] "Pause new non-blocking product expansion until this issue is complete". `CRM-003` and `CRM-010` can only be answered by #103 §A's read-only reconstruction | Slice 0 runs concurrently — it is evidence, not product. **Slice 1 queues behind #103 unless the Owner deliberately reallocates the WIP slot.** Phases 1–3 wait. Reciprocal value: `CRM-001`'s synthetic-lead proof is the same class of action as #103 §D's controlled smoke test, under the same gate — one gate instead of two |
 | **Draft PR #118 — contact-action withdrawal** | [Repository fact, PROVISIONAL] removes four contextual capture surfaces citing gate G0; depends on #117 | `CRM-001` answers #118's own gate, making it the highest-leverage single task here: it unblocks two workstreams. Sequence: `CRM-001` → G0 verdict recorded → #118 rebased after #117 → CTA restoration decided on evidence |
-| **Draft PR #102 — Booth Mode 2.0** | [Repository fact, VERIFIED absent from `main`] its `20260726120000_booth_v2_server_issued_session.sql` collides exactly with `main`'s `20260726120000_forever_direct_publish.sql`; it also owns `public.leads` and the booth schema | Must be rebased and **renumbered above `20260728160000`** before it or any CRM migration can land. `FOREVER_FACTORY_CONSTITUTION.md:311` — only one in-flight packet may own a shared contract — so **no CRM schema packet may be in flight while #102 is.** [Recommendation] harvest its named contracts as *requirements*; do not build the CRM on the branch |
+| **Draft PR #102 — Booth Mode 2.0** | [Repository fact, VERIFIED absent from `main`] its `20260726120000_booth_v2_server_issued_session.sql` collides exactly with `main`'s `20260726120000_forever_direct_publish.sql`; it also owns `public.leads` and the booth schema | Must be rebased and **renumbered above `20260728160000`** before it or any CRM migration can land. `FOREVER_FACTORY_CONSTITUTION.md:312` — only one in-flight packet may own a shared contract — so **no CRM schema packet may be in flight while #102 is.** [Recommendation] harvest its named contracts as *requirements*; do not build the CRM on the branch |
 | **Draft PRs #117, #119, #120** | #117 occupies `20260728120000`; #119 occupies `20260728160000` — **the current high-water mark**; #120 adds no migration | §7.1's numbering rule |
 | **Issue #101 — Developer Evidence pilot** | No technical relationship; developer facts are a `must-not-own` boundary (`docs/FOREVER_BRAIN_V1.md` §7) | Commercial contention only: both consume the single guest/product/commercial WIP slot. [Inference] They are alternatives, and the Owner chooses one |
 
@@ -510,6 +510,11 @@ Likelihood and impact are L / M / H. "Stop-the-line" means work halts and the pa
 | 20 | **A second Decision Engine, scoring system or project-truth store is created inside the CRM** | M | **H** | Any `crm_*` column matching the two banned name patterns, or any column holding a project, developer, location, unit, price or availability fact | §8.3's greppable assertions. `docs/FOREVER_BRAIN_V1.md` §7 is cited, not restated. `NORTH_STAR:106` forbids advisor tools developing separate project truth, matching logic or guest profiles | Architect | **Yes** |
 | 21 | **A parallel authorization model is introduced** — `auth.uid()` RLS, `FORCE ROW LEVEL SECURITY`, a second identity roster, a second service-role client, or column-level `GRANT UPDATE` | L | **H** | Any of the five appears in a migration | [Repository fact] all five have zero occurrences across the 24 migrations. This design creates zero pressure toward any of them: every CRM table is service-role-only and unreachable from PostgREST. §8.3 asserts each absence | Architect | **Yes** |
 | 22 | **Email or phone canonicalisation over-merges.** Stripping Gmail dots or `+tags` merges genuinely distinct people; a shared phone silently attaches two buyers to one record | L | H | Two people collapse onto one identifier; a buyer sees unfamiliar history | Email canonicalisation is lowercase and trim only. Phone parse region comes from an explicit ISO-3166 selector, never a hard-coded default; unparseable input returns null and creates no identifier row. `is_match_key = false` keeps a genuinely shared value reachable without auto-matching, and raises a merge candidate for a human | Architect | No |
+
+**On the gaps in this register and in the backlog.** Risk numbers 8 and 12, and task IDs `CRM-015` and
+`CRM-018`, are absent. That is deliberate residue: each identified an item the independent review cut, and the
+identifiers are retired rather than reused so that any external note, review comment or commit message quoting
+one continues to mean what it meant. Nothing in this package references them.
 
 ## 11. Governance
 

@@ -86,8 +86,13 @@ One view: `crm_reservation_state` (Phase 3), `WITH (security_invoker = true)`.
 | Slice 1 (read-only Owner console, R1) | 0 | 0 |
 | **Phase 1** | **11** | 11 |
 | Phase 2 | 10 | 21 |
-| Phase 3 | 15 | 36 |
-| Trigger-gated, no phase | 3 | 39 |
+| Phase 3 | 14 | 35 |
+| Trigger-gated, no phase | 4 | 39 |
+
+The four trigger-gated tables are `crm_trip`, `crm_reservation_unit`, `crm_commission_claim` and `crm_job`,
+each with its trigger stated in `docs/crm/CRM_IMPLEMENTATION_PLAN.md` §6.1, which is the phasing authority.
+`crm_reservation_unit` in particular belongs **here and not in Phase 3** — an earlier revision counted it on
+both sides, which is why the totals agreed at 39 while the phase rows did not.
 
 ### 1.3 The honest complexity number
 
@@ -406,7 +411,8 @@ CREATE UNIQUE INDEX crm_activity_client_request
   ON public.crm_activity (client_request_id) WHERE client_request_id IS NOT NULL;
 CREATE INDEX idx_crm_activity_human_outbound
   ON public.crm_activity (person_id, occurred_at DESC)
-  WHERE direction = 'outbound' AND is_automated = false;
+  WHERE direction = 'outbound' AND is_automated = false
+    AND COALESCE(metadata ->> 'link_opened', '') <> 'true';
 CREATE INDEX idx_crm_activity_thread
   ON public.crm_activity (external_thread_id) WHERE external_thread_id IS NOT NULL;
 ```
@@ -465,12 +471,16 @@ UPDATE public.crm_enquiry e
    SET first_response_at = NEW.occurred_at
  WHERE e.id = NEW.enquiry_id
    AND e.first_response_at IS NULL
-   AND NEW.direction = 'outbound' AND NEW.is_automated = false;
+   AND NEW.direction = 'outbound'
+   AND NEW.is_automated = false
+   AND COALESCE(NEW.metadata ->> 'link_opened', '') <> 'true';
 ```
 
 A nightly reconciliation pass recomputes both from `crm_activity` and reports drift as a data-quality count. **The writer is named in each column's `COMMENT`.**
 
 Two interlocking rules are stated normatively in `docs/crm/CRM_ANALYTICS_AND_KPI.md` §4.1: tapping a `wa.me` link emits `crm_activity(kind='message', channel='whatsapp', direction='outbound', metadata->>'link_opened'='true')` and does **not** set `first_response_at` — only the returning outcome sheet does, because that is an attributed human confirmation rather than a navigation event. That sheet's `Reached` branch simultaneously emits an **inbound** activity row, without which the stage machine cannot pass `contacted` and every live WhatsApp conversation ages into the fourteen-day silence list.
+
+**The third predicate is what enforces that rule, and it is the whole of the enforcement.** A click-to-chat tap writes `direction='outbound'` with `is_automated=false`, so the first two predicates match it exactly; without the `link_opened` exclusion the trigger sets `first_response_at` on precisely the row five documents in this package say must never set it, and the package's headline honesty control would be prose with no mechanism behind it. An implementing packet must carry a test that inserts a `link_opened` row and asserts `first_response_at` is still NULL. `idx_crm_activity_human_outbound` (§3.4) is the same definition compiled for reads and carries the same exclusion; if either is changed, both change together.
 
 ---
 
@@ -480,7 +490,7 @@ Two interlocking rules are stated normatively in `docs/crm/CRM_ANALYTICS_AND_KPI
 
 ```mermaid
 erDiagram
-    crm_channel ||--o{ crm_person_identifier : "reached by"
+    crm_channel |o..o{ crm_person_identifier : "reached by (no FK)"
     crm_channel ||--o{ crm_suppression : "objected on"
     crm_channel ||--o{ crm_activity : "carried on"
     crm_channel ||--o{ crm_processing_purpose : "scopes"
@@ -498,8 +508,17 @@ erDiagram
     crm_processing_purpose ||--o{ crm_consent_event : "scopes"
     crm_processing_purpose ||--o{ crm_activity : "labels"
     crm_notice_version ||--o{ crm_consent_event : "worded by"
-    leads ||--o| crm_enquiry : "legacy origin of"
+    leads |o..o| crm_enquiry : "legacy origin of (no FK)"
 ```
+
+**Two edges are drawn dotted because they are not foreign keys, and an implementer must not add one.**
+`crm_channel ⋯ crm_person_identifier` is descriptive only: `crm_channel.identifier_kind` is a plain nullable
+`TEXT` column naming the identifier kind a channel is reached by, and `crm_person_identifier.kind` is a CHECK
+against a literal list, not a reference. The real enforced linkage runs the other way and is asserted by the
+contract test in §3.1 — every channel except the `all` sentinel must map to at least one identifier kind. A
+foreign key here would make the `all` sentinel (whose `identifier_kind` is deliberately NULL) unrepresentable.
+`leads ⋯ crm_enquiry` is likewise **deliberately unconstrained**: `crm_enquiry.legacy_lead_id` carries no
+foreign key to `public.leads`, so that the live anonymous intake path is never coupled to CRM schema. See §15.
 
 ### 4.2 Target architecture
 

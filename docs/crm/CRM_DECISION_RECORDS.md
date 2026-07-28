@@ -169,7 +169,7 @@ cross-reference handles within this package only, and are dropped on promotion.
 - **Context:** [Repository fact] `docs/ROADMAP.md:144` already directs using the existing Supabase lead
   boundary and Advisory foundations before buying or building a large CRM, and `:228` defers an external CRM
   behind a volume trigger. [Web research] Cost is not the deciding variable — the market spans roughly
-  $2.8k–$21k per year at ten seats, immaterial against a single Phuket commission. The deciding variable is
+  $3k–$21k per year at ten seats, immaterial against a single Phuket commission. The deciding variable is
   the write path: Forever already owns the project database and the buyer-intent engine, so an external system
   of record would either duplicate them or require two-way sync. The open-source middle path is blocked:
   Twenty CRM is AGPLv3 with additional commercially-licensed files, and AGPL §13 network copyleft targets

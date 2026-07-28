@@ -95,7 +95,7 @@ Two consequences follow immediately and constrain every verdict below. First, **
 
 ### 2.4 What the reconciliation removed from this section's own recommendations
 
-Three patterns that survey well were cut or demoted in `CORRECTIONS.md` and must not be reintroduced from this document:
+Three patterns that survey well were cut or demoted during the independent review (`docs/crm/CRM_INDEPENDENT_REVIEW.md`) and must not be reintroduced from this document:
 
 - **Pipeline, opportunity and decision-profile tables are not Phase 1.** Phase 1 is exactly eleven tables and contains no pipeline, no opportunity and no decision profile.
 - **Required forward-transition fields are cut.** Expected value, expected close date and next action are optional at every transition; the unmet predicate is recorded as a coverage item, never as a refusal. Inventing a close date to satisfy a constraint is how stage data becomes fiction.
@@ -398,7 +398,7 @@ This is HubSpot documenting what happens when AI credits run out, and it is the 
 
 ### 9.4 EU AI Act Article 50 — and the exemption that resolves it
 
-**Article 50 transparency obligations apply from 2026-08-02** — six days after this document's repository state of record. [Web research, Grade A — statutory text] https://artificialintelligenceact.eu/article/50/
+**Article 50 transparency obligations apply from 2026-08-02** — five days after this document’s repository state of record. [Web research, Grade A — statutory text] https://artificialintelligenceact.eu/article/50/
 
 Usefully, **the "human review or editorial control" exemption means the human-accept-before-send rule in §9.3 also largely resolves the compliance question.** A guardrail adopted for quality reasons turns out to carry the transparency answer with it. Two caveats, both stated rather than assumed: the Article applies only where Forever falls in scope at all, which turns on the EU-targeting question that is Owner decision #2 (per EDPB Guidelines 3/2018 the trigger is targeting, not buyer nationality — https://www.edpb.europa.eu/our-work-tools/our-documents/guidelines/guidelines-32018-territorial-scope-gdpr-article-3-version_en); and this is a descriptive reading of a published text, not legal advice.
 
@@ -419,13 +419,13 @@ All figures as published on the vendor pages fetched 2026-07-28, at ten seats.
 | Vendor | Price | Verdict | Reason | Source |
 |---|---|---|---|---|
 | **Supabase** (build the core) | Marginal infra **~$0–50/mo**, since the project already exists | **BUILD** | The write path is already Forever's. The core is a schema and server functions in a repository that already has both | https://supabase.com/pricing |
-| **Kommo** (buy the gateway) | **~$43/user/mo Advanced**; **no monthly billing, six-month minimum** | **BUY — gated** | Best fit: Russian-market heritage, messenger-first, official WhatsApp on every tier. The six-month minimum makes a premature purchase **irreversible within a quarter**, so the purchase is gated on the WhatsApp number-ownership answer (§6.1), not on a date | https://www.kommo.com/buy/tariff/ |
+| **Kommo** (buy the gateway) | **~$25/user/mo Advanced**; **no monthly billing, six-month minimum** | **BUY — gated** | Best fit: Russian-market heritage, messenger-first, official WhatsApp on every tier. The six-month minimum makes a premature purchase **irreversible within a quarter**, so the purchase is gated on the WhatsApp number-ownership answer (§6.1), not on a date | https://www.kommo.com/buy/tariff/ |
 | **Follow Up Boss** | Flat **$499/mo including 10 users**; automation and API un-gated on all plans; explicit no-lock-in stance | **FALLBACK BENCHMARK ONLY** | Genuinely good commercial terms and the cleanest pricing page in the set — but US/MLS-centric, **no WhatsApp**, and no unit model. It benchmarks what Forever must beat, it does not solve Forever's problem | https://www.followupboss.com/pricing |
 | **Salesforce** | **~$21k/yr** at this scale | **REJECT** | Needs an administrator function Forever does not have, and ships the sharing stack refused in §2.3 | https://developer.salesforce.com/docs/atlas.en-us.object_reference.meta/object_reference/sforce_api_objects_opportunity.htm |
 | **HubSpot** | Automation at **$90–100/seat**, **plus a mandatory $1,500 one-time onboarding fee** | **REJECT** | Pays a five-figure first year and still has no WhatsApp | https://developers.hubspot.com/docs/guides/api/crm/objects/leads |
 | **Lofty** | **Every price cell reads "Request Pricing"**, plus 15–20 % ad-management fees | **REJECT** | An unpublished price at ten seats is a negotiation Forever will lose, and the ad-management percentage is a different business relationship entirely | https://help.lofty.com/hc/en-us/articles/360055177831-Lead-Routing-How-to-set-up-lead-routing-rules |
 
-**The whole market spans roughly $2.8k – $21k/yr at ten seats, which is immaterial against a single Phuket commission.** Cost is therefore not the deciding variable. **The deciding variable is the WRITE PATH** — who owns the row when the buyer's phone number changes, and who can still read the conversation history after the relationship ends.
+**The whole market spans roughly $3k – $21k/yr at ten seats, which is immaterial against a single Phuket commission.** Cost is therefore not the deciding variable. **The deciding variable is the WRITE PATH** — who owns the row when the buyer's phone number changes, and who can still read the conversation history after the relationship ends.
 
 ### 10.3 The AGPL blocker on the "headless open-source CRM" middle path
 
@@ -504,7 +504,7 @@ Phase column: **1** = the eleven Phase-1 tables; **2** / **3** = later phases; *
 | B1 | "70 % of CRM projects fail" | https://www.sciencedirect.com/science/article/pii/S2314728817300168 | REFUSED — no denominator, no definition, 31–80 % across sources, silent on building | — | `docs/crm/CRM_BUILD_VS_INTEGRATE.md` |
 | B2 | Twenty CRM licence: AGPLv3 + `@license Enterprise` files | https://raw.githubusercontent.com/twentyhq/twenty/main/LICENSE | BLOCKED — counsel required; not legal advice | X | `docs/crm/CRM_BUILD_VS_INTEGRATE.md` |
 | B3 | Supabase pricing | https://supabase.com/pricing | BUILD the core (~$0–50/mo marginal) | 1 | `docs/crm/CRM_BUILD_VS_INTEGRATE.md` |
-| B4 | Kommo pricing (~$43/user/mo, 6-month minimum) | https://www.kommo.com/buy/tariff/ | BUY the gateway — gated on M3 | T | `docs/crm/CRM_BUILD_VS_INTEGRATE.md` |
+| B4 | Kommo pricing (~$25/user/mo Advanced, 6-month minimum) | https://www.kommo.com/buy/tariff/ | BUY the gateway — gated on M3 | T | `docs/crm/CRM_BUILD_VS_INTEGRATE.md` |
 | B5 | Follow Up Boss pricing ($499/mo incl. 10 users) | https://www.followupboss.com/pricing | FALLBACK BENCHMARK only | — | `docs/crm/CRM_BUILD_VS_INTEGRATE.md` |
 
 ### 11.1 Standing review triggers for this document

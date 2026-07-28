@@ -60,6 +60,9 @@ Read in this order. Each document assumes the ones above it.
 | 14 | [`CRM_IMPLEMENTATION_PLAN.md`](CRM_IMPLEMENTATION_PLAN.md) | Phases, backlog, migration strategy, risk register |
 | 15 | [`CRM_DECISION_RECORDS.md`](CRM_DECISION_RECORDS.md) | Proposed decisions, Owner Decision Register, Do Not Build Yet |
 | 16 | [`CRM_INDEPENDENT_REVIEW.md`](CRM_INDEPENDENT_REVIEW.md) | The adversarial review that corrected this package |
+| 17 | [`CRM_FINAL_RECOMMENDATION.md`](CRM_FINAL_RECOMMENDATION.md) | **The single page to point at** — what to build first and why |
+
+In a hurry, read documents 1 and 17 only. Together they are the Owner's decision set.
 
 ## Governing constraints
 

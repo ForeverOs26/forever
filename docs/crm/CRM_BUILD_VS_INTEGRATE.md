@@ -54,7 +54,7 @@ O1 and O3 differ only by the gateway. Under the corrected phasing both resolve t
 
 ### 3.1 Cost cannot decide
 
-[Web research] The surveyed market spans roughly **$2.8k–$21k per year at 10 seats**. [Owner requirement] That whole span is immaterial against a single Phuket transaction commission.
+[Web research] The surveyed market spans roughly **$3k–$21k per year at ten seats** for the tiers carrying the automation and API access Forever would need (Kommo Advanced at the floor, Salesforce at the ceiling). [Owner requirement] That whole span is immaterial against a single Phuket transaction commission.
 
 [Inference] The consequence people skip: **any argument reaching for cost has run out of reasons.** "Cheaper to build" and "cheaper to buy" are both true and both irrelevant.
 
@@ -173,14 +173,14 @@ Where the verified research set contains no URL for a figure, that is stated rat
 | Pipedrive | **Not established in the verified research set** | — | https://support.pipedrive.com/en/article/visibility-groups | Visibility groups (4 levels, up to 150) are actively harmful at ~10 seats. Its flat deal shape is the target silhouette and is already adopted. |
 | Follow Up Boss | flat **$499/mo incl. 10 users**; API un-gated; explicit no-lock-in stance | — | https://www.followupboss.com/pricing | **The least-bad buy in the set and still unusable**: US/MLS-centric, no WhatsApp, no unit model. Keep as the benchmark. |
 | Lofty | **every published price cell reads "Request Pricing"** | **15–20% ad-management fees** | https://help.lofty.com/hc/en-us/articles/360055177831-Lead-Routing-How-to-set-up-lead-routing-rules | Unpriceable without a sales call, which is itself information. Its ordered first-match-wins routing is worth copying later; its weighted "hunger" formula is not. |
-| **Kommo** | ~**$43/user/mo** (Advanced) | **no monthly billing; six-month minimum** | https://www.kommo.com/buy/tariff/ | None **as a gateway** — best surveyed fit: messenger-first, official WhatsApp on every tier. The six-month lock is why §6.3 says *later*. |
+| **Kommo** | ~**$25/user/mo** (Advanced; Base $15, Pro $45) | **no monthly billing; six-month minimum** | https://www.kommo.com/buy/tariff/ | None **as a gateway** — best surveyed fit: messenger-first, official WhatsApp on every tier. The six-month lock is why §6.3 says *later*. |
 | Attio | **Not established in the verified research set** | the App SDK **runs the wrong direction** | https://docs.attio.com/docs/objects-and-lists | Your React app embeds *inside* Attio. Its structural ideas are the most valuable in the set and are already adopted. |
 | Zoho | **Not established in the verified research set** | — | https://www.zoho.com/crm/developer/docs/api/v8/modules-api.html | Runtime modules meta-model — same objection as HubSpot custom objects. Forever owns its Postgres. |
 | Supabase (build) | ~**$0–50/mo** marginal; the project already exists | **engineering time, the entire real cost** | https://supabase.com/pricing | — |
 | Resend | free tier **3,000/mo, 100/day**; inbound on every tier | — | https://resend.com/pricing | — [Inference] MX'd inbound capture of portal and partner leads is probably higher ROI than WhatsApp automation, and far cheaper. |
 | WhatsApp Cloud API | per-message since **2025-07-01**; service conversations free since **2024-11-01** | template review takes **up to 24 hours**; the 24-hour window | https://developers.facebook.com/docs/whatsapp/pricing | **Cost is not the barrier** — a brokerage that mostly replies pays Meta approximately nothing. The barriers are the window, template latency, and number ownership. |
 
-[Inference] **The three most expensive lines are not prices.** HubSpot's $1,500 onboarding fee reveals a platform needing an administrator Forever does not employ. Kommo's six-month minimum with no monthly billing converts "let's try it" into a commitment not reversible within a quarter. Lofty's "Request Pricing" plus ad-management fees means the product is sold bundled with media buying — a different business relationship. **None of the three appears in the $2.8k–$21k headline range.**
+[Inference] **The three most expensive lines are not prices.** HubSpot's $1,500 onboarding fee reveals a platform needing an administrator Forever does not employ. Kommo's six-month minimum with no monthly billing converts "let's try it" into a commitment not reversible within a quarter. Lofty's "Request Pricing" plus ad-management fees means the product is sold bundled with media buying — a different business relationship. **None of the three appears in the $3k–$21k headline range.**
 
 ### 5.2 The open-source middle path — and the licence is not the binding blocker
 
@@ -349,7 +349,7 @@ contemplated is a messaging gateway, bought later and gated on the WhatsApp
 number-ownership answer, writing one-way into public.crm_activity. Bidirectional sync with
 any external CRM is refused permanently.
 
-**Context.** The surveyed market spans ~$2.8k-$21k/yr at 10 seats, immaterial against a
+**Context.** The surveyed market spans ~$3k-$21k/yr at ten seats, immaterial against a
 single Phuket transaction commission, so cost cannot decide. The deciding variable is the
 write path: Forever already owns the project/unit/evidence database with field-level
 provenance, and the structured NAV-001 buyer-intent engine. An external CRM as system of

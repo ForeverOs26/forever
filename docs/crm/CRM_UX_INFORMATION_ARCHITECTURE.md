@@ -597,7 +597,7 @@ There is **no reminder engine, no escalation ladder and no notification.** The l
 
 **Adding an interest** uses a picker over `public.projects` applying `excludeKnownFictitiousProjects` (`src/lib/public-truth.ts:43`) [Repository fact], so a quarantined demo slug can never be shortlisted. The picker shows **name and area only** — no price, no availability, no thumbnail; rendering a price would create a second place a price appears, and prices change.
 
-**On matching, stated plainly.** No numeric match score, confidence or ranking is rendered anywhere in the CRM. [Repository fact] `RecommendedProject.matchScore` and `.confidence` exist in `src/features/advisory/types.ts:64-68` with **no producer**, because no approved evidence-backed calculation rule exists in the repository. Where an ordering is unavoidable it uses the existing evidence-coverage ordering and is labelled **position, not quality**.
+**On matching, stated plainly.** No numeric match score, confidence or ranking is rendered anywhere in the CRM. [Repository fact] `RecommendedProject.matchScore` and `.confidence` exist in `src/features/advisory/types.ts:63-67` with **no producer**, because no approved evidence-backed calculation rule exists in the repository. Where an ordering is unavoidable it uses the existing evidence-coverage ordering and is labelled **position, not quality**.
 
 ## 11. Viewing (`/crm/appointment/$appointmentId`) — Phase 2
 

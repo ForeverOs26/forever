@@ -87,6 +87,7 @@ Architect-reviewed stage change plus Owner approval.
 | Path | Purpose |
 | ---- | ------- |
 | `docs/crm/FOREVER_CRM_INDEX.md`                  | Package entry point, reading order, governing constraints, and the recommended first slice. |
+| `docs/crm/CRM_FINAL_RECOMMENDATION.md`           | The single-page recommendation: what to build first, why it beats the alternatives, kill triggers, and measurable outcomes. |
 | `docs/crm/CRM_EXECUTIVE_SUMMARY_RU.md`           | Executive summary for the Owner, in Russian. |
 | `docs/crm/CRM_CURRENT_STATE_AUDIT.md`            | Verified current-state audit of the lead, Navigator, Booth, Advisory, RLS and type surfaces on `main`, with the reuse map. |
 | `docs/crm/CRM_PRODUCT_BOUNDARY.md`               | What the CRM is and is not, the ownership boundary against every neighbouring system, and the role and workspace design. |

@@ -15,7 +15,7 @@ Risk class: R0 (documentation only)
 4. **The central structural defect is `src/features/navigator/core/lead.ts`**: it flattens the structured NAV-001 decision profile into `leads.message` free text. The one high-value structured intent Forever collects is destroyed at the moment of capture.
 5. **`/booth` has no access control of any kind.** It carries `robots: noindex, nofollow` and nothing else.
 6. **The repository has exactly two RLS postures and no user-scoped predicates.** Zero `auth.uid()`, zero `auth.jwt()`, zero `FORCE ROW LEVEL SECURITY`, zero column-level `GRANT UPDATE` across all 24 migrations.
-7. **The reuse map** (§12) classifies every relevant artefact as reuse-as-is / extend / migrate / deprecate / do-not-build, with a reason. It is the input to `docs/crm/CRM_DOMAIN_MODEL.md` and `docs/crm/CRM_ROADMAP.md`.
+7. **The reuse map** (§12) classifies every relevant artefact as reuse-as-is / extend / migrate / deprecate / do-not-build, with a reason. It is the input to `docs/crm/CRM_DOMAIN_MODEL.md` and `docs/crm/CRM_IMPLEMENTATION_PLAN.md`.
 8. **Open Draft PRs are provisional evidence only** and are quarantined in §11. Nothing in them is on main.
 
 ## 0. Verification method and label convention
@@ -202,7 +202,7 @@ const context = [project, unit ? `unit ${unit}` : null].filter(Boolean).join(" �
 
 and immediately below renders `<ContactForm source="contact_page" />` with **neither value passed**. The guest sees "Enquiry about Modeva · unit A-1204"; the row written to `public.leads` has `project_slug = NULL` and no unit reference at all.
 
-`[Inference]` This is the single highest-value-per-line defect on the intake path: it is a props change, it requires no schema, and it is the only element that restores commercial context on a real guest enquiry. `[Recommendation]` It is carried in the Slice 1 scope in `docs/crm/CRM_ROADMAP.md` for exactly that reason. Forwarding `unit` additionally requires a decision, because `ContactForm` has no field to receive it and `public.leads` has no column to hold it.
+`[Inference]` This is the single highest-value-per-line defect on the intake path: it is a props change, it requires no schema, and it is the only element that restores commercial context on a real guest enquiry. `[Recommendation]` It is carried in the Slice 1 scope in `docs/crm/CRM_IMPLEMENTATION_PLAN.md` for exactly that reason. Forwarding `unit` additionally requires a decision, because `ContactForm` has no field to receive it and `public.leads` has no column to hold it.
 
 ## 4. Navigator and DecisionProfile — the central defect
 
@@ -259,7 +259,7 @@ Consequences, all `[Inference]` from the above:
 | Internal/client boundary | `staffNote` sits in the same `TEXT` column as guest-visible content, readable by anything that reads the lead |
 | Erasability | personal data is embedded in prose, so column-level erasure cannot reach it |
 
-`[Recommendation]` The deterministic summary is genuinely valuable as a human-readable mirror and should be kept. The structured profile must be persisted alongside it, keyed, versioned and timestamped. That work is Phase 2 in `docs/crm/CRM_ROADMAP.md`, behind a stage change; it is not Slice 1.
+`[Recommendation]` The deterministic summary is genuinely valuable as a human-readable mirror and should be kept. The structured profile must be persisted alongside it, keyed, versioned and timestamped. That work is Phase 2 in `docs/crm/CRM_IMPLEMENTATION_PLAN.md`, behind a stage change; it is not Slice 1.
 
 ### 4.4 The currency mismatch and the three unreachable match reasons
 
@@ -316,7 +316,7 @@ The route declares `head` (title, `robots: noindex, nofollow`, description, Goog
 
 `[Repository fact]` `deriveInvestmentIntelligence`, `deriveRentalIntelligence`, `deriveLocationIntelligence`, `deriveForeverPassport`, `deriveProjectSummary` and `deriveAdvisorReport` are pure, deterministic, `ProjectDetail`-in / view-model-out, with caller-supplied timestamps and no I/O. `AdvisorReport` is already a flat JSON-serializable object carrying `schemaVersion`, `source`, `projectSlug`, `readinessVerdict` and `consumes[]`, with `generatedAt` as the designed injection point.
 
-`mapProjectToAdvisorySession` hardcodes all seven client fields to null/empty, so the Client Snapshot always renders "Not available". `RecommendedProject.matchScore` and `RecommendedProject.confidence` (`src/features/advisory/types.ts:64-68`) exist with **no producer anywhere**; `investment-intelligence.ts` states no numeric score is produced because no approved, evidence-backed calculation rule exists in the repository.
+`mapProjectToAdvisorySession` hardcodes all seven client fields to null/empty, so the Client Snapshot always renders "Not available". `RecommendedProject.matchScore` and `RecommendedProject.confidence` (`src/features/advisory/types.ts:63-67`) exist with **no producer anywhere**; `investment-intelligence.ts` states no numeric score is produced because no approved, evidence-backed calculation rule exists in the repository.
 
 `buildForeverStory` returns the hard-coded literal `"The Considered Retreat-Seeker"` at both line 58 and line 101.
 
@@ -483,7 +483,9 @@ Missing: every table created since 2026-07-07 — `buildings`, `facilities`, `so
 
 - **There is no ADR numbering scheme.** `ADR-[0-9]` and `ADR [0-9]` return **zero** matches across `docs/`. Introducing one is a new governance convention requiring Architect approval and its own decision entry.
 - `docs/DECISIONS.md`: **22** entries, format `### YYYY-MM-DD — Title` with Decision / Context / Consequence / Review trigger, reverse-chronological, newest `### 2026-07-23`. Heading punctuation is mixed in practice (em dash predominates; three 2026-07-20 entries use a plain hyphen).
-- `docs/BACKLOG.md` has **no** ID scheme — plain bullets. Its only CRM entry is "CRM lead dashboard." at L24.
+- `docs/BACKLOG.md` has **no** ID scheme — plain bullets. Its only CRM entry was "CRM lead dashboard." at L24
+  as of `821b3c4e`. The commit that introduces this package appends a pointer to `docs/crm/FOREVER_CRM_INDEX.md`
+  to that same line, so a reader diffing against `main` will see the extended form rather than the bare one.
 - `docs/FOREVER_DOC_INDEX.md` (Task ID FF-004) mandates: "When adding a new durable document, update this index in the same change", and "Prefer updating a canonical document over creating a duplicate". `docs/ARCHITECTURE.md` and `docs/FOREVER_PRODUCT_SPECIFICATION.md` are **not** in its canonical-path table — a pre-existing index defect this document sits next to.
 - `README.md` and `docs/FOREVER_CORE_ARCHITECTURE.md` are stored backslash-escaped (`\# Forever`), so their headings do not render. Neither is a status source.
 - `AGENTS.md` is 11 lines of Lovable git-history notice and defines no conventions.
@@ -531,11 +533,11 @@ Missing: every table created since 2026-07-07 — `buildings`, `facilities`, `so
 | **#101** | Issue | — | Open |
 | **#103** | Issue | Studio production launch, **P0**. Lists "Developer Check" and "WhatsApp/CRM automation" under Non-goals, with an instruction to pause non-blocking product expansion | Under the WIP limit at `docs/FOREVER_STRATEGIC_NORTH_STAR.md:266-271` (one active guest/product/commercial task), any CRM increment queues behind #103 unless the Owner deliberately reallocates the slot |
 
-**Gate G0 is the most consequential provisional item.** `[Inference]` If G0 is genuinely open — if no lead has ever arrived end-to-end — then proving delivery, plus a quarantine path for rejected leads, precedes any pipeline surface. Conversely, a read-only lead console **proves G0 either way at zero schema cost**, which is why it is sequenced first in `docs/crm/CRM_ROADMAP.md`. One task, two workstreams.
+**Gate G0 is the most consequential provisional item.** `[Inference]` If G0 is genuinely open — if no lead has ever arrived end-to-end — then proving delivery, plus a quarantine path for rejected leads, precedes any pipeline surface. Conversely, a read-only lead console **proves G0 either way at zero schema cost**, which is why it is sequenced first in `docs/crm/CRM_IMPLEMENTATION_PLAN.md`. One task, two workstreams.
 
 ## 12. The reuse map
 
-Every classification below is `[Repository fact]` as to the artefact's current state, and `[Recommendation]` as to the disposition. Table-count and phasing consequences live in `docs/crm/CRM_DOMAIN_MODEL.md` and `docs/crm/CRM_ROADMAP.md`.
+Every classification below is `[Repository fact]` as to the artefact's current state, and `[Recommendation]` as to the disposition. Table-count and phasing consequences live in `docs/crm/CRM_DOMAIN_MODEL.md` and `docs/crm/CRM_IMPLEMENTATION_PLAN.md`.
 
 ### 12.1 Reuse as is
 
@@ -568,7 +570,7 @@ Every classification below is `[Repository fact]` as to the artefact's current s
 
 | Artefact | What to add, and why |
 |---|---|
-| `public.leads` | It is the only intake point and four call sites depend on it. Add a server-side **read** path. Any richer stage vocabulary must be a superset of `('new','contacted','qualified','closed','spam')`. **Caveat, and it is decisive:** the anonymous INSERT policy makes any column added to this table publicly writable, so enrichment columns cannot simply be appended. Whether `public.leads` remains a complete journal of every capture is an Owner decision, and the deviation from a naive "extend" reading is argued in `docs/crm/CRM_DECISIONS.md`, not assumed |
+| `public.leads` | It is the only intake point and four call sites depend on it. Add a server-side **read** path. Any richer stage vocabulary must be a superset of `('new','contacted','qualified','closed','spam')`. **Caveat, and it is decisive:** the anonymous INSERT policy makes any column added to this table publicly writable, so enrichment columns cannot simply be appended. Whether `public.leads` remains a complete journal of every capture is an Owner decision, and the deviation from a naive "extend" reading is argued in `docs/crm/CRM_DECISION_RECORDS.md`, not assumed |
 | `public.studio_members` | The CRM identity anchor. The two-value CHECK is a **publishing** vocabulary; a CRM needs either a widened CHECK or an additive per-capability column by migration. **Do not mint a second identity table** |
 | `public.studio_object_owners` | Exactly the shape CRM record assignment needs, but writes are `ON CONFLICT DO NOTHING` and single-valued, so it cannot express reassignment or shared visibility. Extend the `object_type` CHECK plus an audited reassignment RPC rather than a parallel ownership table |
 | `public.audit_log` | Reuse the **table** with `crm_*` action values and populated `old_values`/`new_values`; replace the write mechanism (§7.6). This is the reason no `crm_record_history` table exists in the proposal |
@@ -633,7 +635,7 @@ Every classification below is `[Repository fact]` as to the artefact's current s
 
 `[Web research — descriptive only, not legal advice; qualified Thai counsel must confirm every point below]` Forever is a Thai-established controller under the PDPA for every buyer record regardless of nationality (s.5); consent is a fallback, not a default, and the 2026 PDPC draft guidance cautions against treating it as a catch-all basis — https://www.lexology.com/library/detail.aspx?g=27642f25-1b92-4c09-b8ff-b4b1c4f27467 . Primary text (unofficial English translation; the Thai text governs): https://cc.kmutt.ac.th/Files/Act%20Eng/personal-data-protection-act-2019-en.pdf . Erasure must be real within 90 days including copies and backups per the PDPC Notification effective 2024-11-11 — https://www.lawplusltd.com/2024/08/rules-on-deletion-destruction-or-anonymization-of-personal-data/ — which makes the Supabase PITR/backup retention window a compliance parameter, not an infrastructure detail. GDPR stacks on only where Forever **targets** the EU; nationality is irrelevant — https://www.edpb.europa.eu/our-work-tools/our-documents/guidelines/guidelines-32018-territorial-scope-gdpr-article-3-version_en .
 
-`[Inference]` The exposure is not created by the CRM; it exists the moment anyone works these records. What the current state lacks is any structural means of proving a lawful basis, honouring an objection, or completing an erasure. The design consequences are carried in `docs/crm/CRM_PRIVACY_CONSENT.md`.
+`[Inference]` The exposure is not created by the CRM; it exists the moment anyone works these records. What the current state lacks is any structural means of proving a lawful basis, honouring an objection, or completing an erasure. The design consequences are carried in `docs/crm/CRM_PRIVACY_CONSENT_RETENTION.md`.
 
 ## 14. Consolidated open questions this audit could not close
 
@@ -653,12 +655,12 @@ Every classification below is `[Repository fact]` as to the artefact's current s
 | Document | Scope |
 |---|---|
 | `docs/crm/CRM_DOMAIN_MODEL.md` | Target architecture, the 11 Phase-1 tables in three FK-ordered migrations, invariants |
-| `docs/crm/CRM_JOURNEYS_STATES.md` | Journeys, stage machine, transition predicates |
-| `docs/crm/CRM_SECURITY_RBAC.md` | Capabilities, grant profiles, guard triggers, threat model |
-| `docs/crm/CRM_PRIVACY_CONSENT.md` | Purposes, consent events, suppression, erasure, DSR |
-| `docs/crm/CRM_INTEGRATION_EVENTS.md` | Capture RPC, idempotency, acknowledgement, the scheduled seam |
-| `docs/crm/CRM_UX_IA.md` | Routes by phase, surfaces, offline behaviour |
-| `docs/crm/CRM_ANALYTICS_KPI.md` | Permitted metrics, the counts-not-rates rule, coverage checks |
-| `docs/crm/CRM_BUILD_VS_BUY.md` | Build the core, buy only the gateway, never sync bidirectionally |
-| `docs/crm/CRM_ROADMAP.md` | Slice 0, Slice 1, Phases 1-3, gates, kill and review triggers |
-| `docs/crm/CRM_DECISIONS.md` | Decisions proposed for `docs/DECISIONS.md`, in that file's own format |
+| `docs/crm/CRM_JOURNEYS_AND_STATE_MACHINES.md` | Journeys, stage machine, transition predicates |
+| `docs/crm/CRM_SECURITY_AND_RBAC.md` | Capabilities, grant profiles, guard triggers, threat model |
+| `docs/crm/CRM_PRIVACY_CONSENT_RETENTION.md` | Purposes, consent events, suppression, erasure, DSR |
+| `docs/crm/CRM_INTEGRATION_AND_EVENTS.md` | Capture RPC, idempotency, acknowledgement, the scheduled seam |
+| `docs/crm/CRM_UX_INFORMATION_ARCHITECTURE.md` | Routes by phase, surfaces, offline behaviour |
+| `docs/crm/CRM_ANALYTICS_AND_KPI.md` | Permitted metrics, the counts-not-rates rule, coverage checks |
+| `docs/crm/CRM_BUILD_VS_INTEGRATE.md` | Build the core, buy only the gateway, never sync bidirectionally |
+| `docs/crm/CRM_IMPLEMENTATION_PLAN.md` | Slice 0, Slice 1, Phases 1-3, gates, kill and review triggers |
+| `docs/crm/CRM_DECISION_RECORDS.md` | Decisions proposed for `docs/DECISIONS.md`, in that file's own format |
