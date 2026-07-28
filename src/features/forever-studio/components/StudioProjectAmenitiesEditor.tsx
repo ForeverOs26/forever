@@ -8,8 +8,11 @@
  * Three properties this component exists to hold:
  *
  *   * The submitted set is the EXACT final set, never a diff. Saving an empty
- *     selection is a legitimate act — "this project has no amenities" — so Save
- *     is never disabled for it.
+ *     selection is a legitimate act — it means no amenities are shown on the
+ *     public project page — so Save is never disabled for it. It is deliberately
+ *     NOT a claim that the development physically has no amenities: an empty
+ *     relation records that none have been entered, and the page says nothing
+ *     rather than asserting an absence.
  *   * A failed save NEVER touches local state. The Owner's work is the only
  *     copy of it; re-reading the server on error would discard the very edits
  *     they were trying to keep. Only a successful save re-hydrates, and it
@@ -49,6 +52,8 @@ import {
 } from "../amenity-editor-state";
 import { studioGetProjectAmenities, studioSaveProjectAmenities } from "../studio.functions";
 import {
+  isStudioAmenityCategory,
+  STUDIO_AMENITY_CATEGORIES,
   STUDIO_MAX_FEATURED_AMENITIES,
   type StudioAmenityCatalogueEntry,
   type StudioCreatedAmenity,
@@ -287,10 +292,19 @@ export function StudioProjectAmenitiesEditor(props: { slug: string }) {
       setMessage(`The identifier ${slug} already exists — select it above instead.`);
       return;
     }
+    // Category is required, and the selector below only offers supported values —
+    // so this catches the "not chosen yet" case rather than a bad value. The
+    // server and the save function re-check it either way.
+    if (!isStudioAmenityCategory(draft.category.trim())) {
+      setMessage("Choose a category for the new amenity.");
+      return;
+    }
     const entry: StudioCreatedAmenity = {
       name,
       slug,
       category: draft.category.trim(),
+      // Icon stays optional: a blank one renders as the neutral marker and
+      // blocks neither the save nor the project's publication.
       icon: draft.icon.trim(),
     };
     setCreated([...created, entry]);
@@ -337,7 +351,8 @@ export function StudioProjectAmenitiesEditor(props: { slug: string }) {
       <div className="space-y-3">
         {selected.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border/60 p-4 text-sm text-muted-foreground">
-            No amenities selected. Saving an empty list is fine — it states this project has none.
+            No amenities selected. Saving an empty list is fine — no amenities will be shown on the
+            public project page.
           </p>
         ) : null}
         {selected.map((entry, index) => (
@@ -501,22 +516,38 @@ export function StudioProjectAmenitiesEditor(props: { slug: string }) {
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="amenity-new-category">Category</Label>
-            <Input
+            <Label htmlFor="amenity-new-category">Category (required)</Label>
+            {/*
+              A selector, not a text field. Category is what the public page
+              groups by, so free text would let one heading become three across
+              three projects. The list is the closed vocabulary the server and the
+              save function enforce, so the Owner cannot choose something that
+              would then be refused.
+            */}
+            <select
               id="amenity-new-category"
+              className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
               value={draft.category}
               disabled={save.isPending}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, category: event.target.value }))
               }
-            />
+            >
+              <option value="">Choose a category…</option>
+              {STUDIO_AMENITY_CATEGORIES.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="amenity-new-icon">Icon name</Label>
+            <Label htmlFor="amenity-new-icon">Icon name (optional)</Label>
             <Input
               id="amenity-new-icon"
               value={draft.icon}
               disabled={save.isPending}
+              placeholder="Leave blank for the neutral marker"
               onChange={(event) =>
                 setDraft((current) => ({ ...current, icon: event.target.value }))
               }

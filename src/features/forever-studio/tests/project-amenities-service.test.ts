@@ -12,9 +12,13 @@
  * changes nothing, and an idempotent replay.
  */
 
+import { readdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { getProjectAmenities, saveProjectAmenities } from "../server/service";
+import { isStudioAmenityCategory, STUDIO_AMENITY_CATEGORIES } from "../studio-types";
 import { makeWorld, OWNER, PUBLISHER, STUDIO_TEST_AMENITIES } from "./fakes";
 
 type World = ReturnType<typeof makeWorld>;
@@ -290,7 +294,7 @@ describe("Studio project amenities — refusals leave the set unchanged", () => 
     const created = ["rooftop-bar", "kids-club", "shuttle-bus"].map((slug) => ({
       name: slug,
       slug,
-      category: "Extra",
+      category: "Other",
       icon: "",
     }));
     const nine = [
@@ -363,7 +367,7 @@ describe("Studio project amenities — refusals leave the set unchanged", () => 
 
   it("refuses to create an amenity the project is not selecting", async () => {
     const { world, links, catalogue } = await seededWorld();
-    const ghost = { name: "Ghost", slug: "ghost-amenity", category: "", icon: "" };
+    const ghost = { name: "Ghost", slug: "ghost-amenity", category: "Other", icon: "" };
 
     // `amenities` is a SHARED catalogue with no delete path in this feature, so
     // a created row nothing references is permanent clutter for every project.
@@ -378,7 +382,7 @@ describe("Studio project amenities — refusals leave the set unchanged", () => 
         world,
         "modeva",
         [entry("ghost-amenity")],
-        [ghost, { name: "Ghost Two", slug: "ghost-two", category: "", icon: "" }],
+        [ghost, { name: "Ghost Two", slug: "ghost-two", category: "Other", icon: "" }],
       ),
     ).rejects.toMatchObject(refuses("studio_amenity_created_unused"));
 
@@ -397,7 +401,12 @@ describe("Studio project amenities — refusals leave the set unchanged", () => 
 
   it("rejects an invalid, duplicated, or nameless created amenity", async () => {
     const { world, links, catalogue } = await seededWorld();
-    const ok = { name: "Rooftop Bar", slug: "rooftop-bar", category: "Leisure", icon: "" };
+    const ok = {
+      name: "Rooftop Bar",
+      slug: "rooftop-bar",
+      category: "Hospitality & Retail",
+      icon: "",
+    };
 
     await expect(save(world, "modeva", [], [{ ...ok, name: "  " }])).rejects.toMatchObject(
       refuses("studio_amenity_name_and_slug_required"),
@@ -412,6 +421,124 @@ describe("Studio project amenities — refusals leave the set unchanged", () => 
     expect(world.data.projectAmenities).toEqual(links);
   });
 
+  it("requires a category from the closed vocabulary when creating an amenity", async () => {
+    const { world, links, catalogue } = await seededWorld();
+    const base = { name: "Rooftop Bar", slug: "rooftop-bar", icon: "martini" };
+    const select = [entry("rooftop-bar")];
+
+    // Blank is refused — category is REQUIRED on creation, unlike icon.
+    await expect(save(world, "modeva", select, [{ ...base, category: "" }])).rejects.toMatchObject(
+      refuses("studio_amenity_category_invalid"),
+    );
+    await expect(
+      save(world, "modeva", select, [{ ...base, category: "   " }]),
+    ).rejects.toMatchObject(refuses("studio_amenity_category_invalid"));
+
+    // So is anything outside the nine supported values — including a value that
+    // merely differs in case or spacing from a real one. The public page groups
+    // by this string, so "wellness" and "Fitness & Wellness" must not both exist.
+    for (const category of ["Leisure", "wellness", "Fitness and Wellness", "Pools&Water"]) {
+      await expect(save(world, "modeva", select, [{ ...base, category }])).rejects.toMatchObject(
+        refuses("studio_amenity_category_invalid"),
+      );
+    }
+
+    // Nothing landed from any of those attempts.
+    expect(world.data.amenities).toEqual(catalogue);
+    expect(world.data.projectAmenities).toEqual(links);
+
+    // Every supported value is accepted.
+    for (const category of STUDIO_AMENITY_CATEGORIES) {
+      const fresh = makeWorld();
+      seedProject(fresh, "modeva");
+      const result = await save(
+        fresh,
+        "modeva",
+        [entry("solo")],
+        [{ name: "Solo", slug: "solo", category, icon: "" }],
+      );
+      expect(result.createdAmenitySlugs).toEqual(["solo"]);
+      expect(fresh.data.amenities.find((row) => row.slug === "solo")?.category).toBe(category);
+    }
+  });
+
+  it("uses the same category vocabulary in the database as in TypeScript", async () => {
+    // The nine values are necessarily duplicated: the migration cannot import a
+    // TypeScript constant. So the duplication has to be PINNED, or the two drift
+    // apart the first time someone acts on the constant's own doc comment
+    // ("growing the vocabulary is a product decision, made by editing this
+    // list"). Drift means Studio offers a category the database then refuses.
+    const migrations = resolve(process.cwd(), "supabase/migrations");
+    const editor = readdirSync(migrations).filter((entry) =>
+      entry.includes("studio_project_amenities_editor"),
+    );
+    expect(editor, "exactly one amenities-editor migration").toHaveLength(1);
+    const sql = readFileSync(join(migrations, editor[0]), "utf8");
+
+    // Bounded by the NOT IN parentheses themselves, not by a character count: a
+    // fixed window sweeps up quoted strings from neighbouring statements and the
+    // comparison stops meaning anything.
+    const sentinel = sql.indexOf("studio_amenity_category_invalid");
+    expect(sentinel, "the category refusal exists in the migration").toBeGreaterThan(-1);
+    const open = sql.lastIndexOf("NOT IN (", sentinel);
+    expect(open, "the category check uses a NOT IN list").toBeGreaterThan(-1);
+    const close = sql.indexOf(")", open);
+    expect(close, "that list is closed").toBeGreaterThan(open);
+    const clause = sql.slice(open, close);
+
+    // Every supported value appears, quoted, in the SQL check...
+    for (const category of STUDIO_AMENITY_CATEGORIES) {
+      expect(clause, category).toContain(`'${category}'`);
+    }
+    // ...and the SQL admits no value the constant does not.
+    const inSql = [...clause.matchAll(/'([^']+)'/g)].map((match) => match[1]);
+    expect(inSql, "the SQL list is non-empty").not.toHaveLength(0);
+    expect([...inSql].sort()).toEqual([...STUDIO_AMENITY_CATEGORIES].sort());
+  });
+
+  it("keeps the icon optional — a blank one creates and saves normally", async () => {
+    const world = makeWorld();
+    seedProject(world, "modeva");
+    const result = await save(
+      world,
+      "modeva",
+      [entry("rooftop-bar")],
+      [{ name: "Rooftop Bar", slug: "rooftop-bar", category: "Hospitality & Retail", icon: "" }],
+    );
+
+    // No refusal, and the row exists with no icon. The public renderer falls back
+    // to a neutral marker; an absent icon blocks neither a save nor a publication.
+    expect(result.createdAmenitySlugs).toEqual(["rooftop-bar"]);
+    expect(result.selected.find((row) => row.slug === "rooftop-bar")).toMatchObject({ icon: "" });
+  });
+
+  it("still reads catalogue rows whose category predates the vocabulary", async () => {
+    // The rule constrains CREATION only. The seeded catalogue deliberately holds
+    // legacy values ("Leisure", "Wellness") and one blank, exactly as a real
+    // catalogue does — and every one of them must stay listable, selectable and
+    // assignable, or the rule would have quietly orphaned existing data.
+    const world = makeWorld();
+    seedProject(world, "modeva");
+
+    const before = await getProjectAmenities(world.deps, OWNER, { slug: "modeva" });
+    const legacy = before.catalogue.filter((row) => !isStudioAmenityCategory(row.category));
+    expect(legacy.length).toBeGreaterThan(0);
+    expect(legacy.some((row) => row.category === "")).toBe(true);
+
+    const result = await save(
+      world,
+      "modeva",
+      legacy.map((row) => entry(row.slug)),
+    );
+    expect(result.selectedCount).toBe(legacy.length);
+    // And they are unchanged: assigning a legacy row does not rewrite its category.
+    for (const row of legacy) {
+      expect(world.data.amenities.find((a) => a.slug === row.slug)?.category ?? "").toBe(
+        row.category,
+      );
+    }
+  });
+
   it("rejects a created amenity whose slug already exists — never merges the two", async () => {
     const { world, links, catalogue } = await seededWorld();
     await expect(
@@ -419,7 +546,7 @@ describe("Studio project amenities — refusals leave the set unchanged", () => 
         world,
         "modeva",
         [entry("spa")],
-        [{ name: "Spa & Wellness", slug: "spa", category: "Wellness", icon: "flower" }],
+        [{ name: "Spa & Wellness", slug: "spa", category: "Fitness & Wellness", icon: "flower" }],
       ),
     ).rejects.toThrow("studio_amenity_slug_exists");
     expect(world.data.amenities).toEqual(catalogue);
@@ -437,7 +564,7 @@ describe("Studio project amenities — refusals leave the set unchanged", () => 
         // editor always does — so the failure under test is the injected one and
         // not a validation refusal arriving first.
         [entry("kids-pool"), entry("rooftop-bar")],
-        [{ name: "Rooftop Bar", slug: "rooftop-bar", category: "Leisure", icon: "" }],
+        [{ name: "Rooftop Bar", slug: "rooftop-bar", category: "Hospitality & Retail", icon: "" }],
       ),
     ).rejects.toThrow("studio_project_amenities_injected_failure");
     // Neither the created catalogue row nor the reconciled links survive.
@@ -457,7 +584,14 @@ describe("Studio project amenities — creating a canonical amenity", () => {
         entry("rooftop-bar", { note: "Sunset view", isFeatured: true, sortOrder: 10 }),
         entry("spa"),
       ],
-      [{ name: "Rooftop Bar", slug: "rooftop-bar", category: "Leisure", icon: "martini" }],
+      [
+        {
+          name: "Rooftop Bar",
+          slug: "rooftop-bar",
+          category: "Hospitality & Retail",
+          icon: "martini",
+        },
+      ],
     );
 
     expect(result.createdAmenitySlugs).toEqual(["rooftop-bar"]);
@@ -465,7 +599,7 @@ describe("Studio project amenities — creating a canonical amenity", () => {
     const rooftop = result.selected.find((row) => row.slug === "rooftop-bar");
     expect(rooftop).toMatchObject({
       name: "Rooftop Bar",
-      category: "Leisure",
+      category: "Hospitality & Retail",
       icon: "martini",
       note: "Sunset view",
       isFeatured: true,
@@ -488,7 +622,14 @@ describe("Studio project amenities — audit", () => {
         entry("swimming-pool", { note: "SECRET EDITORIAL COPY", isFeatured: true, sortOrder: 10 }),
         entry("rooftop-bar", { sortOrder: 10 }),
       ],
-      [{ name: "Rooftop Bar", slug: "rooftop-bar", category: "Leisure", icon: "martini" }],
+      [
+        {
+          name: "Rooftop Bar",
+          slug: "rooftop-bar",
+          category: "Hospitality & Retail",
+          icon: "martini",
+        },
+      ],
     );
 
     const audit = world.data.audits.at(-1);

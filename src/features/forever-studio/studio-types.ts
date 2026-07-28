@@ -325,6 +325,41 @@ export const STUDIO_MAX_FEATURED_AMENITIES = 8;
  */
 export const STUDIO_MAX_AMENITY_SORT_ORDER = 1_000_000;
 
+/**
+ * The category vocabulary a NEWLY CREATED amenity must choose from.
+ *
+ * Nine values, taken from the completed amenities source-map research rather
+ * than invented here. A closed list is the point: category is what the public
+ * page groups by, so a free-text field produces "Wellness", "wellness" and
+ * "Fitness & Wellness" as three separate headings on three different projects
+ * and the grouping stops meaning anything. Growing the vocabulary is a product
+ * decision, made by editing this list, not something an Owner does by accident
+ * while typing a new amenity's name.
+ *
+ * This constrains CREATION only. Catalogue rows that predate the rule — including
+ * ones with a blank or legacy category — stay readable, selectable and
+ * assignable; the migration rewrites nothing. `"Other"` exists so an Owner is
+ * never blocked by a genuinely uncategorisable amenity.
+ */
+export const STUDIO_AMENITY_CATEGORIES = [
+  "Pools & Water",
+  "Fitness & Wellness",
+  "Family & Children",
+  "Work & Social",
+  "Outdoor & Leisure",
+  "Security & Services",
+  "Parking & Transport",
+  "Hospitality & Retail",
+  "Other",
+] as const;
+
+export type StudioAmenityCategory = (typeof STUDIO_AMENITY_CATEGORIES)[number];
+
+/** Whether a category string is one a new amenity may be created with. */
+export function isStudioAmenityCategory(value: string): value is StudioAmenityCategory {
+  return (STUDIO_AMENITY_CATEGORIES as readonly string[]).includes(value);
+}
+
 /** One row of the canonical amenity catalogue, for the Studio picker. */
 export type StudioAmenityCatalogueEntry = {
   id: string;

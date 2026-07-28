@@ -7,8 +7,9 @@
  *   * a failed save keeps every local edit — the Owner's copy is the only copy;
  *   * a successful save re-hydrates from the CANONICAL state and clears the
  *     unsaved-changes marker;
- *   * an empty selection is saveable, because "this project has no amenities" is
- *     a statement the Owner is allowed to make;
+ *   * an empty selection is saveable — it records that no amenities are shown on
+ *     the public page, which is a statement the Owner is allowed to make, and is
+ *     NOT a claim that the development physically has none;
  *   * the 8-featured ceiling is visible in the UI, not discovered as a server
  *     refusal;
  *   * a failed creation never discards the selections already staged beside it.
@@ -29,6 +30,7 @@ vi.mock("../studio.functions", () => ({
 }));
 
 import { StudioProjectAmenitiesEditor } from "../components/StudioProjectAmenitiesEditor";
+import { STUDIO_AMENITY_CATEGORIES } from "../studio-types";
 
 const CATALOGUE = [
   { id: "1", slug: "swimming-pool", name: "Swimming Pool", category: "Leisure", icon: "waves" },
@@ -478,8 +480,12 @@ describe("StudioProjectAmenitiesEditor", () => {
 
     openCreateForm();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Rooftop Bar" } });
-    fireEvent.change(screen.getByLabelText("Category"), { target: { value: "Leisure" } });
-    fireEvent.change(screen.getByLabelText("Icon name"), { target: { value: "martini" } });
+    fireEvent.change(screen.getByLabelText("Category (required)"), {
+      target: { value: "Hospitality & Retail" },
+    });
+    fireEvent.change(screen.getByLabelText("Icon name (optional)"), {
+      target: { value: "martini" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Add new amenity" }));
 
     expect(renderedSelection()).toEqual(["rooftop-bar"]);
@@ -490,12 +496,85 @@ describe("StudioProjectAmenitiesEditor", () => {
           slug: "modeva",
           amenities: [{ slug: "rooftop-bar", note: "", isFeatured: false, sortOrder: 10 }],
           createdAmenities: [
-            { name: "Rooftop Bar", slug: "rooftop-bar", category: "Leisure", icon: "martini" },
+            {
+              name: "Rooftop Bar",
+              slug: "rooftop-bar",
+              category: "Hospitality & Retail",
+              icon: "martini",
+            },
           ],
         },
       }),
     );
     await waitFor(() => expect(screen.getByText(/1 new amenity added/)).toBeVisible());
+  });
+
+  it("offers category as a controlled selector, never as free text", async () => {
+    loadWith([]);
+    renderEditor();
+    await loaded();
+    openCreateForm();
+
+    // A <select>, so an Owner cannot type a category at all. This is the barrier
+    // that keeps "Wellness", "wellness" and "Fitness & Wellness" from becoming
+    // three separate public headings across three projects.
+    const field = screen.getByLabelText("Category (required)");
+    expect(field.tagName).toBe("SELECT");
+
+    // It offers exactly the supported vocabulary, plus an unselected prompt.
+    const offered = within(field as HTMLSelectElement)
+      .getAllByRole("option")
+      .map((option) => (option as HTMLOptionElement).value)
+      .filter((value) => value !== "");
+    expect(offered).toEqual([...STUDIO_AMENITY_CATEGORIES]);
+
+    // And it starts unchosen, so the Owner makes the decision deliberately.
+    expect((field as HTMLSelectElement).value).toBe("");
+  });
+
+  it("refuses to stage a new amenity until a category is chosen, keeping the draft", async () => {
+    loadWith([selectedRow("spa", { sortOrder: 10 })]);
+    renderEditor();
+    await loaded();
+    openCreateForm();
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Rooftop Bar" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add new amenity" }));
+
+    // Matched in full, because the selector's own unchosen prompt also begins
+    // "Choose a category".
+    expect(screen.getByText("Choose a category for the new amenity.")).toBeVisible();
+    // Nothing was staged, and the selection made before the attempt is intact.
+    expect(renderedSelection()).toEqual(["spa"]);
+    // The Owner's typed name survives, so they only have to supply what is missing.
+    expect(screen.getByLabelText("Name")).toHaveValue("Rooftop Bar");
+
+    // Supplying the category is all it takes.
+    fireEvent.change(screen.getByLabelText("Category (required)"), {
+      target: { value: "Hospitality & Retail" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add new amenity" }));
+    expect(renderedSelection()).toEqual(["spa", "rooftop-bar"]);
+  });
+
+  it("stages a new amenity with no icon at all — the icon is optional", async () => {
+    loadWith([]);
+    renderEditor();
+    await loaded();
+    openCreateForm();
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Rooftop Bar" } });
+    fireEvent.change(screen.getByLabelText("Category (required)"), {
+      target: { value: "Hospitality & Retail" },
+    });
+    // Icon deliberately left blank.
+    fireEvent.click(screen.getByRole("button", { name: "Add new amenity" }));
+
+    expect(renderedSelection()).toEqual(["rooftop-bar"]);
+    // It renders with the neutral marker rather than being blocked or blank.
+    expect(
+      within(screen.getByTestId("amenity-row-rooftop-bar")).getByText("•"),
+    ).toBeInTheDocument();
   });
 
   it("a refused creation keeps the staged project selections intact", async () => {
@@ -508,6 +587,9 @@ describe("StudioProjectAmenitiesEditor", () => {
     fireEvent.change(screen.getByLabelText("Note for Spa"), { target: { value: "Edited note" } });
     openCreateForm();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Rooftop Bar" } });
+    fireEvent.change(screen.getByLabelText("Category (required)"), {
+      target: { value: "Hospitality & Retail" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Add new amenity" }));
     expect(renderedSelection()).toEqual(["spa", "concierge", "rooftop-bar"]);
 

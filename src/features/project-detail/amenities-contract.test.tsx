@@ -139,25 +139,76 @@ describe("the amenities model has one name", () => {
     expect(statements).toMatch(/CHECK \(sort_order >= 0\)/);
 
     // Nothing existing is dropped, retyped or renamed, anywhere in the file.
+    //
+    // TRUNCATE needs care, and is the ONLY one that does. It is both a
+    // destructive statement and a privilege name, and this migration revokes the
+    // privilege — so a bare `/TRUNCATE/i` would forbid taking the privilege
+    // away, which is the opposite of the intent.
+    //
+    // The discriminator is what FOLLOWS the word, not what precedes it. In a
+    // GRANT/REVOKE list it is followed by a comma or by ` ON `; as a statement it
+    // is followed by whitespace and then the target, optionally via `TABLE`
+    // and/or `ONLY`. Both qualifiers can appear together (`TRUNCATE TABLE ONLY
+    // x`), and the target may be unqualified — the DDL prelude runs under the
+    // default search_path, so an unqualified `TRUNCATE project_amenities` would
+    // execute. All four forms must be caught.
+    const TRUNCATE_STATEMENT = /\bTRUNCATE\s+(?!ON\b)(?:TABLE\s+)?(?:ONLY\s+)?[\w"]/i;
     for (const forbidden of [
       /DROP COLUMN/i,
       /ALTER COLUMN/i,
       /RENAME/i,
       /DROP TABLE/i,
-      /TRUNCATE/i,
+      TRUNCATE_STATEMENT,
     ]) {
       expect(statements, String(forbidden)).not.toMatch(forbidden);
+    }
+
+    // Guard the guard: the pattern above must still catch every destructive form
+    // while ignoring the privilege-list form. A weakened regex that silently
+    // stops matching is exactly the failure this whole block exists to prevent.
+    for (const destructive of [
+      "TRUNCATE public.project_amenities;",
+      "TRUNCATE TABLE public.project_amenities;",
+      "TRUNCATE ONLY public.project_amenities;",
+      "TRUNCATE TABLE ONLY public.project_amenities;",
+      "TRUNCATE project_amenities;",
+      "TRUNCATE TABLE project_amenities;",
+    ]) {
+      expect(destructive, destructive).toMatch(TRUNCATE_STATEMENT);
+    }
+    for (const benign of [
+      "REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.amenities FROM anon;",
+      "REVOKE TRUNCATE ON TABLE public.amenities FROM anon;",
+    ]) {
+      expect(benign, benign).not.toMatch(TRUNCATE_STATEMENT);
     }
 
     // And applying the migration writes no project data. The DELETE and INSERT
     // this feature needs live inside the function body, which runs only when an
     // Owner saves — so the DDL that executes at apply time must contain no DML
     // at all. Splitting on the function keyword is what separates the two.
+    //
+    // These three need no special handling. In the REVOKE list each is followed
+    // by a comma, so none of them matches — which was checked rather than
+    // assumed, and is why they are NOT loosened the way TRUNCATE had to be.
     const ddl = statements.slice(0, statements.indexOf("CREATE OR REPLACE FUNCTION"));
     expect(ddl, "the migration reaches its function").not.toBe(statements);
     for (const dml of [/\bINSERT\s+INTO\b/i, /\bUPDATE\s+\w/i, /\bDELETE\s+FROM\b/i]) {
       expect(ddl, String(dml)).not.toMatch(dml);
     }
+
+    // It revokes every WRITE privilege from both browser roles on both amenity
+    // tables — the privilege barrier that sits alongside row-level security.
+    for (const privilege of ["INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]) {
+      expect(statements, `REVOKE ${privilege}`).toMatch(
+        new RegExp(`REVOKE[^;]*\\b${privilege}\\b[^;]*FROM anon, authenticated`, "i"),
+      );
+    }
+    expect(statements).toMatch(/public\.amenities,\s*public\.project_amenities/);
+
+    // And it does NOT revoke SELECT. The public embed depends on it, and the
+    // grant assertion further down scans every migration for exactly that.
+    expect(statements).not.toMatch(/REVOKE[^;]*\bSELECT\b/i);
 
     // And it leaves the legacy inventory tables entirely alone.
     expect(statements).not.toMatch(/\bpublic\.project_facilities\b/);

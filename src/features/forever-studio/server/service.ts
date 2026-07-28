@@ -30,6 +30,7 @@ import {
 import { slugify } from "@/import/persistence-projection";
 
 import {
+  isStudioAmenityCategory,
   projectPagePath,
   resalePagePath,
   STUDIO_MAX_AMENITY_SORT_ORDER,
@@ -1457,8 +1458,18 @@ function amenityRefusal(code: string, message: string): StudioError {
  * protects the data. Checking here as well buys two things the database cannot
  * give: the codes are raised with a sentence the Owner can act on rather than a
  * bare SQL sentinel, and an unsaveable set never opens a transaction or takes a
- * row lock on the project. The codes deliberately match the SQL sentinels
- * one-for-one so a failure reads identically whichever layer caught it.
+ * row lock on the project.
+ *
+ * The codes match the SQL sentinels one-for-one, so any given refusal is named
+ * the same whichever layer raised it. What is NOT guaranteed is WHICH refusal a
+ * multi-fault payload produces: this walks entry-major (every rule for entry
+ * one, then entry two), while the function walks check-major (one rule across
+ * all entries, then the next). A payload that is both mis-slugged and
+ * mis-categorised can therefore be named differently by the two. That is
+ * harmless in practice — this layer always runs first, so the Owner only ever
+ * sees its answer — but it is worth stating rather than implying the two are
+ * interchangeable. `FakeData` mirrors the FUNCTION's order, so the fake-versus-
+ * SQL equivalence the service tests rely on is exact.
  */
 function assertProjectAmenitiesValid(
   amenities: StudioProjectAmenityInput[],
@@ -1525,6 +1536,16 @@ function assertProjectAmenitiesValid(
       throw amenityRefusal(
         "studio_amenity_slug_duplicate",
         "The same new amenity identifier was submitted twice.",
+      );
+    }
+    // Category is required on creation and must come from the closed vocabulary.
+    // The public page groups by category, so free text turns one heading into
+    // three across three projects and the grouping stops meaning anything.
+    // Existing catalogue rows are unaffected — this constrains creation only.
+    if (!isStudioAmenityCategory(created.category.trim())) {
+      throw amenityRefusal(
+        "studio_amenity_category_invalid",
+        "A new amenity needs one of the supported categories.",
       );
     }
     createdSlugs.add(slug);
