@@ -190,19 +190,79 @@ describe("semantic media migration — contract", () => {
    * pins exactly that scope: the DELETE must target `superseded_cover` rows
    * whose url IS the incoming cover, and nothing else.
    */
-  it("deletes only the obsolete retirement of the incoming cover", () => {
+  it("deletes only obsolete retirements, and only ever those", () => {
     const deletes = [...executable.matchAll(/DELETE FROM public\.project_media[\s\S]*?;/g)].map(
       (match) => match[0],
     );
-    expect(deletes, "exactly one DELETE against project_media").toHaveLength(1);
+    // Two, and the count is the assertion: `_reconcile` clears the retirement of
+    // the cover that is coming back, `_withdraw` clears the retirement of a cover
+    // being retired again. A third would be a new way to lose a row.
+    expect(deletes, "exactly two DELETEs against project_media").toHaveLength(2);
 
-    const [statement] = deletes;
-    expect(statement).toContain("media_type = 'superseded_cover'");
-    expect(statement).toContain("url = btrim(p_cover_url)");
-    expect(statement).toContain("project_id = p_project_id");
-    // It must never be able to reach a live cover, a gallery row or a plan.
-    expect(statement).not.toMatch(
-      /media_type\s*=\s*'(cover|gallery|floor_plan|master_plan|unit_plan)'/,
+    for (const statement of deletes) {
+      // Every one of them is scoped to retirements of one project.
+      expect(statement).toContain("media_type = 'superseded_cover'");
+      expect(statement).toContain("project_id = p_project_id");
+      // None may reach a live cover, a gallery row, a plan or a document. The
+      // `_withdraw` statement names `live.media_type = 'cover'` inside an EXISTS
+      // that only IDENTIFIES which retirement is obsolete, so the exclusion is
+      // asserted on what the DELETE targets, not on every string in it.
+      const target = statement.slice(0, statement.indexOf("EXISTS") + 1);
+      expect(target).not.toMatch(
+        /media_type\s*=\s*'(cover|gallery|floor_plan|master_plan|unit_plan|document|brochure)'/,
+      );
+    }
+
+    // The reconcile statement is keyed on the incoming cover's URL...
+    expect(deletes.some((statement) => statement.includes("url = btrim(p_cover_url)"))).toBe(true);
+    // ...and the withdraw statement on a URL that is currently an active cover of
+    // the same project, which is the same invariant expressed without a
+    // replacement to name.
+    expect(deletes.some((statement) => statement.includes("live.url = old.url"))).toBe(true);
+  });
+
+  /**
+   * `publish.ts` clears `main_image_url` when the policy examined the supplied
+   * photographs and found that none depicts the property. That expression did
+   * nothing: `forever_progressive_ingest` writes `main_image_url` only
+   * `WHEN v_set ? 'main_image_url' AND v_set->>'main_image_url' IS NOT NULL`, a
+   * guard that discards an explicit null along with an accidental one. So the
+   * branch whose own comment says leaving the cover in place "would make
+   * `hero_candidate_missing` a report with no effect" was itself a report with
+   * no effect.
+   */
+  it("actually withdraws a cover the policy rejected", () => {
+    expect(sql).toContain("CREATE OR REPLACE FUNCTION public.forever_project_cover_withdraw");
+    const body = publishBody(sql);
+    // `jsonb_typeof` is the whole fix: `->>` collapses "absent" and
+    // "present and null" into the same SQL NULL, which is why the ingest could
+    // not act on it.
+    expect(body).toContain("jsonb_typeof(batch->'project'->'set'->'main_image_url') = 'null'");
+    expect(body).toContain("public.forever_project_cover_withdraw(v_project_id)");
+    // Narrow on purpose: never when this batch names a replacement cover.
+    expect(body).toContain("IF v_cover_url IS NULL");
+    expect(body).toContain("'covers_withdrawn', v_withdrawn");
+  });
+
+  it("withdraws by retiring and clearing, never by deleting media", () => {
+    const withdraw = sql.slice(
+      sql.indexOf("CREATE OR REPLACE FUNCTION public.forever_project_cover_withdraw"),
+    );
+    const fn = withdraw.slice(0, withdraw.indexOf("$$;") + 3);
+    expect(fn).toContain("SET media_type = 'superseded_cover'");
+    expect(fn).toContain("SET main_image_url = NULL");
+    // The only DELETE it may contain is the invariant-holding one.
+    const deletes = [...fn.matchAll(/DELETE FROM public\.project_media[\s\S]*?;/g)];
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0][0]).toContain("old.media_type = 'superseded_cover'");
+  });
+
+  it("keeps the withdraw function off the public role", () => {
+    expect(sql).toMatch(
+      /REVOKE ALL ON FUNCTION public\.forever_project_cover_withdraw\(UUID\) FROM anon, authenticated;/,
+    );
+    expect(sql).toMatch(
+      /GRANT EXECUTE ON FUNCTION public\.forever_project_cover_withdraw\(UUID\)\s*\n?\s*TO service_role;/,
     );
   });
 

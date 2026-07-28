@@ -929,6 +929,222 @@ try {
     ? ok("unrelated project row unchanged (never published by these runs)")
     : bad("unrelated project unchanged", unrelatedProject);
 
+  // =========================================================================
+  // A REJECTED COVER IS ACTUALLY WITHDRAWN
+  // =========================================================================
+  //
+  // `publish.ts` clears `main_image_url` when the policy examined the supplied
+  // photographs and found that none depicts the property. The ingest's
+  // `IS NOT NULL` guard discarded that explicit null, so the rejected cover kept
+  // being served and `hero_candidate_missing` was a report with no effect. This
+  // proves it now takes effect, and — just as importantly — that the narrow case
+  // stays narrow.
+  console.log("\n[media-pg] Direct Publish — a rejected cover is withdrawn, not merely reported");
+  const WD = "dd000000-0000-4000-8000-00000000000a";
+  const WDC = "https://cdn.example.com/withdraw/old-cover.jpg";
+  Bc.sql(
+    `INSERT INTO public.projects (id,name,slug,is_active,main_image_url)
+       VALUES ('${WD}','Withdraw','withdraw-project',true,'${WDC}');
+     INSERT INTO public.project_media (project_id,media_type,url,sort_order,semantic_role)
+       VALUES ('${WD}','cover','${WDC}',0,'property_exterior');`,
+  );
+
+  // A price-only enrichment carries no media and no explicit null: the cover
+  // must survive untouched. This is the regression the narrowness protects.
+  directPublish(Bc, batch({ slug: "withdraw-project", set: { price_range: "THB 9M - 20M" } }));
+  const afterEnrich = Bc.scalar(
+    `SELECT COALESCE(main_image_url,'(null)') FROM public.projects WHERE id='${WD}'`,
+  );
+  afterEnrich === WDC
+    ? ok("a price-only enrichment leaves a good cover completely alone")
+    : bad("enrichment preserves the cover", afterEnrich);
+
+  // Now the real case: photographs were supplied, all rejected, explicit null.
+  const withdrawSummary = directPublish(
+    Bc,
+    batch({
+      slug: "withdraw-project",
+      set: { main_image_url: null },
+      media: [
+        {
+          media_type: "gallery",
+          url: "https://cdn.example.com/withdraw/party.jpg",
+          sort_order: 1,
+          semantic_role: "event",
+        },
+      ],
+    }),
+  );
+
+  const afterWithdraw = Bc.scalar(
+    `SELECT COALESCE(main_image_url,'(null)') FROM public.projects WHERE id='${WD}'`,
+  );
+  afterWithdraw === "(null)"
+    ? ok("an explicit null actually clears main_image_url")
+    : bad("explicit null clears main_image_url", afterWithdraw);
+
+  const activeCovers = Bc.scalar(
+    `SELECT count(*) FROM public.project_media WHERE project_id='${WD}' AND media_type='cover'`,
+  );
+  activeCovers === "0"
+    ? ok("the rejected cover row is retired, so no reader can elect it")
+    : bad("rejected cover row retired", activeCovers);
+
+  const retainedRow = Bc.scalar(
+    `SELECT count(*) FROM public.project_media
+      WHERE project_id='${WD}' AND media_type='superseded_cover' AND url='${WDC}'`,
+  );
+  retainedRow === "1"
+    ? ok("the row is retired, never deleted — the media evidence survives")
+    : bad("withdrawn cover retained as superseded_cover", retainedRow);
+
+  withdrawSummary.includes('"covers_withdrawn": 1') ||
+  withdrawSummary.includes('"covers_withdrawn":1')
+    ? ok("the publish summary reports covers_withdrawn")
+    : bad("summary reports covers_withdrawn", withdrawSummary.slice(0, 300));
+
+  // Idempotent, and safe to repeat after the cover has already gone.
+  let withdrawAgainError = "";
+  try {
+    directPublish(
+      Bc,
+      batch({
+        slug: "withdraw-project",
+        set: { main_image_url: null },
+        media: [
+          {
+            media_type: "gallery",
+            url: "https://cdn.example.com/withdraw/party2.jpg",
+            sort_order: 1,
+            semantic_role: "event",
+          },
+        ],
+      }),
+    );
+  } catch (error) {
+    withdrawAgainError = String(error.stderr ?? "") + String(error.stdout ?? "");
+  }
+  withdrawAgainError === ""
+    ? ok("withdrawing an already-withdrawn cover is a safe no-op")
+    : bad("withdraw is idempotent", withdrawAgainError.slice(0, 400));
+
+  // And a project can recover: a later publish naming a real cover restores one.
+  directPublish(
+    Bc,
+    batch({
+      slug: "withdraw-project",
+      set: { main_image_url: "https://cdn.example.com/withdraw/exterior.jpg" },
+      media: [
+        {
+          media_type: "cover",
+          url: "https://cdn.example.com/withdraw/exterior.jpg",
+          sort_order: 0,
+          semantic_role: "property_exterior",
+        },
+      ],
+    }),
+  );
+  const recovered = Bc.scalar(
+    `SELECT COALESCE(main_image_url,'(null)') || '|' ||
+            (SELECT count(*) FROM public.project_media
+              WHERE project_id='${WD}' AND media_type='cover')::text
+       FROM public.projects WHERE id='${WD}'`,
+  );
+  recovered === "https://cdn.example.com/withdraw/exterior.jpg|1"
+    ? ok("a withdrawn project recovers a cover the moment a safe one is published")
+    : bad("cover recovers after withdrawal", recovered);
+
+  // =========================================================================
+  // ROLE COMPLETENESS — the rollout's closing gate, executed
+  // =========================================================================
+  //
+  // The public readers show a role-less row on purpose, because on deploy day
+  // every published row is role-less. That permissiveness is only defensible if
+  // something later refuses to let it stand. This runs the real gate script
+  // against this disposable cluster's real rows, at both stages, and then
+  // simulates the backfill and runs it again. Nothing here touches any database
+  // but the throwaway one B created.
+  console.log("\n[media-pg] role completeness — the post-backfill release gate");
+
+  const censusUrl = `postgres://postgres@127.0.0.1:${Bc.port}/postgres`;
+  const runGate = (stage) => {
+    try {
+      const stdout = execFileSync(
+        process.execPath,
+        [
+          join(REPO, "scripts", "media", "role-completeness-report.mjs"),
+          "--database-url",
+          censusUrl,
+          "--stage",
+          stage,
+        ],
+        { cwd: REPO, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+      );
+      return { code: 0, out: stdout };
+    } catch (error) {
+      return {
+        code: error.status ?? 1,
+        out: String(error.stdout ?? "") + String(error.stderr ?? ""),
+      };
+    }
+  };
+
+  // Fixture reality: the seeded pre-PR117 rows have no role, exactly like
+  // production today.
+  Bc.sql(
+    `UPDATE public.project_media SET semantic_role = NULL
+      WHERE project_id = '${P.unrelated}' AND media_type IN ('cover','gallery')`,
+  );
+  const roleLessBefore = Number(
+    Bc.scalar(
+      `SELECT count(*) FROM public.project_media
+        WHERE media_type IN ('cover','gallery') AND semantic_role IS NULL`,
+    ),
+  );
+  roleLessBefore > 0
+    ? ok(`census sees ${roleLessBefore} role-less public row(s), as production does today`)
+    : bad("role-less rows present to gate on", `got ${roleLessBefore}`);
+
+  const before = runGate("before_backfill");
+  before.code === 0 && before.out.includes("GATE  PASS")
+    ? ok("before the backfill the gate passes and states the role-less count")
+    : bad("before_backfill gate passes", before.out.slice(-400));
+
+  const after = runGate("after_backfill");
+  after.code === 1 && after.out.includes("GATE  BLOCKED")
+    ? ok("after the backfill the SAME rows block the release")
+    : bad(
+        "after_backfill gate blocks on role-less rows",
+        `exit ${after.code}\n${after.out.slice(-400)}`,
+      );
+
+  after.out.includes("superseded_cover; never presentation media")
+    ? ok("the census reports retired rows separately and never governs them")
+    : bad("retired rows reported but not governed", after.out.slice(-400));
+
+  // Simulate the controlled backfill on this throwaway cluster only.
+  Bc.sql(
+    `UPDATE public.project_media SET semantic_role = 'property_exterior'
+      WHERE media_type IN ('cover','gallery') AND semantic_role IS NULL`,
+  );
+  const closed = runGate("after_backfill");
+  closed.code === 0 && closed.out.includes("GATE  PASS")
+    ? ok("once every public row carries a role the gate passes")
+    : bad(
+        "gate passes after a complete backfill",
+        `exit ${closed.code}\n${closed.out.slice(-400)}`,
+      );
+
+  // And a value outside the vocabulary must be impossible, not merely reported.
+  const vocabularyError = Bc.expectFailure(
+    `UPDATE public.project_media SET semantic_role = 'logo'
+      WHERE media_type = 'gallery' AND semantic_role IS NOT NULL`,
+    "out-of-vocabulary role",
+  );
+  /violates check constraint "project_media_semantic_role_vocabulary"/.test(vocabularyError)
+    ? ok("the database refuses a role outside the vocabulary, so the census cannot see one")
+    : bad("vocabulary CHECK refuses an invented role", vocabularyError.slice(0, 300));
+
   // -- the machine-readable result ------------------------------------------
   // Printed, never written into the repository: a proof artefact must not be
   // capable of becoming a tracked file.

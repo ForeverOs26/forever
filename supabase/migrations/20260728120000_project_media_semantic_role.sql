@@ -194,6 +194,84 @@ END;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- Withdraw a project's cover entirely, when the policy rejected every candidate.
+--
+-- `planPublicMedia` distinguishes two ways a publish can end with no hero, and
+-- only one of them is a judgement:
+--
+--   `hero_image_missing`     — no publishable photograph was supplied at all.
+--                              A price-only or document-only enrichment. The
+--                              existing cover is still the best thing known and
+--                              must be left alone.
+--   `hero_candidate_missing` — photographs WERE supplied and the policy looked
+--                              at them and determined that none depicts the
+--                              property.
+--
+-- Only the second reaches here, and `publish.ts` expresses it by putting an
+-- explicit JSON `null` at `project.set.main_image_url`.
+--
+-- That expression did nothing. `forever_progressive_ingest` (20260718113000)
+-- writes `main_image_url = CASE WHEN v_set ? 'main_image_url' AND
+-- v_set->>'main_image_url' IS NOT NULL THEN … ELSE main_image_url END` — a
+-- deliberate guard so a partial batch cannot blank a column, and one that
+-- discards an explicit null along with an accidental one. So the branch whose
+-- own comment says "leaving the stored cover in place would make
+-- `hero_candidate_missing` a report with no effect" was itself a report with no
+-- effect: the rejected cover kept being served.
+--
+-- Same remedy as the semantic projection above, for the same reason: the ingest
+-- is applied, so what it discards is re-applied afterwards rather than by
+-- editing a shipped file.
+--
+-- The cover row is retired, not deleted, exactly as `_reconcile` retires one —
+-- the storage object, the retained private original and the audit trail are
+-- untouched. And the same "a URL is never both active and retired" invariant is
+-- held, so retiring a cover that was already retired on an earlier cycle cannot
+-- violate `project_media_natural_key`.
+--
+-- Idempotent: a second run finds no active cover and returns 0.
+CREATE OR REPLACE FUNCTION public.forever_project_cover_withdraw(p_project_id UUID)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_retired INTEGER := 0;
+BEGIN
+  -- Hold the invariant before the UPDATE can break it: any retirement already
+  -- recorded for a URL that is currently the active cover is obsolete.
+  DELETE FROM public.project_media old
+   WHERE old.project_id = p_project_id
+     AND old.media_type = 'superseded_cover'
+     AND EXISTS (
+       SELECT 1 FROM public.project_media live
+        WHERE live.project_id = p_project_id
+          AND live.media_type = 'cover'
+          AND live.url = old.url
+     );
+
+  UPDATE public.project_media
+     SET media_type = 'superseded_cover'
+   WHERE project_id = p_project_id
+     AND media_type = 'cover';
+
+  GET DIAGNOSTICS v_retired = ROW_COUNT;
+
+  -- The column and the rows must agree. Leaving the column pointing at a row
+  -- that is now retired is the exact state the public reader has to defend
+  -- against by joining URLs, and it should not have to.
+  UPDATE public.projects
+     SET main_image_url = NULL,
+         updated_at = now()
+   WHERE id = p_project_id
+     AND main_image_url IS NOT NULL;
+
+  RETURN v_retired;
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Write the semantic role the Factory chose onto the public media rows.
 --
 -- `forever_progressive_ingest` (20260718113000) is the only writer of
@@ -269,6 +347,7 @@ DECLARE
   v_priced INTEGER := 0;
   v_roles INTEGER := 0;
   v_retired INTEGER := 0;
+  v_withdrawn INTEGER := 0;
   v_cover_url TEXT;
   v_options JSONB := COALESCE(options, '{}'::jsonb);
 BEGIN
@@ -330,6 +409,17 @@ BEGIN
 
   v_retired := public.forever_project_cover_reconcile(v_project_id, v_cover_url);
 
+  -- -------- 6. an explicitly withdrawn cover, same transaction --------
+  -- Only on the explicit signal — a JSON `null` the caller wrote at
+  -- `project.set.main_image_url` — and only when this batch names no
+  -- replacement cover. `jsonb_typeof` is what separates "the key is present and
+  -- its value is null" from "the key is absent", which `->>` collapses together
+  -- and which is why the ingest could not act on it.
+  IF v_cover_url IS NULL
+     AND jsonb_typeof(batch->'project'->'set'->'main_image_url') = 'null' THEN
+    v_withdrawn := public.forever_project_cover_withdraw(v_project_id);
+  END IF;
+
   RETURN v_summary
          || jsonb_build_object(
               'public_status', v_status,
@@ -337,6 +427,7 @@ BEGIN
               'public_prices_projected', v_priced,
               'semantic_roles_applied', v_roles,
               'covers_retired', v_retired,
+              'covers_withdrawn', v_withdrawn,
               'source_trust', v_options->>'source_trust',
               'publication_mode', v_options->>'publication_mode'
             );
@@ -347,14 +438,32 @@ REVOKE ALL ON FUNCTION public.forever_project_cover_reconcile(UUID, TEXT) FROM P
 REVOKE ALL ON FUNCTION public.forever_project_cover_reconcile(UUID, TEXT) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.forever_project_cover_reconcile(UUID, TEXT) TO service_role;
 
+REVOKE ALL ON FUNCTION public.forever_project_cover_withdraw(UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.forever_project_cover_withdraw(UUID) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.forever_project_cover_withdraw(UUID) TO service_role;
+
 COMMENT ON FUNCTION public.forever_project_cover_reconcile(UUID, TEXT) IS
   'Retires superseded cover rows of one project to media_type = superseded_cover '
   'so exactly one active cover remains. Deliberately NOT gallery: the public '
   'reader admits both cover and gallery, so moving a row between them would be '
   'invisible, and (project_id, media_type, url) could collide with an existing '
-  'gallery row. Deletes nothing. No-op when no replacement cover is named, and '
-  'no-op until the replacement row exists, so an enrichment run cannot strip a '
-  'good cover and a project is never briefly cover-less.';
+  'gallery row. Deletes exactly one thing: a retirement already recorded for the '
+  'incoming cover, which is obsolete the moment that URL is active again. That '
+  'holds the invariant "a URL is never both the active cover and a retired one", '
+  'without which a returning cover violates project_media_natural_key. No source '
+  'media is ever deleted. No-op when no replacement cover is named, and no-op '
+  'until the replacement row exists, so an enrichment run cannot strip a good '
+  'cover and a project is never briefly cover-less.';
+
+COMMENT ON FUNCTION public.forever_project_cover_withdraw(UUID) IS
+  'Retires EVERY active cover of one project and clears projects.main_image_url, '
+  'for the single case where the hero policy examined the supplied photographs '
+  'and determined that none depicts the property. Invoked only on an explicit '
+  'JSON null at project.set.main_image_url, which forever_progressive_ingest '
+  'discards by design — so without this step hero_candidate_missing was a report '
+  'with no effect and the rejected cover kept being served. Retires, never '
+  'deletes media: the storage object and the retained private original are '
+  'untouched.';
 
 COMMENT ON COLUMN public.project_media.semantic_role IS
   'What the image depicts, from the fixed vocabulary in hero-policy.ts. '
@@ -369,6 +478,7 @@ COMMIT;
 --   -- Restore forever_direct_publish from 20260726140000 verbatim first.
 --   DROP FUNCTION IF EXISTS public.forever_project_media_semantic_projection(UUID, JSONB);
 --   DROP FUNCTION IF EXISTS public.forever_project_cover_reconcile(UUID, TEXT);
+--   DROP FUNCTION IF EXISTS public.forever_project_cover_withdraw(UUID);
 --   UPDATE public.project_media pm SET media_type = 'cover'
 --     WHERE pm.media_type = 'superseded_cover'
 --       AND NOT EXISTS (
