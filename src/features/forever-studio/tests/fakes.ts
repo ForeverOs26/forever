@@ -28,6 +28,7 @@ import { FakeIngestExecutor } from "@/features/forever-ingestion/tests/fake-inge
 import { syntheticJpeg, syntheticPng, syntheticWebp } from "./media-truth-fixtures";
 
 import {
+  isStudioAmenityCategory,
   UPLOAD_MANIFEST_DOMAIN,
   type StudioArchiveEntryState,
   type StudioArchiveStatus,
@@ -928,6 +929,12 @@ export class FakeData implements StudioData {
       }
       if (new Set(created.map((entry) => entry.slug)).size !== created.length) {
         throw new Error("studio_amenity_slug_duplicate");
+      }
+      // The SAME closed vocabulary the function and the service enforce. Imported
+      // rather than re-listed, so the fake cannot drift into being more permissive
+      // than the thing it stands in for.
+      if (created.some((entry) => !isStudioAmenityCategory((entry.category ?? "").trim()))) {
+        throw new Error("studio_amenity_category_invalid");
       }
       // An existing slug is a different record with the same name. Rejected,
       // never merged.

@@ -134,12 +134,16 @@ export function filterCatalogue(
 /**
  * The distinct categories present in the catalogue, sorted.
  *
- * Derived from the rows rather than hardcoded: the category vocabulary lives in
- * the `amenities` table and the Owner may add to it when creating an amenity,
- * so any fixed list here would go stale the first time that happens. Blank
- * categories are dropped — an uncategorised amenity is reachable through
- * search and through the "all" option, and an empty entry in a filter menu is
- * an unexplained option.
+ * Derived from the rows rather than from `STUDIO_AMENITY_CATEGORIES`, and the
+ * distinction matters. That constant is the closed vocabulary a NEW amenity must
+ * be created with; this filter has to offer what the catalogue actually
+ * CONTAINS, which includes rows written before the vocabulary existed and rows
+ * whose category is blank or legacy. Offering the nine canonical values here
+ * would hide every such row behind a filter that never matches it.
+ *
+ * Blank categories are dropped from the menu — an uncategorised amenity is
+ * still reachable through search and through the "all" option, and an empty
+ * entry in a filter menu is an unexplained option.
  */
 export function catalogueCategories(entries: readonly StudioAmenityCatalogueEntry[]): string[] {
   const categories = new Set<string>();

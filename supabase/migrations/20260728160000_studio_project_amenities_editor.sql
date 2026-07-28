@@ -15,7 +15,10 @@
 --   1. `project_amenities.is_featured BOOLEAN NOT NULL DEFAULT false`
 --   2. `project_amenities.sort_order  INTEGER NOT NULL DEFAULT 0`
 --      with `CHECK (sort_order >= 0)`
---   3. `public.studio_save_project_amenities(...)` — one all-or-nothing
+--   3. An explicit REVOKE of every write privilege on both amenity tables from
+--      `anon` and `authenticated`, so a browser role is refused by privilege as
+--      well as by row-level security. `SELECT` is untouched.
+--   4. `public.studio_save_project_amenities(...)` — one all-or-nothing
 --      reconcile of one project's amenity set.
 --
 -- WHAT THIS DOES NOT DO
@@ -28,20 +31,45 @@
 --     Those are the legacy inventory tables from FDB-001. They are not the
 --     canonical amenity model, no active application code reads or writes
 --     them, and this migration leaves their DDL, RLS and grants untouched.
---   * It revokes nothing. `project_amenities` and `amenities` keep the
---     table-level `SELECT` grant to `anon, authenticated` that the public
---     embed depends on, and a table-level grant covers columns added later,
---     so the two new columns are readable by the public projection without a
---     further grant.
+--   * It does not revoke SELECT. `project_amenities` and `amenities` keep the
+--     table-level `SELECT` grant to `anon, authenticated` that the public embed
+--     depends on, and a table-level grant covers columns added later, so the two
+--     new columns are readable by the public projection without a further grant.
+--     Only the WRITE privileges are revoked — see section 2.
+--   * It changes no RLS policy. The write revokes are an additional barrier, not
+--     a replacement for the existing policies.
 --   * It adds no index. See "INDEXING" below.
 --
 -- IS THE ADDITION SAFE ON A POPULATED TABLE?
 -- ------------------------------------------
--- Yes. Both columns are `NOT NULL DEFAULT <constant>`, which PostgreSQL 11+
--- applies as a catalog-only default — no table rewrite, no row lock beyond
--- the brief ACCESS EXCLUSIVE needed for the catalog update. The `CHECK` is
--- added in the same statement as the column it constrains, so it is validated
--- against the constant default rather than scanned over existing rows.
+-- Yes, but be precise about why, because the two DDL steps behave differently.
+--
+--   1. THE COLUMNS. Both are `NOT NULL DEFAULT <constant>`, which PostgreSQL 11+
+--      stores as a catalog-only default: no table rewrite, and no lock beyond
+--      the brief ACCESS EXCLUSIVE the catalog update itself needs. Existing rows
+--      are not touched; they read back as `false` / `0`.
+--
+--   2. THE CHECK. It is added in a SEPARATE `ALTER TABLE ... ADD CONSTRAINT`,
+--      after the column exists, because `ADD COLUMN IF NOT EXISTS` cannot carry
+--      a named table constraint and re-running this migration must not fail.
+--      A separate `ADD CONSTRAINT` without `NOT VALID` therefore VALIDATES the
+--      constraint against existing rows — a sequential scan under ACCESS
+--      EXCLUSIVE, not a catalog-only change.
+--
+--      That scan is safe here and is not worth avoiding. Every existing row
+--      carries the catalog default `sort_order = 0`, which satisfies
+--      `sort_order >= 0`, so validation cannot fail; and `project_amenities`
+--      holds on the order of a hundred rows (102 assignment rows across 6
+--      projects in the prepared source map), so the scan is immeasurable.
+--      `ADD CONSTRAINT ... NOT VALID` followed by a separate `VALIDATE
+--      CONSTRAINT` would avoid the exclusive-lock scan and is the right pattern
+--      on a large table; it is deliberately not used here because it would trade
+--      a guaranteed-clean constraint for a two-step dance this table's size does
+--      not justify.
+--
+-- No "no scan" claim is made about step 2. An earlier revision of this comment
+-- asserted the CHECK was added in the same statement as its column and was
+-- therefore never scanned. That was simply wrong about this file's own SQL.
 --
 -- INDEXING
 -- --------
@@ -61,7 +89,8 @@
 --
 -- ROLLBACK
 -- --------
--- Fully reversible, and reversing it loses only the editorial ordering:
+-- The schema change is reversible, and reversing it loses only the editorial
+-- ordering. The privilege change is deliberately NOT reversed — see below.
 --
 --   BEGIN;
 --   DROP FUNCTION IF EXISTS public.studio_save_project_amenities(
@@ -71,6 +100,13 @@
 --   ALTER TABLE public.project_amenities DROP COLUMN IF EXISTS sort_order;
 --   ALTER TABLE public.project_amenities DROP COLUMN IF EXISTS is_featured;
 --   COMMIT;
+--
+-- The write REVOKEs in section 2 are deliberately NOT part of that rollback.
+-- Re-granting `INSERT, UPDATE, DELETE` on a public-facing table to `anon` in the
+-- name of "undoing" this change would be a security regression, and nothing in
+-- this feature needs those privileges back. If they must be restored, that is a
+-- separate decision made on its own merits, not a side effect of dropping two
+-- columns.
 --
 -- The `(project_id, amenity_id, note, created_at)` tuples — the amenity set
 -- itself — survive that rollback untouched, because the function never
@@ -109,7 +145,45 @@ COMMENT ON COLUMN public.project_amenities.sort_order IS
   'Owner-selected order within the featured and non-featured groups. Non-negative; ties fall back to category, name, slug.';
 
 -- ---------------------------------------------------------------------------
--- 2. The one transactional save.
+-- 2. Defence in depth: browser roles lose every write privilege, and keep read.
+-- ---------------------------------------------------------------------------
+--
+-- Row-level security already prevents an anonymous write on both tables: RLS is
+-- enabled and neither carries an INSERT, UPDATE or DELETE policy. That barrier
+-- is real and is proved behaviourally in the disposable-PostgreSQL suite — but
+-- it is worth understanding exactly how thin it is on its own, because the two
+-- verbs fail differently:
+--
+--   * INSERT raises 42501 — no policy supplies a WITH CHECK.
+--   * UPDATE and DELETE do NOT raise. RLS filters every candidate row out first,
+--     so the statement succeeds having matched zero rows.
+--
+-- So a browser role can hold a nominal write privilege here and be stopped only
+-- by policy evaluation. And it can: `20260723130000_public_projection_privacy.sql`
+-- tightened table-level grants on `projects`, `developers`, `units`,
+-- `project_media`, `investment_data` and `unit_price_history`, but deliberately
+-- left `amenities` and `project_amenities` on their base table-level grant
+-- because the public amenities embed depends on it. A Supabase project can also
+-- carry platform-level public-schema defaults that grant browser roles broad
+-- table access — the disposable harness reproduces exactly that state.
+--
+-- One misconfigured policy away from a writable public table is one layer too
+-- few for a table that feeds the public project page. So revoke the write
+-- privileges outright. After this, a browser role is refused by PRIVILEGE before
+-- RLS is ever consulted, and each barrier independently suffices.
+--
+-- SELECT is deliberately NOT revoked. It is what the public embed reads, it is
+-- what the base migration granted, and `amenities-contract.test.tsx` scans every
+-- migration from 20260718113000 onward and fails on a REVOKE of it. service_role
+-- keeps ALL, so the Owner's save is unaffected. The existing RLS policies are
+-- left exactly as they are — this adds a layer, it does not replace one.
+
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+  ON TABLE public.amenities, public.project_amenities
+  FROM anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 3. The one transactional save.
 -- ---------------------------------------------------------------------------
 --
 -- AUTHORIZATION. `SECURITY INVOKER` with a locked empty search_path, granted
@@ -147,6 +221,10 @@ COMMENT ON COLUMN public.project_amenities.sort_order IS
 --                       chose to create in this save, and nothing else:
 --                         [{"name": "Kids Club", "slug": "kids-club",
 --                           "category": "Family & Children", "icon": "baby"}]
+--                       `name`, `slug` and `category` are REQUIRED; `category`
+--                       must be one of the nine supported values. `icon` is
+--                       OPTIONAL — a blank or unknown icon renders as the neutral
+--                       fallback and never blocks a save or a publication.
 --                       A slug that already exists is rejected, never merged.
 --                       Every entry must also appear in `p_amenities`: creating
 --                       an amenity is a side effect of selecting one that does
@@ -320,6 +398,26 @@ BEGIN
       GROUP BY btrim(entry->>'slug') HAVING count(*) > 1
     ) THEN
       RAISE EXCEPTION 'studio_amenity_slug_duplicate';
+    END IF;
+    -- Category is REQUIRED on creation, and must come from the closed
+    -- vocabulary. The public page groups by category, so a free-text value
+    -- produces "Wellness", "wellness" and "Fitness & Wellness" as three separate
+    -- headings across three projects and the grouping stops meaning anything.
+    -- The list is duplicated here rather than read from a table on purpose: it is
+    -- a product decision with nine values, and a lookup table would invite rows
+    -- to be added to it at runtime, which is the thing being prevented.
+    --
+    -- This constrains CREATION only. Existing catalogue rows keep whatever
+    -- category they have, blank included, and stay selectable — no row is
+    -- rewritten by this migration or by this function.
+    IF EXISTS (
+      SELECT 1 FROM jsonb_array_elements(v_created) AS entry
+      WHERE btrim(COALESCE(entry->>'category', '')) NOT IN (
+        'Pools & Water', 'Fitness & Wellness', 'Family & Children',
+        'Work & Social', 'Outdoor & Leisure', 'Security & Services',
+        'Parking & Transport', 'Hospitality & Retail', 'Other')
+    ) THEN
+      RAISE EXCEPTION 'studio_amenity_category_invalid';
     END IF;
     -- An existing slug is a different record with the same name. Reject it;
     -- never merge two amenities behind the Owner's back.

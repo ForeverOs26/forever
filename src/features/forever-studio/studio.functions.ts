@@ -294,8 +294,14 @@ export const studioSaveProjectAmenities = createServerFn({ method: "POST" })
             z.object({
               name: z.string().min(1),
               slug: z.string().min(1),
+              // Required, and narrowed to the supported vocabulary by the
+              // service and the save function.
               category: z.string(),
-              icon: z.string(),
+              // Genuinely optional at the wire too: a caller may omit the key
+              // entirely, not merely send an empty string. Requiring the key
+              // would have made "icon is optional" true of the function and
+              // false of the endpoint in front of it.
+              icon: z.string().optional().default(""),
             }),
           )
           .max(20),

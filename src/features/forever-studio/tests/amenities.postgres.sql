@@ -105,14 +105,52 @@ SELECT pg_temp.assert_true(
 
 -- AM-6a. The public embed keeps working: the table-level SELECT grant from the
 --        base migration covers columns added later, so the two new columns need
---        no grant of their own.
+--        no grant of their own. SELECT is what the migration deliberately does
+--        NOT revoke, and both browser roles must retain it.
 SELECT pg_temp.assert_true(
   has_column_privilege('anon', 'public.project_amenities', 'is_featured', 'SELECT')
   AND has_column_privilege('anon', 'public.project_amenities', 'sort_order', 'SELECT')
   AND has_column_privilege('authenticated', 'public.project_amenities', 'sort_order', 'SELECT')
   AND has_table_privilege('anon', 'public.project_amenities', 'SELECT')
-  AND has_table_privilege('anon', 'public.amenities', 'SELECT'),
-  'AM-6a anon can read the two new columns through the existing table grant');
+  AND has_table_privilege('anon', 'public.amenities', 'SELECT')
+  AND has_table_privilege('authenticated', 'public.project_amenities', 'SELECT')
+  AND has_table_privilege('authenticated', 'public.amenities', 'SELECT'),
+  'AM-6a anon and authenticated both retain SELECT on both amenity tables');
+
+-- AM-6a2. DEFENCE IN DEPTH: the write privileges are gone outright, so a browser
+--         role is refused by PRIVILEGE before row-level security is consulted.
+--         This is the independent barrier, asserted independently of AM-6b/6c.
+--
+--         The harness deliberately reproduces the Supabase platform default that
+--         grants browser roles broad table access before the Studio migration
+--         runs, so this assertion is meaningful rather than trivially true: it
+--         fails without the explicit REVOKE.
+DO $$
+DECLARE
+  v_role TEXT;
+  v_table TEXT;
+  v_priv TEXT;
+BEGIN
+  FOREACH v_role IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+    FOREACH v_table IN ARRAY ARRAY['public.amenities', 'public.project_amenities'] LOOP
+      FOREACH v_priv IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] LOOP
+        PERFORM pg_temp.assert_true(
+          NOT has_table_privilege(v_role, v_table, v_priv),
+          format('AM-6a2 %s must not hold %s on %s', v_role, v_priv, v_table));
+      END LOOP;
+    END LOOP;
+  END LOOP;
+END $$;
+
+-- AM-6a3. service_role is untouched: the Owner's save still works, which is the
+--         thing the revoke must not break.
+SELECT pg_temp.assert_true(
+  has_table_privilege('service_role', 'public.amenities', 'INSERT')
+  AND has_table_privilege('service_role', 'public.project_amenities', 'INSERT')
+  AND has_table_privilege('service_role', 'public.project_amenities', 'UPDATE')
+  AND has_table_privilege('service_role', 'public.project_amenities', 'DELETE')
+  AND has_table_privilege('service_role', 'public.amenities', 'SELECT'),
+  'AM-6a3 service_role keeps full access to both amenity tables');
 
 -- AM-6b. Row-level security, not the grant, is what makes both tables read-only
 --        for a browser role.
@@ -139,27 +177,14 @@ SELECT pg_temp.assert_true(
       AND cmd <> 'SELECT'),
   'AM-6b RLS is enabled on both amenity tables and neither has a write policy');
 
--- AM-6c. NEGATIVE CONTROL, behavioural: an anonymous browser session changes no
---        row of either amenity table, whatever the grant says.
---
---        Note carefully HOW row-level security refuses each verb, because the
---        two are different and a test that expected only the first would have
---        been wrong:
---
---          * INSERT raises. There is no INSERT policy, so the new row satisfies
---            no `WITH CHECK` and PostgreSQL errors with 42501.
---          * UPDATE and DELETE do NOT raise. With no UPDATE or DELETE policy,
---            RLS filters every candidate row out before the write, so the
---            statement succeeds having matched zero rows.
---
---        The protection is identical in both cases — no row changes — but only
---        the row count proves it for the second pair. So assert the verb-specific
---        outcome AND compare the stored tuples afterwards.
+-- AM-6c. NEGATIVE CONTROL, behavioural: the PRIVILEGE barrier. With the write
+--        privileges revoked, every anonymous write now fails on privilege, before
+--        row-level security is ever consulted.
 DO $$
 DECLARE
   v_before JSONB;
   v_after JSONB;
-  v_rows BIGINT;
+  v_sql TEXT;
 BEGIN
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
            'p', pa.project_id, 'a', pa.amenity_id, 'n', pa.note,
@@ -167,47 +192,24 @@ BEGIN
          '[]'::jsonb)
     INTO v_before FROM public.project_amenities pa;
 
-  -- Both INSERTs must raise.
-  BEGIN
-    SET LOCAL ROLE anon;
-    INSERT INTO public.project_amenities(project_id, amenity_id, is_featured, sort_order)
-    VALUES ('a0000000-0000-0000-0000-000000000001',
-            'a1000000-0000-0000-0000-000000000005', true, 1);
-    RESET ROLE;
-    RAISE EXCEPTION 'anon_link_insert_unexpectedly_succeeded';
-  EXCEPTION WHEN insufficient_privilege THEN
-    RESET ROLE;
-  END;
-  BEGIN
-    SET LOCAL ROLE anon;
-    INSERT INTO public.amenities(slug, name) VALUES ('anon-invented', 'Anon Invented');
-    RESET ROLE;
-    RAISE EXCEPTION 'anon_catalogue_insert_unexpectedly_succeeded';
-  EXCEPTION WHEN insufficient_privilege THEN
-    RESET ROLE;
-  END;
-
-  -- Every UPDATE and DELETE must match zero rows.
-  SET LOCAL ROLE anon;
-  UPDATE public.project_amenities SET is_featured = true, sort_order = 99;
-  GET DIAGNOSTICS v_rows = ROW_COUNT;
-  RESET ROLE;
-  PERFORM pg_temp.assert_true(v_rows = 0,
-    'AM-6c an anonymous UPDATE of project_amenities matches no row');
-
-  SET LOCAL ROLE anon;
-  DELETE FROM public.project_amenities;
-  GET DIAGNOSTICS v_rows = ROW_COUNT;
-  RESET ROLE;
-  PERFORM pg_temp.assert_true(v_rows = 0,
-    'AM-6c an anonymous DELETE of project_amenities matches no row');
-
-  SET LOCAL ROLE anon;
-  UPDATE public.amenities SET name = 'Renamed by anon';
-  GET DIAGNOSTICS v_rows = ROW_COUNT;
-  RESET ROLE;
-  PERFORM pg_temp.assert_true(v_rows = 0,
-    'AM-6c an anonymous UPDATE of the catalogue matches no row');
+  FOREACH v_sql IN ARRAY ARRAY[
+    'INSERT INTO public.project_amenities(project_id, amenity_id) VALUES
+       (''a0000000-0000-0000-0000-000000000001'', ''a1000000-0000-0000-0000-000000000005'')',
+    'UPDATE public.project_amenities SET is_featured = true, sort_order = 99',
+    'DELETE FROM public.project_amenities',
+    'INSERT INTO public.amenities(slug, name) VALUES (''anon-invented'', ''Anon Invented'')',
+    'UPDATE public.amenities SET name = ''Renamed by anon''',
+    'DELETE FROM public.amenities'
+  ] LOOP
+    BEGIN
+      SET LOCAL ROLE anon;
+      EXECUTE v_sql;
+      RESET ROLE;
+      RAISE EXCEPTION 'anon_write_unexpectedly_permitted: %', left(v_sql, 50);
+    EXCEPTION WHEN insufficient_privilege THEN
+      RESET ROLE;
+    END;
+  END LOOP;
 
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
            'p', pa.project_id, 'a', pa.amenity_id, 'n', pa.note,
@@ -217,11 +219,138 @@ BEGIN
 
   PERFORM pg_temp.assert_true(
     v_before IS NOT DISTINCT FROM v_after,
-    'AM-6c no anonymous write changed a single project_amenities row');
+    'AM-6c every anonymous write is refused by privilege and changes no row');
   PERFORM pg_temp.assert_true(
     NOT EXISTS (SELECT 1 FROM public.amenities WHERE slug = 'anon-invented')
     AND NOT EXISTS (SELECT 1 FROM public.amenities WHERE name = 'Renamed by anon'),
     'AM-6c no anonymous write changed a single catalogue row');
+END $$;
+
+-- AM-6d. NEGATIVE CONTROL, behavioural: the RLS barrier, proved INDEPENDENTLY of
+--        the privilege one.
+--
+--        AM-6c can no longer observe RLS, because privilege now refuses first. So
+--        hand the write privileges back inside a transaction that is rolled back,
+--        and confirm row-level security still refuses every write on its own.
+--        Two barriers each of which independently suffices is the claim; this is
+--        the half that would otherwise go untested from here on.
+--
+--        Note HOW RLS refuses each verb, because they differ and a test expecting
+--        only the first would be wrong:
+--
+--          * INSERT raises 42501 — no policy supplies a WITH CHECK.
+--          * UPDATE and DELETE do NOT raise. With no UPDATE or DELETE policy, RLS
+--            filters every candidate row out first, so the statement succeeds
+--            having matched ZERO rows.
+
+BEGIN;
+
+GRANT INSERT, UPDATE, DELETE ON public.amenities, public.project_amenities
+  TO anon, authenticated;
+
+DO $$
+DECLARE
+  v_before JSONB;
+  v_after JSONB;
+  v_rows BIGINT;
+BEGIN
+  PERFORM pg_temp.assert_true(
+    has_table_privilege('anon', 'public.project_amenities', 'UPDATE'),
+    'AM-6d the temporary grant is in effect, so RLS is what is under test');
+
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+           'p', pa.project_id, 'a', pa.amenity_id, 'n', pa.note,
+           'f', pa.is_featured, 's', pa.sort_order) ORDER BY pa.project_id, pa.amenity_id),
+         '[]'::jsonb)
+    INTO v_before FROM public.project_amenities pa;
+
+  -- Both INSERTs must still raise, now on the RLS policy rather than the grant.
+  BEGIN
+    SET LOCAL ROLE anon;
+    INSERT INTO public.project_amenities(project_id, amenity_id)
+    VALUES ('a0000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000005');
+    RESET ROLE;
+    RAISE EXCEPTION 'rls_link_insert_unexpectedly_succeeded';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RESET ROLE;
+  END;
+  BEGIN
+    SET LOCAL ROLE anon;
+    INSERT INTO public.amenities(slug, name) VALUES ('rls-invented', 'RLS Invented');
+    RESET ROLE;
+    RAISE EXCEPTION 'rls_catalogue_insert_unexpectedly_succeeded';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RESET ROLE;
+  END;
+
+  -- And every UPDATE and DELETE must match zero rows.
+  SET LOCAL ROLE anon;
+  UPDATE public.project_amenities SET is_featured = true, sort_order = 99;
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  RESET ROLE;
+  PERFORM pg_temp.assert_true(v_rows = 0,
+    'AM-6d with the grant restored, RLS still matches no row for an anonymous UPDATE');
+
+  SET LOCAL ROLE anon;
+  DELETE FROM public.project_amenities;
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  RESET ROLE;
+  PERFORM pg_temp.assert_true(v_rows = 0,
+    'AM-6d with the grant restored, RLS still matches no row for an anonymous DELETE');
+
+  SET LOCAL ROLE anon;
+  UPDATE public.amenities SET name = 'Renamed under RLS';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  RESET ROLE;
+  PERFORM pg_temp.assert_true(v_rows = 0,
+    'AM-6d with the grant restored, RLS still matches no row on the catalogue');
+
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+           'p', pa.project_id, 'a', pa.amenity_id, 'n', pa.note,
+           'f', pa.is_featured, 's', pa.sort_order) ORDER BY pa.project_id, pa.amenity_id),
+         '[]'::jsonb)
+    INTO v_after FROM public.project_amenities pa;
+
+  PERFORM pg_temp.assert_true(
+    v_before IS NOT DISTINCT FROM v_after,
+    'AM-6d row-level security alone prevents every anonymous write');
+END $$;
+
+ROLLBACK;
+
+-- The temporary grant is gone again, so the privilege barrier is back in force
+-- and nothing downstream runs against a weakened schema.
+SELECT pg_temp.assert_true(
+  NOT has_table_privilege('anon', 'public.project_amenities', 'UPDATE')
+  AND NOT has_table_privilege('anon', 'public.amenities', 'INSERT')
+  AND NOT has_table_privilege('authenticated', 'public.project_amenities', 'DELETE'),
+  'AM-6d the temporary grant was rolled back and the revoke is in force again');
+
+-- AM-6e. The public embed still RESOLVES for an anonymous visitor. A privilege
+--        check alone would not catch a policy or grant change that silently
+--        returns nothing, and a failing embed does not hide one section — it
+--        fails the whole project query and takes every page down. So read the
+--        exact shape `PROJECT_DETAIL_SELECT` reads, as `anon`.
+DO $$
+DECLARE
+  v_rows BIGINT;
+  v_featured BOOLEAN;
+BEGIN
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO v_rows
+  FROM public.project_amenities pa
+  JOIN public.amenities a ON a.id = pa.amenity_id
+  WHERE pa.project_id = 'a0000000-0000-0000-0000-000000000001';
+  -- Both new columns are readable in the same projection.
+  SELECT bool_and(pa.is_featured IS NOT NULL AND pa.sort_order IS NOT NULL) INTO v_featured
+  FROM public.project_amenities pa
+  WHERE pa.project_id = 'a0000000-0000-0000-0000-000000000001';
+  RESET ROLE;
+
+  PERFORM pg_temp.assert_true(v_rows = 2,
+    'AM-6e an anonymous visitor still reads the project_amenities -> amenities embed');
+  PERFORM pg_temp.assert_true(COALESCE(v_featured, false),
+    'AM-6e is_featured and sort_order are readable in that same anonymous projection');
 END $$;
 
 -- ---------------------------------------------------------------------------
@@ -485,6 +614,24 @@ DECLARE
       'err', 'studio_amenity_name_and_slug_required',
       'set', '[{"amenity_slug":"squash-court","sort_order":0}]',
       'created', '[{"name":"  ","slug":"squash-court","category":"","icon":""}]'),
+    -- Category is REQUIRED on creation and must come from the closed vocabulary.
+    -- The public page groups by it, so free text turns one heading into three.
+    jsonb_build_object('why', 'a created amenity with a blank category',
+      'err', 'studio_amenity_category_invalid',
+      'set', '[{"amenity_slug":"squash-court","sort_order":0}]',
+      'created', '[{"name":"Squash Court","slug":"squash-court","category":"","icon":""}]'),
+    jsonb_build_object('why', 'a created amenity with a whitespace category',
+      'err', 'studio_amenity_category_invalid',
+      'set', '[{"amenity_slug":"squash-court","sort_order":0}]',
+      'created', '[{"name":"Squash Court","slug":"squash-court","category":"   ","icon":""}]'),
+    jsonb_build_object('why', 'a created amenity with an unsupported category',
+      'err', 'studio_amenity_category_invalid',
+      'set', '[{"amenity_slug":"squash-court","sort_order":0}]',
+      'created', '[{"name":"Squash Court","slug":"squash-court","category":"Leisure","icon":""}]'),
+    jsonb_build_object('why', 'a created category differing only in case',
+      'err', 'studio_amenity_category_invalid',
+      'set', '[{"amenity_slug":"squash-court","sort_order":0}]',
+      'created', '[{"name":"Squash Court","slug":"squash-court","category":"other","icon":""}]'),
     -- A sort_order above int4. Without the magnitude bound this raised a raw
     -- `22003 value out of range` from the `::integer` cast instead of a named
     -- refusal — the exact failure the type pre-check exists to prevent.
@@ -500,12 +647,12 @@ DECLARE
     jsonb_build_object('why', 'creating an amenity that is not selected',
       'err', 'studio_amenity_created_unused: ghost-amenity',
       'set', '[]',
-      'created', '[{"name":"Ghost","slug":"ghost-amenity","category":"","icon":""}]'),
+      'created', '[{"name":"Ghost","slug":"ghost-amenity","category":"Other","icon":""}]'),
     jsonb_build_object('why', 'creating one used and one unused amenity',
       'err', 'studio_amenity_created_unused: ghost-two',
       'set', '[{"amenity_slug":"ghost-one","sort_order":10}]',
-      'created', '[{"name":"Ghost One","slug":"ghost-one","category":"","icon":""},
-                   {"name":"Ghost Two","slug":"ghost-two","category":"","icon":""}]'),
+      'created', '[{"name":"Ghost One","slug":"ghost-one","category":"Other","icon":""},
+                   {"name":"Ghost Two","slug":"ghost-two","category":"Other","icon":""}]'),
     -- A top-level payload that is not an array must not be read as "clear the set".
     jsonb_build_object('why', 'a non-array requested payload',
       'err', 'studio_project_amenities_invalid_payload',
@@ -600,6 +747,57 @@ SELECT pg_temp.assert_true(
                WHERE pa.project_id = 'a0000000-0000-0000-0000-000000000001'
                  AND a.slug = 'padel-court' AND pa.note = 'One covered court'),
   'AM-15b the created amenity exists exactly once and is linked with its note');
+
+-- AM-15c. Every one of the nine supported categories is accepted, and the icon
+--         stays OPTIONAL — a blank one creates and links normally.
+DO $$
+DECLARE
+  v_categories TEXT[] := ARRAY[
+    'Pools & Water', 'Fitness & Wellness', 'Family & Children', 'Work & Social',
+    'Outdoor & Leisure', 'Security & Services', 'Parking & Transport',
+    'Hospitality & Retail', 'Other'];
+  v_category TEXT;
+  v_slug TEXT;
+  v_index INT := 0;
+BEGIN
+  FOREACH v_category IN ARRAY v_categories LOOP
+    v_index := v_index + 1;
+    v_slug := 'vocab-' || v_index::text;
+    PERFORM public.studio_save_project_amenities(
+      'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-00000000a001',
+      jsonb_build_array(jsonb_build_object('amenity_slug', v_slug, 'sort_order', 10)),
+      -- icon omitted entirely, not merely blank.
+      jsonb_build_array(jsonb_build_object('name', 'Vocab ' || v_index::text,
+                                           'slug', v_slug, 'category', v_category)));
+    PERFORM pg_temp.assert_true(
+      (SELECT category = v_category AND icon IS NULL FROM public.amenities WHERE slug = v_slug),
+      'AM-15c ' || v_category || ' is accepted and the icon stays optional');
+  END LOOP;
+END $$;
+
+-- AM-15d. Catalogue rows whose category predates the vocabulary stay usable.
+--         The rule constrains CREATION only; it must not orphan existing data.
+DO $$
+DECLARE v_result JSONB;
+BEGIN
+  -- A legacy row: written directly, as an older ingest would have left it.
+  INSERT INTO public.amenities(id, slug, name, category, icon)
+  VALUES ('a1000000-0000-0000-0000-00000000ff01', 'legacy-blank', 'Legacy Blank', NULL, NULL);
+
+  v_result := public.studio_save_project_amenities(
+    'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-00000000a001',
+    '[{"amenity_slug":"legacy-blank","note":"Still assignable","sort_order":10}]'::jsonb);
+
+  PERFORM pg_temp.assert_true(
+    (v_result->>'selected_count')::int = 1
+    AND v_result->'amenities'->0->>'slug' = 'legacy-blank'
+    AND v_result->'amenities'->0->>'category' = '',
+    'AM-15d a legacy blank-category amenity is still readable and assignable');
+  -- And assigning it did not rewrite its category to satisfy the new rule.
+  PERFORM pg_temp.assert_true(
+    (SELECT category IS NULL FROM public.amenities WHERE slug = 'legacy-blank'),
+    'AM-15d assigning a legacy row does not rewrite its category');
+END $$;
 
 -- ---------------------------------------------------------------------------
 -- Zero amenities, and rollback
