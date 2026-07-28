@@ -117,11 +117,141 @@ const CENSUS_SQL = `
    ORDER BY project_slug, m.media_type, m.url
 `;
 
+/**
+ * The grant this contract depends on, checked on the target database.
+ *
+ * Two failures this converts from argued into observed.
+ *
+ * **The site blanks.** Both public selects request `project_media.semantic_role`.
+ * PostgREST fails an ENTIRE embedded select with 42703 for a column the caller
+ * cannot read, so the catalogue and every project page go blank together, not
+ * one card. Ledger order applies `20260723130000_public_projection_privacy.sql`
+ * before this migration and everything is fine — but that migration does
+ * `REVOKE SELECT ON TABLE public.project_media FROM anon` and re-grants a column
+ * list written before `semantic_role` existed. In PostgreSQL a column-less
+ * REVOKE removes column-level grants too, so applying it AFTER `20260728120000`
+ * strips the column and blanks the site. On a target that has not applied it
+ * yet, that order is not hypothetical.
+ *
+ * **The privacy claim.** `metadata` carries source paths, package directories
+ * and sanitizer records. Whether `anon` can read it is a property of the target
+ * database's actual grants, not of the migration ledger, and it is exactly the
+ * kind of claim that should be measured rather than asserted.
+ */
+const GRANT_SQL = `
+  SELECT CASE WHEN to_regrole('anon') IS NULL THEN 'no_anon_role'
+              ELSE has_column_privilege('anon', 'public.project_media', 'semantic_role', 'SELECT')::text
+         END AS can_read_role,
+         CASE WHEN to_regrole('anon') IS NULL THEN 'no_anon_role'
+              ELSE has_column_privilege('anon', 'public.project_media', 'metadata', 'SELECT')::text
+         END AS can_read_metadata
+`;
+
+/**
+ * Split the password out of the connection URL before psql ever sees argv.
+ *
+ * The password was being handed to `psql` as a command-line argument, which puts
+ * it in the process table for every user on the machine and prints it verbatim
+ * in any error `execFileSync` throws — defeating the whole point of offering an
+ * environment variable for the connection string.
+ *
+ * libpq reads `PGPASSWORD` from the environment, so the secret goes there and
+ * the URL on argv carries only the host, port, user and database. A URL with no
+ * password is returned unchanged.
+ */
+function splitCredential(databaseUrl) {
+  try {
+    const parsed = new URL(databaseUrl);
+    if (!parsed.password) return { url: databaseUrl, env: {} };
+    const password = decodeURIComponent(parsed.password);
+    parsed.password = "";
+    return { url: parsed.toString(), env: { PGPASSWORD: password } };
+  } catch {
+    // Not a URL — a libpq keyword/value string, which we pass through untouched.
+    return { url: databaseUrl, env: {} };
+  }
+}
+
+/** Never let a connection string reach a log, however psql fails. */
+function redact(text, databaseUrl) {
+  return String(text ?? "")
+    .split(databaseUrl)
+    .join("<connection string redacted>");
+}
+
+function readGrants(databaseUrl) {
+  const { url, env } = splitCredential(databaseUrl);
+  const raw = execFileSync(psqlPath(), [url, "-X", "-A", "-t", "--no-psqlrc", "-c", GRANT_SQL], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, ...env },
+  });
+  const [semanticRole, metadata] = raw.trim().split("|");
+  // Reported verbatim in the release record. A gate that says "blocked" without
+  // saying what it measured is a gate somebody overrides.
+  return { semanticRole, metadata, raw: raw.trim() };
+}
+
+/**
+ * Grant failures are release failures, at BOTH rollout stages.
+ *
+ * Neither is about how much of the backfill has run: an unreadable
+ * `semantic_role` blanks the site whatever the roles say, and a readable
+ * `metadata` is a privacy defect whatever the roles say.
+ */
+/**
+ * `boolean::text` is `"true"`/`"false"`, not psql's display form `t`/`f`.
+ *
+ * Comparing against `"t"` made both checks fire on a database whose grants were
+ * exactly right — a gate that blocks a correct release is as useless as one that
+ * passes a broken one, and it is the failure people learn to override. So the
+ * parse is explicit and an unrecognised value is neither true nor false.
+ */
+function pgBool(value) {
+  if (value === "true" || value === "t") return true;
+  if (value === "false" || value === "f") return false;
+  return null;
+}
+
+function evaluateGrants(grants) {
+  const failures = [];
+  const notes = [];
+  if (grants.semanticRole === "no_anon_role") {
+    notes.push(
+      "This database has no `anon` role, so the public grant could not be checked. " +
+        "That is expected on a bare cluster and NOT acceptable as release evidence.",
+    );
+    return { failures, notes };
+  }
+  if (pgBool(grants.semanticRole) !== true) {
+    failures.push(
+      "anon cannot SELECT project_media.semantic_role. Both public projections request " +
+        "it, and PostgREST fails an ENTIRE embedded select with 42703 for an unreadable " +
+        "column — the catalogue and every project page would blank together. Apply " +
+        "20260728120000, and if 20260723130000_public_projection_privacy.sql is still " +
+        "pending, apply it BEFORE it: its table-level REVOKE removes column grants too.",
+    );
+  } else {
+    notes.push("anon can read semantic_role, so neither public projection will 42703.");
+  }
+  if (pgBool(grants.metadata) !== false) {
+    failures.push(
+      "anon CAN SELECT project_media.metadata, which carries source paths, package " +
+        "directories and sanitizer records. 20260723130000_public_projection_privacy.sql " +
+        "is the migration that closes this and it is not in force on this database.",
+    );
+  } else {
+    notes.push("anon cannot read project_media.metadata.");
+  }
+  return { failures, notes };
+}
+
 function readCensus(databaseUrl) {
+  const { url, env } = splitCredential(databaseUrl);
   const raw = execFileSync(
     psqlPath(),
-    [databaseUrl, "-X", "-A", "-t", "-F", "\u001f", "--no-psqlrc", "-c", CENSUS_SQL],
-    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    [url, "-X", "-A", "-t", "-F", "\u001f", "--no-psqlrc", "-c", CENSUS_SQL],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } },
   );
   return raw
     .split("\n")
@@ -155,9 +285,20 @@ async function main() {
   const { buildRoleCompletenessReport, evaluateReleaseGate, formatRoleCompletenessReport } =
     await loadCensus();
 
+  const rawGrants = readGrants(databaseUrl);
+  const grants = evaluateGrants(rawGrants);
   const rows = readCensus(databaseUrl);
   const report = buildRoleCompletenessReport(rows, readExceptions(arg("exceptions")));
-  const verdict = evaluateReleaseGate(report, stage);
+  const roleVerdict = evaluateReleaseGate(report, stage);
+  // The grant check is part of the same verdict, not a separate advisory. A
+  // release that would blank the site does not become acceptable because every
+  // row happens to carry a role.
+  const verdict = {
+    ...roleVerdict,
+    failures: [...grants.failures, ...roleVerdict.failures],
+    notes: [...grants.notes, ...roleVerdict.notes],
+    passed: grants.failures.length === 0 && roleVerdict.passed,
+  };
   // `readCensus` returns camelCase. Reading `row.media_type` here counted
   // `undefined === "superseded_cover"` and reported 0 retired rows on every
   // database — and the harness check that was supposed to catch it asserted on
@@ -166,6 +307,7 @@ async function main() {
 
   const text = [
     "[role-census] FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001",
+    `anon grant      : project_media.semantic_role/metadata SELECT = "${rawGrants.raw}"`,
     formatRoleCompletenessReport(report, verdict),
     `retired rows    : ${retired} (superseded_cover; never presentation media)`,
   ].join("\n");
@@ -178,6 +320,12 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(`[role-census] FAILED: ${error?.message ?? error}`);
+  // Redacted, always. `execFileSync` puts the full argv into the message it
+  // throws, and that argv used to carry the password verbatim.
+  const supplied = arg("database-url") ?? process.env.FOREVER_ROLE_CENSUS_DATABASE_URL ?? "";
+  const detail = redact(error?.message ?? error, supplied);
+  console.error(
+    `[role-census] FAILED: ${supplied ? redact(detail, splitCredential(supplied).url) : detail}`,
+  );
   process.exit(2);
 });

@@ -211,6 +211,16 @@ export function evaluateReleaseGate(
         `Expected before the backfill: readers show them, because absence of a role is not ` +
         `evidence of anything.`,
     );
+  } else if (report.governed === 0) {
+    // An empty census is not evidence that the backfill succeeded. It is far
+    // more likely to mean the gate was pointed at an empty database, a wrong
+    // schema, or a connection that returned nothing — and "zero unexplained
+    // rows" would otherwise let all three pass as a completed rollout.
+    failures.push(
+      `The census found NO public image rows at all. After the backfill that is not a ` +
+        `pass, it is a reason to doubt the connection: verify the database and the schema ` +
+        `before treating this as release evidence.`,
+    );
   } else if (report.unexplained.length > 0) {
     failures.push(
       `${report.unexplained.length} public image row(s) still have no semantic_role and no ` +

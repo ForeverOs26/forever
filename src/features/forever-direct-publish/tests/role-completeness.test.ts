@@ -163,6 +163,25 @@ describe("the release gate", () => {
     expect(evaluateReleaseGate(report, "after_backfill").passed).toBe(false);
   });
 
+  /**
+   * `--stage` is self-declared, so the gate has to be suspicious of the shape of
+   * a pass. "Zero unexplained role-less rows" is also what a wrong connection
+   * string, an empty database and a wrong schema all look like.
+   */
+  it("blocks after the backfill when the census found nothing at all", () => {
+    const report = buildRoleCompletenessReport([]);
+    const verdict = evaluateReleaseGate(report, "after_backfill");
+    expect(verdict.passed).toBe(false);
+    expect(verdict.failures.join(" ")).toContain("NO public image rows");
+  });
+
+  it("does not block an empty census before the backfill", () => {
+    // A fresh database with no projects yet is not a release failure.
+    expect(evaluateReleaseGate(buildRoleCompletenessReport([]), "before_backfill").passed).toBe(
+      true,
+    );
+  });
+
   it("never blocks merely because a role is prohibited", () => {
     const report = buildRoleCompletenessReport([
       row({ url: "https://cdn/a.jpg", semanticRole: "event" }),

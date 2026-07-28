@@ -395,6 +395,10 @@ try {
       "SELECT count(*) FROM pg_proc WHERE proname='forever_project_cover_reconcile'",
     ],
     [
+      "forever_project_cover_withdraw",
+      "SELECT count(*) FROM pg_proc WHERE proname='forever_project_cover_withdraw'",
+    ],
+    [
       "forever_direct_publish",
       "SELECT count(*) FROM pg_proc WHERE proname='forever_direct_publish'",
     ],
@@ -508,6 +512,7 @@ try {
   for (const fn of [
     "forever_project_media_semantic_projection",
     "forever_project_cover_reconcile",
+    "forever_project_cover_withdraw",
   ]) {
     const canExec = A.scalar(
       `SELECT bool_or(has_function_privilege(r, p.oid, 'EXECUTE'))::text
@@ -1130,6 +1135,12 @@ try {
     : bad("role-less rows present to gate on", `got ${roleLessBefore}`);
 
   const before = runGate("before_backfill");
+  // The measured grant, printed into the proof rather than summarised. A release
+  // record that says "the grant is correct" without showing the measurement is
+  // the kind of claim this whole PR keeps having to retract.
+  for (const line of before.out.split("\n")) {
+    if (line.startsWith("anon grant")) console.log(`  ${line.trim()}`);
+  }
   before.code === 0 && before.out.includes("GATE  PASS")
     ? ok("before the backfill the gate passes and states the role-less count")
     : bad("before_backfill gate passes", before.out.slice(-400));
@@ -1168,6 +1179,45 @@ try {
   governedReported === governedInDb
     ? ok(`the census governs exactly the ${governedInDb} cover/gallery row(s)`)
     : bad("governed count matches the database", `db=${governedInDb} reported=${governedReported}`);
+
+  // The grant the whole contract rests on, checked by the gate rather than
+  // argued in a comment.
+  after.out.includes("anon can read semantic_role") &&
+  after.out.includes("anon cannot read project_media.metadata")
+    ? ok("the gate observes the public grant on the target database")
+    : bad("gate reports the anon grant", after.out.slice(-600));
+
+  // And it must BLOCK when the grant is wrong, whatever the roles say. This is
+  // the second deploy-order hazard made executable: 20260723130000's table-level
+  // REVOKE removes column grants too, so applying it after 20260728120000 takes
+  // `semantic_role` away and both public projections 42703.
+  Bc.sql("REVOKE SELECT ON TABLE public.project_media FROM anon");
+  Bc.sql(
+    `GRANT SELECT (id, project_id, media_type, title, url, sort_order)
+       ON public.project_media TO anon`,
+  );
+  const stripped = runGate("before_backfill");
+  stripped.code === 1 && stripped.out.includes("anon cannot SELECT project_media.semantic_role")
+    ? ok("a stripped grant BLOCKS the release, at the permissive stage too")
+    : bad("stripped grant blocks", `exit ${stripped.code}\n${stripped.out.slice(-500)}`);
+
+  // Restore what 20260728120000 grants, and confirm the gate agrees again.
+  Bc.sql(
+    `GRANT SELECT (id, project_id, media_type, title, url, sort_order, semantic_role)
+       ON public.project_media TO anon`,
+  );
+  const restored = runGate("before_backfill");
+  restored.code === 0
+    ? ok("restoring the column grant clears the block")
+    : bad("restored grant passes", restored.out.slice(-500));
+
+  // A readable `metadata` is a release failure on its own terms.
+  Bc.sql("GRANT SELECT (metadata) ON public.project_media TO anon");
+  const leaky = runGate("before_backfill");
+  leaky.code === 1 && leaky.out.includes("anon CAN SELECT project_media.metadata")
+    ? ok("an anon-readable metadata column BLOCKS the release")
+    : bad("metadata exposure blocks", `exit ${leaky.code}\n${leaky.out.slice(-500)}`);
+  Bc.sql("REVOKE SELECT (metadata) ON public.project_media FROM anon");
 
   // Simulate the controlled backfill on this throwaway cluster only.
   Bc.sql(

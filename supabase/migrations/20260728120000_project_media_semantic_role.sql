@@ -70,10 +70,24 @@ $$;
 -- Public read access to the presentation column, and nothing else.
 --
 -- Restated as a full column list rather than a bare `GRANT SELECT
--- (semantic_role)`, so this migration is correct whether or not
--- 20260723130000_public_projection_privacy.sql has been applied, and issues no
--- REVOKE — it must never be the statement that changes any other column's
--- reachability.
+-- (semantic_role)`, and issuing no REVOKE — this must never be the statement
+-- that changes any other column's reachability.
+--
+-- ORDER OF APPLICATION MATTERS, IN ONE DIRECTION.
+--
+-- Ledger order applies 20260723130000_public_projection_privacy.sql before this
+-- file, and then this grant is the final word and everything is correct. But
+-- that migration does `REVOKE SELECT ON TABLE public.project_media FROM anon`,
+-- and in PostgreSQL a column-less REVOKE removes COLUMN-level grants too. So
+-- applying it AFTER this one takes `semantic_role` away again — and because
+-- PostgREST fails an ENTIRE embedded select with 42703 for a column the caller
+-- cannot read, the catalogue and every project page would blank together.
+--
+-- On a target where 20260723130000 is still pending, apply it FIRST. The
+-- release gate measures this rather than trusting it:
+-- `node scripts/media/role-completeness-report.mjs --stage before_backfill`
+-- blocks when `anon` cannot read `semantic_role`, and blocks when `anon` CAN
+-- read `metadata`.
 --
 -- `metadata` and `created_at` are deliberately excluded. `metadata` carries
 -- provenance: source filesystem paths, package directories, sanitizer records
@@ -402,9 +416,16 @@ BEGIN
   -- -------- 5. exactly one active cover, same transaction --------
   -- Only when this batch actually declares a cover. A price-only enrichment
   -- carries none and must leave the existing designation untouched.
+  -- ORDER BY, not just LIMIT 1. `planPublicMedia` emits exactly one cover, so
+  -- in practice the set has one element — but "in practice" is how the rest of
+  -- this file's defects were argued. An unordered LIMIT 1 over a malformed or
+  -- hand-built batch picks an arbitrary cover, retires the other, and does it
+  -- differently on a replay. Ordering by the URL makes the choice a stated one
+  -- and the whole publish replayable.
   SELECT btrim(m->>'url') INTO v_cover_url
     FROM jsonb_array_elements(COALESCE(batch->'media', '[]'::jsonb)) AS m
    WHERE btrim(m->>'media_type') = 'cover'
+   ORDER BY btrim(m->>'url')
    LIMIT 1;
 
   v_retired := public.forever_project_cover_reconcile(v_project_id, v_cover_url);
