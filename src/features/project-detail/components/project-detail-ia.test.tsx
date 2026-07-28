@@ -9,6 +9,9 @@
  * jsdom applies no media queries, so the mobile and desktop branches of the
  * mosaic are both in the document here; assertions are scoped accordingly.
  */
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   Outlet,
@@ -659,5 +662,66 @@ describe("the mobile contact bar", () => {
     );
     expect(container.innerHTML).toBe("");
     expect(screen.queryByTestId("project-mobile-cta")).toBeNull();
+  });
+});
+
+/**
+ * FOREVER-CONTACT-G0-DELIVERY-AUDIT-001, verdict `G0_PARTIAL`.
+ *
+ * The audit's release matrix marks every contextual submission action
+ * HIDE_UNTIL_G0, and its severity ranking puts "PR #116 removed the only
+ * context-carrying contact surface; desktop CTAs send no context at all" at #3
+ * and "unit context shown to the visitor, then silently discarded" at #4.
+ *
+ * The first property is the one that ships: no contextual action is present.
+ * The second is latent — it would only bite once the gate opens — so it is
+ * pinned here too, at the level this PR can actually control: the link must
+ * carry the project. Whether `/contact` then reads it, and whether the leads
+ * table can store a unit code, are audit items R1 and R2 and are NOT fixed
+ * here.
+ */
+describe("contact context is never silently discarded (G0_PARTIAL)", () => {
+  const project = makeProjectDetail({ core: { name: "Coralina" }, units: [makeUnit()] });
+
+  it("presents no contextual project or unit submission action at all", async () => {
+    await renderInRouter(<ProjectDetailEngine project={project} />, "About this project");
+
+    for (const name of [
+      /request details/i,
+      /request a viewing/i,
+      /request this unit/i,
+      /request private advisory/i,
+    ]) {
+      expect(screen.queryByRole("link", { name }), String(name)).toBeNull();
+      expect(screen.queryByRole("button", { name }), String(name)).toBeNull();
+    }
+    // No form is mounted on a project page either.
+    expect(document.querySelector("form")).toBeNull();
+    // And nothing disabled is left standing in place of an action.
+    expect(document.querySelector("[disabled]")).toBeNull();
+  });
+
+  it("keeps the project on every contact link the panel would render", () => {
+    // Read the source rather than rendering the enabled variant: enabling the
+    // gate in a test would contradict the audit's requirement that no
+    // release-evidence environment turns it on.
+    const source = readFileSync(
+      resolve(process.cwd(), "src/features/project-detail/components/ProjectSummaryPanel.tsx"),
+      "utf8",
+    );
+    const bareLinks = [...source.matchAll(/<Link\s+to="\/contact"(?![^>]*search=)/g)];
+    expect(bareLinks, 'a "/contact" link with no search prop discards the project context').toEqual(
+      [],
+    );
+  });
+
+  it("has no orphaned contact component left in the feature", () => {
+    // The audit marks ProjectContactCTA REMOVE_AS_DEAD_ACTION: a defined but
+    // never-rendered component carrying a full ContactForm.
+    expect(
+      existsSync(
+        resolve(process.cwd(), "src/features/project-detail/components/ProjectContactCTA.tsx"),
+      ),
+    ).toBe(false);
   });
 });

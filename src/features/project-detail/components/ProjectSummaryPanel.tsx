@@ -116,11 +116,26 @@ export function ProjectSummaryPanel({ project, className }: ProjectSummaryPanelP
         <div className="mt-6 grid gap-2.5 border-t border-border/60 pt-5">
           {contactActionsEnabled ? (
             <>
+              {/*
+                Both carry the project (FOREVER-CONTACT-G0-DELIVERY-AUDIT-001,
+                severity #3). PR #116 shipped these as bare `/contact` links
+                with no search params at all, so a click destroyed the one piece
+                of context the enquiry needed — while the mobile bar, two files
+                away, passed it. Carrying it here does NOT make the pipe work:
+                the audit records that `/contact` does not yet read these params
+                into the form and the leads table has no unit_code column. It
+                only ensures the context is not thrown away at the click, so
+                that when R1 lands there is something for it to read.
+              */}
               <Button asChild size="lg">
-                <Link to="/contact">Request details</Link>
+                <Link to="/contact" search={{ project: project.core.name }}>
+                  Request details
+                </Link>
               </Button>
               <Button asChild size="lg" variant="outline">
-                <Link to="/contact">Request a viewing</Link>
+                <Link to="/contact" search={{ project: project.core.name }}>
+                  Request a viewing
+                </Link>
               </Button>
             </>
           ) : null}
