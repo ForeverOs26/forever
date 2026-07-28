@@ -21,7 +21,7 @@ The active stage is tracked in `docs/CURRENT_STAGE.md`. Sequenced phases and dep
 - Project comparison interface.
 - Buyer profile questionnaire.
 - Saved shortlist.
-- CRM lead dashboard.
+- CRM lead dashboard. Design recorded in `docs/crm/FOREVER_CRM_INDEX.md` (proposed; not scheduled).
 - Booth Mode project browser.
 - QR handoff flow.
 - Document download tracking.

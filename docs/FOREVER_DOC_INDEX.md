@@ -72,6 +72,38 @@ If any required document is missing at the exact path, Codex must report the mis
 | `docs/FOREVER_TRUTH_001A_PRODUCTION_CLEANUP_PLAN.md` | Prepared-only production inventory and deactivation plan for the seeded fictitious catalogue. Read-only inventory, Owner decision point, exact transactional deactivation, verification, and rollback. Never execute without explicit Owner approval. | Conditional         |
 | `docs/FOREVER_DEVELOPMENT_ROADMAP.md`                | Compatibility pointer for tasks that request this historical path. The canonical roadmap is `docs/ROADMAP.md`.                                                                                                                                    | No                  |
 | `docs/KNOWLEDGE_MODEL.md`                            | Compatibility pointer for tasks that request this historical path. The canonical knowledge and data model docs are `docs/DATA_STANDARD.md` and `docs/CODEX_PROJECT_UNDERSTANDING.md`.                                                             | No                  |
+| `docs/crm/FOREVER_CRM_INDEX.md`                      | Entry point for the FOREVER-CRM-ARCH-001 proposed CRM architecture package. Proposed only: not approved, not scheduled, and not authorization to implement. Read before any CRM, lead-workflow, or advisor-conversion task.                        | Conditional         |
+
+## Forever CRM architecture package
+
+`docs/crm/` holds the FOREVER-CRM-ARCH-001 design record. Start at `docs/crm/FOREVER_CRM_INDEX.md`, which
+carries the reading order and the governing constraints.
+
+The whole subtree is **Proposed** — it asserts no product truth, changes no active stage, and authorizes no
+implementation. The active stage remains the one recorded in `docs/CURRENT_STAGE.md`, which lists "large CRM
+integration" as out of scope. Any implementing task is R2 under the shared-contract rule and requires an
+Architect-reviewed stage change plus Owner approval.
+
+| Path | Purpose |
+| ---- | ------- |
+| `docs/crm/FOREVER_CRM_INDEX.md`                  | Package entry point, reading order, governing constraints, and the recommended first slice. |
+| `docs/crm/CRM_FINAL_RECOMMENDATION.md`           | The single-page recommendation: what to build first, why it beats the alternatives, kill triggers, and measurable outcomes. |
+| `docs/crm/CRM_EXECUTIVE_SUMMARY_RU.md`           | Executive summary for the Owner, in Russian. |
+| `docs/crm/CRM_CURRENT_STATE_AUDIT.md`            | Verified current-state audit of the lead, Navigator, Booth, Advisory, RLS and type surfaces on `main`, with the reuse map. |
+| `docs/crm/CRM_PRODUCT_BOUNDARY.md`               | What the CRM is and is not, the ownership boundary against every neighbouring system, and the role and workspace design. |
+| `docs/crm/CRM_MARKET_RESEARCH_2026.md`           | Cited 2026 CRM and real-estate research, with adopt/adapt/reject verdicts and the patterns deliberately refused. |
+| `docs/crm/CRM_DOMAIN_MODEL.md`                   | Conceptual and logical domain model, ERDs, identity, deduplication, reversible merge, and invariants. |
+| `docs/crm/CRM_JOURNEYS_AND_STATE_MACHINES.md`    | End-to-end journeys per lead source, and the enquiry, opportunity and assignment state machines. |
+| `docs/crm/CRM_UX_INFORMATION_ARCHITECTURE.md`    | Screen inventory, text wireframes, mobile navigation, and the elements deliberately refused. |
+| `docs/crm/CRM_SECURITY_AND_RBAC.md`              | Role and capability matrix, RLS posture, service-role boundary, audit design, and threat model. |
+| `docs/crm/CRM_PRIVACY_CONSENT_RETENTION.md`      | PDPA-led lawful-basis map, consent event model, suppression, data-subject rights, retention and breach register. Descriptive only, not legal advice. |
+| `docs/crm/CRM_INTEGRATION_AND_EVENTS.md`         | Capture path, the scheduled seam, messaging and calendar integration, idempotency and failure modes. |
+| `docs/crm/CRM_AUTOMATION_CATALOGUE.md`           | Automation catalogue, classification, priority matrix, policy-as-data, and the engine deliberately not built. |
+| `docs/crm/CRM_ANALYTICS_AND_KPI.md`              | Owner metric catalogue, the low-volume measurement rules, and the anti-vanity exclusions. |
+| `docs/crm/CRM_BUILD_VS_INTEGRATE.md`             | Build, buy or hybrid evaluation with dated pricing and measurable flip triggers in both directions. |
+| `docs/crm/CRM_IMPLEMENTATION_PLAN.md`            | Phased plan, decomposed backlog with acceptance criteria, migration and compatibility strategy, and risk register. |
+| `docs/crm/CRM_DECISION_RECORDS.md`               | Proposed decision records in `docs/DECISIONS.md` format, the Owner Decision Register, and the Do Not Build Yet list. |
+| `docs/crm/CRM_INDEPENDENT_REVIEW.md`             | The independent adversarial review that corrected the package, and the adjudication of its findings. |
 
 ## Deprecated or Duplicate Documentation Names
 
