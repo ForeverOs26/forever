@@ -22,6 +22,7 @@ import { describe, expect, it } from "vitest";
 import { makeMediaItem } from "@/features/forever-database/tests/fixtures";
 import {
   GALLERY_ELIGIBILITY,
+  GALLERY_EXCLUDED_ROLES,
   SEMANTIC_ROLES,
   isGalleryEligibleRole,
   isSemanticRole,
@@ -146,13 +147,270 @@ describe("rows published before the contract", () => {
     ]);
   });
 
-  it("never returns an empty gallery when the unfiltered set is not empty", () => {
-    // Every row excluded — the floor must return them rather than show nothing.
+  /**
+   * The rollout guarantee is `isGalleryEligibleRole(null) === true`, and nothing
+   * else. An earlier draft added a second guarantee — a floor that returned the
+   * unfiltered set whenever filtering removed everything — and that floor was
+   * wrong: it could only ever fire for a project whose every row carries a
+   * POSITIVELY PROHIBITED role, which is precisely the project that must show
+   * nothing. It could never protect a role-less gallery, because a role-less
+   * gallery is never filtered in the first place.
+   *
+   * This test is the proof that removing the floor did not weaken the rollout.
+   */
+  it("keeps a wholly role-less gallery without needing any floor", () => {
     const items = [
-      makeMediaItem({ id: "1", url: "https://cdn.example.com/1.jpg", semanticRole: "event" }),
-      makeMediaItem({ id: "2", url: "https://cdn.example.com/2.jpg", semanticRole: "text_promo" }),
+      makeMediaItem({ id: "1", url: "https://cdn.example.com/1.jpg", semanticRole: null }),
+      makeMediaItem({ id: "2", url: "https://cdn.example.com/2.jpg", semanticRole: "" }),
+      makeMediaItem({
+        id: "3",
+        url: "https://cdn.example.com/3.jpg",
+        semanticRole: "coined_later",
+      }),
     ];
-    expect(galleryEligible(items, null)).toHaveLength(2);
+    expect(galleryEligible(items)).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The prohibited fallback, and why it is gone
+// ---------------------------------------------------------------------------
+
+describe("a gallery of nothing but prohibited media", () => {
+  const allProhibited = [
+    makeMediaItem({ id: "1", url: "https://cdn.example.com/1.jpg", semanticRole: "event" }),
+    makeMediaItem({ id: "2", url: "https://cdn.example.com/2.jpg", semanticRole: "text_promo" }),
+    makeMediaItem({ id: "3", url: "https://cdn.example.com/3.jpg", semanticRole: "group_photo" }),
+  ];
+
+  /**
+   * BLOCKER 117-3. The floor this replaces re-published exactly the media the
+   * contract exists to remove. It is not enough to delete it; the deletion has
+   * to be pinned, because "a gallery is never emptied" reads like a safety
+   * property and will be proposed again.
+   */
+  it("is empty, not restored", () => {
+    expect(galleryEligible(allProhibited)).toEqual([]);
+  });
+
+  it("is empty for every prohibited role, one at a time", () => {
+    for (const role of GALLERY_EXCLUDED_ROLES) {
+      const only = [
+        makeMediaItem({ id: role, url: `https://cdn/${role}.jpg`, semanticRole: role }),
+      ];
+      expect(galleryEligible(only), `a gallery of only ${role} must be empty`).toEqual([]);
+    }
+  });
+
+  /**
+   * NEGATIVE CONTROL — deliberately restores the removed floor.
+   *
+   * If this ever passes, the floor is back somewhere: either in
+   * `galleryEligible` or in a caller that "helpfully" substitutes the unfiltered
+   * list. The assertion is written against the restored behaviour so the failure
+   * message names the defect rather than a length mismatch.
+   */
+  it("negative control: the restored floor is detectably wrong", () => {
+    const restoredFloor = (items: typeof allProhibited) => {
+      const kept = galleryEligible(items);
+      return items.length > 0 && kept.length === 0 ? items : kept;
+    };
+    // The floor returns the launch party. The policy returns nothing. If these
+    // two ever agree, the policy has become the floor.
+    expect(restoredFloor(allProhibited)).toHaveLength(3);
+    expect(galleryEligible(allProhibited)).toHaveLength(0);
+    expect(galleryEligible(allProhibited)).not.toEqual(restoredFloor(allProhibited));
+  });
+
+  /**
+   * Villa Kirara, the decisive negative fixture: twenty-four launch-party
+   * photographs, no eligible cover, plans and documents filed separately. The
+   * whole project must remain public and usable with no photograph at all.
+   */
+  it("Villa Kirara: no cover, no gallery, plans and documents intact", () => {
+    const media = groupProjectMedia(
+      [
+        ...Array.from({ length: 24 }, (_, index) =>
+          mediaRow({
+            url: `https://cdn.example.com/kirara-launch-${index}.jpg`,
+            sort_order: index,
+            semantic_role: "event",
+          } as Partial<ProjectMediaRow> & { url: string }),
+        ),
+        mediaRow({
+          url: "https://cdn.example.com/kirara-house-plan.pdf",
+          media_type: "floor_plan",
+          sort_order: 100,
+          semantic_role: "plan",
+        } as Partial<ProjectMediaRow> & { url: string }),
+        mediaRow({
+          url: "https://cdn.example.com/kirara-location.png",
+          media_type: "document",
+          sort_order: 101,
+          semantic_role: "map",
+        } as Partial<ProjectMediaRow> & { url: string }),
+      ],
+      { projectId: "villa-kirara", mainImageUrl: null, brochureUrl: null },
+    );
+
+    expect(media.hero).toBeNull();
+    expect(media.gallery).toEqual([]);
+    // Still a usable project record.
+    expect(media.floorPlans).toHaveLength(1);
+    expect(media.documents.map((document) => document.type)).toContain("document");
+    // And the launch party is nowhere in the whole media object.
+    expect(JSON.stringify(media)).not.toContain("kirara-launch");
+  });
+
+  /**
+   * The same project after a genuinely safe property photograph is found. The
+   * empty state is a consequence of the evidence, not a permanent verdict.
+   */
+  it("Villa Kirara gains a gallery the moment one safe photograph exists", () => {
+    const media = groupProjectMedia(
+      [
+        mediaRow({
+          url: "https://cdn.example.com/kirara-launch-0.jpg",
+          sort_order: 0,
+          semantic_role: "event",
+        } as Partial<ProjectMediaRow> & { url: string }),
+        mediaRow({
+          url: "https://cdn.example.com/kirara-villa.jpg",
+          sort_order: 1,
+          semantic_role: "villa_exterior",
+        } as Partial<ProjectMediaRow> & { url: string }),
+      ],
+      { projectId: "villa-kirara", mainImageUrl: null },
+    );
+
+    expect(media.gallery.map((item) => item.url)).toEqual([
+      "https://cdn.example.com/kirara-villa.jpg",
+    ]);
+    // No cover row and no main image: the hero falls back within this project's
+    // own eligible photographs, never outside them.
+    expect(media.hero?.url).toBe("https://cdn.example.com/kirara-villa.jpg");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The cover is not exempt
+// ---------------------------------------------------------------------------
+
+describe("the active cover", () => {
+  it("is still shown when it carries no role, which is every cover today", () => {
+    const media = groupProjectMedia([], {
+      projectId: "p-1",
+      mainImageUrl: "https://cdn.example.com/cover.jpg",
+    });
+    expect(media.hero?.url).toBe("https://cdn.example.com/cover.jpg");
+    expect(media.gallery.map((item) => item.url)).toEqual(["https://cdn.example.com/cover.jpg"]);
+  });
+
+  /**
+   * Sierra's real shape: `main_image_url` points at the seasonal graphic, and
+   * the project's own row for that exact URL records `text_promo`. The column
+   * carries no role of its own, so without resolving it against the row it is
+   * the one image nothing filters.
+   */
+  it("is refused when the project's own row records a prohibited role for it", () => {
+    const media = groupProjectMedia(
+      [
+        mediaRow({
+          url: "https://cdn.example.com/holiday-moments.png",
+          media_type: "cover",
+          sort_order: 0,
+          semantic_role: "text_promo",
+        } as Partial<ProjectMediaRow> & { url: string }),
+        mediaRow({
+          url: "https://cdn.example.com/exterior.jpg",
+          sort_order: 1,
+          semantic_role: "property_exterior",
+        } as Partial<ProjectMediaRow> & { url: string }),
+      ],
+      { projectId: "sierra", mainImageUrl: "https://cdn.example.com/holiday-moments.png" },
+    );
+
+    expect(JSON.stringify(media)).not.toContain("holiday-moments");
+    expect(media.hero?.url).toBe("https://cdn.example.com/exterior.jpg");
+  });
+
+  it("is refused when the only cover row itself carries a prohibited role", () => {
+    const media = groupProjectMedia(
+      [
+        mediaRow({
+          url: "https://cdn.example.com/launch.jpg",
+          media_type: "cover",
+          sort_order: 0,
+          semantic_role: "event",
+        } as Partial<ProjectMediaRow> & { url: string }),
+      ],
+      { projectId: "p-1", mainImageUrl: null },
+    );
+    expect(media.hero).toBeNull();
+    expect(media.gallery).toEqual([]);
+  });
+
+  it("keeps a valid cover usable even when the gallery around it is empty", () => {
+    const media = groupProjectMedia(
+      [
+        mediaRow({
+          url: "https://cdn.example.com/party.jpg",
+          sort_order: 1,
+          semantic_role: "event",
+        } as Partial<ProjectMediaRow> & { url: string }),
+      ],
+      { projectId: "p-1", mainImageUrl: "https://cdn.example.com/cover.jpg" },
+    );
+    expect(media.hero?.url).toBe("https://cdn.example.com/cover.jpg");
+    expect(media.gallery.map((item) => item.url)).toEqual(["https://cdn.example.com/cover.jpg"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Retired covers
+// ---------------------------------------------------------------------------
+
+describe("a retired cover", () => {
+  it("is not presentation media anywhere in the media object", () => {
+    const media = groupProjectMedia(
+      [
+        mediaRow({
+          url: "https://cdn.example.com/old-cover.jpg",
+          media_type: "superseded_cover",
+          sort_order: 0,
+          semantic_role: "property_exterior",
+        } as Partial<ProjectMediaRow> & { url: string }),
+        mediaRow({
+          url: "https://cdn.example.com/new-cover.jpg",
+          media_type: "cover",
+          sort_order: 1,
+          semantic_role: "property_exterior",
+        } as Partial<ProjectMediaRow> & { url: string }),
+      ],
+      { projectId: "p-1", mainImageUrl: null },
+    );
+
+    expect(JSON.stringify(media)).not.toContain("old-cover");
+    expect(media.hero?.url).toBe("https://cdn.example.com/new-cover.jpg");
+  });
+
+  /**
+   * Even an eligible role does not rescue it: the exclusion is by media type,
+   * because retirement is a statement about presentation, not about content.
+   */
+  it("is refused as the main image even when its role is eligible", () => {
+    const media = groupProjectMedia(
+      [
+        mediaRow({
+          url: "https://cdn.example.com/retired.jpg",
+          media_type: "superseded_cover",
+          semantic_role: "property_exterior",
+        } as Partial<ProjectMediaRow> & { url: string }),
+      ],
+      { projectId: "p-1", mainImageUrl: "https://cdn.example.com/retired.jpg" },
+    );
+    expect(media.hero).toBeNull();
+    expect(media.gallery).toEqual([]);
   });
 });
 
@@ -204,22 +462,6 @@ describe("gallery composition once roles are recorded", () => {
     expect(urls).not.toContain("https://cdn.example.com/group.jpg");
   });
 
-  it("keeps the active cover even though it carries no role of its own", () => {
-    const media = groupProjectMedia(
-      [
-        mediaRow({
-          url: "https://cdn.example.com/x.jpg",
-          sort_order: 1,
-          semantic_role: "event",
-        } as Partial<ProjectMediaRow> & { url: string }),
-      ],
-      { projectId: "p-1", mainImageUrl: "https://cdn.example.com/cover.jpg" },
-    );
-
-    expect(media.hero?.url).toBe("https://cdn.example.com/cover.jpg");
-    expect(media.gallery.map((item) => item.url)).toEqual(["https://cdn.example.com/cover.jpg"]);
-  });
-
   it("leaves plans, maps and brochures in their own sections", () => {
     const media = groupProjectMedia(
       [
@@ -264,12 +506,38 @@ describe("gallery composition once roles are recorded", () => {
     ]);
   });
 
-  it("produces an honest cover-less project when nothing is eligible", () => {
-    // Villa Kirara: every candidate is an event photograph, a plan sheet or a
-    // map, and the correct outcome is no cover rather than a misleading one.
+  /**
+   * This used to pass an EMPTY array, so it never exercised the shape its own
+   * comment named — a project that has media, all of it ineligible. It now
+   * supplies the real shape.
+   */
+  it("produces an honest cover-less project when nothing supplied is eligible", () => {
+    const media = groupProjectMedia(
+      [
+        mediaRow({
+          url: "https://cdn.example.com/party.jpg",
+          sort_order: 0,
+          semantic_role: "event",
+        } as Partial<ProjectMediaRow> & { url: string }),
+        mediaRow({
+          url: "https://cdn.example.com/plan.jpg",
+          media_type: "floor_plan",
+          sort_order: 1,
+          semantic_role: "plan",
+        } as Partial<ProjectMediaRow> & { url: string }),
+      ],
+      { projectId: "p-1", mainImageUrl: null },
+    );
+    expect(media.hero).toBeNull();
+    expect(media.gallery).toEqual([]);
+    expect(media.floorPlans).toHaveLength(1);
+  });
+
+  it("renders safely with no media and no cover at all", () => {
     const media = groupProjectMedia([], { projectId: "p-1", mainImageUrl: null });
     expect(media.hero).toBeNull();
     expect(media.gallery).toEqual([]);
+    expect(media.documents).toEqual([]);
   });
 });
 
@@ -349,14 +617,37 @@ describe("the migration", () => {
     expect(executable).not.toMatch(/REVOKE SELECT/);
   });
 
-  it("reconciles covers by retiring, never by deleting media evidence", () => {
+  /**
+   * This assertion used to read `not.toMatch(/DELETE FROM public.project_media/)`
+   * and it was FAILING on this branch: the collision-proofing commit added one
+   * narrowly scoped DELETE and left the assertion claiming there is none. A test
+   * that contradicts the code it guards is worse than no test, because the suite
+   * reports a defect that does not exist and hides the real invariant.
+   *
+   * The real invariant is: reconciliation RETIRES by UPDATE, and deletes only the
+   * obsolete retirement of the cover that is coming back. The exact scope of that
+   * DELETE is pinned in `semantic-media-migration-contract.test.ts`
+   * ("deletes only the obsolete retirement of the incoming cover"); this file
+   * asserts the shape, not the scope, and does not duplicate it.
+   */
+  it("reconciles covers by retiring, and deletes nothing but a stale retirement", () => {
     expect(sql).toContain("forever_project_cover_reconcile");
     expect(sql).toContain("SET media_type = 'superseded_cover'");
     const executable = sql
       .split("\n")
       .filter((line) => !line.trim().startsWith("--"))
       .join("\n");
-    expect(executable).not.toMatch(/DELETE FROM public\.project_media/);
+    const deletes = [...executable.matchAll(/DELETE FROM public\.project_media[\s\S]*?;/g)].map(
+      (match) => match[0],
+    );
+    // One per retirement path — `_reconcile` and `_withdraw` — and each only ever
+    // removes a `superseded_cover` designation.
+    expect(deletes).toHaveLength(2);
+    for (const statement of deletes) {
+      expect(statement).toContain("media_type = 'superseded_cover'");
+      const target = statement.slice(0, statement.indexOf("EXISTS") + 1);
+      expect(target).not.toMatch(/media_type = '(cover|gallery|floor_plan|master_plan)'/);
+    }
   });
 
   /**

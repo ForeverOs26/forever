@@ -31,6 +31,25 @@ export function projectPhotographs(project: ProjectDetail): ProjectDetailMediaIt
   return photographs;
 }
 
+/**
+ * The one image that represents this project off-site — Open Graph, Twitter and
+ * JSON-LD (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001).
+ *
+ * Deliberately the same list the mosaic and the lightbox render, taken from the
+ * front, rather than a second expression of "hero, or else the first gallery
+ * item". The social image is the copy of a project that travels furthest and is
+ * cached longest by parties Forever does not control, so it is the last place a
+ * prohibited photograph should be able to reach through a reader of its own.
+ *
+ * `null` is a complete answer. A project with no presentable photograph emits no
+ * `og:image` and no JSON-LD `image`, because every available substitute — a
+ * stock coastline, another project's render, a brand graphic — would show a
+ * property that is not this one.
+ */
+export function projectSocialImage(project: ProjectDetail): string | null {
+  return projectPhotographs(project)[0]?.url ?? null;
+}
+
 export interface ProjectSection {
   id: string;
   label: string;

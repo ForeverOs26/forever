@@ -35,6 +35,26 @@ describe("public query privacy contract", () => {
     for (const column of ["start_date_display", "completion_date_display"]) {
       expect(listSource).toMatch(new RegExp(`\\b${column}\\b`));
     }
+
+    /**
+     * The catalogue's media projection, pinned as a literal — the one assertion
+     * that stops the semantic contract from failing open in silence.
+     *
+     * `semantic_role` is absent from the generated database types
+     * (`src/integrations/supabase/types.ts`), so both readers declare it by hand.
+     * TypeScript cannot connect a PostgREST select STRING to the shape it
+     * produces, so deleting `semantic_role` from either projection compiles
+     * cleanly. Every row then arrives with the field `undefined`,
+     * `isGalleryEligibleRole` answers "show it" for all of them — deliberately,
+     * that is the pre-backfill rollout guarantee — and the whole contract
+     * collapses back into a `media_type` allow-list, which is blocker 117-4
+     * restored, with a green suite.
+     *
+     * The failure direction that already had a guard is the opposite one:
+     * shipping this select before the migration applies fails loudly with
+     * PostgREST 42703. This covers the quiet direction.
+     */
+    expect(listSource).toContain("media:project_media(media_type, url, sort_order, semantic_role)");
     for (const projection of [
       "developer:developers(id, name, description, website, logo_url)",
       // `semantic_role` is presentation data — what the image depicts, from a

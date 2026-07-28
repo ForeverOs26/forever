@@ -11,7 +11,11 @@ import type {
   UnitRowWithBuilding,
   InvestmentDataRow,
 } from "./project-detail-types";
-import { isGalleryEligibleRole } from "../forever-direct-publish/hero-policy";
+import {
+  isPublicPhotograph,
+  isPubliclyPresentable,
+  presentableCoverUrl,
+} from "@/lib/public-media-policy";
 
 const DOCUMENT_LABELS: Record<string, string> = {
   brochure: "Brochure",
@@ -60,13 +64,13 @@ export function mapProjectMedia(row: ProjectMediaRow): ProjectDetailMediaItem {
     title: row.title ?? "",
     url: row.url,
     sortOrder: row.sort_order,
-    // Read through a widening cast because the generated database types lag the
-    // migration. This is a TYPE accommodation, not a runtime safety net: if the
-    // column does not exist, PostgREST has already failed the whole embedded
-    // select with 42703 and this mapper is never reached. The migration must be
-    // applied before any build requesting `semantic_role` is deployed — see the
-    // note on PROJECT_DETAIL_SELECT.
-    semanticRole: (row as { semantic_role?: string | null }).semantic_role ?? null,
+    // Read directly. `ProjectMediaRow` declares `semantic_role` as required
+    // precisely so this needs no widening cast — a cast here would silently
+    // tolerate the column disappearing from the projection, which is the one way
+    // this contract can fail open. The migration must be applied before any build
+    // requesting `semantic_role` is deployed — see the note on
+    // PROJECT_DETAIL_SELECT.
+    semanticRole: row.semantic_role ?? null,
   };
 }
 
@@ -76,27 +80,24 @@ function mapProjectUrlMedia({
   title,
   url,
   sortOrder,
+  semanticRole = null,
 }: {
   id: string;
   type: string;
   title: string;
   url: string | null | undefined;
   sortOrder: number;
+  /**
+   * The role the project's own `project_media` row records for this URL, when
+   * one does. A project column carries no role of its own; `null` means nothing
+   * is recorded, which means "show it".
+   */
+  semanticRole?: string | null;
 }): ProjectDetailMediaItem | null {
   const cleanUrl = text(url).trim();
   if (!cleanUrl) return null;
 
-  return {
-    id,
-    type,
-    title,
-    url: cleanUrl,
-    sortOrder,
-    // Synthesised from a project column, not a project_media row, so it has no
-    // recorded role. Null means "show it", which is correct for both the cover
-    // and the brochure.
-    semanticRole: null,
-  };
+  return { id, type, title, url: cleanUrl, sortOrder, semanticRole };
 }
 
 function mapProjectDocument(item: ProjectDetailMediaItem): ProjectDetailDocument {
@@ -130,30 +131,46 @@ function uniqueMedia(items: ProjectDetailMediaItem[]): ProjectDetailMediaItem[] 
  * photograph, all still reach the public photo strip today.
  *
  * The decision is made from the role the Factory recorded, never from the URL,
- * the filename or the slug. Three properties matter:
+ * the filename or the slug — see `@/lib/public-media-policy`, which every other
+ * public reader asks the same question of.
+ *
+ * Two properties matter:
  *
  *   1. **Exclusion requires positive evidence.** A row with no role, an empty
  *      role, or a role this client does not recognise is shown. Written the
  *      other way round — as an include-list — the first deploy would empty
  *      every gallery Forever has published, because no existing row has a role.
- *   2. **The cover is never filtered.** It comes from `main_image_url`, which
- *      carries no role of its own, and it is the image the hero policy already
- *      passed.
- *   3. **A gallery is never emptied.** If filtering would remove everything
- *      from a non-empty set, the unfiltered set is returned. A semantic
- *      contract may improve a gallery; it may not delete one. If that floor is
- *      ever hit it means the roles are wrong, and showing a bad gallery is
- *      recoverable in a way that showing no photographs at all is not.
+ *      This, and not any floor, is what makes the pre-backfill rollout safe.
+ *   2. **An all-prohibited gallery is empty, and that is the correct answer.**
+ *      An earlier draft returned the *unfiltered* set whenever filtering removed
+ *      everything, on the reasoning that a contract may improve a gallery but
+ *      not delete one. That floor re-published exactly the media this contract
+ *      exists to remove: Villa Kirara's twenty-four launch-party photographs are
+ *      the entire gallery, so every row was excluded and every row came back.
+ *      A project whose only photographs depict something other than the property
+ *      has no photographs of the property, and the honest way to say so is to
+ *      show none and let the surface render its neutral empty state.
  */
-export function galleryEligible(
-  items: ProjectDetailMediaItem[],
-  cover: ProjectDetailMediaItem | null,
-): ProjectDetailMediaItem[] {
-  const kept = items.filter(
-    (item) => item.url === cover?.url || isGalleryEligibleRole(item.semanticRole),
+export function galleryEligible(items: ProjectDetailMediaItem[]): ProjectDetailMediaItem[] {
+  return items.filter((item) =>
+    isPublicPhotograph({ mediaType: item.type, semanticRole: item.semanticRole }),
   );
-  if (items.length > 0 && kept.length === 0) return items;
-  return kept;
+}
+
+/**
+ * The role the project's own rows record for one exact URL.
+ *
+ * A join on a recorded identifier — never an inference from the text of the
+ * link. `projects.main_image_url` is a bare column with no role of its own; the
+ * role that describes that image lives on the `project_media` row for the same
+ * URL, and without this lookup the cover would be the one image nothing filters.
+ */
+function recordedRoleForUrl(url: string, rows: readonly ProjectDetailMediaItem[]): string | null {
+  const target = url.trim();
+  for (const row of rows) {
+    if (row.url.trim() === target && row.semanticRole) return row.semanticRole;
+  }
+  return null;
 }
 
 export function groupProjectMedia(
@@ -164,12 +181,48 @@ export function groupProjectMedia(
     brochureUrl?: string | null;
   },
 ): ProjectDetailMedia {
+  const allRecorded = (rows ?? []).map(mapProjectMedia);
+
+  // `main_image_url` is resolved against EVERY recorded row, retired ones
+  // included. A retired row is the evidence that its URL is no longer the
+  // cover, so dropping those rows before this lookup would leave the column
+  // pointing at a retired image with nothing left to contradict it — which is
+  // how a retired cover would come back through the one reader that does not
+  // read `media_type` at all.
+  const coverUrl = presentableCoverUrl(
+    projectMedia.mainImageUrl,
+    allRecorded.map((item) => ({
+      mediaType: item.type,
+      url: item.url,
+      semanticRole: item.semanticRole,
+    })),
+  );
+
+  // The floor for EVERY section, applied once.
+  //
+  // Retired covers never enter the presentation model — they are kept in the
+  // database so a correction stays auditable and no storage object is orphaned,
+  // but they are not media this page may consider. Nor does anything whose
+  // recorded subject is people: `ProjectFloorPlans` and `ProjectLocation` render
+  // their rows as `<img>` tiles, so a launch-party photograph misfiled as a
+  // floor plan would be a photograph of a launch party on the project page,
+  // reached through a section the gallery contract never covered.
+  //
+  // Deliberately NOT the gallery deny-list, which would delete every plan, map
+  // and brochure — see `NEVER_PUBLIC_ROLES`.
+  const recorded = allRecorded.filter((item) =>
+    isPubliclyPresentable({ mediaType: item.type, semanticRole: item.semanticRole }),
+  );
   const projectMainImage = mapProjectUrlMedia({
     id: `${projectMedia.projectId}:main-image`,
     type: "cover",
     title: "Cover",
-    url: projectMedia.mainImageUrl,
+    url: coverUrl,
     sortOrder: -20,
+    // The column carries no role, but the project's own row for the same image
+    // does. Without carrying it across, `uniqueMedia` would let this synthesised
+    // item shadow the recorded one and the role would be silently discarded.
+    semanticRole: coverUrl ? recordedRoleForUrl(coverUrl, allRecorded) : null,
   });
   const projectBrochure = mapProjectUrlMedia({
     id: `${projectMedia.projectId}:brochure`,
@@ -181,14 +234,23 @@ export function groupProjectMedia(
   const media = sortByOrder(
     uniqueMedia([
       ...(projectMainImage ? [projectMainImage] : []),
-      ...(rows ?? []).map(mapProjectMedia),
+      ...recorded,
       ...(projectBrochure ? [projectBrochure] : []),
     ]),
   );
-  const cover = media.find((item) => item.type === "cover") ?? null;
+  // The cover is filtered by exactly the rule the gallery uses. It used to be
+  // exempt — "it is the image the hero policy already passed" — which was true
+  // only of a cover this contract's publish lane chose. A legacy `cover` row, or
+  // a `main_image_url` written before the hero policy existed, carries whatever
+  // it carries, and Sierra's is a seasonal advertisement.
+  const cover =
+    media.find(
+      (item) =>
+        item.type === "cover" &&
+        isPublicPhotograph({ mediaType: item.type, semanticRole: item.semanticRole }),
+    ) ?? null;
   const gallery = galleryEligible(
     media.filter((item) => item.type === "gallery" || item.type === "cover"),
-    cover,
   );
   const masterPlan = media.find((item) => item.type === "master_plan") ?? null;
   const brochures = media.filter((item) => item.type === "brochure");
