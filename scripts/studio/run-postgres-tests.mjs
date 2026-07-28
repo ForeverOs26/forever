@@ -23,6 +23,22 @@ const REPO = process.cwd();
 const MIGRATIONS_DIR = join(REPO, "supabase", "migrations");
 const BOOTSTRAP = join(REPO, "scripts", "studio", "pg-bootstrap.sql");
 const SUITE = join(REPO, "src", "features", "forever-studio", "tests", "studio.postgres.sql");
+const AMENITIES_PRE_SEED = join(
+  REPO,
+  "src",
+  "features",
+  "forever-studio",
+  "tests",
+  "amenities-pre-migration-seed.sql",
+);
+const AMENITIES_SUITE = join(
+  REPO,
+  "src",
+  "features",
+  "forever-studio",
+  "tests",
+  "amenities.postgres.sql",
+);
 
 function findBinDir() {
   for (const base of ["/usr/lib/postgresql", "/usr/pgsql", "/opt/homebrew/opt"]) {
@@ -217,6 +233,118 @@ async function concurrencyProbes() {
   );
 }
 
+/**
+ * Concurrency probes for studio_save_project_amenities
+ * (FOREVER-STUDIO-AMENITIES-CORE-001): two REAL sessions.
+ *
+ * The migration claims `FOR UPDATE` on the project row serialises two Owners
+ * saving the same project, so an exact-set reconcile can never leave the UNION
+ * of two sets behind. That claim is about lock behaviour, which a single session
+ * cannot exercise — a same-session test would prove nothing. So:
+ *
+ *   Probe 1: A holds the project row inside an open transaction while B saves a
+ *            DISJOINT set. B must block on A, and the committed result must be
+ *            exactly B's set — never A's, never both. A union here would be the
+ *            bug the lock exists to prevent.
+ *   Probe 2: A and B each create the SAME new slug for DIFFERENT projects, which
+ *            the project-row lock does NOT serialise. `amenities.slug UNIQUE`
+ *            must reject the loser, and its whole save must roll back — the
+ *            catalogue may not gain a duplicate and the loser's links may not
+ *            land.
+ *
+ * Both outcomes are timing-independent; the elapsed-time check additionally
+ * proves B really waited rather than racing past.
+ */
+async function amenityConcurrencyProbes() {
+  const OWNER = "a0000000-0000-0000-0000-00000000a001";
+  const P1 = "a0000000-0000-0000-0000-000000000001";
+  const P2 = "a0000000-0000-0000-0000-000000000002";
+  const save = (project, set, created = "[]") =>
+    `SELECT public.studio_save_project_amenities('${project}','${OWNER}',` +
+    `'${set}'::jsonb,'${created}'::jsonb)`;
+
+  // Known starting point for both projects.
+  psqlSql(
+    [
+      `SET ROLE service_role`,
+      save(P1, '[{"amenity_slug":"onsen","sort_order":10}]'),
+      save(P2, '[{"amenity_slug":"kids-pool","sort_order":10}]'),
+    ].join("; "),
+  );
+
+  // --- Probe 1: the project-row lock serialises two saves of one project. ---
+  const holdA = psqlSqlAsync(
+    `SET ROLE service_role; BEGIN; ${save(P1, '[{"amenity_slug":"sauna","sort_order":10}]')};` +
+      ` SELECT pg_sleep(5); COMMIT;`,
+  );
+  await sleep(1000);
+  const bStart = Date.now();
+  await psqlSqlAsync(
+    `SET ROLE service_role; ${save(P1, '[{"amenity_slug":"rooftop-bar","sort_order":10}]')};`,
+  );
+  const bElapsed = Date.now() - bStart;
+  await holdA;
+  if (bElapsed < 1000) {
+    throw new Error(
+      `amenity session B returned in ${bElapsed} ms — it never blocked on session A's project-row lock`,
+    );
+  }
+  const settled = psqlSql(
+    `SELECT string_agg(a.slug, ',' ORDER BY a.slug) FROM public.project_amenities pa` +
+      ` JOIN public.amenities a ON a.id = pa.amenity_id WHERE pa.project_id='${P1}'`,
+  );
+  if (!/\brooftop-bar\b/.test(settled) || /\bsauna\b/.test(settled) || /\bonsen\b/.test(settled)) {
+    throw new Error(
+      `concurrent amenity saves did not settle on the last writer's EXACT set` +
+        ` (a union or a stale row survived):\n${settled}`,
+    );
+  }
+
+  // --- Probe 2: the same new slug on two projects — one must lose loudly. ---
+  const NEW =
+    '[{"name":"Padel Twin","slug":"padel-twin","category":"Outdoor & Leisure","icon":"c"}]';
+  const holdA2 = psqlSqlAsync(
+    `SET ROLE service_role; BEGIN;` +
+      ` ${save(P1, '[{"amenity_slug":"padel-twin","sort_order":10}]', NEW)};` +
+      ` SELECT pg_sleep(5); COMMIT;`,
+  );
+  await sleep(1000);
+  let loserRejected = false;
+  try {
+    await psqlSqlAsync(
+      `SET ROLE service_role;` +
+        ` ${save(P2, '[{"amenity_slug":"padel-twin","sort_order":10}]', NEW)};`,
+    );
+  } catch (error) {
+    const text =
+      String(error.stderr ?? "") + String(error.stdout ?? "") + String(error.message ?? "");
+    // Either the unique index fires, or A committed first and the pre-check
+    // sees the row. Both are correct refusals; neither may silently merge.
+    loserRejected = /duplicate key value|studio_amenity_slug_exists/.test(text);
+    if (!loserRejected) throw error;
+  }
+  await holdA2;
+  if (!loserRejected) {
+    throw new Error("two concurrent creations of one amenity slug BOTH succeeded");
+  }
+  const catalogue = psqlSql(`SELECT count(*) FROM public.amenities WHERE slug='padel-twin'`);
+  if (!/\b1\b/.test(catalogue)) {
+    throw new Error(`the shared catalogue gained a duplicate slug:\n${catalogue}`);
+  }
+  const loser = psqlSql(
+    `SELECT count(*) FROM public.project_amenities pa JOIN public.amenities a` +
+      ` ON a.id = pa.amenity_id WHERE pa.project_id='${P2}' AND a.slug='padel-twin'`,
+  );
+  if (!/\b0\b/.test(loser)) {
+    throw new Error(`the refused save still landed its link:\n${loser}`);
+  }
+
+  console.log(
+    `[studio-pg] amenity concurrency probes PASS (session B blocked ${bElapsed} ms then won the exact set;` +
+      ` duplicate slug creation rejected and rolled back)`,
+  );
+}
+
 try {
   run(bin("initdb"), ["-D", data, "-U", "postgres", "--auth=trust", "-E", "UTF8"]);
   run(
@@ -251,6 +379,16 @@ try {
     if (file === "20260721120000_forever_studio_v1.sql") {
       psqlSql("GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated");
     }
+    // The amenities-editor migration adds two columns to a table that already
+    // holds rows in production. Seeding one link with a note IMMEDIATELY BEFORE
+    // it applies is the only way the suite can prove that adding them preserves
+    // existing rows — once the migration has run, the pre-migration state is
+    // gone. `amenities-pre-migration-seed.sql` writes that state; the behavioral
+    // suite asserts it survived with the declared defaults.
+    if (file === "20260728160000_studio_project_amenities_editor.sql") {
+      console.log("[studio-pg] seeding pre-migration project_amenities rows");
+      psql(AMENITIES_PRE_SEED);
+    }
     console.log(`[studio-pg] applying ${file}`);
     psql(join(MIGRATIONS_DIR, file));
   }
@@ -258,8 +396,15 @@ try {
   console.log("[studio-pg] running behavioral suite");
   const out = psql(SUITE);
   process.stdout.write(out);
+  // A separate file rather than more of the one above: the amenities proof is
+  // self-contained (its own seed, its own baselines, its own teardown) and
+  // reviewing it does not require reading 3,700 lines of Studio assertions.
+  console.log("[studio-pg] running amenities suite (FOREVER-STUDIO-AMENITIES-CORE-001)");
+  process.stdout.write(psql(AMENITIES_SUITE));
   console.log("[studio-pg] running cross-session concurrency probes (LA-12.23/24)");
   await concurrencyProbes();
+  console.log("[studio-pg] running amenity cross-session concurrency probes");
+  await amenityConcurrencyProbes();
   console.log("[studio-pg] PASS");
 } catch (error) {
   const detail = [error.stdout, error.stderr, error.message]

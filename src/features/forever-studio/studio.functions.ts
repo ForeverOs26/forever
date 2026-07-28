@@ -14,7 +14,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { requireStudioMember } from "./studio-auth";
-import { STUDIO_WORKFLOWS, type StudioWorkflow } from "./studio-types";
+import {
+  STUDIO_MAX_AMENITY_SORT_ORDER,
+  STUDIO_WORKFLOWS,
+  type StudioWorkflow,
+} from "./studio-types";
 
 const projectFactsSchema = z
   .object({
@@ -242,6 +246,67 @@ export const studioSaveProjectFacts = createServerFn({ method: "POST" })
     const { runStudioEndpoint } = await import("./server/errors");
     return runStudioEndpoint("project_edit", () =>
       saveProjectFacts(context.deps, context.actor, data),
+    );
+  });
+
+/** The catalogue plus one project's current amenity selection, for the editor. */
+export const studioGetProjectAmenities = createServerFn({ method: "GET" })
+  .middleware([requireStudioMember])
+  .validator(z.object({ slug: z.string() }))
+  .handler(async ({ data, context }) => {
+    const { getProjectAmenities } = await import("./server/service");
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("project_amenities", () =>
+      getProjectAmenities(context.deps, context.actor, data),
+    );
+  });
+
+/**
+ * Reconcile one project's amenity set. `amenities` is the EXACT final set — an
+ * empty array is a valid save that clears the project's amenities — and
+ * `createdAmenities` holds only catalogue rows the Owner explicitly asked to
+ * create. The bounds are sanity limits on the request body; the product rules
+ * (Owner-only, the 8-featured ceiling, kebab-case slugs, no duplicate or
+ * pre-existing slug) are enforced by the service boundary and again inside the
+ * transaction, never by this schema.
+ */
+export const studioSaveProjectAmenities = createServerFn({ method: "POST" })
+  .middleware([requireStudioMember])
+  .validator(
+    z
+      .object({
+        slug: z.string(),
+        amenities: z
+          .array(
+            z.object({
+              slug: z.string().min(1),
+              note: z.string(),
+              isFeatured: z.boolean(),
+              // Bounded, not merely non-negative: a value above int4 would
+              // reach the save function's `::integer` cast and raise a raw
+              // out-of-range error instead of a named refusal.
+              sortOrder: z.number().int().min(0).max(STUDIO_MAX_AMENITY_SORT_ORDER),
+            }),
+          )
+          .max(200),
+        createdAmenities: z
+          .array(
+            z.object({
+              name: z.string().min(1),
+              slug: z.string().min(1),
+              category: z.string(),
+              icon: z.string(),
+            }),
+          )
+          .max(20),
+      })
+      .strip(),
+  )
+  .handler(async ({ data, context }) => {
+    const { saveProjectAmenities } = await import("./server/service");
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("project_amenities_save", () =>
+      saveProjectAmenities(context.deps, context.actor, data),
     );
   });
 

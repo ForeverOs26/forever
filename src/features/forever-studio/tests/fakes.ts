@@ -36,6 +36,7 @@ import {
 import type {
   PriceListPdfExtraction,
   StudioActor,
+  StudioAmenityCatalogueRow,
   StudioArchiveEntryOutcome,
   StudioArchiveEntryRow,
   StudioArchiveRow,
@@ -48,10 +49,31 @@ import type {
   StudioMembershipRow,
   StudioObjectStat,
   StudioPrivateContact,
+  StudioProjectAmenityRow,
   StudioProjectDetailRow,
   StudioProjectRow,
+  StudioSavedProjectAmenities,
   StudioStorage,
 } from "../server/contracts";
+
+/**
+ * The public display order: featured first, then sort_order, then category,
+ * name, slug. Identical to the SQL function's ORDER BY and to the public
+ * mapper's comparator, and total — so a project whose links all share
+ * sort_order 0 still reads back in one stable order.
+ */
+function compareProjectAmenityRows(
+  left: StudioProjectAmenityRow,
+  right: StudioProjectAmenityRow,
+): number {
+  return (
+    Number(right.isFeatured) - Number(left.isFeatured) ||
+    left.sortOrder - right.sortOrder ||
+    left.category.localeCompare(right.category, "en") ||
+    left.name.localeCompare(right.name, "en") ||
+    left.slug.localeCompare(right.slug, "en")
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Storage
@@ -198,6 +220,25 @@ export class FakeStorage implements StudioStorage {
 
 interface FakeListingStored extends StudioListingRow, Record<string, unknown> {}
 
+/** One canonical `amenities` row. `category`/`icon` are nullable columns. */
+interface FakeAmenityRow {
+  id: string;
+  slug: string;
+  name: string;
+  category: string | null;
+  icon: string | null;
+}
+
+/** One `project_amenities` link row, including the two editorial columns. */
+interface FakeProjectAmenityLink {
+  project_id: string;
+  amenity_id: string;
+  note: string | null;
+  is_featured: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
 export class FakeData implements StudioData {
   members: StudioMembershipRow[] = [];
   jobs = new Map<string, StudioJobRow & { processing_started_at: number | null }>();
@@ -207,10 +248,16 @@ export class FakeData implements StudioData {
   listingWarnings: Array<{ listingId: string; warning: ProgressiveWarning }> = [];
   audits: StudioAuditEntry[] = [];
   authUsers: Array<{ id: string; email: string }> = [];
+  /** The canonical amenity catalogue (seeded by makeWorld). */
+  amenities: FakeAmenityRow[] = [];
+  /** Every project→amenity link, across every project. */
+  projectAmenities: FakeProjectAmenityLink[] = [];
   /** Force studio_publish_project to fail AFTER the graph write (rollback test). */
   failAfterIngest = false;
   /** Force the atomic resale edit to fail after every provisional write. */
   failAfterResaleEdit = false;
+  /** Force the atomic amenity reconcile to fail after every provisional write. */
+  failAfterAmenitiesSave = false;
   private sequence = 0;
 
   constructor(
@@ -753,6 +800,219 @@ export class FakeData implements StudioData {
       this.contacts = contactSnapshot;
       this.listingWarnings = warningsSnapshot;
       this.objectOwners = ownersSnapshot;
+      throw error;
+    }
+  }
+
+  // --- Project amenities (mirrors studio_save_project_amenities) -----------
+
+  /** `amenities` ordered by (category, name, slug), nulls read as "". */
+  async listAmenityCatalogue(): Promise<StudioAmenityCatalogueRow[]> {
+    return this.amenities
+      .map((row) => ({
+        id: row.id,
+        slug: row.slug,
+        name: row.name,
+        category: row.category ?? "",
+        icon: row.icon ?? "",
+      }))
+      .sort(
+        (left, right) =>
+          left.category.localeCompare(right.category, "en") ||
+          left.name.localeCompare(right.name, "en") ||
+          left.slug.localeCompare(right.slug, "en"),
+      );
+  }
+
+  /** One project's links in public display order; malformed rows are dropped. */
+  async listProjectAmenities(projectId: string): Promise<StudioProjectAmenityRow[]> {
+    return this.projectAmenities
+      .filter((link) => link.project_id === projectId)
+      .flatMap((link) => {
+        const amenity = this.amenities.find((row) => row.id === link.amenity_id);
+        if (!amenity || !amenity.name.trim()) return [];
+        return [this.toProjectAmenityRow(link, amenity)];
+      })
+      .sort(compareProjectAmenityRows);
+  }
+
+  private toProjectAmenityRow(
+    link: FakeProjectAmenityLink,
+    amenity: FakeAmenityRow,
+  ): StudioProjectAmenityRow {
+    return {
+      amenityId: amenity.id,
+      slug: amenity.slug,
+      name: amenity.name,
+      category: amenity.category ?? "",
+      icon: amenity.icon ?? "",
+      note: link.note ?? "",
+      isFeatured: link.is_featured,
+      sortOrder: link.sort_order,
+    };
+  }
+
+  /**
+   * The in-memory model of `studio_save_project_amenities`.
+   *
+   * Statement-for-statement in the SQL's order — Owner check, project lock,
+   * validation of the COMPLETE set, then create/delete/upsert — with the same
+   * bare sentinel messages, so a server test that asserts a refusal is
+   * asserting the real contract. Every mutation happens after a snapshot is
+   * taken and any throw restores it, which is how the fake reproduces the one
+   * property that matters most: a refused save leaves the project's amenity set
+   * byte-identical, with no amenity created and no link moved.
+   */
+  async saveProjectAmenities(input: {
+    projectId: string;
+    actorId: string;
+    amenities: Array<{
+      amenity_slug: string;
+      note: string;
+      is_featured: boolean;
+      sort_order: number;
+    }>;
+    createdAmenities: Array<{ name: string; slug: string; category: string; icon: string }>;
+    suppliedAt: string;
+    injectFailure?: boolean;
+  }): Promise<StudioSavedProjectAmenities> {
+    // 1. Active Studio Owner only.
+    const role = this.currentRole(input.actorId);
+    if (role !== "owner") throw new Error("studio_owner_required");
+
+    // 2. The project must exist.
+    const project = this.executor.store.projects.find((row) => String(row.id) === input.projectId);
+    if (!project) throw new Error("project_not_found");
+
+    // 3/4. Normalise once, then validate the COMPLETE requested set.
+    const requested = input.amenities.map((entry) => ({
+      slug: entry.amenity_slug.trim(),
+      note: entry.note.trim() === "" ? null : entry.note.trim(),
+      is_featured: entry.is_featured === true,
+      sort_order: entry.sort_order ?? 0,
+    }));
+    const created = input.createdAmenities.map((entry) => ({
+      name: entry.name.trim(),
+      slug: entry.slug.trim(),
+      category: entry.category.trim() === "" ? null : entry.category.trim(),
+      icon: entry.icon.trim() === "" ? null : entry.icon.trim(),
+    }));
+
+    // The upper bound mirrors the function's: above int4 its `::integer` cast
+    // raises a raw out-of-range error, so the bound is part of the contract and
+    // a fake without it would be more permissive than the thing it stands in
+    // for — which is the one way a fake makes its tests worthless.
+    if (
+      requested.some((entry) => !Number.isInteger(entry.sort_order) || entry.sort_order > 1_000_000)
+    ) {
+      throw new Error("studio_project_amenities_invalid_sort_order");
+    }
+    if (requested.some((entry) => entry.slug === "")) {
+      throw new Error("studio_project_amenities_slug_required");
+    }
+    if (new Set(requested.map((entry) => entry.slug)).size !== requested.length) {
+      throw new Error("studio_project_amenities_duplicate_slug");
+    }
+    if (requested.some((entry) => entry.sort_order < 0)) {
+      throw new Error("studio_project_amenities_invalid_sort_order");
+    }
+    const featuredCount = requested.filter((entry) => entry.is_featured).length;
+    if (featuredCount > 8) throw new Error("studio_project_amenities_featured_limit");
+
+    if (created.length) {
+      if (created.some((entry) => entry.slug === "" || entry.name === "")) {
+        throw new Error("studio_amenity_name_and_slug_required");
+      }
+      if (created.some((entry) => !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(entry.slug))) {
+        throw new Error("studio_amenity_slug_invalid");
+      }
+      if (new Set(created.map((entry) => entry.slug)).size !== created.length) {
+        throw new Error("studio_amenity_slug_duplicate");
+      }
+      // An existing slug is a different record with the same name. Rejected,
+      // never merged.
+      if (created.some((entry) => this.amenities.some((row) => row.slug === entry.slug))) {
+        throw new Error("studio_amenity_slug_exists");
+      }
+      // Creating an amenity is a side effect of selecting one that does not
+      // exist yet. `amenities` is shared and has no delete path, so a created
+      // row nothing references is permanent clutter for every project.
+      const unused = created
+        .filter((entry) => !requested.some((row) => row.slug === entry.slug))
+        .map((entry) => entry.slug)
+        .sort();
+      if (unused.length) {
+        throw new Error(`studio_amenity_created_unused: ${unused.join(", ")}`);
+      }
+    }
+
+    // Every requested slug must resolve to an existing amenity or to one this
+    // same call is creating. Nothing is invented.
+    const missing = requested
+      .filter(
+        (entry) =>
+          !this.amenities.some((row) => row.slug === entry.slug) &&
+          !created.some((row) => row.slug === entry.slug),
+      )
+      .map((entry) => entry.slug)
+      .sort();
+    if (missing.length) throw new Error(`studio_amenity_not_found: ${missing.join(", ")}`);
+
+    // 5. Write, inside the snapshot.
+    const amenitiesSnapshot = structuredClone(this.amenities);
+    const linksSnapshot = structuredClone(this.projectAmenities);
+    try {
+      for (const entry of created) {
+        this.sequence += 1;
+        this.amenities.push({ id: `amenity-${this.sequence}`, ...entry });
+      }
+
+      const requestedIds = new Set(
+        requested.map((entry) => this.amenities.find((row) => row.slug === entry.slug)!.id),
+      );
+      // 5b. Remove only THIS project's deselected links.
+      this.projectAmenities = this.projectAmenities.filter(
+        (link) => link.project_id !== input.projectId || requestedIds.has(link.amenity_id),
+      );
+      // 5c. Upsert, preserving the original created_at of a surviving link so an
+      // exact replay is a no-op rather than a re-dated row.
+      for (const entry of requested) {
+        const amenity = this.amenities.find((row) => row.slug === entry.slug)!;
+        const existing = this.projectAmenities.find(
+          (link) => link.project_id === input.projectId && link.amenity_id === amenity.id,
+        );
+        if (existing) {
+          existing.note = entry.note;
+          existing.is_featured = entry.is_featured;
+          existing.sort_order = entry.sort_order;
+        } else {
+          this.projectAmenities.push({
+            project_id: input.projectId,
+            amenity_id: amenity.id,
+            note: entry.note,
+            is_featured: entry.is_featured,
+            sort_order: entry.sort_order,
+            created_at: input.suppliedAt,
+          });
+        }
+      }
+
+      if (input.injectFailure || this.failAfterAmenitiesSave) {
+        throw new Error("studio_project_amenities_injected_failure");
+      }
+
+      // 6. The saved canonical state, in public display order.
+      const saved = await this.listProjectAmenities(input.projectId);
+      return {
+        projectId: input.projectId,
+        amenities: saved,
+        selectedCount: saved.length,
+        featuredCount,
+        createdAmenitySlugs: created.map((entry) => entry.slug).sort(),
+      };
+    } catch (error) {
+      this.amenities = amenitiesSnapshot;
+      this.projectAmenities = linksSnapshot;
       throw error;
     }
   }
@@ -1397,6 +1657,60 @@ export interface FakeWorld {
   locations: DependencyCandidate[];
 }
 
+/**
+ * A small canonical amenity catalogue, seeded into every world.
+ *
+ * Deliberately spans three categories, two rows that share a category, one row
+ * with no category and no icon, and two rows whose names overlap ("Swimming
+ * Pool" / "Kids Pool"), so search, category filtering, the neutral icon
+ * fallback and close-match detection all have something real to work against
+ * without each test inventing its own catalogue.
+ */
+export const STUDIO_TEST_AMENITIES: ReadonlyArray<{
+  id: string;
+  slug: string;
+  name: string;
+  category: string | null;
+  icon: string | null;
+}> = [
+  {
+    id: "amenity-pool",
+    slug: "swimming-pool",
+    name: "Swimming Pool",
+    category: "Leisure",
+    icon: "waves",
+  },
+  {
+    id: "amenity-kids-pool",
+    slug: "kids-pool",
+    name: "Kids Pool",
+    category: "Leisure",
+    icon: "baby",
+  },
+  {
+    id: "amenity-gym",
+    slug: "fitness-centre",
+    name: "Fitness Centre",
+    category: "Wellness",
+    icon: "dumbbell",
+  },
+  { id: "amenity-spa", slug: "spa", name: "Spa", category: "Wellness", icon: "flower" },
+  {
+    id: "amenity-security",
+    slug: "24h-security",
+    name: "24h Security",
+    category: "Services",
+    icon: "shield",
+  },
+  {
+    id: "amenity-coworking",
+    slug: "co-working-space",
+    name: "Co-working Space",
+    category: null,
+    icon: null,
+  },
+];
+
 export function makeWorld(options: { defaultMembers?: boolean } = {}): FakeWorld {
   const executor = new FakeIngestExecutor();
   const storage = new FakeStorage();
@@ -1430,6 +1744,7 @@ export function makeWorld(options: { defaultMembers?: boolean } = {}): FakeWorld
       },
     );
   }
+  data.amenities.push(...STUDIO_TEST_AMENITIES.map((row) => ({ ...row })));
   const pdfExtractions = new Map<string, PriceListPdfExtraction>();
   const archives = new Map<string, Array<{ name: string; data: Buffer }>>();
   const archiveRejects = new Set<string>();

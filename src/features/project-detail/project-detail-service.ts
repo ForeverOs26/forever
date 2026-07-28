@@ -30,6 +30,17 @@ import type { ProjectDetail, ProjectDetailRecord } from "./project-detail-types"
  *
  * Both fields are hard query contracts: a missing column or failing embed does
  * not hide one section. PostgREST rejects the whole select and blanks the page.
+ *
+ * SECOND DEPLOY GATE. `is_featured` and `sort_order` join that embed as of
+ * `supabase/migrations/20260728160000_studio_project_amenities_editor.sql`, and
+ * carry the same all-or-nothing failure mode as `semantic_role`: that migration
+ * must be applied BEFORE any build containing this line reaches production.
+ *
+ * The grant they rely on is the table-level `GRANT SELECT ON
+ * public.project_amenities TO anon, authenticated` from the base migration,
+ * which covers columns added later, so they need no grant of their own. Both
+ * are `NOT NULL` with a default, so the embed returns them for every visible
+ * row including rows written before the columns existed.
  */
 export const PROJECT_DETAIL_SELECT = `
   id, name, slug, project_type, location_area, address,
@@ -43,7 +54,7 @@ export const PROJECT_DETAIL_SELECT = `
   media:project_media(id, media_type, title, url, sort_order, semantic_role),
   units:units(id, unit_code, unit_type, bedrooms, bathrooms, size_sqm, floor, view_type, ownership_type, base_price_thb, discounted_price_thb, price_per_sqm, availability_status, payment_plan, furniture_package, rental_guarantee, roi_estimate, notes, building:buildings(building_code)),
   investment:investment_data(id, project_id, unit_id, expected_daily_rate, expected_monthly_rent, expected_yearly_rent, occupancy_rate, annual_roi_percent, guaranteed_rental_percent, guarantee_years, management_company, notes, created_at),
-  amenities:project_amenities(note, amenity:amenities(id, name, slug, category, icon))
+  amenities:project_amenities(note, is_featured, sort_order, amenity:amenities(id, name, slug, category, icon))
 ` as const;
 
 /**
