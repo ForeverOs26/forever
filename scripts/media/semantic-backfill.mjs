@@ -34,6 +34,7 @@
  *   4 target refused                  11 journal belongs to a different run
  *   5 missing production marker       12 irrecoverable partial state
  *   6 stale approval: policy digest   13 one or more projects failed
+ *                                     14 Legendary evidence incomplete
  */
 
 import { execFileSync } from "node:child_process";
@@ -68,6 +69,7 @@ const EXIT = {
   journal: 11,
   irrecoverable: 12,
   projectFailed: 13,
+  legendaryEvidence: 14,
 };
 
 // ---------------------------------------------------------------------------
@@ -113,6 +115,9 @@ EVIDENCE
                                   version known to be wrong (hide-only evidence)
   --source-tree <dir>             optional local source tree, indexed by content hash
   --acknowledge <path.json>       operator acknowledgements for restrictive overrides
+  --legendary-evidence-digest <sha256>
+                                  bind the-title-legendary to the exact side tables
+                                  that were reviewed; plan prints the digest it read
 
 OUTPUT
   --manifest <path.json>          plan: write here; execute/verify: read here
@@ -146,6 +151,13 @@ A write needs one of two markers and they are mutually exclusive: --production
 (with the typed ref) for production, --disposable-target for a cluster that
 names no Supabase project. --dry-run does not exempt a run from either: it
 issues the real BEGIN and the real UPDATE before it rolls back.
+
+the-title-legendary requires BOTH of its side tables — an extracted media
+manifest and a media source inventory — staged inside its package directory. If
+either is missing, malformed, duplicated ambiguously, attributable to another
+project, or cannot reproduce the accepted 40/40 classification, the run fails
+with legendary_evidence_incomplete (exit 14) BEFORE any database client is
+created. There is no flag that disables this.
 `.trimStart();
 
 function usage(message, code = EXIT.usage) {
@@ -491,6 +503,69 @@ function packageDirectories() {
  * directory can be renamed; the payload's slug is what the publish lane used to
  * build the object path, and the object path is the join key.
  */
+// ---------------------------------------------------------------------------
+// The Legendary evidence gate — evaluated before any client is created
+// ---------------------------------------------------------------------------
+
+/**
+ * Refuse a Legendary run whose evidence cannot reproduce the accepted 40/40.
+ *
+ * Called from both lanes, and in both of them BEFORE `makePsql`. That placement
+ * is the requirement, not a preference: the failure has to land while the run
+ * still owns no connection, no transaction, no journal and no release record.
+ * `execute --dry-run` in particular opens a real BEGIN over real rows, so
+ * "it only rolls back" is not a reason to check later.
+ *
+ * Skipped entirely when Legendary is not in scope. Other projects are not made
+ * to wait on evidence about a project they have nothing to do with.
+ */
+async function assertLegendaryEvidence(slugsInScope, { requirePackage }) {
+  if (!slugsInScope.includes("the-title-legendary")) return;
+
+  const legendary = loadTs(`${FEATURE}/legendary-evidence.ts`);
+  const evidenceModule = loadTs(`${FEATURE}/package-evidence.ts`);
+
+  const directories = packageDirectories().filter(
+    (directory) => slugOfPackage(directory) === legendary.LEGENDARY_SLUG,
+  );
+  // `plan` cannot classify Legendary at all without its package, so an absent
+  // one is a refusal. `execute` and `verify` write the roles the manifest
+  // already holds, and that manifest has just been asked the same acceptance
+  // question directly — so packages are re-checked there only when the operator
+  // supplied them.
+  if (directories.length === 0 && !requirePackage) return;
+  const sourceTreeRoot = arg("source-tree") ? resolve(arg("source-tree")) : null;
+  const evidenceSets =
+    directories.length > 0
+      ? await evidenceModule.resolvePackageEvidence({
+          slug: legendary.LEGENDARY_SLUG,
+          packageDirectories: directories,
+          supersededPackageRefs: new Set(args("superseded")),
+          localSourceTreeDir: sourceTreeRoot
+            ? join(sourceTreeRoot, legendary.LEGENDARY_SLUG)
+            : null,
+        })
+      : [];
+
+  const assessment = await legendary.assessLegendaryEvidenceInPackages({
+    packageDirectories: directories,
+    evidenceSets,
+    expectedEvidenceDigest: arg("legendary-evidence-digest") ?? null,
+  });
+
+  // Printed on success too. The digest is what a later run pins with
+  // --legendary-evidence-digest, and an operator who is never shown it cannot
+  // pin it.
+  if (assessment.complete) {
+    console.log(
+      `[semantic-backfill] legendary evidence OK — ${assessment.census.classifiedObjectPaths} ` +
+        `object path(s) classified, evidence digest ${assessment.evidenceDigest}`,
+    );
+    return;
+  }
+  legendary.assertLegendaryEvidenceComplete(assessment);
+}
+
 function slugOfPackage(directory) {
   for (const candidate of ["progressive/payload.json", "payload.json"]) {
     const path = join(directory, candidate);
@@ -525,11 +600,47 @@ async function runPlan(context) {
   const validateModule = loadTs(`${FEATURE}/manifest-validate.ts`);
   const exceptionsModule = loadTs(`${FEATURE}/exceptions.ts`);
 
+  // GUARD 13b — Legendary evidence. Twice, because scope is knowable at two
+  // different moments and only one of them precedes the connection.
+  //
+  // A `--snapshot` names its projects offline, so the check is exact AND fully
+  // pre-connection: the prescribed release sequence plans from a captured
+  // snapshot precisely so no client is created at all.
+  //
+  // A live plan has no project list until it reads one. What it DOES have is
+  // whatever the operator staged, so the pre-connection pass asks the question
+  // that can be asked without a client — "a Legendary package was supplied; is
+  // it complete?" — which is the actual operational failure: the tables sit one
+  // level above the package in the Owner's real layout and get left behind.
+  //
+  // Assuming Legendary is in scope whenever the target is unknown would be
+  // stricter and wrong: it refuses every live plan against a copy that has no
+  // such project, including this lane's own disposable-cluster harness.
+  const legendaryPackageStaged = packageDirectories().some(
+    (directory) => slugOfPackage(directory) === "the-title-legendary",
+  );
+  await assertLegendaryEvidence(
+    snapshot
+      ? snapshot.projects.map((project) => project.slug)
+      : legendaryPackageStaged
+        ? ["the-title-legendary"]
+        : [],
+    { requirePackage: true },
+  );
+
   let effective = snapshot;
   if (!effective) {
     // A live plan still reads only. Same statement shape the census uses.
     const psql = makePsql(databaseUrl, redactSecrets);
     effective = readSnapshotFromDatabase(psql, ref, context.snapshotModule);
+
+    // Now the scope is exact. Still before the manifest, the exceptions file
+    // and the report exist — so a target that really does hold Legendary
+    // cannot produce a degraded artifact for somebody to approve later.
+    await assertLegendaryEvidence(
+      effective.projects.map((project) => project.slug),
+      { requirePackage: true },
+    );
   }
 
   const superseded = new Set(args("superseded"));
@@ -755,6 +866,32 @@ async function runAgainstDatabase(context) {
     );
     process.exit(EXIT.manifest);
   }
+
+  // GUARD 13b — Legendary evidence, still on the near side of the connection.
+  //
+  // Scope is exact here: the manifest names its projects and the operator named
+  // a selection. `verify` covers them all, which is why it is treated as --all.
+  //
+  // Asked of the MANIFEST first, and of the packages only if any were supplied.
+  // `manifest_body_digest` proves this file is the one that was reviewed; it
+  // cannot prove the plan behind it was built with complete evidence, and a
+  // degraded plan is authentic and wrong at the same time.
+  const legendarySlugs = manifest.projects
+    .filter((project) => wantsAll || selected.includes(project.slug) || command === "verify")
+    .map((project) => project.slug);
+  if (legendarySlugs.includes("the-title-legendary")) {
+    const legendary = loadTs(`${FEATURE}/legendary-evidence.ts`);
+    legendary.assertLegendaryEvidenceComplete(
+      legendary.assessLegendaryManifestProject({
+        project:
+          manifest.projects.find((project) => project.slug === legendary.LEGENDARY_SLUG) ?? null,
+        exceptionsForSlug: manifest.exceptions.filter(
+          (entry) => entry.projectSlug === legendary.LEGENDARY_SLUG,
+        ).length,
+      }),
+    );
+  }
+  await assertLegendaryEvidence(legendarySlugs, { requirePackage: false });
 
   // ===================== GUARD 14 — CONNECTION OPENED =====================
   const psql = makePsql(databaseUrl, redactSecrets);
