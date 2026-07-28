@@ -34,8 +34,34 @@
 
 import { isGalleryEligibleRole, isSemanticRole } from "./hero-policy";
 
-/** The media types this gate governs — the ones that become public pictures. */
-export const GOVERNED_MEDIA_TYPES: readonly string[] = ["cover", "gallery"];
+/**
+ * The media types this gate governs.
+ *
+ * Every type that can become a public image or a public document — which is
+ * more than the photographs. `ProjectFloorPlans` renders each `floor_plan` row
+ * as an `<img>` tile and `ProjectLocation` renders a `document` row as a
+ * full-width figure, so a role-less row in either is an unguarded public image
+ * for exactly the same reason a role-less gallery row is.
+ *
+ * Governing them only became possible once the publish lane started recording a
+ * role for non-photograph media. Before that, every plan and document was
+ * permanently role-less and this list would have described a gate that could
+ * never pass.
+ *
+ * `superseded_cover` is deliberately absent: it is not presentation media, so
+ * whether it carries a role changes nothing a visitor can see. The census counts
+ * them separately and reports the number.
+ */
+export const GOVERNED_MEDIA_TYPES: readonly string[] = [
+  "cover",
+  "gallery",
+  "floor_plan",
+  "master_plan",
+  "unit_plan",
+  "document",
+  "brochure",
+  "video",
+];
 
 /** One row of the census, as a caller reads it out of `project_media`. */
 export interface MediaCensusRow {

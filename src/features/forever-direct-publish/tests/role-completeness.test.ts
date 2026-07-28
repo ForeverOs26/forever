@@ -28,15 +28,38 @@ function row(overrides: Partial<MediaCensusRow> = {}): MediaCensusRow {
 }
 
 describe("the census", () => {
-  it("governs covers and gallery rows, and nothing else", () => {
+  /**
+   * Every media type a public reader can surface — which is more than the
+   * photographs, because `ProjectFloorPlans` renders a `floor_plan` row as an
+   * `<img>` tile and `ProjectLocation` renders a `document` row as a full-width
+   * figure. A role-less row in either is an unguarded public image for exactly
+   * the reason a role-less gallery row is.
+   */
+  it("governs every media type a public reader can surface", () => {
     const report = buildRoleCompletenessReport([
       row({ mediaType: "cover", url: "https://cdn/1.jpg" }),
       row({ mediaType: "gallery", url: "https://cdn/2.jpg" }),
       row({ mediaType: "floor_plan", url: "https://cdn/3.pdf" }),
-      row({ mediaType: "brochure", url: "https://cdn/4.pdf" }),
-      row({ mediaType: "superseded_cover", url: "https://cdn/5.jpg" }),
+      row({ mediaType: "master_plan", url: "https://cdn/4.pdf" }),
+      row({ mediaType: "unit_plan", url: "https://cdn/5.pdf" }),
+      row({ mediaType: "document", url: "https://cdn/6.png" }),
+      row({ mediaType: "brochure", url: "https://cdn/7.pdf" }),
+      row({ mediaType: "video", url: "https://cdn/8.mp4" }),
     ]);
-    expect(report.governed).toBe(2);
+    expect(report.governed).toBe(8);
+  });
+
+  /**
+   * A retired cover is not presentation media, so whether it carries a role
+   * changes nothing a visitor can see. It is counted and reported separately,
+   * never governed.
+   */
+  it("does not govern a retired cover", () => {
+    const report = buildRoleCompletenessReport([
+      row({ mediaType: "gallery", url: "https://cdn/1.jpg" }),
+      row({ mediaType: "superseded_cover", url: "https://cdn/2.jpg" }),
+    ]);
+    expect(report.governed).toBe(1);
   });
 
   it("counts a role-less row without guessing what it depicts", () => {

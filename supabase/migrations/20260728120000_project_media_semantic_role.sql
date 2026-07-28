@@ -512,8 +512,17 @@ COMMIT;
 
 -- Rollback:
 --
---   BEGIN;
---   -- Restore forever_direct_publish from 20260726140000 verbatim first.
+-- STEP 0, MANUAL AND NOT PROVEN HERE. Restore `forever_direct_publish` from
+-- 20260726140000 verbatim before running the block below. The harness cannot do
+-- this for you and does not claim to — it is a copy of a shipped file, not a
+-- statement this migration can carry.
+--
+-- The rest is the executable block between the markers. The harness extracts
+-- exactly this text, wraps it in a transaction and ROLLS BACK, so what is proven
+-- to run is what is written here rather than a hand-copied lookalike that can
+-- drift from it. See `run-semantic-media-pg-tests.mjs`.
+--
+-- ROLLBACK-SQL-BEGIN
 --   DROP FUNCTION IF EXISTS public.forever_project_media_semantic_projection(UUID, JSONB);
 --   DROP FUNCTION IF EXISTS public.forever_project_cover_reconcile(UUID, TEXT);
 --   DROP FUNCTION IF EXISTS public.forever_project_cover_withdraw(UUID);
@@ -525,20 +534,27 @@ COMMIT;
 --            AND live.media_type = 'cover'
 --            AND live.url = pm.url
 --       );
---   -- The NOT EXISTS guard is required, not defensive. An unguarded restore
---   -- violates project_media_natural_key the moment any project holds both a
---   -- live cover and a retired row for the same URL, which two publishes can
---   -- produce. A row it skips keeps media_type = 'superseded_cover': its
---   -- current cover already carries that URL, so nothing is lost.
---   -- This statement is deliberately unscoped — a rollback reverses the whole
---   -- migration. Add `AND pm.project_id = '<uuid>'` to reverse one project.
 --   GRANT SELECT (
 --     id, project_id, media_type, title, url, sort_order
 --   ) ON public.project_media TO anon, authenticated;
 --   ALTER TABLE public.project_media
 --     DROP CONSTRAINT IF EXISTS project_media_semantic_role_vocabulary;
 --   ALTER TABLE public.project_media DROP COLUMN IF EXISTS semantic_role;
---   COMMIT;
+-- ROLLBACK-SQL-END
+--
+-- The NOT EXISTS guard is required, not defensive. An unguarded restore violates
+-- project_media_natural_key the moment any project holds both a live cover and a
+-- retired row for the same URL, which two publishes can produce. A row it skips
+-- keeps media_type = 'superseded_cover': its current cover already carries that
+-- URL, so nothing is lost.
+--
+-- The UPDATE is deliberately unscoped — a rollback reverses the whole migration.
+-- Add `AND pm.project_id = '<uuid>'` to reverse one project.
+--
+-- The GRANT restores 20260723130000's column list, which is correct only because
+-- the ALTER below removes `semantic_role`. Run the block as a whole; restoring
+-- the narrower grant while the column still exists is the state that blanks the
+-- public site.
 --
 -- The rollback restores every `superseded_cover` row to `cover`, because the
 -- `superseded_cover` value only has meaning while this migration's reader and

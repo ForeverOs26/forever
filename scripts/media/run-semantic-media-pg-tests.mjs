@@ -26,7 +26,7 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -837,24 +837,54 @@ try {
     : bad("returning cover leaves one active cover", `count=${flipCovers}`);
 
   // -- the documented rollback must actually RUN ----------------------------
-  // The contract test only string-matches the rollback block, so a rollback
-  // that cannot execute would pass the suite. Execute it here instead.
-  console.log("\n[media-pg] rollback — executed, not string-matched");
+  //
+  // Extracted from the migration file, not retyped. This check previously ran a
+  // hand-copied UPDATE that merely resembled the documented block: it proved
+  // that *a* statement executes, and would have gone on passing after any edit
+  // to the rollback it claims to verify. What is executed below is the exact
+  // text between the ROLLBACK-SQL markers.
+  //
+  // Wrapped in BEGIN … ROLLBACK, because this cluster's remaining assertions
+  // need the migration still applied. That proves the block PARSES and RUNS
+  // against the real post-migration schema without violating the natural key —
+  // which is the property that was false before, and is what a rollback is
+  // needed for at 3am.
+  console.log("\n[media-pg] rollback — the documented text, executed");
+  const subjectSql = readFileSync(join(MIGRATIONS_DIR, SUBJECT), "utf8");
+  const rollbackBlock = subjectSql
+    .slice(
+      subjectSql.indexOf("-- ROLLBACK-SQL-BEGIN") + "-- ROLLBACK-SQL-BEGIN".length,
+      subjectSql.indexOf("-- ROLLBACK-SQL-END"),
+    )
+    .split("\n")
+    .map((line) => line.replace(/^\s*--\s?/, ""))
+    .join("\n")
+    .trim();
+
+  rollbackBlock.includes("DROP COLUMN IF EXISTS semantic_role") &&
+  rollbackBlock.includes("forever_project_cover_withdraw") &&
+  !rollbackBlock.includes("--")
+    ? ok("the rollback block extracted from the migration is complete and comment-free")
+    : bad("rollback block extracted", rollbackBlock.slice(0, 300));
+
   let rollbackError = "";
   try {
-    Bc.sql(`UPDATE public.project_media pm SET media_type = 'cover'
-              WHERE pm.media_type = 'superseded_cover'
-                AND NOT EXISTS (
-                  SELECT 1 FROM public.project_media live
-                   WHERE live.project_id = pm.project_id
-                     AND live.media_type = 'cover'
-                     AND live.url = pm.url)`);
+    Bc.sql(`BEGIN;\n${rollbackBlock}\nROLLBACK;`);
   } catch (error) {
     rollbackError = String(error.stderr ?? "") + String(error.stdout ?? "");
   }
   rollbackError === ""
     ? ok("the documented rollback executes without violating the natural key")
     : bad("documented rollback executes", rollbackError.slice(0, 400));
+
+  // …and the ROLLBACK really did leave the migration in place, so everything
+  // asserted after this point is still asserted against the migrated schema.
+  Bc.scalar(
+    `SELECT count(*) FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='project_media' AND column_name='semantic_role'`,
+  ) === "1"
+    ? ok("the rollback ran inside a transaction and left the schema untouched")
+    : bad("rollback probe left the schema alone", "semantic_role is gone");
 
   // -- natural-key collision probe -----------------------------------------
   // The retired URL also exists as a gallery row on another project shape; a
@@ -1178,19 +1208,23 @@ try {
   // rows are not public image rows. Counting them would refuse a production
   // release over media no anonymous client can fetch — and staging holds
   // exactly such drafts.
+  // Mirrors GOVERNED_MEDIA_TYPES: every type a public reader can surface —
+  // photographs, plans, documents, brochures and videos — and never a retired
+  // cover or a price list.
+  const GOVERNED = `('cover','gallery','floor_plan','master_plan','unit_plan','document','brochure','video')`;
   const governedInDb = Number(
     Bc.scalar(
       `SELECT count(*) FROM public.project_media m JOIN public.projects p ON p.id = m.project_id
-        WHERE m.media_type IN ('cover','gallery')
+        WHERE m.media_type IN ${GOVERNED}
           AND p.is_active AND p.public_status = 'published'`,
     ),
   );
   const allInDb = Number(
-    Bc.scalar("SELECT count(*) FROM public.project_media WHERE media_type IN ('cover','gallery')"),
+    Bc.scalar(`SELECT count(*) FROM public.project_media WHERE media_type IN ${GOVERNED}`),
   );
   const governedReported = Number(/governed rows\s*:\s*(\d+)/.exec(after.out)?.[1] ?? -1);
   governedReported === governedInDb
-    ? ok(`the census governs exactly the ${governedInDb} publicly visible cover/gallery row(s)`)
+    ? ok(`the census governs exactly the ${governedInDb} publicly visible media row(s)`)
     : bad("governed count matches the database", `db=${governedInDb} reported=${governedReported}`);
 
   // ...and says out loud what it left out, rather than reporting a clean sheet

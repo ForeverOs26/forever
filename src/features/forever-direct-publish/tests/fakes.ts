@@ -40,6 +40,21 @@ export interface FakeMediaRow {
   mediaType: string;
   url: string;
   sortOrder: number;
+  /**
+   * What the publish lane actually wrote for this row
+   * (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001).
+   *
+   * Absent from this fake until now, and that absence was load-bearing in the
+   * wrong direction: the only test of the semantic write read the TEXT of
+   * `publish.ts` with `expect(source).toContain(...)`, because the one fake that
+   * could have executed the write silently dropped the field. Deleting the write
+   * and leaving the literal in a comment kept every test green — which is the
+   * same class of proof that let the original defect ship.
+   *
+   * `null` means the batch carried no role, which readers must treat as
+   * "show it". `undefined` never occurs: the ingest records what it saw.
+   */
+  semanticRole: string | null;
 }
 
 function payloadHash(batch: ProgressiveBatch): string {
@@ -151,13 +166,20 @@ export class FakeProductionWorld {
       const row = this.media.find(
         (candidate) => candidate.projectId === project!.id && candidate.url === item.url,
       );
-      if (row) row.sortOrder = item.sort_order ?? row.sortOrder;
-      else
+      // Presence-aware, exactly like `forever_project_media_semantic_projection`:
+      // a batch item that omits the key never erases a recorded role.
+      const carried = (item as { semantic_role?: string | null }).semantic_role;
+      const hasRole = Object.prototype.hasOwnProperty.call(item, "semantic_role");
+      if (row) {
+        row.sortOrder = item.sort_order ?? row.sortOrder;
+        if (hasRole) row.semanticRole = carried ?? null;
+      } else
         this.media.push({
           projectId: project.id,
           mediaType: item.media_type,
           url: item.url,
           sortOrder: item.sort_order ?? 0,
+          semanticRole: hasRole ? (carried ?? null) : null,
         });
     }
 

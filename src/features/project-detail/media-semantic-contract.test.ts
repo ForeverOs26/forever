@@ -645,7 +645,12 @@ describe("the migration", () => {
     expect(deletes).toHaveLength(2);
     for (const statement of deletes) {
       expect(statement).toContain("media_type = 'superseded_cover'");
-      const target = statement.slice(0, statement.indexOf("EXISTS") + 1);
+      // `indexOf(...) + 1` on a statement with no EXISTS yields an empty slice
+      // and an assertion against "". See the scoped version of this check in
+      // `semantic-media-migration-contract.test.ts`.
+      const subquery = statement.indexOf("EXISTS");
+      const target = subquery === -1 ? statement : statement.slice(0, subquery);
+      expect(target.length).toBeGreaterThan(40);
       expect(target).not.toMatch(/media_type = '(cover|gallery|floor_plan|master_plan)'/);
     }
   });

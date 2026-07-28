@@ -200,7 +200,6 @@ export function groupProjectMedia(
     })),
   );
 
-
   // The floor for EVERY section, applied once.
   //
   // Retired covers never enter the presentation model — they are kept in the

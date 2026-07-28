@@ -233,11 +233,19 @@ describe("semantic media migration — contract", () => {
       // Every one of them is scoped to retirements of one project.
       expect(statement).toContain("media_type = 'superseded_cover'");
       expect(statement).toContain("project_id = p_project_id");
-      // None may reach a live cover, a gallery row, a plan or a document. The
-      // `_withdraw` statement names `live.media_type = 'cover'` inside an EXISTS
-      // that only IDENTIFIES which retirement is obsolete, so the exclusion is
-      // asserted on what the DELETE targets, not on every string in it.
-      const target = statement.slice(0, statement.indexOf("EXISTS") + 1);
+
+      // None may TARGET a live cover, a gallery row, a plan or a document.
+      //
+      // The `_withdraw` statement names `live.media_type = 'cover'` inside an
+      // EXISTS that only identifies WHICH retirement is obsolete, so the target
+      // clause is everything before the subquery. Written as
+      // `slice(0, indexOf("EXISTS") + 1)` this guard was INERT for the reconcile
+      // statement, which contains no EXISTS: `indexOf` returned -1, the slice
+      // was `""`, and the assertion ran against the empty string. Widening that
+      // DELETE to reach a live cover would have passed.
+      const subquery = statement.indexOf("EXISTS");
+      const target = subquery === -1 ? statement : statement.slice(0, subquery);
+      expect(target.length).toBeGreaterThan(40);
       expect(target).not.toMatch(
         /media_type\s*=\s*'(cover|gallery|floor_plan|master_plan|unit_plan|document|brochure)'/,
       );

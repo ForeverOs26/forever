@@ -101,10 +101,18 @@ function psqlPath() {
 /**
  * The one statement this script runs.
  *
- * `superseded_cover` is included in the read so the census can *state* how many
- * retired rows exist; `buildRoleCompletenessReport` governs only `cover` and
- * `gallery`, so a retired row is counted in neither the numerator nor the
- * denominator of completeness.
+ * Reads every media type the public reader can surface and lets
+ * `buildRoleCompletenessReport` decide what it governs — so widening the gate is
+ * a change in one place, in TypeScript, under test, rather than a SQL literal
+ * here that has to be kept in step with it.
+ *
+ * `price_list` is the one exclusion, because it is not public media: the price
+ * projection publishes prices as data and `unit_price_history` is revoked from
+ * `anon` outright.
+ *
+ * `superseded_cover` IS read, so the census can state how many retired rows
+ * exist; `GOVERNED_MEDIA_TYPES` omits it, so a retired row is counted in neither
+ * the numerator nor the denominator of completeness.
  */
 const CENSUS_SQL = `
   SELECT coalesce(p.slug, '(unknown)') AS project_slug,
@@ -113,7 +121,7 @@ const CENSUS_SQL = `
          coalesce(m.semantic_role, '') AS semantic_role
     FROM public.project_media m
     JOIN public.projects p ON p.id = m.project_id
-   WHERE m.media_type IN ('cover', 'gallery', 'superseded_cover')
+   WHERE m.media_type <> 'price_list'
      AND p.is_active
      AND p.public_status = 'published'
    ORDER BY project_slug, m.media_type, m.url
@@ -136,7 +144,7 @@ const EXCLUDED_SQL = `
   SELECT count(*)
     FROM public.project_media m
     LEFT JOIN public.projects p ON p.id = m.project_id
-   WHERE m.media_type IN ('cover', 'gallery')
+   WHERE m.media_type <> 'price_list'
      AND (p.id IS NULL OR NOT p.is_active OR p.public_status IS DISTINCT FROM 'published')
 `;
 

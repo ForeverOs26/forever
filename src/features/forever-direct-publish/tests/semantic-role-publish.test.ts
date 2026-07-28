@@ -13,13 +13,16 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { SEMANTIC_ROLES, type SemanticRole } from "../hero-policy";
+import { SEMANTIC_ROLES, isSemanticRole, type SemanticRole } from "../hero-policy";
 import {
   assertPlanSemanticRoles,
   invalidSemanticRoles,
   type MediaPlan,
   type PlannedMediaItem,
 } from "../media-plan";
+import { publishProject } from "../publish";
+import { FakeProductionWorld, OWNER_AUTHORIZATION } from "./fakes";
+import { pkg } from "./publish-fixtures";
 
 function plannedItem(overrides: Partial<PlannedMediaItem> = {}): PlannedMediaItem {
   return {
@@ -92,6 +95,58 @@ describe("the published media row", () => {
     resolve(process.cwd(), "src/features/forever-direct-publish/publish.ts"),
     "utf8",
   );
+
+  /**
+   * The write, EXECUTED — the assertion this file was missing.
+   *
+   * Everything else here reads the text of `publish.ts`. That is the same class
+   * of proof that let the original defect ship: the role was added to a
+   * TypeScript object literal, the database never read it, and every assertion
+   * passed because none of them ran the write. A grep cannot tell an emitted
+   * field from a field-shaped comment.
+   *
+   * So this runs the real `publishProject` against the fake production world and
+   * reads the role off the rows that actually landed. Delete the spread in
+   * `publish.ts` and this fails; leave the literal behind in a comment and it
+   * still fails.
+   */
+  it("actually lands the role on the rows a real publish writes", async () => {
+    const world = new FakeProductionWorld();
+    await publishProject(pkg(), world.deps(), OWNER_AUTHORIZATION);
+
+    const rows = world.media.filter(
+      (row) => row.mediaType === "cover" || row.mediaType === "gallery",
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    // Every photograph carries a role from the vocabulary — none is left null by
+    // the lane that classifies them.
+    for (const row of rows) {
+      expect(isSemanticRole(row.semanticRole), `${row.url} -> ${row.semanticRole}`).toBe(true);
+    }
+
+    // And the non-photograph media too, which had no role at all until the
+    // reader started depending on one for its own sections.
+    const plan = world.media.find((row) => row.mediaType === "master_plan");
+    expect(plan?.semanticRole).toBe("plan");
+  });
+
+  /**
+   * Replay writes the same roles and creates no second semantic state.
+   */
+  it("writes identical roles on replay", async () => {
+    const world = new FakeProductionWorld();
+    await publishProject(pkg(), world.deps(), OWNER_AUTHORIZATION);
+    const first = world.media
+      .map((row) => `${row.mediaType}:${row.url}:${row.semanticRole}`)
+      .sort();
+
+    await publishProject(pkg(), world.deps(), OWNER_AUTHORIZATION);
+    const second = world.media
+      .map((row) => `${row.mediaType}:${row.url}:${row.semanticRole}`)
+      .sort();
+
+    expect(second).toEqual(first);
+  });
 
   it("is written with the role as presentation data, never through metadata", () => {
     // The role joins media_type/url/sort_order in the public row literal.
