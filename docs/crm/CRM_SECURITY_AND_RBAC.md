@@ -2,7 +2,7 @@
 
 Task ID: FOREVER-CRM-ARCH-001
 Status: Proposed architecture — not approved, not scheduled, not authorized for implementation
-Repository state of record: main @ 821b3c4e2f6f82e0d4ddce86199a8ff24b44a094
+Repository state of record: main @ 82e2039270168df1043050204988fbd6c009ed0e
 Risk class: R0 (documentation only)
 
 > This document is a design record. It asserts no product truth, changes no active stage, and authorizes no implementation. The active stage remains FOREVER-STUDIO-001 (`docs/CURRENT_STAGE.md`), which lists "large CRM integration" as out of scope. Any implementing task is R2 under the shared-contract rule and requires an Architect-reviewed stage change plus Owner approval.
@@ -17,6 +17,7 @@ Risk class: R0 (documentation only)
 6. **Slice 1 gates on `actor.role === 'owner'`.** No `crm_role` column exists until Phase 1.
 7. **Every CRM read is logged** — actor, endpoint, filter shape, row count, never row contents. There is **no** fail-closed read budget.
 8. **`/booth` is the weakest access boundary in the repository** and is the one finding here that is true on `main` today, not a property of a proposal.
+9. **`public.leads` never accretes a column.** Its `GRANT INSERT` carries no column list, so any column added later is anonymously writable the instant it exists — no grant statement, no diff, nothing to review. This package adds none; §4.6 turns that from a coincidence into a standing constraint, and §4.7 states why a posture must be observed on the live schema rather than read out of a migration file.
 
 Companion records: `docs/crm/CRM_DOMAIN_MODEL.md` (entities, invariants, migration register), `docs/crm/CRM_PRIVACY_CONSENT_RETENTION.md` (consent, suppression, erasure), `docs/crm/CRM_INTEGRATION_AND_EVENTS.md` (capture path, webhooks), `docs/crm/CRM_IMPLEMENTATION_PLAN.md` (phasing and gates).
 
@@ -140,7 +141,7 @@ The alternative is genuinely attractive: defence in depth, far less endpoint cod
 | # | Reason |
 |---|---|
 | a | **The predicates the CRM needs are not row predicates.** Its rules are transitions and cross-row invariants — a suppression may be lifted only against a referenced consent event; an activity's context row must belong to the same person. None is expressible as `USING (…)`, so you get RLS governing reads and TypeScript governing writes: a seam through the middle of every operation |
-| b | **The only useful predicate is unwritable.** `EXISTS (SELECT 1 FROM public.studio_members …)` fails because RLS predicates evaluate with the invoker's privileges and `authenticated` holds `REVOKE ALL` on that table. The fix is a `SECURITY DEFINER` helper any authenticated Supabase user may call, whose whole job is to answer questions about the staff roster. [Repository fact] Four such routines exist in 24 migrations (`20260715120000:1307`, `20260721120000:606`, `20260724090000:939`, `:1132`) |
+| b | **The only useful predicate is unwritable.** `EXISTS (SELECT 1 FROM public.studio_members …)` fails because RLS predicates evaluate with the invoker's privileges and `authenticated` holds `REVOKE ALL` on that table. The fix is a `SECURITY DEFINER` helper any authenticated Supabase user may call, whose whole job is to answer questions about the staff roster. [Repository fact] Four such routines exist in 25 migrations (`20260715120000:1307`, `20260721120000:606`, `20260724090000:939`, `:1132`) |
 | c | **Coarse visibility removes the benefit anyway.** §5.1 gives every member every record; a `USING (true)` policy denies nothing, so the marginal safety is one boolean at the cost of a parallel model |
 | d | **Column privacy would need a third mechanism.** A table-level `GRANT SELECT` to `authenticated` hands over `crm_person_identifier.raw_value`, `crm_activity.body_text` and `crm_enquiry.raw_*` entirely. [Repository fact] The column-projection idiom's only carrier, `20260723130000_public_projection_privacy.sql`, declares itself intentionally **UNAPPLIED** and its column-less REVOKE strips later column grants if applied out of order |
 | e | **Errors and enumeration.** An RLS write failure returns *"new row violates row-level security policy for table crm_person"*, disclosing that the table exists. And a browser holding a PostgREST-capable token can issue `?select=*&limit=100000` — a full export in one request, no cap, no audit row |
@@ -269,7 +270,7 @@ REVOKE ALL ON TABLE public.crm_<t> FROM PUBLIC, anon, authenticated;
 
 Only the width of the `service_role` grant varies. That variation is not a third posture — it is `20260724090000:541-542` generalised.
 
-**Column-level `GRANT UPDATE (col, col)` is rejected.** [Repository fact] `GRANT UPDATE (` returns zero matches across all 24 migrations; the only column-level grant idiom in the repository is `GRANT SELECT (...)`, in two files, one of which is intentionally UNAPPLIED with a documented ordering hazard. Beyond having no precedent in the direction it was used, it fails silently: a column added by a later migration is ungranted with no compile-time signal, and it was the specific mechanism that denied `UPDATE person_id` to the merge routine. **The replacement is whole-table narrowing plus a guard trigger.** The trigger, not a grant list, is the readable mutability contract, and it runs on every write regardless of caller.
+**Column-level `GRANT UPDATE (col, col)` is rejected.** [Repository fact] `GRANT UPDATE (` returns zero matches across all 25 migrations; the only column-level grant idiom in the repository is `GRANT SELECT (...)`, in two files, one of which is intentionally UNAPPLIED with a documented ordering hazard. Beyond having no precedent in the direction it was used, it fails silently: a column added by a later migration is ungranted with no compile-time signal, and it was the specific mechanism that denied `UPDATE person_id` to the merge routine. **The replacement is whole-table narrowing plus a guard trigger.** The trigger, not a grant list, is the readable mutability contract, and it runs on every write regardless of caller.
 
 Phase 1's eleven tables, by profile:
 
@@ -352,7 +353,121 @@ Both DEFINER routines take an explicit `p_actor_user_id UUID NOT NULL`, write th
 
 Zero new columns, zero policy changes, zero grant changes. The existing `GRANT INSERT … TO anon, authenticated` and the single `"Anyone can submit a lead"` INSERT policy stay exactly as written. The only additions are the status-freeze trigger and two `COMMENT`s, specified in `docs/crm/CRM_DOMAIN_MODEL.md`. The reason a foreign key from `leads` to `crm_enquiry` is refused is a security reason, not a modelling one: such a column would be **anon-writable through the existing INSERT policy**, and a FK violation is distinguishable from a successful insert — an existence oracle over an internal table. Putting the pointer on the internal side (`crm_enquiry.legacy_lead_id`, no FK) removes the class entirely.
 
+The existence oracle is one half of a larger finding reached from the other direction. The grant that makes such a column writable carries **no column list**, so *any* column ever added to `leads` becomes anonymously writable with no `GRANT` statement executed and nothing visible in the diff. §4.6 records that as a standing constraint on a table this package deliberately does not touch.
+
 [Repository fact — new finding] `public.audit_log` (`20260707100000_fdb001_core_extensions_sources_audit.sql:119-140`) is created with `GRANT ALL … TO service_role` and `ENABLE ROW LEVEL SECURITY` but **no `REVOKE ALL … FROM PUBLIC, anon, authenticated`**; the same gap exists on `public.ingestion_warnings` and `public.ingestion_batches`, and `20260721123000_studio_internal_acl_hardening.sql` covered only the three Studio tables. RLS-on-zero-policies denies every command to `anon` and `authenticated` today, so this is idiom consistency, not an open data path. **It ships as a standalone R2 hygiene PR, not inside any CRM slice** — bundling it into Slice 1 would put a migration into a slice whose defining property is that it has none.
+
+### 4.6 The column-widening privilege hole on `public.leads`
+
+This package changes nothing on `leads` (§4.5), so nothing below is remediation work, and nothing below is an open data path on `main` today: the table's twelve columns are all intake columns, and the anonymous write surface is exactly them. This is a **latent** hazard that opens the moment a thirteenth column is added. It is recorded because the property that keeps the current position safe is a *construction*, and a construction is a decision a later contributor can reverse in one line without noticing — with no grant statement and no diff to notice it by.
+
+**The verified fact.** [Repository fact] `supabase/migrations/20260704132000_create_leads.sql` is 46 lines. RLS is enabled at line 27, `GRANT ALL … TO service_role` is line 30, the single INSERT policy occupies lines 32–41, and line 29 is, verbatim:
+
+```sql
+GRANT INSERT ON public.leads TO anon, authenticated;
+```
+
+That grant carries **no column list**, and it is held by two roles — `anon` **and** `authenticated`. The policy's `WITH CHECK` constrains exactly four things (`status = 'new'` plus non-emptiness of `name`, `email`, `phone`) and names no other column. [Repository fact] The privilege is reachable from an untrusted client: `src/lib/lead-service.ts:92` executes `await supabase.from("leads").insert(payload)` **in the browser**, against PostgREST, under the publishable anon key. There is no server-side write path for leads today.
+
+**The PostgreSQL semantics that make this a hole.**
+
+| # | Mechanism | Consequence for `public.leads` |
+|---|---|---|
+| M1 | Table-level ACLs live in `pg_class.relacl`; column-level ACLs live separately in `pg_attribute.attacl`. A table-level grant is one entry on the *relation*, not an enumeration over the columns that existed when it was written | Line 29 is a fact about the relation. It does not encode the twelve columns of 2026-07-04 |
+| M2 | A table-level privilege applies to every column, **including columns added later by `ALTER TABLE … ADD COLUMN`**. `ADD COLUMN` creates no column ACL and needs none — the relation entry already covers the new attribute | The instant a column is added, `anon` and `authenticated` may write it. No grant statement runs, no privilege syntax appears, no diff shows anything |
+| M3 | RLS `WITH CHECK` is a row predicate, not a column allow-list. A column the predicate does not mention is unconstrained, not forbidden | The shipped policy is silent on every future column, so it constrains none of them |
+| M4 | PostgREST accepts arbitrary column names in an insert body; the caller need not be the application's own payload builder | The write surface is every column the role holds `INSERT` on. Because the anon key ships in the browser bundle, the caller is anyone |
+| M5 | `REVOKE` removes only grants made by the current role or by roles it can act for. A `REVOKE` issued by a non-grantor succeeds syntactically and removes nothing | A remediation `REVOKE` cannot be assumed effective. It must be observed |
+
+[Web research] M1–M3, M5: <https://www.postgresql.org/docs/current/ddl-priv.html>, <https://www.postgresql.org/docs/current/sql-grant.html>, <https://www.postgresql.org/docs/current/sql-revoke.html>, <https://www.postgresql.org/docs/current/sql-altertable.html>. M4: <https://postgrest.org/en/stable/references/api/tables_views.html>.
+
+**Why "we added no new `GRANT`" is not evidence.** [Inference] "No new grant" is a statement about the *text of a migration*. The security question is a statement about the *state of a database*. M2 is precisely where the two come apart, because privilege expansion becomes a silent side effect of a DDL statement containing no privilege syntax at all.
+
+| Test | What it measures | Verdict |
+|---|---|---|
+| "The migration adds no `GRANT` statement" | Diff surface | **Insufficient** — true of every column-widening migration, including a hostile one |
+| "The RLS policy is unchanged" | Diff surface | **Insufficient** — an unchanged predicate silently fails to constrain a column that did not exist when it was written |
+| "The application's payload omits the new column" | Client behaviour | **Irrelevant** — M4: the attacker is not the application |
+| **"What can `anon` write after this migration that it could not write before?"** | Database state | **The correct test.** Answerable only by probing privileges, never by reading a diff |
+
+[Recommendation] A migration that adds columns to `leads` and calls itself "purely additive" is mislabelled: it is **additive columns plus an unstated privilege widening**. Whether the widening is then closed decides whether the honest label is "additive columns + privilege tightening" or "additive columns + privilege regression". One of the two must be written down.
+
+**What the exposure would be.** [Inference] The severity is not that an anonymous caller can write *a* column; it is *which* columns a CRM would want on an intake row. Every candidate is a field whose entire value comes from it being server-asserted. These are the field classes `anon` must never be able to write:
+
+| Class | Fields a CRM would want here | Why anonymous write destroys it |
+|---|---|---|
+| **Linkage** | a `contact_id`-style pointer to an internal person record | An anonymous caller attaches an authored enquiry to a real buyer's identity. If the column carries a FK it is also an existence oracle — a rejected insert distinguishes a valid internal id from an invalid one (§4.5) |
+| **Provenance / lawful basis** | a tier or channel asserting *how* the row was collected | The row's own claim about its lawful basis becomes caller-controlled. A forged value is worse than a missing one, because it is believed |
+| **Assignment** | assignee, claim state, queue position | An outsider assigns work inside the company |
+| **Ownership / attribution** | originating owner, credit, source attribution | An outsider writes into a commercial credit record — the one record §1.3 puts behind the Owner |
+| **Workflow** | stage, next action, timestamps, response markers | An outsider fabricates the operational history the funnel and response-time reporting read from |
+| **Free-form** | any `JSONB` metadata column | Unbounded attacker-controlled storage in a table with no size ceiling |
+
+**What a correct extension would have to do.** [Recommendation] If a future proposal — not this one — adds any column to `public.leads`, its migration performs all four of the following, in one file, in this order.
+
+**(a) Revoke the table-level privilege before granting anything back.**
+
+```sql
+REVOKE INSERT ON public.leads FROM anon, authenticated;
+```
+
+Ordering is not cosmetic. Revoke-then-grant fails closed if the file is interrupted or applied non-transactionally; grant-then-revoke opens a window in which both privileges exist and then removes both.
+
+**(b) Re-grant `INSERT` column-scoped, over the intake columns only.**
+
+```sql
+GRANT INSERT (name, email, phone, country, budget, interest,
+              project_slug, message, status, source)
+  ON public.leads TO anon, authenticated;
+```
+
+[Repository fact] This idiom is the repository's own, not an import: `20260723130000_public_projection_privacy.sql:19-29` runs `REVOKE SELECT ON TABLE public.projects FROM anon, authenticated;` followed by a column-enumerated `GRANT SELECT (…)`, and repeats the pattern for `developers`, `units`, `project_media`, `investment_data` and `unit_price_history`. Its own header declares it intentionally UNAPPLIED and its column-less `REVOKE` is an ordering hazard (§3.2 d) — the idiom is precedent, that file's applied state is not.
+
+**(c) State honestly whether the re-grant preserves or narrows.** [Repository fact] `public.leads` has twelve columns: `id`, `created_at`, `name`, `email`, `phone`, `country`, `budget`, `interest`, `project_slug`, `message`, `status`, `source`. The ten-column re-grant above omits `id` and `created_at` and therefore **narrows** — today, under line 29, `anon` can supply its own primary key and its own `created_at`, overriding both defaults. Narrowing is the right choice, but the migration must not simultaneously claim that net anonymous capability is unchanged. Both cannot be true; pick one and write it down.
+
+**(d) Restate the constraint in the policy as an independent backstop.** PostgreSQL has no `ALTER POLICY … ADD` for a `WITH CHECK` clause, so extending one means `DROP POLICY` + `CREATE POLICY` — the repository's own normalisation rule, recorded in `docs/crm/CRM_CURRENT_STATE_AUDIT.md` with the reason that a policy's post-migration state must be **exact, not merely present**. The replacement carries the original four conjuncts **verbatim** from `20260704132000_create_leads.sql:32-41`, plus one conjunct per new column requiring it to be absent or empty. The grant is the control; the predicate is the second, independent control, so a later migration that carelessly re-grants table-level `INSERT` still fails closed instead of silently reopening the hole.
+
+[Recommendation] Column-level `GRANT INSERT` is a different statement from column-level `GRANT UPDATE`. §4.2 rejects the `GRANT UPDATE (` idiom outright and §12 pins `Zero occurrences of GRANT UPDATE (` as a greppable assertion. Nothing here proposes, requires or permits a column-level `GRANT UPDATE` on any table.
+
+**How it must be PROVEN, not asserted.** [Inference] Text-pinning cannot reach this defect, because the defect is the *absence* of a statement rather than the presence of one. A contract test greps files; this must execute against a real PostgreSQL instance. [Repository fact] The repository has exactly one such harness — `npm run studio:pg-test` → `scripts/studio/run-postgres-tests.mjs` (`package.json:20`) — and no CI, so a result from it is an observation a named person made on a named date, never a gate that passed.
+
+| Probe | Expected | What it catches |
+|---|---|---|
+| `has_column_privilege('anon','public.leads','<new_column>','INSERT')` | `false` | The core assertion. It is the right probe **because it returns true when the privilege is held at either the column level or the whole-table level** (<https://www.postgresql.org/docs/current/functions-info.html>), so it detects the silent table-level inheritance a column-ACL inspection would miss |
+| `has_column_privilege('anon','public.leads','name','INSERT')` | `true` | That the tightening did not break the live public intake path |
+| `has_table_privilege('anon','public.leads','INSERT')` | `false` | That the table-level grant is genuinely gone. True only when held for the whole table, so it distinguishes "revoked and re-granted narrowly" from "never revoked" — and it is the check that catches M5 |
+| All three, repeated for role `authenticated` | identical | Line 29 grants to two roles; a test checking only `anon` proves half the statement |
+| `pg_attribute.attacl` for the new column; `pg_class.relacl` for `public.leads` | column ACL names only the intended roles; relation ACL no longer carries `a` for `anon`/`authenticated` | Distinguishes the two ACL levels directly. **Not sufficient alone** — before remediation the new column's `attacl` is `NULL` while `anon` can still write it, which is exactly why the `has_column_privilege` probe leads and this one corroborates |
+| Behavioural: as `anon`, insert the current production payload | succeeds | The live path is unbroken |
+| Behavioural: as `anon`, insert setting the new column | fails, *permission denied* | End-to-end proof independent of catalogue introspection |
+| Behavioural: as `anon`, insert with the policy backstop as the only barrier (grant temporarily broad inside a rolled-back transaction) | fails on the policy | Proves control (d) works independently of control (b) |
+| `*-migration-contract.test.ts` twin pinning the resulting policy text | the original four conjuncts verbatim, plus the new ones | Pins that a later edit cannot loosen the predicate unnoticed |
+
+**The standing constraint.** [Recommendation] Recorded as a rule, not as scheduled work:
+
+1. `public.leads` is the intake log. It never accretes CRM state — no linkage, no provenance, no assignment, no ownership, no attribution, no workflow column. The one-directional `crm_enquiry.legacy_lead_id` pointer exists so that no such column is ever needed.
+2. Any proposal to add **any** column to `public.leads` is a **privilege change**, is reviewed as one, and carries (a)–(d) and the probe table in the same migration. A proposal that omits them is rejected on that ground alone.
+3. Neither structural control that makes this safe today — the one-way pointer with no FK, and the zero-column rule — may be relaxed without re-running this analysis.
+4. The reverse direction is equally constrained. Reverting a tightening restores the table-level grant and reopens the hole for **every column added since**, so such a revert is never performed alone — only together with dropping the columns it protected.
+
+### 4.7 A security boundary is verified against the live schema, never inferred from the migration file
+
+[Repository fact] Several committed migrations declare themselves unapplied, and `docs/crm/CRM_IMPLEMENTATION_PLAN.md` already makes live ACL and ledger reconciliation a prerequisite task on that basis. This section states the security consequence, which is stronger than the planning one.
+
+| # | Statement | Label |
+|---|---|---|
+| V1 | A `.sql` file under `supabase/migrations/` is a statement about a file, not about a running Postgres instance. The migration set is the design of record; it is not proof of live state | [Recommendation] |
+| V2 | `supabase db push` applies pending migrations **in version order**, and the CLI ledger keys on the leading `YYYYMMDDHHMMSS` prefix, not on file content. Applying any one migration therefore necessarily applies **the entire pending backlog before it**, in one operation. [Repository fact] Nothing in this repository alters that: `supabase/config.toml` contains exactly one line, `project_id = "abtvsrcnfwlbawvrjeed"` | [Inference from the CLI's ordering, over a verified-empty local configuration] |
+| V3 | Consequently **merge is not apply**. A CRM migration may merge to `main` while the backlog is unresolved; it may not be applied until that backlog is understood and cleared by its own owners, as a separately reviewed operation. Anyone describing the first CRM apply as "one migration" has not read the ledger | [Recommendation] |
+| V4 | The size of the pending backlog is **not a documentable constant**. It is re-derived at apply time from a live read of `supabase_migrations.schema_migrations` diffed against `supabase/migrations/`. A row in the ledger with no matching file, or a file with no row, is a stop condition. Any count written into a document is stale the moment another migration lands | [Recommendation] |
+| V5 | **The security consequence.** For any security-bearing migration — every RLS, `REVOKE`, `GRANT`, guard-trigger and `SECURITY DEFINER` statement in this package — the posture that is actually in force is the posture *observed on the live schema*, not the posture *read from the file*. A boundary inferred from migration text is an assumption, and §4.6 M2 is the proof that the two can differ without any diff at all | [Recommendation] |
+
+**This is the same standard the repository already applies one level down.** [Repository fact] Policies are mutated by DROP-then-CREATE rather than by a `CREATE POLICY IF NOT EXISTS` guard, for the recorded reason that *a policy's post-migration state must be exact, not merely present* (`docs/crm/CRM_CURRENT_STATE_AUDIT.md`). V5 is that rule raised from the statement to the boundary: exactness of a policy's text is worth nothing if the file carrying it was never applied, was applied out of order behind an unapplied `REVOKE`, or was applied to a database that has since diverged. **Exact text, then observed state — both, or neither counts.**
+
+Two operational corollaries follow and belong here rather than in the plan, because both are security failures rather than scheduling ones:
+
+- **`--include-all` is never used to get past an out-of-order error.** It applies files *below* the recorded high-water mark, which can land a constraint relaxation or a destructive statement *after* objects created assuming the stricter contract. Reaching for it is a leading indicator that the ordering guarantee is about to be defeated rather than satisfied.
+- **A database holding a back-dated or frozen migration is not a valid target for developing or verifying a CRM security migration.** The environment must have the full `main` backlog applied in version order first, or the posture it demonstrates is not the posture production will get.
 
 ---
 
@@ -525,12 +640,14 @@ Likelihood and impact are qualitative security judgements about this design. The
 | T22 | Owner-level insider abuse | Low | Critical | In-transaction audit; no endpoint deletes `audit_log`. **Residual accepted: the Owner controls the key** | §5.3 |
 | T23 | Someone later introduces `auth.uid()` RLS, `FORCE ROW LEVEL SECURITY` or a second roster | Medium | Medium | Contract-test assertions with stated reasons (§12) | `crm-migration-contract.test.ts` |
 | T24 | Screenshot or copy-paste by an authorised advisor | Medium | High | Not mitigable in software. Named, not solved | accepted |
+| T25 | A column added to `public.leads` becomes anonymously writable, silently — `20260704132000_create_leads.sql:29` grants `INSERT` at table level, so `ADD COLUMN` widens the anon write surface with no `GRANT` statement and no diff | **Medium — and invisible in review, which is what makes it dangerous** | High — linkage, provenance, assignment, ownership, attribution and workflow fields all become caller-asserted | Zero new columns on `leads` (§4.5); the standing constraint and the `REVOKE`-then-column-`GRANT` + policy-backstop requirement on any future column (§4.6); proof by `has_column_privilege` / `has_table_privilege` probes for **both** `anon` and `authenticated`, never by diff review | §4.6 + `studio:pg-test` |
+| T26 | A security boundary is believed to be in force because a migration file contains it, while the live schema differs — the file is unapplied, applied out of order behind a column-less `REVOKE`, or the database has diverged | Medium | High — the whole §4.1 posture is assumed rather than held | Migration text is the design of record, not proof of live state; live ACL and ledger reconciliation before any apply; no `--include-all`; no back-dated or frozen database used to verify a security migration | §4.7 + `docs/crm/CRM_IMPLEMENTATION_PLAN.md` |
 
 ---
 
 ## 12. Test obligations
 
-[Repository fact] Every security-bearing migration in the repository has a `*-migration-contract.test.ts` twin pinning RLS, GRANT, REVOKE and `search_path` text; a CRM migration without one would be the first unpinned security migration in Forever's history. All CRM tests live under `src/` and end in `.test.ts(x)`. No test touches a real database; real-Postgres behaviour is proven by `npm run studio:pg-test`. `tsconfig.json` excludes `src/features/advisory/tests/**/*` — that exclusion must **not** be extended to CRM tests.
+[Repository fact] Every security-bearing migration in the repository has a `*-migration-contract.test.ts` twin pinning RLS, GRANT, REVOKE and `search_path` text; a CRM migration without one would be the first unpinned security migration in Forever's history. All CRM tests live under `src/` and end in `.test.ts(x)`. No test touches a real database; real-Postgres behaviour is proven by `npm run studio:pg-test` (`scripts/studio/run-postgres-tests.mjs`, `package.json:20`). [Repository fact, verified read-only 2026-07-28] There is **no `.github/` directory and therefore no CI**: every check here runs only because a person chooses to run it, so a passing result is an observation by a named person on a named date, never a gate. A check nobody runs is not a control. `tsconfig.json` excludes `src/features/advisory/tests/**/*` — that exclusion must **not** be extended to CRM tests.
 
 **`crm-migration-contract.test.ts` — it discovers, it never counts.** The pre-review draft hard-coded "all 33 tables"; a test written against a fixed number passes while covering none of the tables a later migration adds. The corrected test scans every CRM migration for `CREATE TABLE IF NOT EXISTS public\.(crm_\w+)` and, for each discovered name, asserts `ENABLE ROW LEVEL SECURITY`, `REVOKE ALL … FROM PUBLIC, anon, authenticated`, the correct grant profile, and **that the name appears in an exported profile map** — so a new table cannot be added without classifying it. It further asserts:
 
@@ -540,6 +657,9 @@ Likelihood and impact are qualitative security judgements about this design. The
 - Exactly two new `SECURITY DEFINER` routines, both named, taking the repository to six. Every function carries `SET search_path = ''` and appears in the `REVOKE` / `GRANT EXECUTE` `DO` block.
 - The `crm_role` CHECK text pinned verbatim; `studio_members.role` CHECK unchanged; no CRM secret name begins with `VITE_`.
 - No column name matching `score|confidence|probability|rank|conversion_rate` on any `crm_*` table — the greppable form of the no-scoring rule.
+- `ALTER TABLE public.leads ADD COLUMN` appears zero times across all CRM migrations — the greppable form of §4.6's standing constraint. It is a tripwire, not a proof: **grep can pin the presence of a statement and never the absence of a privilege.**
+
+**Two obligations here are unreachable by any contract test, by construction.** §4.6's defect is the *absence* of a column list rather than the presence of a statement, and §4.7's is a divergence between file text and live schema. Neither is visible to a test that reads files. Both are discharged only by executing probes against a real cluster (`studio:pg-test`) and by a read-only reconciliation of `supabase_migrations.schema_migrations` and `information_schema.role_table_grants` against the repository — recorded as observations, with a name and a date.
 
 | Test | Asserts |
 |---|---|
@@ -548,6 +668,7 @@ Likelihood and impact are qualitative security judgements about this design. The
 | `bundle-boundary.test.ts` | §8, including the non-literal `from(` / `rpc(` assertion and the "component absent from `CLIENT_REACHABLE`" failure |
 | `webhook-signature.test.ts` | Rejects missing, wrong-prefix, wrong-length and non-hex headers; a valid HMAC over a *re-serialised* body; a signature made with the verify token; an **unknown provider**; and a **configured provider with an absent secret**. No `===` on signature strings anywhere in the module |
 | `crm.postgres.sql` via `npm run studio:pg-test` | What text-pinning cannot prove: that `service_role` genuinely cannot `UPDATE crm_consent_event` or `INSERT INTO crm_source`; that `ON DELETE CASCADE` survives a revoked `DELETE`; that `set_updated_at` does not violate the narrowed grant; that every guard trigger raises; that merging two fully-populated legacy-backfilled persons succeeds; and that suppressing A, merging A into B, then checking B returns *not eligible* |
+| `leads.postgres.sql` via the same harness — **only if a future proposal ever adds a column to `public.leads`** | The §4.6 probe table in full: `has_column_privilege` false for the new column and true for `name`, `has_table_privilege('anon','public.leads','INSERT')` false, each repeated for `authenticated`; the `pg_attribute.attacl` / `pg_class.relacl` corroboration; and the three behavioural inserts, including the one that must fail on the policy backstop alone |
 
 Any CRM table also requires hand-added or regenerated `Row` / `Insert` / `Update` blocks in `src/integrations/supabase/types.ts` **in the same PR as the migration**. [Repository fact] That file contains 17 tables with `Views` and `Functions` both `[_ in never]: never`, and there is no generation script.
 
@@ -572,6 +693,8 @@ Any CRM table also requires hand-added or regenerated `Row` / `Insert` / `Update
 | Realtime over CRM tables | §3.2 | A purpose-built board projection table with its own posture |
 | Off-platform append-only audit shipping | Would close T22's residual; the runtime has no seam — no queues, no R2, no declared egress | A decision to treat Owner-level insider risk as in scope |
 | Call recording or transcription | Highest legal risk, lowest certainty, two languages, cross-border | An explicit counsel opinion, nothing less |
+| Any new column on `public.leads` | §4.6. The table-level `GRANT INSERT` widens to it silently, so an "additive" column change is an unstated privilege change. `crm_enquiry.legacy_lead_id` exists so none is ever needed | A stated need that the internal pointer genuinely cannot serve. Then §4.6 (a)–(d) and the probe table, in the same migration, reviewed as a privilege change |
+| `supabase db push --include-all` | §4.7. It applies files below the recorded high-water mark, landing a relaxation after objects created under the stricter contract | Never. Fix the ordering, or fix the ledger |
 | Any numeric score, confidence, probability, rank or conversion rate | No approved evidence-backed calculation rule exists; `docs/CURRENT_STAGE.md:221-222` places new scoring systems out of scope | Not applicable |
 | Editing `docs/CURRENT_STAGE.md` | It lists "large CRM integration" as out of scope. An architecture record does not change the active stage | Never as part of this work |
 
@@ -579,10 +702,12 @@ Any CRM table also requires hand-added or regenerated `Row` / `Insert` / `Update
 
 ## Appendix — repository files read
 
-`supabase/migrations/`: `20260704132000_create_leads.sql` · `20260707100000_fdb001_core_extensions_sources_audit.sql:119-140` · `20260715120000_rc55d_import_execution_boundary.sql:1307` · `20260718113000_progressive_ingestion_v1.sql:351,384` · `20260721120000_forever_studio_v1.sql:86,121-128,606` · `20260721123000_studio_internal_acl_hardening.sql` · `20260723130000_public_projection_privacy.sql` · `20260724090000_studio_large_archive_v1.sql:90,532-542,710-711,939,1132`.
+`supabase/migrations/`: `20260704132000_create_leads.sql:27,29,30,32-41` (46 lines) · `20260707100000_fdb001_core_extensions_sources_audit.sql:119-140` · `20260715120000_rc55d_import_execution_boundary.sql:1307` · `20260718113000_progressive_ingestion_v1.sql:351,384` · `20260721120000_forever_studio_v1.sql:86,121-128,606` · `20260721123000_studio_internal_acl_hardening.sql` · `20260723130000_public_projection_privacy.sql` · `20260724090000_studio_large_archive_v1.sql:90,532-542,710-711,939,1132`.
 
 `src/`: `integrations/supabase/client.server.ts` · `features/forever-studio/{studio-auth.ts, studio.functions.ts, server/service.ts:205-211,712-718, server/errors.ts, server/deps.server.ts, tests/bundle-boundary.test.ts, tests/authorization.test.ts}` · `import/migration-security.test.ts:15,816` · `routes/{booth.tsx, studio.tsx}` · `lib/{sitemap.ts:61-64, lead-service.ts, lead-demo-mode-bundle-boundary.test.ts}` · `features/navigator/core/{lead.ts:107-111, session.ts:214}` · `server.ts`.
 
-Also `eslint.config.js:25-33` · `wrangler.jsonc` · `.env.example` · `docs/FOREVER_BRAIN_V1.md` §7.
+Also `eslint.config.js:25-33` · `wrangler.jsonc` · `.env.example` · `package.json:20` · `scripts/studio/run-postgres-tests.mjs` · `supabase/config.toml` · absence of `.github/` (verified read-only 2026-07-28) · `docs/FOREVER_BRAIN_V1.md` §7.
+
+PostgreSQL and PostgREST references cited in §4.6: <https://www.postgresql.org/docs/current/ddl-priv.html> · <https://www.postgresql.org/docs/current/sql-grant.html> · <https://www.postgresql.org/docs/current/sql-revoke.html> · <https://www.postgresql.org/docs/current/sql-altertable.html> · <https://www.postgresql.org/docs/current/functions-info.html> · <https://postgrest.org/en/stable/references/api/tables_views.html>.
 
 If this document is committed to `docs/`, `docs/FOREVER_DOC_INDEX.md` gains a row in the same change, with `Required-first-read = Conditional`.

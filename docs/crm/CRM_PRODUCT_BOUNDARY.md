@@ -2,7 +2,7 @@
 
 Task ID: FOREVER-CRM-ARCH-001
 Status: Proposed architecture — not approved, not scheduled, not authorized for implementation
-Repository state of record: main @ `821b3c4e2f6f82e0d4ddce86199a8ff24b44a094`
+Repository state of record: main @ `82e2039270168df1043050204988fbd6c009ed0e`
 Risk class: R0 (documentation only)
 
 > This document is a design record. It asserts no product truth, changes no active stage, and authorizes no
@@ -107,7 +107,7 @@ not restated, and this package adds no competing contract.
 | System | Owns | The CRM's relationship to it |
 | ------ | ---- | ---------------------------- |
 | **Forever CRM** | Leads, buyer profiles, advisor notes, follow-up state, buyer preferences, inquiry history, deal workflow state | — |
-| **Project Record** (`public.projects`, `public.units`, `public.buildings`, `unit_price_history`) | All project, unit, price, availability and developer truth | **References by key. Never copies, never writes.** A project fact written from CRM code would bypass provenance stamping |
+| **Project Record** (`public.projects`, `public.units`, `public.buildings`, `unit_price_history`, `price_updates`, `investment_data`) | All project, unit, price, availability and developer truth | **References by key, and only a key that is already stable (§3.3). Never copies, never writes.** A project fact written from CRM code would bypass provenance stamping |
 | **Navigator / DecisionProfile** | The approved NAV-001 question set, its 28 enum keys, and the derivation logic | **Consumes and persists the answers.** Never redefines a question, never adds a sixth question without NAV governance |
 | **Forever Passport** | The guest- and advisor-facing project summary | **Links to it.** Never re-derives it, never caches a rendered copy |
 | **Advisory** | Evidence-led interpretation, comparison, recommendation, reports | **Supplies the client context; stores the produced report by reference.** Never re-implements a derivation |
@@ -130,6 +130,54 @@ The distinction is worked in practice: `crm_person_interest` stores `project_id`
 project. `crm_unit_hold` stores Forever's own expiring, attributable assertion that a unit is being held for a
 buyer — which is an operational fact Forever owns — and stores no unit availability, because that belongs to
 the Project Record and the CRM is confidently stale about developer reallocation.
+
+### 3.3 The units prerequisite: reference only identities that are already stable
+
+§3.2 forbids copying a fact. This clause adds the condition that governs the *key* itself: **a CRM foreign key
+to a canonical row may exist only once that row's identity exists and is stable.** The two are not the same
+prohibition, and only one of them is currently satisfied for `public.units`.
+
+| # | Claim | Evidence |
+| - | ----- | -------- |
+| 1 | `units.id UUID PRIMARY KEY DEFAULT gen_random_uuid()` is stable across re-ingest — the ingest resolves rather than recreates | [Repository fact] `supabase/migrations/20260704055333_812d2f26-ad80-4807-b51a-bd3622cd5224.sql:79` |
+| 2 | `units.unit_code` is `TEXT` and **nullable**, and no `UNIQUE` constraint or unique index on `(project_id, unit_code)` exists in any tracked migration | [Repository fact] same file, `:81`; the only indexes on `units` are non-unique (`:112-115`, `20260707101000_fdb001_inventory_facilities.sql:62-63`) |
+| 3 | The sibling inventory table already has the constraint `units` lacks: `UNIQUE (project_id, building_code)` | [Repository fact] `20260707101000_fdb001_inventory_facilities.sql:18` |
+| 4 | The ingest nevertheless treats `(project_id, unit_code)` as the natural key, with an unguarded SELECT-then-INSERT and no `ON CONFLICT` | [Repository fact] `20260718113000_progressive_ingestion_v1.sql:669-670`, `:672-684` |
+| 5 | Therefore two concurrent ingests can create two rows for one physical unit, after which a non-`STRICT` `SELECT … INTO` binds silently to whichever row the plan returns first | [Inference] https://www.postgresql.org/docs/current/plpgsql-statements.html |
+
+[Inference] **This is the one sequencing mistake in the CRM programme that a later migration cannot repair.**
+A `crm_opportunity.focus_unit_id` added before the natural key is unique may point at one of two rows
+representing the same physical unit, splitting a deal from its inventory and its price record; no subsequent
+DDL can afterwards tell which enquiry meant which row.
+
+The boundary rules that follow are absolute:
+
+| Rule | Statement |
+| ---- | --------- |
+| **B1 — No duplicated unit table** | The CRM adds no `crm_unit`, no unit mirror and no unit cache. A unit fact is obtained by joining `public.units` at read time. A CRM-side inventory table is a second inventory authority, and reconciling two is a permanent cost paid to avoid one join |
+| **B2 — No copied current-price truth** | No CRM column holds `base_price_thb`, `discounted_price_thb`, `price_per_sqm`, `availability_status` or anything derived from them. [Repository fact] `20260726140000_public_unit_price_projection.sql` mirrors exactly one current price per unit into `units.base_price_thb` inside the publish transaction precisely so there is one public price surface; a CRM copy would be a second one. [Repository fact] `unit_price_history` is `REVOKE`d from `anon, authenticated` (`20260723130000_public_projection_privacy.sql:62`) because it carries `source_file`, `source_page` and provenance, and must never be read on a client-facing path |
+| **B3 — Unresolved interest has an explicit representation** | Zero matches, two or more matches, or no resolved project leaves `focus_unit_id` NULL with the raw inbound `?unit=` string retained verbatim as capture evidence. Never guess a unit; never create inventory to satisfy a CRM write. The canonical statement is `docs/crm/CRM_JOURNEYS_AND_STATE_MACHINES.md` §3.1 (J4) and `docs/crm/CRM_INTEGRATION_AND_EVENTS.md` §1.4 (INV-D-1) |
+| **B4 — A NULL link is a work item, not a silent gap** | An enquiry carrying a raw unit string and no `focus_unit_id` surfaces in the Owner console as an unresolved reference awaiting a human decision, and is never counted as unit-linked in any view. [Recommendation] The ingest may refuse a batch on an unresolvable unit (`price_unit_unknown`, `20260718113000_progressive_ingestion_v1.sql:724`); the CRM may not refuse a customer |
+| **B5 — The historical price answer is a query, not a column** | "What was it priced at when they enquired?" is answered by reading `unit_price_history` for the row current at the enquiry timestamp, on the server. [Repository fact] Those rows can be `UPDATE`d in place by the ingest (`20260718113000_progressive_ingestion_v1.sql:749-761`), so the answer is presented as *the current record for that source and price-list date*, never as an immutable quote |
+
+**Gates on unit-linked work.** [Recommendation] Three capabilities are blocked, by different prerequisites
+with different owners, and must be tracked separately rather than merged into one "units work" line.
+
+| Capability | Named prerequisite | Owner | Status |
+| ---------- | ------------------ | ----- | ------ |
+| Unit-linked **opportunities** (`focus_unit_id` FK) | A partial unique index on `(project_id, unit_code) WHERE unit_code IS NOT NULL`, preceded by a duplicate census and, if duplicates exist, the repoint-then-delete runbook | Ingest subsystem | Index absent; census never run |
+| Unit-linked **reservations** ("one live reservation per unit") | The same index. Two duplicate unit rows admit two "only" live reservations on one physical unit, so the CRM-side constraint is meaningless until it holds | Ingest subsystem, then CRM | Blocked on the above |
+| Price / availability **follow-up** | An application writer to `public.price_updates` and `public.project_status_history` | Neither is CRM-owned | [Repository fact] No writer exists anywhere in `src/`, `supabase/` or `scripts/`; `docs/crm/CRM_CURRENT_STATE_AUDIT.md` records that `price_updates` has `GRANT SELECT … TO authenticated` with RLS enabled and no policy, so the grant can never return a row |
+
+[Recommendation] The index and any duplicate resolution are **ingest-subsystem work**: they require their own
+task ID and their own migration timestamp later than `20260728120000`, and must not ride inside any of the six
+allocated CRM filenames (`20260729080000` … `20260729103000`), which are CRM-owned. The forward migration is
+**not purely additive** — it can fail on pre-existing duplicates — and because `unit_price_history`,
+`price_updates` and `investment_data` all reference `units(id)` `ON DELETE CASCADE`, a naive
+`DELETE FROM public.units` during cleanup destroys that unit's entire price record in the same statement. The
+verified cascade table, the survivor-selection and repoint sequence, and the gate list live in
+`docs/crm/CRM_DOMAIN_MODEL.md` §11 and `docs/crm/CRM_IMPLEMENTATION_PLAN.md`; this document states only the
+boundary. Nothing here authorizes any of it.
 
 ---
 
@@ -222,7 +270,7 @@ the sales director. The team queue is a view every Advisor can already reach, no
 
 ## 6. Where this boundary is most likely to be violated
 
-[Inference] Three predicted failure paths, recorded so they can be watched for.
+[Inference] Four predicted failure paths, recorded so they can be watched for.
 
 1. **"Just cache the price on the opportunity."** It will be proposed for performance or for a printed
    summary, and it will produce a quoted price that is wrong. The rule in §3.2 exists for this. If a snapshot
@@ -233,3 +281,7 @@ the sales director. The team queue is a view every Advisor can already reach, no
    `docs/crm/CRM_ANALYTICS_AND_KPI.md` keeps it unstorable.
 3. **"Let the partner log in to check their referral."** §5.1. The commercial need is real; the login is not
    the way to meet it.
+4. **"Add a small `crm_unit` table so the console does not have to join."** It will be proposed as a
+   convenience and will arrive as a second inventory authority that drifts from `public.units` within one
+   ingest run. §3.3 B1 forbids it. The legitimate version of that need is a read-time join, or an unresolved
+   reference held as a raw string under B3.

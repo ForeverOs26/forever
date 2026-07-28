@@ -2,7 +2,7 @@
 
 Task ID: FOREVER-CRM-ARCH-001
 Status: Proposed architecture — not approved, not scheduled, not authorized for implementation
-Repository state of record: main @ 821b3c4e2f6f82e0d4ddce86199a8ff24b44a094
+Repository state of record: main @ 82e2039270168df1043050204988fbd6c009ed0e
 Risk class: R0 (documentation only)
 
 > This document is a design record. It asserts no product truth, changes no active stage, and authorizes no implementation. The active stage remains FOREVER-STUDIO-001 (`docs/CURRENT_STAGE.md`), which lists "large CRM integration" as out of scope. Any implementing task is R2 under the shared-contract rule and requires an Architect-reviewed stage change plus Owner approval.
@@ -14,7 +14,7 @@ Risk class: R0 (documentation only)
 3. **The lead write path is a browser-direct anonymous INSERT that bypasses the Worker entirely** and discards first/last name, project and unit context. There is no server-side seam at which a lead-created event could fire.
 4. **The central structural defect is `src/features/navigator/core/lead.ts`**: it flattens the structured NAV-001 decision profile into `leads.message` free text. The one high-value structured intent Forever collects is destroyed at the moment of capture.
 5. **`/booth` has no access control of any kind.** It carries `robots: noindex, nofollow` and nothing else.
-6. **The repository has exactly two RLS postures and no user-scoped predicates.** Zero `auth.uid()`, zero `auth.jwt()`, zero `FORCE ROW LEVEL SECURITY`, zero column-level `GRANT UPDATE` across all 24 migrations.
+6. **The repository has exactly two RLS postures and no user-scoped predicates.** Zero `auth.uid()`, zero `auth.jwt()`, zero `FORCE ROW LEVEL SECURITY`, zero column-level `GRANT UPDATE` across all 25 migrations.
 7. **The reuse map** (§12) classifies every relevant artefact as reuse-as-is / extend / migrate / deprecate / do-not-build, with a reason. It is the input to `docs/crm/CRM_DOMAIN_MODEL.md` and `docs/crm/CRM_IMPLEMENTATION_PLAN.md`.
 8. **Open Draft PRs are provisional evidence only** and are quarantined in §11. Nothing in them is on main.
 
@@ -32,7 +32,7 @@ Claims carry one label. `[Repository fact]` means verified by direct read of a f
 | `SET search_path = ''` occurs 39 times in migrations | **40 raw text occurrences, 39 in function definitions** — one is inside a comment at `20260724090000_studio_large_archive_v1.sql:92` |
 | `FORCE ROW LEVEL SECURITY` is forbidden by a repo-wide pinned test | **False.** `src/import/migration-security.test.ts:15` scopes `MIGRATION_FILE` to `20260715120000_rc55d_import_execution_boundary.sql`; the `:816` assertion tests that one file's text only |
 
-Repository totals: 24 migrations; 37 distinct `CREATE TABLE ... public.<name>` names; 25 `CREATE TRIGGER`; zero `CREATE VIEW` and zero materialized views; 378 test files under `src/`.
+Repository totals: 25 migrations; 37 distinct `CREATE TABLE ... public.<name>` names; 25 `CREATE TRIGGER`; zero `CREATE VIEW` and zero materialized views; 399 test files under `src/`.
 
 ## 1. Runtime, deployment and the one background seam
 
@@ -340,7 +340,7 @@ The route declares `head` (title, `robots: noindex, nofollow`, description, Goog
 
 ### 7.3 Zero user-scoped predicates
 
-`[Repository fact]` Across all 24 migrations there is **not one occurrence** of `auth.uid()`, `auth.jwt()`, `auth.role()` or `request.jwt`. The token `auth.` appears exactly seven times, every one of them an `auth.users` foreign-key target. There is **no `FORCE ROW LEVEL SECURITY`** anywhere. There is **no `GRANT UPDATE (`** anywhere — column-level privilege exists only in the SELECT direction (`REVOKE SELECT ON TABLE ... FROM anon, authenticated; GRANT SELECT (<columns>) ...`), in two files, one of which (`20260723130000_public_projection_privacy.sql`) declares itself intentionally unapplied.
+`[Repository fact]` Across all 25 migrations there is **not one occurrence** of `auth.uid()`, `auth.jwt()`, `auth.role()` or `request.jwt`. The token `auth.` appears exactly seven times, every one of them an `auth.users` foreign-key target. There is **no `FORCE ROW LEVEL SECURITY`** anywhere. There is **no `GRANT UPDATE (`** anywhere — column-level privilege exists only in the SELECT direction (`REVOKE SELECT ON TABLE ... FROM anon, authenticated; GRANT SELECT (<columns>) ...`), in two files, one of which (`20260723130000_public_projection_privacy.sql`) declares itself intentionally unapplied.
 
 `[Inference]` Internal-table RLS in this repository defends against PostgREST, not against an application bug. Introducing `auth.uid()` RLS would create a second, parallel authorization model contradicting the one the codebase enforces and tests — a separately justified architectural decision, never a CRM implementation detail. `[Recommendation]` The CRM introduces none of the four: no `auth.uid()`/`auth.jwt()` RLS, no `FORCE ROW LEVEL SECURITY`, no second identity roster, no second service-role key path, and no column-level `GRANT UPDATE`.
 
@@ -468,7 +468,7 @@ Missing: every table created since 2026-07-07 — `buildings`, `facilities`, `so
 |---|---|
 | Runner | `npm run test` = `vitest run`; jsdom; `globals: true`; `setupFiles: ['./vitest.setup.ts']` |
 | Discovery | `include: ['src/**/*.{test,spec}.{ts,tsx}']` — a CRM test must live under `src/` and end in `.test.ts(x)` |
-| Volume | 378 test files |
+| Volume | 399 test files |
 | Database | **no test touches a real database.** Supabase is `vi.mock`ed at `@/integrations/supabase/client`, or replaced by injected in-memory fakes behind the `StudioDeps` / `StudioData` interfaces, or asserted as SQL **text** by reading `supabase/migrations/*.sql` |
 | Real Postgres | `npm run studio:pg-test` — disposable cluster, applies the full migration chain, runs `studio.postgres.sql` |
 | Security migrations | every security-bearing migration has a `*-migration-contract.test.ts` pinning RLS / GRANT / REVOKE / `search_path` text and asserting no credential material |

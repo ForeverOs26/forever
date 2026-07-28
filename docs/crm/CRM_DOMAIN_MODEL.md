@@ -2,7 +2,7 @@
 
 Task ID: FOREVER-CRM-ARCH-001
 Status: Proposed architecture — not approved, not scheduled, not authorized for implementation
-Repository state of record: main @ 821b3c4e2f6f82e0d4ddce86199a8ff24b44a094
+Repository state of record: main @ 82e2039270168df1043050204988fbd6c009ed0e
 Risk class: R0 (documentation only)
 
 > This document is a design record. It asserts no product truth, changes no active stage, and authorizes no implementation. The active stage remains FOREVER-STUDIO-001 (`docs/CURRENT_STAGE.md`), which lists "large CRM integration" as out of scope. Any implementing task is R2 under the shared-contract rule and requires an Architect-reviewed stage change plus Owner approval.
@@ -18,7 +18,8 @@ Risk class: R0 (documentation only)
 7. **`crm_record_history` is cut**; `public.audit_log` is reused with `crm_*` action values and populated `old_values` / `new_values`.
 8. **No numeric score, confidence, probability, rank or conversion rate is storable** — enforced as a greppable column-name assertion.
 9. **Every date derived from an instant is pinned to `Asia/Bangkok`.** Bare `CURRENT_DATE` is forbidden in any `crm_*` body.
-10. **`public.leads` gains zero columns.** The link is one-directional: `crm_enquiry.legacy_lead_id`, deliberately without a foreign key.
+10. **`public.leads` gains zero columns**, and the zero is structural, not incidental: its `GRANT INSERT` carries no column list, so any column ever added becomes anonymously writable with no `GRANT` statement executed and nothing visible in the diff (§15.1). The link is one-directional: `crm_enquiry.legacy_lead_id`, deliberately without a foreign key.
+11. **No CRM foreign key to `public.units` may exist until `(project_id, unit_code)` is unique.** The natural key the ingest already relies on has no unique index, so one physical unit can be two rows; the prerequisite, its cascade hazard and its gate list are §11.2–§11.6 and are owned by the ingest subsystem, not by any CRM slice.
 
 Binding contract cited, not restated: `docs/FOREVER_BRAIN_V1.md` §7 "CRM Interaction". Siblings: `docs/crm/FOREVER_CRM_INDEX.md`, `docs/crm/CRM_SECURITY_AND_RBAC.md`, `docs/crm/CRM_PRIVACY_CONSENT_RETENTION.md`, `docs/crm/CRM_IMPLEMENTATION_PLAN.md`. If committed, `docs/FOREVER_DOC_INDEX.md` gains a row in the same change.
 
@@ -30,7 +31,7 @@ Binding contract cited, not restated: `docs/FOREVER_BRAIN_V1.md` §7 "CRM Intera
 
 > No phase may propose more schema than one reviewer can hold in mind while checking every foreign key, every CHECK and every trigger interaction. The target architecture may be large. The buildable set may not.
 
-[Repository fact] The repository holds 37 distinct `CREATE TABLE public.*`, 25 `CREATE TRIGGER` and zero `CREATE VIEW` across 24 migrations. Every CRM view is a first; every trigger is additive against a small budget.
+[Repository fact] The repository holds 37 distinct `CREATE TABLE public.*`, 25 `CREATE TRIGGER` and zero `CREATE VIEW` across 25 migrations. Every CRM view is a first; every trigger is additive against a small budget.
 
 ### 1.2 Phase register
 
@@ -130,7 +131,7 @@ GRANT ALL ON TABLE public.crm_<t> TO service_role;
 
 Two tables narrow the `service_role` grant at **whole-table** granularity — `crm_consent_event` and `crm_activity` get `REVOKE ALL ... FROM service_role; GRANT SELECT, INSERT`, with redaction and suppression-lift performed by guard triggers and SECURITY DEFINER routines. **Column-level `GRANT UPDATE` is not used.** [Repository fact] `GRANT UPDATE (` returns zero occurrences repo-wide; the only precedent is `GRANT SELECT (...)`, in two files, one intentionally unapplied. The real precedent (`20260724090000`) pairs whole-table narrowing with claim-checked DEFINER RPCs; the pre-review design copied the REVOKE and dropped the RPCs, which is why its merge could not execute. Details in `docs/crm/CRM_SECURITY_AND_RBAC.md`.
 
-**No `auth.uid()`, no `auth.jwt()`, no `FORCE ROW LEVEL SECURITY`, no second identity roster, no second service-role key path.** [Repository fact] Zero occurrences of any of the four across 24 migrations. This model creates no pressure toward them: every CRM table is service-role-only and unreachable from PostgREST. Any of the four is a separately justified architectural decision with its own `docs/DECISIONS.md` entry.
+**No `auth.uid()`, no `auth.jwt()`, no `FORCE ROW LEVEL SECURITY`, no second identity roster, no second service-role key path.** [Repository fact] Zero occurrences of any of the four across 25 migrations. This model creates no pressure toward them: every CRM table is service-role-only and unreachable from PostgREST. Any of the four is a separately justified architectural decision with its own `docs/DECISIONS.md` entry.
 
 **Conventions.** Surrogate `id UUID PRIMARY KEY DEFAULT gen_random_uuid()` (`pgcrypto` installed by `20260707100000`); `created_at TIMESTAMPTZ NOT NULL DEFAULT now()` everywhere. Every mutable table — **including `crm_source` and `crm_pipeline`**, whose pre-review column lists omitted `updated_at` while the grants named it, which would abort the migration — gets `updated_at` plus `trg_crm_<t>_updated_at BEFORE UPDATE ... EXECUTE FUNCTION public.set_updated_at()`, reusing the existing helper. `crm_processing_purpose` gets no such trigger: it is the ROPA source and is not runtime-editable.
 
@@ -231,7 +232,12 @@ Before this table, identifier `kind` included `telegram_user_id`/`line`/`wechat`
 | `residence_country_iso2` | TEXT | YES | `CHECK (... ~ '^[A-Z]{2}$')` — the explicit selector that supplies the phone parse region |
 | `nationality_iso2` | TEXT | YES | `CHECK (... ~ '^[A-Z]{2}$')` — foreign-ownership quota is an operational fact |
 | `timezone` | TEXT | YES | IANA name **derived from `residence_country_iso2`**, overridable. [Unverified assumption] for multi-zone countries |
-| `relationship_owner_user_id` | UUID | YES | `REFERENCES auth.users(id) ON DELETE SET NULL` |
+| `relationship_owner_user_id` | UUID | YES | `REFERENCES auth.users(id) ON DELETE SET NULL` — **current assignment**, the only ownership column the 21-day sweep may move |
+| `relationship_owner_email` | TEXT | YES | snapshot, per the staff-FK idiom above |
+| `originating_owner_user_id` | UUID | YES | `REFERENCES auth.users(id) ON DELETE SET NULL` — **permanent origination.** Written once at first assignment, never overwritten, never nulled by any sweep. This is what "a reactivated lead returns to the originating agent" reads |
+| `originating_owner_email` | TEXT | YES | snapshot, so origination survives an offboarded account |
+| `assigned_at` | TIMESTAMPTZ | YES | when the current assignment began — the start of the 21-day calendar clock |
+| `assignment_state` | TEXT | NO | `DEFAULT 'unassigned' CHECK (... IN ('unassigned','assigned','warm_up'))` — the Owner's holding-period lifecycle. **Not** a sales stage; see INV-D-3 |
 | `first_seen_at` | TIMESTAMPTZ | NO | set once |
 | `first_touch_source_key` | TEXT | YES | `REFERENCES crm_source(key)`, set once |
 | `last_touch_source_key` | TEXT | YES | updated per enquiry |
@@ -241,9 +247,20 @@ Before this table, identifier `kind` included `telegram_user_id`/`line`/`wechat`
 | `deleted_at` | TIMESTAMPTZ | YES | soft delete |
 | `created_at` / `updated_at` | TIMESTAMPTZ | NO | |
 
-**No status, stage, lifecycle, score or rating column exists** (INV-D-3, INV-D-17). Phase 3 adds `affiliated_developer_id UUID REFERENCES public.developers(id) ON DELETE SET NULL` — a pointer to canonical truth, not a copy of any developer fact, so "who do I call at this developer" is one indexed query rather than an individual's phone.
+**No sales status, pipeline stage, score or rating column exists** (INV-D-3, INV-D-17). `assignment_state` is
+the one exception and is deliberately narrow: it carries the Owner's holding-period lifecycle
+(`unassigned` → `assigned` → `warm_up`) and nothing about the deal. It must never acquire a value describing
+sales progress. Phase 3 adds `affiliated_developer_id UUID REFERENCES public.developers(id) ON DELETE SET NULL`
+— a pointer to canonical truth, not a copy of any developer fact.
 
-Indexes: `(relationship_owner_user_id) WHERE deleted_at IS NULL AND merged_into_person_id IS NULL`; `(last_activity_at DESC)`; `(merged_into_person_id) WHERE merged_into_person_id IS NOT NULL`. The `pg_trgm` GIN index on `display_name` arrives with merge in Phase 3.
+**Three ownership concepts, deliberately separate** (INV-D-28). [Owner requirement] `relationship_owner_user_id`
+is current assignment and is the only one the 21-day sweep may move; `originating_owner_user_id` is permanent
+attribution and no automated process may ever write or null it; `crm_opportunity_credit` is commercial credit
+and only a human writes it. Keeping them apart is what makes the Owner's 21-day transition safe to automate —
+the sweep performs no commission-relevant write. The canonical rule is
+`docs/crm/CRM_JOURNEYS_AND_STATE_MACHINES.md` §7.3.
+
+Indexes: `(relationship_owner_user_id) WHERE deleted_at IS NULL AND merged_into_person_id IS NULL`; `(last_activity_at DESC)`; `(merged_into_person_id) WHERE merged_into_person_id IS NOT NULL`; `(assignment_state, assigned_at) WHERE assignment_state = 'assigned'` for the 21-day sweep; `(originating_owner_user_id) WHERE originating_owner_user_id IS NOT NULL` for reactivation routing. The `pg_trgm` GIN index on `display_name` arrives with merge in Phase 3.
 
 **`crm_person_identifier`** — the pre-review version had no canonicalisation constraints at all, making the CRM's identity table weaker than the `public.leads` it supersedes, where `leads_phone_format` and `leads_email_format` already exist. [Repository fact]
 
@@ -881,6 +898,8 @@ GRANT SELECT ON public.crm_reservation_state TO service_role;
 
 ## 11. Project and unit reference discipline
 
+### 11.1 Reference by identity, not by presentation key
+
 **CRM rows reference `public.projects(id)` and `public.units(id)`, not `slug`.** [Repository fact] `public.leads.project_slug TEXT REFERENCES public.projects(slug) ON UPDATE CASCADE ON DELETE SET NULL` is the existing precedent and is deliberately not followed: a slug is a presentation key Studio's publish path can change, so `ON UPDATE CASCADE` would silently rewrite every historical CRM row, and `ON DELETE SET NULL` would silently erase which project a buyer enquired about.
 
 | Column | On delete | Why |
@@ -896,7 +915,139 @@ GRANT SELECT ON public.crm_reservation_state TO service_role;
 
 `crm_enquiry.project_slug_at_capture TEXT` has **no foreign key**, deliberately: it records the slug as it appeared in the URL, is never joined on, and is never rendered as project truth.
 
+### 11.2 The `units` prerequisite — no unique natural key, therefore no CRM foreign key to a unit yet
+
+Every unit-linked column in the table above is written on the assumption that one physical unit is one row. That assumption is **not currently guaranteed**, and the guarantee is owned by the ingest subsystem, not by the CRM.
+
+| # | Claim | Verdict | Evidence |
+|---|---|---|---|
+| 1 | `public.units.unit_code` is `TEXT` and **nullable** — no `NOT NULL` | Confirmed | `supabase/migrations/20260704055333_812d2f26-ad80-4807-b51a-bd3622cd5224.sql:81`; table DDL at `:78-100` |
+| 2 | `public.units` carries **no** `UNIQUE` constraint and **no** unique index on `(project_id, unit_code)`, or on `unit_code` alone, in any of the 25 tracked migrations | Confirmed | The only indexes are non-unique: `idx_units_project_id`, `idx_units_availability_status`, `idx_units_bedrooms`, `idx_units_base_price_thb` (`20260704055333…:112-115`) plus `idx_units_building_id` (`20260707101000_fdb001_inventory_facilities.sql:62-63`) |
+| 3 | `public.buildings` — the sibling inventory table — **already has** `UNIQUE (project_id, building_code)` | Confirmed | `20260707101000_fdb001_inventory_facilities.sql:18` |
+| 4 | The progressive ingest nevertheless treats `(project_id, unit_code)` as the natural key, with an unguarded SELECT-then-INSERT and no `ON CONFLICT` | Confirmed | `20260718113000_progressive_ingestion_v1.sql:669-670`, then an unconditional `INSERT INTO public.units` at `:672-684` |
+
+[Repository fact] `units.id UUID PRIMARY KEY DEFAULT gen_random_uuid()` (`20260704055333…:79`) is stable across re-ingest, because the ingest resolves rather than recreates. The identity is sound; the natural key that *produces* it is not.
+
+[Inference] Two distinct failure modes follow. **Concurrent ingest**: two `forever_progressive_ingest` calls for the same project can both miss on the `SELECT` and both `INSERT`, producing two rows for one physical unit. **Silent arbitrary resolution**: `SELECT id INTO v_unit_id` is a non-`STRICT` PL/pgSQL `SELECT INTO`, which does not raise on multiple rows — it assigns whichever row the plan returns first and discards the rest (https://www.postgresql.org/docs/current/plpgsql-statements.html). Every later ingest, price write and CRM read then binds to a non-deterministic one of the pair.
+
+[Recommendation] **No `crm_*` column may carry a foreign key to `public.units(id)` while a physical unit can be represented by two rows.** A `crm_opportunity.focus_unit_id` added before the key is unique would bind a deal to one of two rows representing the same unit, splitting it from its inventory and its price record. This is the one sequencing mistake in the programme a later migration cannot repair: once opportunities are distributed across duplicate rows, no subsequent DDL can tell which enquiry meant which row. It is also the unstated precondition of INV-D-23 and INV-D-24 — two duplicate unit rows admit two "only" live reservations and two "only" active holds on one physical unit.
+
+The boundary rules this produces (B1–B5) and the three separately-owned capability gates are stated once, in `docs/crm/CRM_PRODUCT_BOUNDARY.md` §3.3, and are not restated here. **What this section owns is the DDL shape, the cascade, the runbook and the verification list.** None of it is authorized by this package.
+
+#### 11.2.1 The fix is a partial unique *index*, not a table constraint
+
+[Repository fact] Because `unit_code` is nullable, a plain `UNIQUE (project_id, unit_code)` table constraint would be both wrong and insufficient: under the default `NULLS DISTINCT` it admits unlimited rows with `unit_code IS NULL` while still indexing rows that carry no natural key at all. [Repository fact] PostgreSQL exposes the `WHERE` predicate only on `CREATE UNIQUE INDEX`, never on a table constraint (https://www.postgresql.org/docs/current/sql-createindex.html). The correct shape is therefore an index, with three consequences that must be written down before anyone drafts the migration.
+
+| Consequence | Detail |
+|---|---|
+| The reverse is `DROP INDEX`, **not** `DROP CONSTRAINT` | `ALTER TABLE … DROP CONSTRAINT uq_units_project_unit_code` fails — no constraint of that name exists. A rollback runbook that says "drop the constraint" does not execute |
+| It is **not purely additive** | The forward migration **can fail** on pre-existing duplicate rows, aborting the file. The classification must say so |
+| It does not deduplicate NULL-coded units | Rows with `unit_code IS NULL` stay unconstrained by design, so any CRM unit reference must independently tolerate their existence |
+
+**Illustrative reference DDL — not a migration, not authorized, and not one of the six allocated CRM filenames:**
+
+```sql
+-- ILLUSTRATIVE ONLY. Ingest-subsystem-owned; requires its own task ID and its own
+-- timestamp. It is NOT part of the CRM migration set.
+-- CLASSIFICATION: NOT PURELY ADDITIVE — can FAIL on existing duplicate rows.
+-- PRE-APPLY (read-only, Slice 0 class):
+--   SELECT project_id, unit_code, count(*) FROM public.units
+--   WHERE unit_code IS NOT NULL GROUP BY 1, 2 HAVING count(*) > 1;
+-- Partial because unit_code is nullable and NULLs are not equal.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_units_project_unit_code
+  ON public.units (project_id, unit_code) WHERE unit_code IS NOT NULL;
+```
+
+#### 11.2.2 `CONCURRENTLY` is unavailable — on the repository's own convention, not on a vendor claim
+
+[Repository fact] `CREATE INDEX CONCURRENTLY` cannot run inside a transaction block (https://www.postgresql.org/docs/current/sql-createindex.html).
+
+[Repository fact] This repository's migration convention settles the question without any claim about platform internals. Twelve of the twenty-five tracked migrations open with a literal `BEGIN;` and close with `COMMIT;`, and **every migration authored since `20260718113000` does so except `20260726120000_forever_direct_publish.sql`** — including `20260726140000_public_unit_price_projection.sql` and `20260728120000_project_media_semantic_role.sql`. A file written to that convention cannot contain `CONCURRENTLY`, and `CONCURRENTLY` has **zero** occurrences repository-wide.
+
+[Unverified assumption] The stronger framing — that the Supabase migration runner wraps *every* file in a transaction regardless of its contents (https://supabase.com/docs/guides/deployment/database-migrations) — is not verified here and must not be published as a repository fact. The convention argument above is sufficient and is checkable.
+
+[Inference] The index build therefore takes `ACCESS EXCLUSIVE` on `public.units` for its duration, blocking reads and writes. At the present table size that is negligible; the lock class is recorded anyway, because `units` sits on the public project-detail read path.
+
+### 11.3 The cascade — why a naive `DELETE` is a data-loss event
+
+Independently re-derived by searching `supabase/migrations/` for every `REFERENCES … units(id)`, including a multiline search for line-wrapped clauses. **Exactly three tables reference `units(id)`. There is no fourth.**
+
+| Referencing table | Column | Nullability | `ON DELETE` | Defined at |
+|---|---|---|---|---|
+| `public.investment_data` | `unit_id UUID` | nullable | **CASCADE** | `20260704055333_812d2f26-ad80-4807-b51a-bd3622cd5224.sql:140` |
+| `public.price_updates` | `unit_id UUID` | nullable | **CASCADE** | `20260704055333_812d2f26-ad80-4807-b51a-bd3622cd5224.sql:175` |
+| `public.unit_price_history` | `unit_id UUID NOT NULL` | **NOT NULL** | **CASCADE** | `20260707104000_fdb002b_unit_price_history.sql:5` |
+
+[Repository fact] All three are `ON DELETE CASCADE`; none is `RESTRICT`, `SET NULL` or `NO ACTION`, so nothing in the schema stops, warns about or logs the destruction. `unit_price_history.unit_id` is `NOT NULL`, so its rows have no orphan state to fall back to and there is no soft-delete column and no archival table — a cascaded delete is total loss of that unit's price record. `units.project_id` is itself `NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE` (`20260704055333…:80`), so the same hazard exists one level up.
+
+[Inference] **Deleting the duplicate unit row first destroys that unit's entire price history, investment data and price-update trail, silently and irreversibly, in the same statement.** A duplicate-resolution step written as `DELETE FROM public.units WHERE id = :loser` is a data-loss event disguised as cleanup, and the loser is frequently the *older* row — the one carrying the longer price history.
+
+**`unit_price_history` is not unconditionally append-only, and the change-detection design must absorb that.** [Repository fact] `forever_progressive_ingest` resolves an existing price row on a five-part natural key — `(unit_id, price_source, source_file, source_page, price_list_date)`, all compared with `IS NOT DISTINCT FROM` — at `20260718113000_progressive_ingestion_v1.sql:729-734`, and on a match it **`UPDATE`s that row in place** (`:749-761`), overwriting `price` and merging `metadata`. Only a miss inserts (`:735-748`). Row identity is stable and the `(recorded_at, id)` watermark in `docs/crm/CRM_INTEGRATION_AND_EVENTS.md` §8.2 still detects every *new* price row; it does **not** detect an in-place correction of an existing one, because no new row appears. [Recommendation] The signal is therefore exact for new price records and silent on corrections, and must be specified that way rather than as an unqualified append-only event stream.
+
+### 11.4 The repoint-then-delete runbook
+
+[Recommendation] The runbook is executed and recorded **before the index migration is written** — not bundled into it, and not left as a footnote to a rollback table. It is Slice-0-class evidence work followed by a deliberate, audited data change, and it is ingest-subsystem-owned, not CRM-owned.
+
+| Step | Action | Class | Why it sits here |
+|---|---|---|---|
+| R0 | `SELECT project_id, unit_code, count(*) FROM public.units WHERE unit_code IS NOT NULL GROUP BY 1,2 HAVING count(*) > 1` | Read-only | The duplicate count is unknown today. If it is zero, R1–R5 are skipped and the index migration is genuinely additive. **The migration must not be authored before this number is known** |
+| R1 | For each duplicate group, enumerate the candidate rows with `created_at`, `building_id`, `metadata` and their dependent-row counts in all three cascading tables | Read-only | Survivor selection is a judgement, not a rule, and must be made with the dependent-row counts visible |
+| R2 | Nominate one **survivor** per group and record the decision, with reasons, in the task record | Documentation | The nomination is the auditable artefact; the survivor becomes the row every future ingest resolves to |
+| R3 | In **one transaction**: `UPDATE public.investment_data SET unit_id = :survivor WHERE unit_id = :loser`, and the same for `public.price_updates` and `public.unit_price_history` | Mutating | All three, named explicitly. Omitting one leaves rows the next step destroys |
+| R4 | In the **same transaction**: re-verify that zero rows in all three tables still reference `:loser`, then `DELETE FROM public.units WHERE id = :loser` | Mutating | The delete is safe **only** because the cascade now has nothing to cascade; the re-verification is what makes that a fact rather than a hope |
+| R5 | Re-run R0 and confirm it returns zero rows | Read-only | The precondition for the index migration |
+| R6 | Only now author and apply the partial unique index migration | Mutating DDL | Forward can no longer fail on duplicates |
+
+[Recommendation] R3 can itself create a **new** collision inside `unit_price_history`, when loser and survivor both hold a row with the same `(price_source, source_file, source_page, price_list_date)` tuple. No unique constraint exists on that tuple, so the repoint will not fail — it will produce two rows the ingest's `SELECT … INTO` then resolves between arbitrarily. R3 must detect and resolve that case explicitly rather than expect the database to surface it. For the same reason the repoint target must be the survivor the ingest itself would resolve to once the index exists.
+
+[Recommendation] Post-conditions worth asserting in `scripts/studio/run-postgres-tests.mjs` when the work is eventually authorized: the index exists **with** its `WHERE unit_code IS NOT NULL` predicate; a second `(project_id, unit_code)` row is refused; two rows with `unit_code IS NULL` are still permitted; and the ingest's SELECT-then-INSERT path no longer yields duplicates. [Repository fact] There is no CI in this repository, so such a test enforces only when someone runs it — it is evidence, not a gate.
+
+### 11.5 Unresolved unit interest, and historical enquiry context
+
+[Repository fact] Resolution is `WHERE unit_code = :raw AND project_id = :resolved_project`, and anything other than exactly one row leaves `focus_unit_id` NULL with the raw string preserved (`docs/crm/CRM_JOURNEYS_AND_STATE_MACHINES.md` §3.1, J4). The data-model representation of that rule:
+
+| Situation | Representation |
+|---|---|
+| Resolves to exactly one row | `focus_unit_id` = that `units.id`; the raw inbound string is still retained alongside it as capture evidence |
+| Zero matches, **or two or more matches**, or no project context to scope by | `focus_unit_id` stays **NULL**; the raw inbound `?unit=` string is retained verbatim on the enquiry. The interest is real and recorded — only the *link* is absent |
+| Project itself unresolved | Unit resolution is not attempted: `unit_code` carries no cross-project uniqueness, so an unscoped lookup is meaningless |
+
+[Recommendation] Three rules make that fail-closed rather than fail-quiet. **Never guess a unit** — multiple matches is a NULL, never a pick; and until the partial unique index exists, "exactly one row" is not guaranteed even for a genuinely unique physical unit, which is a second and independent reason §11.2 is a prerequisite. **Never create inventory to satisfy a CRM write** — `focus_project_id` and `focus_unit_id` resolve by lookup or to NULL, never by creation (`docs/crm/CRM_INTEGRATION_AND_EVENTS.md` §1.4). The ingest may *refuse a batch* on an unresolvable unit (`price_unit_unknown`, `20260718113000_progressive_ingestion_v1.sql:724`); the CRM may not refuse a customer. **A NULL link is a visible work item, not a silent gap** — it surfaces in the Owner console as an unresolved reference awaiting a human decision, and is never counted as unit-linked in any view.
+
+An enquiry must still read truthfully years later, when the unit has been sold, repriced, renamed or removed. Four mechanisms carry that, all consistent with the on-delete behaviour in §11.1:
+
+| Mechanism | Effect |
+|---|---|
+| Capture-time raw context is immutable | The raw `?project=` / `?unit=` strings and the enquiry message are never rewritten by any later resolution, sweep or correction. They are evidence of what the guest actually saw and asked |
+| `project_slug_at_capture` is a display stamp, not truth | It keeps the enquiry readable after a slug change; it is never joined on, never used for matching, and never a price |
+| FK behaviour is deliberately asymmetric | `crm_enquiry.focus_project_id` / `.focus_unit_id` are `SET NULL` — the enquiry survives the deletion and the raw context carries the meaning; `crm_opportunity`, `crm_reservation` and `crm_unit_hold` are `RESTRICT` — an open commitment is commercial evidence and the deletion must fail rather than quietly detach |
+| No stored price, ever — including "the price at the time" | A remembered price is a second price of record with a stale value, which is exactly the copy INV-D-1 forbids. "What was it priced at when they enquired?" is answered by *querying* `unit_price_history` on the server for the row current at the enquiry timestamp. Because those rows can be updated in place (§11.3), that answer is presented as **the current record for that source and price-list date**, never as an immutable historical quote |
+
+[Recommendation] The narrative discipline that follows: a change notification may say *"the price record for a unit this buyer is tracking has been updated — review and decide whether to contact"*. It may **not** say *"price dropped to ฿X"*. The CRM does not hold the price, and "dropped" is a comparison it is not entitled to make (`docs/crm/CRM_INTEGRATION_AND_EVENTS.md` §8.2).
+
+### 11.6 What must be verified before any unit-linked CRM row exists
+
+[Recommendation] A gate list in dependency order. Each item is checkable; none is a matter of opinion. Nothing here is authorized by this package.
+
+| # | Verification | Class | Status today |
+|---|---|---|---|
+| V1 | The R0 duplicate census returns **zero rows** | Read-only | **Unknown** — never run against production |
+| V2 | `uq_units_project_unit_code` exists **with** its `WHERE unit_code IS NOT NULL` predicate | DDL state | **Absent** — no such index in any tracked migration |
+| V3 | The repoint-then-delete runbook (§11.4) was executed and recorded, or R0 proved it unnecessary | Process | **Not started** |
+| V4 | The population of `units` rows with `unit_code IS NULL` is known, and the CRM read path tolerates them without inventing a code | Read-only | **Unknown** |
+| V5 | The ingest's unit-resolution path was re-read after V2 to confirm the unique index is reachable by its `SELECT` (`20260718113000…:669-670`) — an index the planner cannot use still permits the race it was added to prevent | Code review | **Not done** |
+| V6 | For **reservations** (INV-D-23) and **holds** (INV-D-24): the one-live-row guarantee is meaningless until V2 holds, because two duplicate unit rows admit two "only" live rows on one physical unit | Design | **Blocked on V2** |
+| V7 | For **price / availability follow-up**: an application writer to `public.price_updates` and `public.project_status_history` exists | Repository | **Absent — verified.** A search of `src/`, `supabase/` and `scripts/` finds only DDL, grants, indexes, a generated-types entry and comments. `docs/crm/CRM_CURRENT_STATE_AUDIT.md` independently records that `price_updates` carries `GRANT SELECT … TO authenticated` with RLS enabled and **no policy**, so that grant can never return a row |
+| V8 | The change-detection cursor tolerates the in-place `UPDATE` of `unit_price_history` (§11.3), or its blind spot is stated where the signal is specified | Design | **Open** |
+| V9 | The prerequisite carries its **own ingest-subsystem task ID and its own migration timestamp later than `20260728120000`**, outside the six allocated CRM filenames (`20260729080000` … `20260729103000`) | Governance | **To be recorded.** The six CRM files are CRM-owned; this change modifies inventory truth and must not ride inside them |
+
+[Recommendation] V7 is the sharpest scheduling fact here: unit-linked **follow-up** is blocked by a missing writer in a subsystem the CRM does not own, and no amount of CRM work moves it, while unit-linked **opportunities** are blocked by V2 and V3. Different blockers, different owners, tracked separately rather than merged into one "units work" line item.
+
+### 11.7 The CRM owns no project, unit or price truth
+
 INV-D-1 turns the copying prohibition into a greppable test. Copying `base_price_thb` or `availability_status` into a CRM row would create a second price of record and break the single-current-price guarantee `unit_price_history` and `forever_project_price_projection` exist to provide. Any project or unit fact a CRM workflow needs to change goes through `forever_progressive_ingest`, `forever_direct_publish`, `studio_publish_project` or `studio_update_resale` and stamps `field_provenance`; a direct `UPDATE` from CRM code would silently defeat `owner_verified` protection.
+
+The same rule forbids the softer version of the copy: **there is no `crm_unit`, no unit mirror and no unit cache.** A unit fact the CRM needs is obtained by joining `public.units` at read time. A CRM-side inventory table is a second inventory authority, and reconciling two is a permanent cost paid to avoid one join. [Repository fact] `unit_price_history` additionally stays off every client-facing path — it is `REVOKE`d from `anon, authenticated` at `20260723130000_public_projection_privacy.sql:62` because it carries `source_file`, `source_page` and provenance metadata — so the historical-price answer of §11.5 is a server-side read, never a rendered column.
 
 ---
 
@@ -994,6 +1145,46 @@ Clocks: access 30 days; **erasure 90 days including copies and backups**. [Web r
 [Repository fact] `public.leads` keeps exactly its 12 columns, five CHECKs, four indexes, `GRANT INSERT TO anon, authenticated` and its single `"Anyone can submit a lead"` INSERT policy, unchanged. The link runs one way: `crm_enquiry.legacy_lead_id UUID`, **with no foreign key to `public.leads`**.
 
 The FK is omitted for a security reason. `leads.crm_enquiry_id UUID REFERENCES crm_enquiry(id)` would create a column `anon` can write through the existing INSERT policy; an attacker could then probe enquiry ids, because a FK violation and a successful insert are distinguishable — an existence oracle over an internal table. Fixing that would require a DROP-then-CREATE on the public INSERT policy, a security boundary needing its own review. Putting the pointer on the internal side avoids the class entirely.
+
+**The existence oracle is one half of the finding. The other half is why no column may be added at all.**
+
+[Repository fact] `supabase/migrations/20260704132000_create_leads.sql` is 46 lines. Line 29 reads, verbatim, `GRANT INSERT ON public.leads TO anon, authenticated;`. That grant carries **no column list**, and it names two roles, not one. The only other privilege statement is line 30, `GRANT ALL ON public.leads TO service_role;`. RLS is enabled at line 27, and the single INSERT policy at lines 32–41 constrains exactly four things — `status = 'new'` and non-emptiness of `name`, `email` and `phone` — and names no other column. [Repository fact] The privilege is reachable from an untrusted client: `src/lib/lead-service.ts:92` executes `await supabase.from("leads").insert(payload)` in the browser under the anon key, and there is no server-side write path for leads today.
+
+| # | Mechanism | Consequence for `public.leads` |
+|---|---|---|
+| M1 | PostgreSQL stores table-level ACLs in `pg_class.relacl` and column-level ACLs separately in `pg_attribute.attacl`. A table-level grant is one entry on the relation, not an enumeration over the columns that existed when it was written | Line 29 is a fact about the *relation*. It does not encode the twelve columns of 2026-07-04 |
+| M2 | A table-level privilege applies to every column, including columns added later by `ALTER TABLE … ADD COLUMN`; `ADD COLUMN` creates no column ACL and needs none | The instant a column is added, `anon` and `authenticated` may write it. No grant is executed, no migration line changes, **nothing appears in the diff** |
+| M3 | RLS `WITH CHECK` is a row predicate, not a column allow-list. A column the predicate does not mention is unconstrained, not forbidden | The shipped policy is silent on every future column, so it constrains none of them |
+| M4 | PostgREST accepts arbitrary column names in the JSON body of an insert | The write surface is every column the role holds `INSERT` on, not the payload `lead-service.ts` happens to send — and the anon key ships in the browser bundle |
+| M5 | `REVOKE` removes only grants made by the current role or by roles it can act for; a `REVOKE` issued by a non-grantor succeeds syntactically and removes nothing | A remediation `REVOKE` cannot be assumed effective. It must be observed |
+
+[Web research] M1–M3 and M5: https://www.postgresql.org/docs/current/ddl-priv.html · https://www.postgresql.org/docs/current/sql-grant.html · https://www.postgresql.org/docs/current/sql-revoke.html · https://www.postgresql.org/docs/current/sql-altertable.html. M4: https://postgrest.org/en/stable/references/api/tables_views.html
+
+[Inference] "We added no new `GRANT`" is a statement about the *text of the migration*; the security question is a statement about the *state of the database*. M2 is precisely where they come apart, because the privilege expansion is a silent side effect of a DDL statement containing no privilege syntax. "The migration adds no `GRANT`", "the RLS policy is unchanged" and "the application payload omits the new column" are all true of a hostile column-widening migration. The only sound test is **"what can `anon` write after this migration that it could not write before?"**, and it is answerable by probing privileges, not by reading a diff.
+
+[Inference] The severity is not that an anonymous caller can write *a* column; it is *which* columns a CRM would want on an intake row. Every candidate is a field whose entire value comes from being server-asserted:
+
+| Column class | What a CRM would put there | Why anonymous write destroys it |
+|---|---|---|
+| Linkage | a pointer to an internal person or enquiry record | An outsider attaches an authored enquiry to a real buyer's identity record — and if the column carries a FK, a rejected insert distinguishes a valid internal id from an invalid one, restoring the existence oracle by another route |
+| Provenance / lawful basis | a tier or channel asserting *how* the row was collected | The row's own claim about its lawful basis becomes caller-controlled. A forged value is worse than a missing one, because it is believed |
+| Assignment | assignee, claim state, queue position | An outsider assigns work inside the company |
+| Ownership / attribution | originating owner, credit, source attribution | An outsider writes into a commercial credit record |
+| Workflow | stage, next action, timestamps, response markers | An outsider fabricates the operational history the funnel and response-time reporting read from |
+| Free-form | any `JSONB` metadata column | Unbounded attacker-controlled storage in a table with no size ceiling |
+
+**Therefore, as a standing constraint rather than remediation work:**
+
+1. `public.leads` is the intake log. It never accretes CRM state — no linkage, no provenance, no assignment, no ownership, no attribution, no workflow columns. The one-directional `crm_enquiry.legacy_lead_id` pointer exists so that no such column is ever needed.
+2. Any proposal to add **any** column to `public.leads` is a **privilege change** and is reviewed as one. A proposal that does not carry the four controls below, and the privilege probes in `docs/crm/CRM_SECURITY_AND_RBAC.md` §12, is rejected on that ground alone.
+3. Neither structural control that makes this safe today — the one-way pointer with no FK, and the zero-column rule — may be relaxed without re-running this analysis.
+4. The reverse direction is equally constrained: reverting a tightening restores the table-level grant and reopens the hole for **every** column added since, so such a revert is never performed alone, only together with dropping the columns it protected.
+
+[Recommendation] If the rule is ever broken, the migration must do all four of these, in this order, in one file. **(a) `REVOKE INSERT ON public.leads FROM anon, authenticated;` before granting anything back** — revoke-then-grant fails closed if the file is interrupted, whereas grant-then-revoke opens a window in which both privileges exist. **(b) Re-grant `INSERT` column-scoped over the intake columns only** — `GRANT INSERT (name, email, phone, country, budget, interest, project_slug, message, status, source) ON public.leads TO anon, authenticated;`. [Repository fact] This is the repository's own idiom, not an import: `20260723130000_public_projection_privacy.sql:19-29` performs exactly `REVOKE SELECT` followed by a column-enumerated `GRANT SELECT` on `public.projects`, and repeats it for `developers`, `units`, `project_media`, `investment_data` and `unit_price_history`. **(c) State honestly whether the re-grant preserves or narrows.** [Repository fact] `public.leads` has twelve columns — `id`, `created_at`, `name`, `email`, `phone`, `country`, `budget`, `interest`, `project_slug`, `message`, `status`, `source` — so the ten-column list above **narrows** the surface: today `anon` can supply its own primary key and its own `created_at`, overriding both defaults. Narrowing is the right choice, but the migration must not simultaneously claim the net anonymous capability is unchanged. **(d) Restate the constraint in the policy as an independent backstop** — PostgreSQL has no `ALTER POLICY … ADD` for `WITH CHECK`, so this is `DROP POLICY` + `CREATE POLICY` carrying the original four conjuncts verbatim from `20260704132000_create_leads.sql:32-41` plus one conjunct per new column requiring it to be absent or empty, so that a later careless table-level re-grant still fails closed.
+
+[Recommendation] A column-level `GRANT INSERT` is a different statement from a column-level `GRANT UPDATE`. The prohibition in §1.5 stands unchanged and is pinned greppably (`docs/crm/CRM_SECURITY_AND_RBAC.md` §12): nothing here proposes, requires or permits a column-level `GRANT UPDATE` on any table.
+
+[Inference] Text-pinning cannot reach this defect, because the defect is the *absence* of a statement rather than the presence of one. Proof runs against a real cluster — `npm run studio:pg-test` → `scripts/studio/run-postgres-tests.mjs` — with `has_column_privilege('anon','public.leads','<new_column>','INSERT')` leading, because it returns true when the privilege is held at *either* the column or the whole-table level (https://www.postgresql.org/docs/current/functions-info.html) and therefore catches the silent table-level inheritance a column-ACL inspection would miss; `has_table_privilege('anon','public.leads','INSERT')` distinguishes "revoked and re-granted narrowly" from "never revoked" and is what catches M5; and every probe is run for `authenticated` as well, because line 29 names two roles and a test that checks only `anon` proves half the statement. [Repository fact] There is no CI in this repository, so no such result is a gate that passed — only an observation a named person made on a named date. The full obligation list belongs to `docs/crm/CRM_SECURITY_AND_RBAC.md` §12.
 
 **This is a documented deviation from the reuse map**, which marks `public.leads` `[extend]` with an explicit instruction not to fork it. The deviation is legitimate — the anon INSERT policy genuinely makes every enrichment column publicly writable, an argument the reuse map's author did not have — but it must be *made*, not assumed, and is recorded as a `docs/DECISIONS.md` entry in the repository's own `### YYYY-MM-DD — Title` / Decision / Context / Consequence / Review trigger format.
 
@@ -1104,4 +1295,4 @@ The sixteen cut tables and the four prohibited security mechanisms are listed on
 
 ## Appendix — Files read to produce this record
 
-Migrations `20260704055333`, `20260704132000`, `20260707100000`, `20260715120000`, `20260721120000`, `20260721123000`, `20260722103000`, `20260724090000` · `src/lib/lead-service.ts` · `src/lib/public-truth.ts` · `src/import/migration-security.test.ts` · `src/features/navigator/core/{questions,decision-profile,session,lead,matching}.ts` · `src/routes/contact.tsx` · `src/features/forever-studio/studio-auth.ts` · `src/features/forever-studio/tests/bundle-boundary.test.ts` · `src/integrations/supabase/types.ts` · `wrangler.jsonc` · `vite.config.ts` · `package.json` · `docs/FOREVER_BRAIN_V1.md` §7 · `docs/CURRENT_STAGE.md` · `docs/ROADMAP.md:141,228` · `docs/FOREVER_FACTORY_CONSTITUTION.md:303-310`.
+Migrations `20260704055333`, `20260704132000`, `20260707100000`, `20260707101000`, `20260707104000`, `20260715120000`, `20260718113000`, `20260721120000`, `20260721123000`, `20260722103000`, `20260723130000`, `20260724090000`, `20260726120000`, `20260726140000`, `20260728120000` · `src/lib/lead-service.ts` · `src/lib/public-truth.ts` · `src/import/migration-security.test.ts` · `src/features/navigator/core/{questions,decision-profile,session,lead,matching}.ts` · `src/routes/contact.tsx` · `src/features/forever-studio/studio-auth.ts` · `src/features/forever-studio/tests/bundle-boundary.test.ts` · `src/integrations/supabase/types.ts` · `wrangler.jsonc` · `vite.config.ts` · `package.json` · `docs/FOREVER_BRAIN_V1.md` §7 · `docs/CURRENT_STAGE.md` · `docs/ROADMAP.md:141,228` · `docs/FOREVER_FACTORY_CONSTITUTION.md:303-310`.

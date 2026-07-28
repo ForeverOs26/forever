@@ -2,7 +2,7 @@
 
 Task ID: FOREVER-CRM-ARCH-001
 Status: Proposed architecture — not approved, not scheduled, not authorized for implementation
-Repository state of record: main @ 821b3c4e2f6f82e0d4ddce86199a8ff24b44a094
+Repository state of record: main @ 82e2039270168df1043050204988fbd6c009ed0e
 Risk class: R0 (documentation only)
 
 > This document is a design record. It asserts no product truth, changes no active stage, and authorizes no implementation. The active stage remains FOREVER-STUDIO-001 (`docs/CURRENT_STAGE.md`), which lists "large CRM integration" as out of scope. Any implementing task is R2 under the shared-contract rule and requires an Architect-reviewed stage change plus Owner approval.
@@ -17,6 +17,7 @@ Risk class: R0 (documentation only)
 6. **That no percentage with a denominator under 30 is rendered anywhere**, and which metrics are therefore built and which are excluded as actively harmful.
 7. **That the "70% of CRM projects fail" statistic is refused**, with the reason, rather than repeated.
 8. **That the build/buy answer is: build the core, buy only the messaging gateway, never sync bidirectionally** — and that the gateway purchase is gated on WhatsApp number ownership, not on a date.
+9. **That claims which could not be verified are written down rather than dropped**, as the U1–U15 register in Appendix A — including the two Meta pages that contradict each other on webhook retry duration, and the rates that Meta itself will not publish until 2026-09-01.
 
 ---
 
@@ -24,7 +25,7 @@ Risk class: R0 (documentation only)
 
 ### 1.1 What was actually done
 
-Every source cited below was fetched during this task and is reproduced by URL. No URL in this document is reconstructed from memory, and no claim carries a citation that was not opened. Where the ground truth recorded a claim without a retrievable source, the claim is either omitted or marked `[Unverified assumption]`.
+Every source cited below was fetched during this task and is reproduced by URL. No URL in this document is reconstructed from memory, and no claim carries a citation that was not opened. Where the ground truth recorded a claim without a retrievable source, the claim is either omitted or marked `[Unverified assumption]` — and where the question was material enough that its absence is itself a design input, it is carried in the **U1–U15 register in Appendix A** rather than silently dropped.
 
 Coverage: five general CRMs (Attio, HubSpot, Salesforce, Pipedrive, Zoho), three real-estate CRMs (Reapit, Follow Up Boss, Lofty), one off-plan/new-build CRM (Spark), the Meta WhatsApp Cloud API and pricing documentation, Google Calendar push notifications, Resend, PostgreSQL and Supabase primary documentation, libphonenumber, one 2007 vendor study, one 2011 HBR article, one peer-reviewed clinical-trial recruitment paper, the NIST engineering statistics handbook, the NAR 2025 technology survey, one academic CRM-failure paper, the Twenty CRM licence file, and the EU AI Act Article 50 text.
 
@@ -80,7 +81,7 @@ Two consequences follow immediately and constrain every verdict below. First, **
 
 | # | Pattern | Vendor | Adaptation, and why | Where applied | Source |
 |---|---|---|---|---|---|
-| G8 | **Two workspace roles + coarse object-scoped grants, additive, most-permissive-wins**, with notes/tasks/activities visible to everyone | Attio | The *shape* is adopted; the *mechanism* is not. Forever's authorization is 100 % TypeScript at the app-server boundary running as `service_role` [Repository fact], with zero `auth.uid()` in 24 migrations. The adaptation is a declarative `Record<CrmEndpointName, CrmCapability>` map the middleware reads and a test asserts is total, with **6 capabilities, not 26**. Attio's documented additive trap is heeded directly: set the default at the floor and grant upward, or a policy silently no-ops. Hiding activity in a ten-person office causes more coordination failure than it prevents leakage | `docs/crm/CRM_SECURITY_AND_RBAC.md` | https://attio.com/help/reference/managing-your-data/objects/manage-access-to-objects |
+| G8 | **Two workspace roles + coarse object-scoped grants, additive, most-permissive-wins**, with notes/tasks/activities visible to everyone | Attio | The *shape* is adopted; the *mechanism* is not. Forever's authorization is 100 % TypeScript at the app-server boundary running as `service_role` [Repository fact], with zero `auth.uid()` in 25 migrations. The adaptation is a declarative `Record<CrmEndpointName, CrmCapability>` map the middleware reads and a test asserts is total, with **6 capabilities, not 26**. Attio's documented additive trap is heeded directly: set the default at the floor and grant upward, or a policy silently no-ops. Hiding activity in a ten-person office causes more coordination failure than it prevents leakage | `docs/crm/CRM_SECURITY_AND_RBAC.md` | https://attio.com/help/reference/managing-your-data/objects/manage-access-to-objects |
 
 ### 2.3 REJECT — enterprise bloat Forever must not copy
 
@@ -276,6 +277,27 @@ flowchart TD
 
 **The 5-minute rule is vendor folklore with a citation attached.** The chain of custody ends at one 2007 study, sold by a company that sold the remedy, whose own author states that the headline multiples appear only across combined company data. A pattern that exists only in the pooled cross-company aggregate is a statement about the *variance between companies*, not a causal instruction to any one of them. Forever is one company. The finding does not apply to it, and repeating it would make the CRM's headline SLA the least evidenced number in the product.
 
+**Two distinct documents are routinely collapsed into a single "Harvard finding".** They have different authors, different samples, different methods and different numbers. Separating them is the whole argument, so they are separated here in one table. [Web research]
+
+| Claim as it is usually stated | What the primary source actually is | What that source actually says |
+|---|---|---|
+| "**100× more likely to contact, 21× more likely to qualify**, if you respond in five minutes rather than thirty — *Harvard*" | **Not Harvard.** The 2007 **Lead Response Management** study, principal author **Dr James Oldroyd**, **published by InsideSales.com** — a company selling lead-response and callback-dialler software. Six companies, 15,000+ leads, 100,000+ dials. **Grade D** | The multipliers are genuine quotations from that study. **Its authority is not.** The publisher sold the remedy the study's own conclusion recommends buying. A second independently located copy of the same PDF: https://25649.fs1.hubspotusercontent-na2.net/hub/25649/file-13535879-pdf/docs/mit_study.pdf |
+| "…and *Harvard Business Review* proved it" | The 2011 *Harvard Business Review* article **The Short Life of Online Sales Leads** — **Oldroyd, McElheran and Elkington** — an audit of **2,241 US firms**. **Grade B** | **Different numbers entirely**: the 42-hour average and the 23 % non-response rate recorded in §7.2, with the response-window advantages stated as roughly 7× within an hour and roughly 60× against 24-plus hours. Publisher of record: https://hbr.org/2011/03/the-short-life-of-online-sales-leads |
+
+**The mechanism is shared authorship: Oldroyd co-authored both documents.** [Web research] That is how a byline migrated. [Inference] The citation chain is real — one author genuinely connects the 2007 vendor study to a 2011 *Harvard Business Review* article — but the **attribution is not**: the multipliers belong to the vendor-published 2007 study, while the Harvard-published 2011 article reports different figures, produced by a different method, on a sample 373 times larger. Repetition then compresses the two into one sentence. Nothing was fabricated; a byline moved, and the numbers travelled with it.
+
+**[Recommendation] Treat "Harvard says respond in five minutes" as a review heuristic, not merely as an error.** Any source that attributes 100× / 21× to Harvard has demonstrably opened neither paper, and everything else that source asserts inherits that standard of care. Two live illustrations, both secondary and both cited only as specimens: a vendor page presenting the rule as a joint "Harvard Business Review **and** MIT" finding while asserting the untraceable first-responder claim of §7.6 on the same page — https://caseyresponse.com/blog/lead-response-time-statistics — and the clearest available reconstruction of the misattribution chain, which is itself a blog — https://ainora.lt/blog/lead-response-time-statistics-every-study-2026
+
+[Inference] That no primary or academic source has troubled to reconstruct that chain is itself a finding about how little scrutiny this literature has ever received.
+
+**Three defects in the 2007 study bear directly on design**, and the second of them is stronger than the pooled-data caveat above because it survives even if the pooling objection is answered. [Web research][Inference]
+
+| # | Defect | Design consequence |
+|---|---|---|
+| 1 | **Publisher conflict of interest.** Published by a vendor selling exactly the software the conclusion recommends | The finding cannot be used to justify buying — or building — a response-acceleration mechanism. It is marketing with a method section |
+| 2 | **Observational, not experimental.** Response speed was not assigned; representatives chose it. [Inference] They plausibly dialled the *hottest and most complete* leads fastest — a named contact with a real number and a stated budget gets called first — so lead quality is confounded with response speed | Nothing in the study design separates the two, so the multipliers have **no defensible magnitude, only a sign**. This objection is independent of, and stronger than, the author's own pooled-data caveat |
+| 3 | **It is roughly nineteen years old** as of 2026-07-28, and describes **US business-hours outbound telephone dialling** into a short sales cycle, predating messaging-first buyer behaviour entirely | Forever's buyers sit in UTC+2..+4 while the office is UTC+7 (§7.5), and an off-plan purchase is a months-long decision. The study's operating conditions are absent in every dimension that matters here |
+
 ### 7.2 The defensible threshold: HBR 2011
 
 | Property | Actual content | Why it matters |
@@ -284,7 +306,7 @@ flowchart TD
 | **Outcome variable** | **"A meaningful conversation with a key decision maker"** — *not* revenue, not closed deals | Everything downstream of the conversation is unmeasured. Any claim that faster response raises revenue is not supported by this source |
 | **The genuinely useful finding** | **Of 2,241 audited companies, 23 % never responded at all.** Average response time: 42 hours | **The bar is on the floor.** The competitive gain is in responding *at all*, reliably, not in racing a stopwatch |
 
-[Web research, Grade B — an audited study reported in a practitioner journal] https://thedenmangroupselling.wordpress.com/wp-content/uploads/2011/03/the-short-life-of-online-sales-leads-harvard-business-review.pdf
+[Web research, Grade B — an audited study reported in a practitioner journal] Publisher of record, cited first because it is what makes the "not Harvard / this *is* Harvard, and it says something else" contrast of §7.1 checkable in one click: https://hbr.org/2011/03/the-short-life-of-online-sales-leads — full text as located: https://thedenmangroupselling.wordpress.com/wp-content/uploads/2011/03/the-short-life-of-online-sales-leads-harvard-business-review.pdf
 
 The "never responded at all" figure is the one Forever should design against, because it is the one Forever can actually verify about itself — and today it cannot. `public.leads` has no SELECT policy and no reader in `src/` [Repository fact], so the count of enquiries that received no response has never been observable. Making that number visible is Slice 1's stated business outcome.
 
@@ -318,6 +340,30 @@ A single global wall-clock human-contact SLA is therefore not merely poorly evid
 3. **Quiet hours change the action, they do not remove it.** Asynchronous channels are never downgraded: a WhatsApp message at 23:00 Phuket is 19:00 in Moscow and is the correct action.
 
 Every date derived from an instant in this package is timezone-pinned — `(now() AT TIME ZONE 'Asia/Bangkok')::date`, never bare `CURRENT_DATE`, with a contract test forbidding the bare form in any `crm_*` body. A UTC-defaulted date boundary would silently misclassify every evening interaction, which is most of them.
+
+### 7.6 Two further claims, both refused, and the ruling on each
+
+Neither of these appears anywhere else in this package. They are recorded here because both are what a vendor will bring to the Owner when §7.1 has closed the five-minute argument, and a package with no written answer to them has no answer at all.
+
+**The first-responder claim: no traceable primary source exists.** The widely repeated assertion that "78 % of customers buy from the first business to respond" was searched for specifically, as a claim in its own right, and **the trail terminates in Instagram posts and a marketing account on Reddit.** There is no study, no sample, no method and no institution behind it at any point in the chain. [Web research, Grade D — recorded as the object of a refusal, exactly as the "70 % of CRM projects fail" statistic is in §10.1]
+
+**[Recommendation] The ruling: this figure is never used in any Forever material, internal or external, and it may not be quoted with attribution to this package.** It is recorded here only so that a later revision does not re-import it believing it was overlooked. [Inference] The constraint is sharper for Forever than for a generic brokerage, and it is a brand-integrity constraint rather than a pedantic one: a firm whose entire positioning is evidence-led cannot build its operating model on an unverifiable statistic, and an evidence-led brokerage citing a vendor-funded 2007 study of six companies as "Harvard research" would be doing precisely the thing it claims to be the alternative to.
+
+**The 2024–2026 "benchmark" layer is vendor-published and self-contradictory.** Every current speed-to-lead benchmark page located is published by a company selling lead-response software, and **they contradict one another**: the located headline figures for the same quantity span from tens of hours to tens of minutes, and they disagree with each other on the share of firms that never respond at all. Most are relabelling the 2011 HBR audit as current data. [Web research, Grade D]
+
+**[Recommendation] The ruling, not the numbers.** None of these figures is carried into this package in either direction — they are mutually inconsistent, none is independently sourced, and quoting any one of them would import the identical defect §7.1 has just removed. The transferable finding is the negative one: **no credible new primary research on lead response was found for 2024–2026.** The evidence base has not been refreshed in fifteen years; it has been recirculated. This is also the standing rebuttal to "yes, but that is 2011 — here is 2026 data".
+
+**What survives §7.1 and §7.6, stated once so it can be quoted:**
+
+| Verdict | Content |
+|---|---|
+| **Survives** | **The direction only.** Fast response beats slow response, and most firms are far slower than they believe. The 2007 and 2011 documents agree on that much, and the 2011 audit of 2,241 firms is by far the more credible of the two |
+| **Does not survive** | **Every multiplier** — 100×, 21×, the first-responder claim, every 2024–2026 vendor benchmark, and the roughly 7× and roughly 60× window ratios from HBR itself. The magnitudes are retired; the sign is kept |
+| **Design consequence** | Fast response is genuinely worth designing for — acknowledgement, claim windows, routing, escalation — but **every Forever threshold is justified on Forever's own measured median, never on a borrowed multiplier.** [Repository fact] `docs/ROADMAP.md:148` already states the honest exit criterion: "median response time is measured and improving" |
+| **Marketing consequence** | **Refuse** to repeat any of these statistics in Forever's own materials, on the §10.1 precedent |
+| **On the five-minute number specifically** | **Refused as a literal design target.** [Inference] It describes US business-hours telephone dialling into a short sales cycle. Speed matters; that specific number is not evidence |
+
+[Inference] This conclusion retires the *magnitudes* and keeps the *direction*, which is the same position §7.3 reaches independently from the clinical-trial warm-transfer evidence. Two arguments built on unrelated bodies of evidence converging on one instruction is the strongest support either of them has.
 
 ---
 
@@ -374,7 +420,7 @@ The counts, the ageing and the coverage checks are not a degraded substitute for
 | A four-level kill switch and eleven tunable policy rows | **Eleven TypeScript constants** in one file, each with a review trigger in a comment, plus a manual toggle |
 | An outbound execution engine | **Nothing.** Reintroduce a single `crm_job` table only when a messaging gateway is actually bought; reintroduce an engine at sustained **>200 new enquiries/month**, the threshold the automation section set for itself |
 
-Deferred sends carry a `valid_until`; the 21-day advisor claim lapse is **flag-only**; the per-person contact cap counts reservations rather than completions.
+Deferred sends carry a `valid_until`; the 21-day holding period is the Owner-approved default and its expiry moves `assignment_state` to `warm_up`; the per-person contact cap counts reservations rather than completions.
 
 ### 9.2 The AI rule worth stealing verbatim
 
@@ -411,6 +457,8 @@ Usefully, **the "human review or editorial control" exemption means the human-ac
 **"70 % of CRM projects fail" is struck from the reasoning.** The best academic anchor asserts it in an abstract **with no denominator and no definition of failure**, and adjacent sources scatter the same claim across **31 % – 80 % over 1998–2005**. Critically, it says nothing whatsoever about whether *building* fares better than *buying*, which is the only question being asked. [Web research, Grade D] https://www.sciencedirect.com/science/article/pii/S2314728817300168
 
 A statistic with a range spanning fifty percentage points, no definition of the outcome, and no bearing on the decision it is quoted in support of is rhetoric. It is recorded here so that nobody re-imports it in a later revision believing it was overlooked.
+
+**This is the same pathology §7.1 traced in the speed-to-lead literature, in a second and unrelated body of evidence.** Two secondary reconstructions of the citation chain — https://johnnygrow.com/crm/the-crm-failure-rate-is-55-percent/ and https://crmsearch.com/implementation/crm-fail/ — show the 2001 Gartner, 2002 Butler, 2006 AMR and 2009 Forrester figures being quoted interchangeably despite **no shared definition of failure** between them, which is precisely why their headline numbers disagree. [Web research, Grade D — cited only as specimens] [Inference] Observing the identical failure mode twice, in two literatures that have nothing to do with each other, is what upgrades the finding from "this statistic is weak" to **"this genre of statistic is weak"** — and the second form is the more useful standing rule when a vendor brings a number to the Owner.
 
 ### 10.2 Dated pricing — and why cost is not the deciding variable
 
@@ -493,15 +541,21 @@ Phase column: **1** = the eleven Phase-1 tables; **2** / **3** = later phases; *
 | M5 | Resend free tier; inbound on every tier | https://resend.com/pricing | ADOPT; inbound capture over outbound automation | T | `docs/crm/CRM_INTEGRATION_AND_EVENTS.md` |
 | M6 | Calendar push: no body, no auto-renewal, "not 100% reliable" | https://developers.google.com/workspace/calendar/api/guides/push | REJECT two-way sync; use .ics / invite links | X | `docs/crm/CRM_INTEGRATION_AND_EVENTS.md` |
 | P1 | The 5-minute rule's primary source, and its author's own caveat | https://www.onecavo.com/wp-content/uploads/2015/11/MIT-InsideSales.com_Lead-Response-Management.pdf | REFUSED — Grade D, vendor folklore | — | `docs/crm/CRM_ANALYTICS_AND_KPI.md` |
-| P2 | HBR 2011: one hour; "meaningful conversation"; 23 % of 2,241 never responded | https://thedenmangroupselling.wordpress.com/wp-content/uploads/2011/03/the-short-life-of-online-sales-leads-harvard-business-review.pdf | ADOPT the one-hour threshold and the never-responded count | 1 | `docs/crm/CRM_ANALYTICS_AND_KPI.md` |
+| P1b | Second located copy of the same 2007 vendor PDF | https://25649.fs1.hubspotusercontent-na2.net/hub/25649/file-13535879-pdf/docs/mit_study.pdf | Kept alongside P1 — two independently located copies of a vendor PDF are themselves evidence of how it circulates; neither host is the publisher | — | §7.1 |
+| P1c | The shared-authorship mechanism: Oldroyd co-authored both documents, so a byline migrated | https://hbr.org/2011/03/the-short-life-of-online-sales-leads | ADOPT as a review heuristic — "Harvard says five minutes" is the tell that a source was never opened | R | `docs/crm/CRM_DECISION_RECORDS.md` |
+| P1d | Specimens of the collapse: "Harvard Business Review and MIT" plus the first-responder claim on one page; and the clearest reconstruction of the chain | https://caseyresponse.com/blog/lead-response-time-statistics and https://ainora.lt/blog/lead-response-time-statistics-every-study-2026 | Cited as specimens only — secondary, never as evidence for a number | — | §7.1 |
+| P2 | HBR 2011: one hour; "meaningful conversation"; 23 % of 2,241 never responded | https://hbr.org/2011/03/the-short-life-of-online-sales-leads and https://thedenmangroupselling.wordpress.com/wp-content/uploads/2011/03/the-short-life-of-online-sales-leads-harvard-business-review.pdf | ADOPT the one-hour threshold and the never-responded count; the ~7× / ~60× window ratios are retired with every other multiplier | 1 | `docs/crm/CRM_ANALYTICS_AND_KPI.md` |
 | P3 | Warm transfer vs callback, 25 % vs 12.9 %, n = 2,341 (retrospective) | https://pmc.ncbi.nlm.nih.gov/articles/PMC10395154/ | ADOPT the mechanism: do not break the session | 1 | `docs/crm/CRM_UX_INFORMATION_ARCHITECTURE.md` |
 | P4 | NAR 2025 (n > 1,200): CRM #2 lead source at 23 %, absent from most-used tech | https://www.nar.realtor/research-and-statistics/research-reports/realtor-technology-survey | ADOPT as the adoption kill trigger | 1 | `docs/crm/CRM_IMPLEMENTATION_PLAN.md` |
+| P5 | "78 % of customers buy from the first business to respond" | — no primary source exists; the trail ends at social posts | **REFUSED** — never used internally or externally, and not quotable with attribution to this package | — | §7.6, Appendix A (U11) |
+| P6 | The 2024–2026 vendor "speed to lead benchmark" layer | — every located page is published by a lead-response software vendor, and they contradict one another | **REFUSED** — the ruling is carried, none of the numbers is. No credible new primary research was found for 2024–2026 | — | §7.6 |
 | A1 | Wilson interval; ~1,400 leads to detect 10 %→15 % | https://www.itl.nist.gov/div898/handbook/prc/section2/prc241.htm | ADOPT: no percentage under n = 30; no SQL returns a percentage | 1 | `docs/crm/CRM_ANALYTICS_AND_KPI.md` |
 | N1 | Pipedrive workflow surface area; automations fail mid-flow | https://support.pipedrive.com/en/article/workflow-automation | ADOPT as a ceiling; all 15 engine tables cut | R | `docs/crm/CRM_AUTOMATION_CATALOGUE.md` |
 | N2 | "Outputs used will populate with an empty value" | https://knowledge.hubspot.com/workflows/use-breeze-to-research-and-summarize-data-in-workflows | ADOPT verbatim: no deterministic path reads an AI field | R | `docs/crm/CRM_AUTOMATION_CATALOGUE.md` |
 | N3 | EU AI Act Art 50 from 2026-08-02; human-review exemption | https://artificialintelligenceact.eu/article/50/ | ADOPT: human accept before send also answers transparency | R | `docs/crm/CRM_PRIVACY_CONSENT_RETENTION.md` |
 | N4 | EDPB Guidelines 3/2018: targeting, not nationality | https://www.edpb.europa.eu/our-work-tools/our-documents/guidelines/guidelines-32018-territorial-scope-gdpr-article-3-version_en | Owner decision #2 gates dual-regime machinery | — | `docs/crm/CRM_PRIVACY_CONSENT_RETENTION.md` |
 | B1 | "70 % of CRM projects fail" | https://www.sciencedirect.com/science/article/pii/S2314728817300168 | REFUSED — no denominator, no definition, 31–80 % across sources, silent on building | — | `docs/crm/CRM_BUILD_VS_INTEGRATE.md` |
+| B1b | The 2001–2009 citation chain behind the failure-rate folklore: no shared definition of failure between the quoted sources | https://johnnygrow.com/crm/the-crm-failure-rate-is-55-percent/ and https://crmsearch.com/implementation/crm-fail/ | Specimens only — the same pathology as P1, in a second literature. Supports the standing rule that the *genre* is weak | — | §10.1 |
 | B2 | Twenty CRM licence: AGPLv3 + `@license Enterprise` files | https://raw.githubusercontent.com/twentyhq/twenty/main/LICENSE | BLOCKED — counsel required; not legal advice | X | `docs/crm/CRM_BUILD_VS_INTEGRATE.md` |
 | B3 | Supabase pricing | https://supabase.com/pricing | BUILD the core (~$0–50/mo marginal) | 1 | `docs/crm/CRM_BUILD_VS_INTEGRATE.md` |
 | B4 | Kommo pricing (~$25/user/mo Advanced, 6-month minimum) | https://www.kommo.com/buy/tariff/ | BUY the gateway — gated on M3 | T | `docs/crm/CRM_BUILD_VS_INTEGRATE.md` |
@@ -516,5 +570,44 @@ Phase column: **1** = the eleven Phase-1 tables; **2** / **3** = later phases; *
 | Any cited vendor page changes materially, or a price changes | Re-fetch and re-date §10.2; a stale price is worse than no price in a build/buy argument |
 | 2026-08-02 passes and any AI feature is proposed | Re-read Article 50 against the actual feature, with the EU-targeting answer in hand |
 | A reviewer proposes reintroducing a conversion rate, a score, or the 5-minute rule | Refuse and cite §7.1 and §8.1; both are settled here and in `docs/crm/CRM_DECISION_RECORDS.md` |
+| A vendor, a blog or a reviewer produces a speed-to-lead statistic — including one dated 2024 or later | Check it against §7.1 and §7.6 before it is repeated anywhere. A Harvard attribution for 100× / 21× settles it on its own |
+| **2026-09-01 passes** — the date by which Meta states WhatsApp per-message rates effective 2026-10-01 will be published | Re-fetch and resolve Appendix A **U4**. Until it resolves, no cost band may be published against those rates |
+| The Owner answers whether Forever is on Google Workspace | Resolves Appendix A **U15**, which currently blocks costing the cheapest email and calendar unlock |
 
 **Nothing in this document is legal advice.** The PDPA, GDPR and EU AI Act content is descriptive reading of published texts and must be confirmed by qualified Thai counsel — and, where EU exposure is in question, by counsel qualified in the relevant Member State.
+
+---
+
+## Appendix A — Register of claims that could not be verified (U1–U15)
+
+`[Unverified assumption]` Every entry below was searched for during this task and was **not found**, or was found only in a form too weak to rely on, as of **2026-07-28**. The register exists because §1.1 commits this package to marking unretrievable claims rather than quietly dropping them: a non-finding that is written down can be re-checked, and a non-finding that is merely omitted looks identical to a question nobody asked.
+
+**Nothing in the architecture may assume that any of these resolves favourably.** Where a design depends on one, it must be correct under every reading the evidence leaves open.
+
+| # | Claim or question | Status as of 2026-07-28 | Who resolves it |
+|---|---|---|---|
+| U1 | A published **Thai adequacy allowlist** under PDPA s.28 | None found | Thai counsel |
+| U2 | A Thai statutory ePrivacy-equivalent "prior consent for commercial email" rule | Could not be verified | Thai counsel |
+| U3 | The English PDPA text in use is an **unofficial translation**, and the PDPC consent guideline was read through a machine translation of a Thai PDF | Section numbers and thresholds must be checked against the authoritative Thai text before any reliance | Thai counsel |
+| U4 | WhatsApp per-message rates effective 2026-10-01 | **Not knowable today.** Meta states the rates will be published by 2026-09-01. **No cost band may be published against them**, in either direction | Re-fetch after 2026-09-01 |
+| U5 | Meta webhook retry duration | **Two Meta primary pages conflict**: the generic Graph API webhooks page implies roughly 36 hours, the WhatsApp-specific webhooks page states up to 7 days. Neither settles it. **The design must survive either** | Design constraint, not a research task |
+| U6 | `supa_audit` availability on the Supabase managed platform | Could not be confirmed from Supabase documentation. Moot in practice — the extension was archived 2025-02-16 and §5.3 already reuses `public.audit_log` instead; a hand-rolled trigger audit is the fallback | — |
+| U7 | The `language sql` inlining hazard said to reintroduce RLS recursion | **Community-documented only.** Not stated in official PostgreSQL or Supabase documentation. Treated as a cheap precaution, never as a proven rule | — |
+| U8 | Multi-currency support in Spark, Follow Up Boss or Lofty | No public documentation found. Per §1.3 this is absence of evidence in vendor documentation, **not** evidence of absence in the product | Vendor demo, if ever relevant |
+| U9 | Language-based lead routing in any examined real-estate CRM | Not documented anywhere in the set | — |
+| U10 | Viewing feedback automatically re-scoring or re-matching inventory, in any examined system | Not documented anywhere in the set | — |
+| U11 | "78 % of customers buy from the first business to respond" | **No traceable primary source.** The trail ends at social posts and marketing blogs. Refused outright — see §7.6 | Settled: refused |
+| U12 | Propertybase forward roadmap or end-of-life position under Lone Wolf | No primary vendor statement found; only the 2021 acquisition press release | — |
+| U13 | Whether Lofty reassignment-group distribution can be automated | **Two Lofty help articles contradict each other** | Design constraint, not a research task |
+| U14 | Russian regulatory action against WhatsApp | Secondary news reporting only; no primary regulator document obtained. Material to §6.1, since the buyer population is substantially Russian-speaking | Re-check before any gateway purchase |
+| U15 | Whether Forever is on Google Workspace | **Unknown.** The cheapest available email and calendar unlock depends entirely on the answer | **Owner** — a one-line answer |
+
+Three observations about this register are worth more than any individual row.
+
+**U5 and U13 are the instructive entries, because in both cases the vendor's own documentation contradicts itself.** [Inference] That is a general property of this evidence base and it deserves to be stated as a rule: where a design depends on a vendor-documented duration or behaviour, **the design must be correct under both readings**, because there is no third page to adjudicate between them. This is the operational form of the §1.3 honesty statement.
+
+**U7 is moot for Forever, and is retained precisely because it is moot.** [Inference] This package places authorization in TypeScript at the app-server boundary running as `service_role`, with internal tables carrying RLS-on-with-zero-policies plus an explicit `REVOKE`, and uses no `auth.uid()` or `auth.jwt()` policy anywhere — so the recursion hazard has no surface on which to appear. The row stays because the register's value is that it records what was checked, including checks whose answer stopped mattering.
+
+**One verification limit is specific to this repository.** [Repository fact] Re-verified against the current worktree (branch `claude/forever-crm-architecture-002`, merged to main @ 82e2039270168df1043050204988fbd6c009ed0e): **there is no CI — no `.github/` directory exists at all**, let alone `.github/workflows`. No claim anywhere in this package may assert that a gate, a test or a check "passes"; only locally executed commands may be reported, and only as locally executed.
+
+**Standing rule for this appendix:** an entry is removed only when a **primary** source resolves it, and the resolution is dated and cited in the same edit. An entry is never removed because a secondary source repeats a plausible answer.

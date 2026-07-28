@@ -1,9 +1,19 @@
 # Forever CRM Architecture Index
 
-Task ID: FOREVER-CRM-ARCH-001
+Task ID: FOREVER-CRM-ARCH-001 (design) · FOREVER-CRM-ARCH-002 (canonical consolidation)
 Status: Proposed architecture — not approved, not scheduled, not authorized for implementation
-Repository state of record: main @ `821b3c4e2f6f82e0d4ddce86199a8ff24b44a094`
+Repository state of record: main @ `82e2039270168df1043050204988fbd6c009ed0e`
 Risk class: R0 (documentation only)
+
+> **Consolidation note.** Two architecture packages were produced independently from the same commit for
+> FOREVER-CRM-ARCH-001. An impartial adjudication — four blind assessors, two per package, plus one
+> adjudicator — recommended this one as the canonical base. Under FOREVER-CRM-ARCH-002 the Owner accepted that
+> recommendation, and four specifically identified strengths were transplanted from the alternative package
+> (Draft PR #121) before it was closed as superseded: the migration-replay and migration-history risk
+> analysis, the anonymous `leads` column-widening privilege hole, the `units` prerequisite runbook, and the
+> fuller speed-to-lead evidence analysis. Their destinations are listed in
+> [`CRM_INDEPENDENT_REVIEW.md`](CRM_INDEPENDENT_REVIEW.md). PR #121 was closed unmerged, never force-pushed
+> and never deleted.
 
 > This package is a design record. It asserts no product truth, changes no active stage, and authorizes no
 > implementation. The active stage remains **FOREVER-STUDIO-001** (`docs/CURRENT_STAGE.md`), which lists
@@ -76,7 +86,7 @@ These are not this package's inventions. They are existing Forever rules the des
   and deal workflow state. It must not own project, developer, location, unit-inventory, price-history,
   Passport or Intelligence truth.
 - **Forever's authorization idiom.** There is not one occurrence of `auth.uid()` or `auth.jwt()` in any of the
-  24 migrations. Per-user authorization is TypeScript at the app-server boundary; internal tables use
+  25 migrations. Per-user authorization is TypeScript at the app-server boundary; internal tables use
   `ENABLE ROW LEVEL SECURITY` with zero policies plus an explicit `REVOKE`. This package introduces no
   competing model.
 - **Fail-closed public truth.** Missing evidence renders as `false`, `null`, "Not available" or a hidden

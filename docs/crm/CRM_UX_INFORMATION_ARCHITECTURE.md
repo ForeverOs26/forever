@@ -2,7 +2,7 @@
 
 Task ID: FOREVER-CRM-ARCH-001
 Status: Proposed architecture — not approved, not scheduled, not authorized for implementation
-Repository state of record: main @ 821b3c4e2f6f82e0d4ddce86199a8ff24b44a094
+Repository state of record: main @ 82e2039270168df1043050204988fbd6c009ed0e
 Risk class: R0 (documentation only)
 
 > This document is a design record. It asserts no product truth, changes no active stage, and authorizes no implementation. The active stage remains FOREVER-STUDIO-001 (`docs/CURRENT_STAGE.md`), which lists "large CRM integration" as out of scope. Any implementing task is R2 under the shared-contract rule and requires an Architect-reviewed stage change plus Owner approval.
@@ -125,7 +125,7 @@ export function resolveNextAction(input: NextActionInput, now: Date): NextAction
 
 **Rungs 4 and 5 are the commitment correction, and they outrank routine hygiene deliberately.** Before them, a reserved deal with a missing passport scan whose cooling-off ended tomorrow returned `nothing_due`. A lapsed cooling-off period is a forfeited deposit and a released unit, not a soft loss. Both carry `overdueHours`; neither adds a column — they read `reservations_requirements_outstanding` and `reservations_expiring_7d`, already defined in `docs/crm/CRM_ANALYTICS_AND_KPI.md`.
 
-**`next_action_at` is the universal suppressor.** A future `next_action_at` means "deliberately waiting": it suppresses the silence flag, the stage-dwell rung, the overdue prompt and the 21-day claim check. [Owner requirement] A Phuket off-plan cycle runs 6–18 months; a buyer correctly left alone until October must not raise three flags and cost their advisor a claim.
+**`next_action_at` is the universal suppressor.** A future `next_action_at` means "deliberately waiting": it suppresses the silence flag, the stage-dwell rung and the overdue prompt. It does **not** suppress the 21-day holding-period check — that one is deferred only by an explicit, audited `ownership_extension`, so a holding period cannot be extended indefinitely by scheduling a reminder. [Owner requirement] A Phuket off-plan cycle runs 6–18 months; a buyer correctly left alone until October must not raise three flags and cost their advisor a claim.
 
 **Rungs are phase-aware, not aspirational.** A rung whose table does not exist is not evaluated and not rendered, so `resolveNextAction` returns a real answer in Phase 1 on four live rungs. The ordering is a product judgement wearing the authority of a pure function: it must be reviewed by the Owner against real days of work, because an error propagates identically to all five surfaces by design.
 
@@ -817,7 +817,7 @@ Two levels, one owner each, no sharing matrix. [Web research] Attio's coarse, ad
 | Bulk | Exists only as the Owner's *Move all N* on a member's Pulse row: the leaver scenario, and nothing else. |
 | Refused | Round-robin; routing rules and their editor; working-hours and vacation configuration — [Web research] ordered first-match-wins rules with per-rule hours are the right eventual shape (https://help.lofty.com/hc/en-us/articles/360055177831-Lead-Routing-How-to-set-up-lead-routing-rules) but are pointless with one pipeline and a handful of advisors, and the domain does not model them. Co-owners, teams, territories. Approval workflows. A "request access" flow — everything is already visible to every member. |
 
-**The 21-day claim check is `flag_only`.** No clock ever writes `owner_user_id` or `relationship_owner_user_id`. A lapse writes the Owner a `crm_task`; a human reassigns. A machine performing a commission-relevant write on a timer is not a feature.
+**The 21-day holding period is the Owner-approved default** (`docs/crm/CRM_JOURNEYS_AND_STATE_MACHINES.md` §7.3). At expiry the person moves to `warm_up` and the Owner gets a `crm_task`; **selecting** the next assignee stays human until routing rules exist. No clock ever writes `originating_owner_user_id` or a credit row, which is why moving current assignment on a timer is not a commission-relevant write.
 
 ## 17. Untrusted content, CSP, and why nobody keeps a spreadsheet
 

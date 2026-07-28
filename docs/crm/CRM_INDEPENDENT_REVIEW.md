@@ -2,7 +2,7 @@
 
 Task ID: FOREVER-CRM-ARCH-001
 Status: Proposed architecture — not approved, not scheduled, not authorized for implementation
-Repository state of record: main @ `821b3c4e2f6f82e0d4ddce86199a8ff24b44a094`
+Repository state of record: main @ `82e2039270168df1043050204988fbd6c009ed0e`
 Risk class: R0 (documentation only)
 
 > This document is a design record. It asserts no product truth, changes no active stage, and authorizes no
@@ -167,7 +167,40 @@ overstatement teaches nothing.
 
 ---
 
-## 7. What the reviewers agreed was right
+## 7. The consolidation, and what was transplanted from PR #121
+
+[Repository fact] A second architecture package was produced independently for the same task, from the same
+commit, and opened as Draft PR #121. Four blind assessors — two per package, neither pair seeing the other —
+and one adjudicator compared both against the task's Definition of Done. Both packages contained all
+twenty-five required deliverables; on nine of fifteen criteria they were judged genuinely tied; and they
+converged independently on twenty-three substantive points, including that `public.leads` is a write-only
+mailbox, that the first move must create no schema, that `auth.uid()` RLS must not be introduced, and that the
+five-minute speed-to-lead rule is folklore. Two runs debunking the same statistic without contact is the
+strongest single piece of evidence in the exercise.
+
+The adjudication recommended this package as the canonical base — principally because PR #121's Owner-facing
+summary asserted that failed contact submissions are invisible, which is false (`src/components/ContactForm.tsx`
+catches at lines 63-69 and renders at 184-188), and because its first slice was defined two incompatible ways
+inside its own package. Under FOREVER-CRM-ARCH-002 the Owner accepted that recommendation and directed that
+four of PR #121's strengths be preserved before it was closed.
+
+| # | Transplanted from PR #121 | Destination in this package |
+| - | ------------------------- | --------------------------- |
+| 1 | Migration replay and migration-history risk — that `supabase db push` applies in version order so the first CRM migration replays the entire pending backlog; ledger mismatch; renaming hazards; clean-environment versus upgrade-path testing; rollback and restore; collision prevention | `CRM_IMPLEMENTATION_PLAN.md` (migration strategy + risk register), `CRM_SECURITY_AND_RBAC.md` (a security boundary must be verified against the live schema, never inferred from the file), `CRM_DECISION_RECORDS.md` |
+| 2 | The anonymous `leads` column-widening privilege hole — `GRANT INSERT ON public.leads TO anon` at `supabase/migrations/20260704132000_create_leads.sql:29` is table-level and therefore extends automatically to any column added later | `CRM_SECURITY_AND_RBAC.md` (full finding + threat model), `CRM_IMPLEMENTATION_PLAN.md` (acceptance criterion), `CRM_DOMAIN_MODEL.md` (the standing reason this package adds zero columns), `CRM_FINAL_RECOMMENDATION.md` |
+| 3 | The `units` prerequisite runbook — `units.unit_code` has no UNIQUE constraint, the fix is a partial unique index because it is nullable, `CONCURRENTLY` is unavailable because Supabase wraps each migration in a transaction, and dependent tables cascade from `units(id)` so deleting a duplicate first destroys price history silently | `CRM_PRODUCT_BOUNDARY.md` (boundary), `CRM_DOMAIN_MODEL.md` (runbook), `CRM_INTEGRATION_AND_EVENTS.md` (unresolved interest and change events), `CRM_IMPLEMENTATION_PLAN.md` (prerequisite task) |
+| 4 | The fuller speed-to-lead evidence analysis — the shared-authorship mechanism by which vendor numbers acquired a Harvard byline, the ruling that the "78% buy from the first responder" figure has no traceable source, and the register of claims that could not be verified | `CRM_MARKET_RESEARCH_2026.md` §7 + unverifiable-claims appendix, `CRM_ANALYTICS_AND_KPI.md` (four separately measurable clocks), `CRM_AUTOMATION_CATALOGUE.md`, `CRM_FINAL_RECOMMENDATION.md` |
+
+**Six things were deliberately not carried over**, because the adjudication verified them as defects: the
+false silent-submission claim; the two conflicting first-slice definitions; the DDL ordering rule that
+contradicts its own foreign key; the claim that a modular `docs/crm/` subtree violates repository precedent
+(main tracks `docs/factory/`, `docs/navigator/` and `docs/progressive-ingestion/`); the cost bands PR #121
+itself marks as unverified vendor pricing; and any large-schema plan presented as authorized.
+
+PR #121 was closed unmerged and superseded. It was never force-pushed, never modified, and its branch was not
+deleted.
+
+## 8. What the reviewers agreed was right
 
 Recorded because it is the part of the design that survived unchanged, and therefore the part with the
 strongest claim to be correct.

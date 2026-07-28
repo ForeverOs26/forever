@@ -2,7 +2,7 @@
 
 Task ID: FOREVER-CRM-ARCH-001
 Status: Proposed architecture — not approved, not scheduled, not authorized for implementation
-Repository state of record: main @ 821b3c4e2f6f82e0d4ddce86199a8ff24b44a094
+Repository state of record: main @ 82e2039270168df1043050204988fbd6c009ed0e
 Risk class: R0 (documentation only)
 
 > This document is a design record. It asserts no product truth, changes no active stage, and authorizes no implementation. The active stage remains FOREVER-STUDIO-001 (`docs/CURRENT_STAGE.md`), which lists "large CRM integration" as out of scope. Any implementing task is R2 under the shared-contract rule and requires an Architect-reviewed stage change plus Owner approval.
@@ -16,7 +16,8 @@ Risk class: R0 (documentation only)
 5. **Order statistics get a floor too:** individual values below n = 5, p50 from n = 5, p90 from n = 12.
 6. **Every date derived from an instant is pinned to `Asia/Bangkok`** (INV-D-14), in SQL and in TypeScript.
 7. **This document owns every metric key**, and at §6.1 the Pulse tile set of record that `docs/crm/CRM_UX_INFORMATION_ARCHITECTURE.md` §6 renders.
-8. **Zero new tables, zero new columns.** One CHECK, one column-semantics clarification, three indexes, two Owner calibrations (§10).
+8. **"Response time" is four separately named measurements, never one figure** (§4.4): automated acknowledgement, human first response, the business-hours SLA clock, and after-hours arrival. Three of the four need no SLA and no Owner input, so measurement starts before any target exists; and the `*/5` cron is a hard floor on any sub-5-minute promise.
+9. **Zero new tables, zero new columns.** One CHECK, one column-semantics clarification, three indexes, two Owner calibrations (§10).
 
 Metric names are not re-founded here: `docs/FOREVER_STRATEGIC_NORTH_STAR.md:296-323` and `docs/ROADMAP.md:231-250` are the naming authority (§2.1); the data-truth boundary in `docs/FOREVER_BRAIN_V1.md` §7 is cited, not restated. `docs/crm/CRM_DOMAIN_MODEL.md` owns every table, column, enum, invariant and migration number; `docs/crm/CRM_IMPLEMENTATION_PLAN.md` owns the phase gates.
 
@@ -170,10 +171,12 @@ Four canonical metrics are deliberately outside this section; defining them here
 | `enquiries_untriaged` | `triage_state = 'unprocessed'` and `received_at < now() - 24h` | 1 | count |
 | `enquiries_unactioned` | `first_response_at IS NULL`, older than one business hour (§4.4) | 1 | count + oldest age |
 | `enquiries_never_responded` | `first_response_at IS NULL`, received before period end | 1 | count — **must render adjacent to `first_response_hours`** |
-| `first_response_hours` | Distribution of `first_response_at − received_at` over responded enquiries | 1 | order |
-| `first_response_sla_breaches` | First human response exceeded one business hour, or never came | 1 | count; compliance % is census-class, secondary only, n ≥ 30 |
+| `first_response_hours` | Distribution of **wall-clock** `first_response_at − received_at` over responded enquiries — clock (b) of §4.4 | 1 | order |
+| `first_response_business_hours` | The same event on the **business clock**: elapsed time intersected with `FOREVER_RESPONSE_WINDOW` — clock (c) of §4.4 | 1 | order — renders "Not available" until D-6 is answered; **never rendered without `first_response_hours` beside it** |
+| `first_response_sla_breaches` | `first_response_business_hours` exceeded one business hour, or no response ever came; split in-window / out-of-window arrival | 1 | count; compliance % is census-class, secondary only, n ≥ 30 |
+| `enquiries_by_arrival_hour` | Count distribution of `received_at` over the 24 Bangkok hours-of-day — clock (d) of §4.4 | 1 | counts — **needs no SLA, no window and no Owner input**; never divided into an out-of-hours share |
 | `owner_not_first_responder` | First human outbound came from a member other than `crm_person.relationship_owner_user_id` | 1 | count — **never split per agent as a rate** |
-| `acknowledgement_seconds` | `crm_enquiry.acknowledged_at − received_at` | 1 | **inert** — "Not available" until an outbound gateway exists (§4.4) |
+| `acknowledgement_seconds` | `crm_enquiry.acknowledged_at − received_at` — clock (a) of §4.4; measures **generation, not delivery** | 1 | **inert** — "Not available" until an outbound gateway exists (§4.4) |
 | `enquiries_by_source` | Counts by `crm_enquiry.source_key`, and by `crm_person.first_touch_source_key` / `last_touch_source_key` side by side | 1 | counts — never divided into a source conversion rate |
 | `leads_not_ingested` | `public.leads` rows older than 15 minutes with no matching `crm_enquiry.legacy_lead_id`, paired with the ingest pass `last_run_at` | Slice 1 | count — **non-zero is a Phase-1 exit blocker** (`docs/crm/CRM_INTEGRATION_AND_EVENTS.md` §3.6) |
 
@@ -253,7 +256,7 @@ Four canonical metrics are deliberately outside this section; defining them here
 
 `s25_notices_due` is drainable by a human because `s25_notice_method` and `s25_notice_sent_by` exist: an advisor who gives the notice on the phone clears the row. A compliance counter that only goes up trains everyone to ignore the compliance surface, which is where `dsr_open_overdue` also lives. **Descriptive only, not legal advice; qualified Thai counsel must confirm.**
 
-**Total: 58 metric keys plus the §9 census** — 47 counts and count distributions, 3 order statistics, 2 currency sums, 6 count pairs. Twenty are computable in Phase 1, one in Slice 1; the rest name a later phase and render "Not available" until it exists.
+**Total: 60 metric keys plus the §9 census** — 48 counts and count distributions, 4 order statistics, 2 currency sums, 6 count pairs. Twenty-one are computable in Phase 1 and one in Slice 1; `first_response_business_hours` is computable in Phase 1 only once D-6 is answered; the rest name a later phase and render "Not available" until it exists.
 
 ### 2.4 Requested metrics deliberately not built as ratios
 
@@ -391,17 +394,79 @@ FUB scopes the responder to the **assigned** agent; Forever does not. At roughly
 | Clock start | `received_at`, not `created_at` | Row-insert time would hide up to five minutes of ingestion lag |
 | Enquiry never linked to a person | Counted as unactioned against the enquiry | An enquiry nobody linked is exactly the failure |
 
-### 4.4 The clock, the window, and the target
+### 4.4 Four clocks, four names, and the dishonest number that merging them produces
 
-[Web research] The "5-minute rule" is vendor folklore: its primary source is an InsideSales.com study whose own author states the pattern appears only when data from several companies is combined (https://www.onecavo.com/wp-content/uploads/2015/11/MIT-InsideSales.com_Lead-Response-Management.pdf), and InsideSales sold callback dialer software. The strongest source-backed threshold is **one hour**, from HBR 2011, whose useful finding is that the bar is on the floor — 23 % of 2,241 audited companies never responded at all, average 42 hours (https://thedenmangroupselling.wordpress.com/wp-content/uploads/2011/03/the-short-life-of-online-sales-leads-harvard-business-review.pdf). The best independent evidence is not from sales at all: warm transfer versus callback in clinical-trial recruitment, 25 % versus 12.9 %, n = 2,341 — the value is in **not breaking the session**, not in shaving minutes off a callback (https://pmc.ncbi.nlm.nih.gov/articles/PMC10395154/).
+[Recommendation] **"Response time" is not one quantity.** Four different events are habitually reported under that phrase. Each has its own trigger, its own clock, its own characteristic failure and its own metric key, and **no two of them are ever summed, averaged together, or rendered as a single figure.** This is the reporting-layer restatement of the §4.3 exclusion rules: what `is_automated = true` removes from the *predicate*, the four-clock split removes from the *tile*.
+
+| | Measurement | Key | What fires it | Clock | Characteristic failure |
+|---|---|---|---|---|---|
+| **(a)** | **Immediate automated acknowledgement** | `acknowledgement_seconds` | Receipt of the enquiry by the system | Wall clock, continuous, timezone-irrelevant | **Silent gateway failure.** Nobody complains, because the sender is a machine and the buyer does not know a message was owed |
+| **(b)** | **Actual human first response** | `first_response_hours` | The §4.1 predicate — an attributed human act. Opening a record is not contact | Wall clock, continuous | Survivorship (§4.5 rule 2); lost notification; a genuine response nobody logged |
+| **(c)** | **The business-hours SLA clock** | `first_response_business_hours` | The same event as (b), with elapsed time **intersected** with `FOREVER_RESPONSE_WINDOW` | Business clock | **Its denominator is a policy decision, not a fact.** An unstated window makes every breach count unfalsifiable |
+| **(d)** | **After-hours behaviour** | `enquiries_by_arrival_hour`, plus the in-window / out-of-window split of `first_response_sla_breaches` | Arrival of the enquiry | Bangkok hour-of-day | Measured on (b)'s clock it is recorded as a nightly breach by construction, so the surface is learned to be noise |
+
+[Recommendation] **Why conflating them produces a dishonest number** — three specific dishonest numbers, each produced automatically by one of the three possible merges:
+
+1. **(a) merged into (b).** An automated acknowledgement makes every enquiry look answered in seconds: "median first response 4 s" while no human has spoken to anyone all week. The number is arithmetically correct and factually a lie about the business.
+2. **(b) merged into (c).** A wall-clock elapsed time reported against a business-hours target: an enquiry received 23:40 and answered 09:05 reads as a 9.4-hour failure by a team that responded twenty-five minutes into its first working hour. Repeated nightly, this is how a coverage surface teaches its users that breaches are meaningless.
+3. **(c) merged into (d).** The business clock alone: the same enquiry accrues five business minutes and reads as excellent, and the night of silence disappears from the record entirely. The buyer waited nine hours; the report says five minutes. Both numbers are true, and only both together are honest.
+
+**Therefore (b) and (c) always render together, and (d) always renders beside them as the count that makes them readable.** A single "response time" figure is prohibited on every surface, tile, export and caption in this package, in exactly the way a single converted pipeline total is (§3.3).
+
+**(a) measures generation, not delivery.** `acknowledged_at` records that Forever *sent*, never that the buyer *received*, and no caption, tooltip or export may label it "buyer notified". [Web research] The clearest documented case of the gap is Follow Up Boss's claim notifications, which are push-only — never email, never text — and which a swipe rather than a tap can clear, preventing the claim outright — https://help.followupboss.com/hc/en-us/articles/360014656193-First-to-Claim. [Inference] A clock whose start or stop depends on one delivery channel records channel health as if it were human performance; where the two are indistinguishable, the metric is reported as a count of records, never as a verdict about a person.
+
+**(c) and (d) are only honest if availability is recorded.** [Web research] Two vendors treat availability as a routing *input*: Lofty gates distribution on per-agent working hours and vacation mode, falling through to the next rule and then to a mandatory catch-all when everyone in a rule is unavailable — https://help.lofty.com/hc/en-us/articles/360055177831-Lead-Routing-How-to-set-up-lead-routing-rules — and Spark requires per-user opt-in before a member enters the round-robin at all — https://knowledge.spark.re/registration-form-settings. [Inference] A breach recorded against an advisor who was off duty measures the rota, not the advisor; until availability is recorded, `first_response_sla_breaches` is reported at team level only, and never attributed to a named member. Whether Forever adopts availability-gated routing or a claim window is decided in `docs/crm/CRM_AUTOMATION_CATALOGUE.md`, not here; this section fixes only what may be counted and how it may be labelled.
+
+**The targets, and the only evidence permitted to justify them.** [Web research] The "5-minute rule" is vendor folklore: its primary source is a 2007 InsideSales.com study whose own author states the pattern appears only when data from several companies is combined (https://www.onecavo.com/wp-content/uploads/2015/11/MIT-InsideSales.com_Lead-Response-Management.pdf), and InsideSales sold callback dialler software. The strongest source-backed threshold is **one hour**, from the 2011 HBR audit — publisher of record https://hbr.org/2011/03/the-short-life-of-online-sales-leads, full text as located https://thedenmangroupselling.wordpress.com/wp-content/uploads/2011/03/the-short-life-of-online-sales-leads-harvard-business-review.pdf — whose useful finding is that the bar is on the floor: 23 % of 2,241 audited companies never responded at all, average 42 hours. The best independent evidence is not from sales at all: warm transfer versus callback in clinical-trial recruitment, 25 % versus 12.9 %, n = 2,341 — the value is in **not breaking the session**, not in shaving minutes off a callback (https://pmc.ncbi.nlm.nih.gov/articles/PMC10395154/). Both retained percentages clear the n ≥ 30 floor by three orders of magnitude; the multipliers that do not are retired in §4.4.2.
 
 | Target | Value | Enforceable? |
 |---|---|---|
 | Automated acknowledgement | 2 minutes | Only inline in the capture RPC; the cron is `*/5`, so a cron-driven acknowledgement can never meet it. **Inert today** — nothing on `main` sends, `acknowledged_at` is NULL for every row, and the metric renders "Not available", never 0 |
 | Human first response | **1 business hour** | Yes, once business hours are defined |
 | Human first response, wall clock | Reported, never targeted | Phuket is UTC+7, Moscow UTC+3, so peak Russian evening browsing lands 23:00–03:00 Phuket. A global wall-clock SLA would be recorded as failed nightly and would train everyone to ignore the dashboard |
+| Out-of-hours arrival | **Counted, never targeted** | `enquiries_by_arrival_hour` is a count distribution. The out-of-hours *share* is a census proportion on a denominator that will sit far below 30 for a long time, so under §1.1 it is not rendered as a percentage at all |
 
-`FOREVER_RESPONSE_WINDOW = { tz: 'Asia/Bangkok', openLocal: '09:00', closeLocal: '19:00', days: Mon–Sat }` — **[Unverified assumption]; the Owner must confirm actual operating hours before any SLA count is published** (D-6). Out-of-window enquiries are bucketed separately with the clock starting at the next open, and the bucket size is itself reported: if half of all enquiries arrive out of hours, that is a coverage decision, not an SLA failure.
+`FOREVER_RESPONSE_WINDOW = { tz: 'Asia/Bangkok', openLocal: '09:00', closeLocal: '19:00', days: Mon–Sat }` — **[Unverified assumption]; the Owner must confirm actual operating hours before any SLA count is published** (D-6). It is the same window `docs/crm/CRM_AUTOMATION_CATALOGUE.md` §8.2 calls the business clock: one object, defined once, here. Out-of-window enquiries are bucketed separately with the clock starting at the next open, and the bucket size is itself reported: if half of all enquiries arrive out of hours, that is a coverage decision, not an SLA failure.
+
+#### 4.4.1 What Forever can measure before any SLA exists
+
+[Recommendation] **Measurement does not wait for a target, and adopting a target before measuring is how an unachievable one gets adopted.** Three of the four clocks need no policy decision whatsoever; only (c) does.
+
+| Available now, with no SLA and no Owner input | Blocked until D-6 is answered |
+|---|---|
+| `enquiries_received`, `enquiries_untriaged`, `enquiries_never_responded` — counts, at every denominator | `first_response_business_hours` — the intersection has no definition without a window |
+| `first_response_hours` p50 / p90 / min / max, wall clock, through `renderOrderStatistic` | `first_response_sla_breaches` — "breach" is undefined without a target |
+| `enquiries_by_arrival_hour` — the 24-hour Bangkok arrival profile that tells the Owner what the window *should* be | Any "% within SLA" figure — census-class, secondary only, and n ≥ 30 regardless (§5) |
+| `enquiries_unactioned` with **oldest age** rather than a threshold count, which is the same work list without a policy | Any per-member breach attribution (see availability, above) |
+
+[Repository fact] `docs/ROADMAP.md:148` already states the honest exit criterion in these terms — "median response time is measured and improving" — which is a statement about (b), needs no threshold, and is not satisfiable today because §2.0 holds. [Recommendation] The sequence is therefore fixed: measure (b) and (d) for a full quarter, let the Owner set the window from the observed arrival profile, and only then let (c) and its breach count exist. A threshold chosen from Forever's own measured median is defensible; one chosen from a borrowed multiplier is not.
+
+#### 4.4.2 What must not be presented as proven industry truth
+
+`docs/crm/CRM_MARKET_RESEARCH_2026.md` §7 is the evidence authority and is not restated here. What binds *this* document is the rendering consequence: none of the following may appear in a tile, caption, tooltip, export, briefing note or marketing page, in any form, including as a justification for a threshold.
+
+| Claim | Ruling | Where it is traced |
+|---|---|---|
+| "Respond in 5 minutes — 100× more likely to contact, 21× to qualify" | **The magnitudes are retired; only the sign survives.** Fast beats slow; no multiplier is usable | `CRM_MARKET_RESEARCH_2026.md` §7.1 |
+| "…and Harvard proved it" | **Not Harvard.** Attributing the multipliers to Harvard is the reliable tell that a source has been quoted rather than read | `CRM_MARKET_RESEARCH_2026.md` §7.1 |
+| The roughly 7× and 60× response-window ratios from HBR 2011 itself | **Also retired**, on the same reasoning. The usable part of that source is the audit finding quoted above, not its ratios | `CRM_MARKET_RESEARCH_2026.md` §7.2 |
+| "78 % buy from the first business to respond" | **Never used, in any material, internal or external**, and not quotable with attribution to this package. No traceable primary source exists | `CRM_MARKET_RESEARCH_2026.md` §7.6 |
+| Any 2024–2026 vendor "speed-to-lead benchmark" | **Not carried in either direction.** They are vendor-published and mutually contradictory; quoting one imports the defect the first row removes | `CRM_MARKET_RESEARCH_2026.md` §7.6 |
+
+[Recommendation] The positive form of the rule, and the only one a developer needs to remember: **every threshold this system enforces is justified on a distribution Forever measured about itself, with `n` printed beside it.** Where no such distribution exists yet, the surface says so (§9.2 `instrumentation_absent`) rather than borrowing a number.
+
+#### 4.4.3 The `*/5` cron is a hard floor on any sub-5-minute promise
+
+[Repository fact] `wrangler.jsonc:18` declares `"crons": ["*/5 * * * *"]`, and the same file records that nothing in this repository deploys it. The tick invokes the Worker's `scheduled()` export — no browser session, no HTTP endpoint, no user token — firing the `cloudflare:scheduled` Nitro hook for one bounded continuation pass.
+
+| Property | Consequence |
+|---|---|
+| **Stored timestamps** | **Second resolution.** `received_at`, `acknowledged_at`, `first_response_at` and `occurred_at` are exact, because they are recorded values and not sampled ones. All four clocks of §4.4 are measurable to the second |
+| **Anything the scheduled seam must *detect*** | **≤ 5-minute resolution at best.** A missed 2-minute acknowledgement is detectable at up to ~5 minutes, never at 2 |
+| **Therefore** | **No sub-5-minute escalation, alert or breach *detection* may be promised on this runtime.** Only the in-request capture path can carry a sub-5-minute promise, and only once an outbound gateway exists — §8.2 already declines to add a second consumer to the single seam |
+| **Therefore** | **Every SLA number lives in one versioned TypeScript constant beside `FOREVER_RESPONSE_WINDOW` and is rendered from it — never typed into UI copy, a caption or a template.** A changed policy then changes every surface at once, and the number a given enquirer was actually promised stays reconstructable from the constant in force at that date. **No table and no column is proposed for this** (§10) |
+
+[Web research] A supporting coincidence rather than a justification: the speed-to-lead market leader deliberately delays lead flow by up to five minutes in order to route correctly — https://help.followupboss.com/hc/en-us/articles/4402128249367-Dashboard. [Inference] The `*/5` cadence is a defensible property of the design and not a defect to be apologised for; what is indefensible is stating a promise finer than the mechanism that would have to detect its breach.
 
 ### 4.5 Two rendering rules that must never be broken
 
@@ -470,7 +535,7 @@ Two integrity readouts sit above the six and are not tiles seven and eight. **Un
 | Cadence | Item | Reads | The decision it drives |
 |---|---|---|---|
 | W | Conversations | `qualified_conversations` + `two_way_conversations` | Is the top of the funnel alive at all |
-| W | Response | `first_response_hours` (p50, p90) **+ `enquiries_never_responded`**; count of enquiries arriving outside `FOREVER_RESPONSE_WINDOW` | Whether the Russian evening window needs cover — staffing, not scolding |
+| W | Response | `first_response_hours` (p50, p90) **+ `enquiries_never_responded`**, with `first_response_business_hours` beside it once D-6 exists; `enquiries_by_arrival_hour` and the count arriving outside `FOREVER_RESPONSE_WINDOW`; `acknowledgement_seconds` reported separately or not at all, never merged into the above (§4.4) | Whether the Russian evening window needs cover — staffing, not scolding |
 | W | Pipeline shape and value | `open_opportunities_by_stage`, `stage_age_buckets`, `pipeline_value_open` by currency + `opportunities_without_value` | Where the pipeline is jammed, and whether there is enough live work |
 | W | Coverage and ownership | `persons_without_owner`, `opportunities_without_next_action`, `silent_persons_14d`, `zero_contact_persons`, `owner_not_first_responder` | Assign it, schedule it, or lose it honestly |
 | W | Meetings | `appointment_outcomes` | Change the confirmation practice if no-shows cluster |
@@ -543,7 +608,7 @@ flowchart TD
 
 ### 8.1 The constraints, and the load-bearing rule
 
-[Repository fact] There is **not one `CREATE VIEW` or `CREATE MATERIALIZED VIEW` in any of the 24 migrations**, and `src/integrations/supabase/types.ts:915-919` has both `Views` and `Functions` as `[_ in never]: never`. The function idiom is fixed: `LANGUAGE sql STABLE` or plpgsql, `SET search_path = ''`, fully schema-qualified, no dynamic SQL, then `REVOKE ALL ON FUNCTION … FROM PUBLIC, anon, authenticated` + `GRANT EXECUTE … TO service_role`. The only scheduled seam is the `*/5` cron → `cloudflare:scheduled` hook, which has one hard-wired consumer.
+[Repository fact] There is **not one `CREATE VIEW` or `CREATE MATERIALIZED VIEW` in any of the 25 migrations**, and `src/integrations/supabase/types.ts:915-919` has both `Views` and `Functions` as `[_ in never]: never`. The function idiom is fixed: `LANGUAGE sql STABLE` or plpgsql, `SET search_path = ''`, fully schema-qualified, no dynamic SQL, then `REVOKE ALL ON FUNCTION … FROM PUBLIC, anon, authenticated` + `GRANT EXECUTE … TO service_role`. The only scheduled seam is the `*/5` cron → `cloudflare:scheduled` hook, which has one hard-wired consumer.
 
 [Recommendation] **No SQL in this system returns a percentage. Every query returns a numerator and a denominator; the ratio, the interval and the suppression decision are computed in `src/features/forever-crm/core/ratio.ts` and nowhere else.**
 
@@ -634,7 +699,7 @@ Rendering "0 % attribution coverage" without the flag implies a fixable data-ent
 | **D-3** | Every CRM view created `WITH (security_invoker = true)` plus the standard REVOKE, asserted by the contract test | View option, Phase 3 | Otherwise a view runs with owner privileges and bypasses the table posture if a grant is ever widened |
 | **D-4** | `crm_appointment`: index on `(scheduled_start_at)` and partial index `WHERE outcome = 'pending'` | Two indexes, Phase 2 | Pulse tile 4 and the outcome-hygiene check |
 | **D-5** | `crm_reservation`: partial index `(expires_on) WHERE cancelled_on IS NULL` | One index, Phase 3 | Pulse tile 6 |
-| **D-6** | `FOREVER_RESPONSE_WINDOW` — actual operating hours and days in `Asia/Bangkok` | **Owner input** — [Unverified assumption] | No SLA count can be published against an assumed window |
+| **D-6** | `FOREVER_RESPONSE_WINDOW` — actual operating hours and days in `Asia/Bangkok`, held in one versioned TypeScript constant, never in UI copy (§4.4.3) | **Owner input** — [Unverified assumption] | No SLA count can be published against an assumed window. It gates clock (c) alone: `first_response_business_hours` and `first_response_sla_breaches` render "Not available" until it is answered, while clocks (a), (b) and (d) are unaffected (§4.4.1) |
 | **D-7** | The `duration_seconds` threshold distinguishing a conversation from a voicemail (proposed 60 s) | **Owner calibration** — [Unverified assumption] | `first_conversation_at` (§4.3) |
 | **D-8** | `maturity_days` per transition | Derived from `cycle_time_days` once n ≥ 12; [Unverified assumption] until then | §1.3. Circular until data exists, so the first value is an explicit judgement with a review trigger, never a silent default |
 
@@ -644,4 +709,4 @@ Rendering "0 % attribution coverage" without the flag implies a fixable data-ent
 
 Repository: `docs/FOREVER_STRATEGIC_NORTH_STAR.md:280-349` · `docs/ROADMAP.md:125-151, 215-255` · `docs/FOREVER_STATUS.md:145-169` · `docs/FOREVER_BRAIN_V1.md` §7 (cited, not restated) · `supabase/migrations/` (24 files; verified zero `CREATE VIEW`) · `src/integrations/supabase/types.ts:915-919` · `src/lib/public-truth.ts` · `src/lib/lead-service.ts` · `src/features/forever-studio/studio.functions.ts` · `src/lib/lead-demo-mode-bundle-boundary.test.ts:22`.
 
-External sources are cited inline where they are used: NIST Wilson interval (§1.2), Attio status attributes (§3.3), Follow Up Boss dashboard and action plans (§4.1, §4.3), InsideSales/MIT, HBR 2011 and the clinical-trial warm-transfer study (§4.4), HubSpot Breeze failure mode and Lofty round-robin (§5), NAR 2025 technology survey (§5.1), WhatsApp Cloud API message ordering (§4.1).
+External sources are cited inline where they are used: NIST Wilson interval (§1.2), Attio status attributes (§3.3), Follow Up Boss dashboard and action plans (§4.1, §4.3, §4.4.3), Follow Up Boss First-to-Claim and its push-only notification failure mode, Lofty availability-gated lead routing and Spark round-robin opt-in (§4.4), InsideSales/MIT, HBR 2011 — publisher of record and located full text — and the clinical-trial warm-transfer study (§4.4), HubSpot Breeze failure mode and Lofty round-robin (§5), NAR 2025 technology survey (§5.1), WhatsApp Cloud API message ordering (§4.1). The provenance of the speed-to-lead literature, the untraceable first-responder claim and the 2024–2026 vendor benchmark layer are traced once in `docs/crm/CRM_MARKET_RESEARCH_2026.md` §7 and are not restated here; §4.4.2 carries only the rendering ruling that follows from them.

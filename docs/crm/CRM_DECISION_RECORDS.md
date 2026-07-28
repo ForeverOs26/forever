@@ -2,7 +2,7 @@
 
 Task ID: FOREVER-CRM-ARCH-001
 Status: Proposed architecture — not approved, not scheduled, not authorized for implementation
-Repository state of record: main @ `821b3c4e2f6f82e0d4ddce86199a8ff24b44a094`
+Repository state of record: main @ `82e2039270168df1043050204988fbd6c009ed0e`
 Risk class: R0 (documentation only)
 
 > This document is a design record. It asserts no product truth, changes no active stage, and authorizes no
@@ -12,8 +12,10 @@ Risk class: R0 (documentation only)
 
 ## What this document decides
 
-- Ten proposed durable decisions, written in `docs/DECISIONS.md`'s exact format so an approved one can be
-  promoted verbatim.
+- Ten proposed durable decisions (CRM-D1 to CRM-D10), written in `docs/DECISIONS.md`'s exact format so an
+  approved one can be promoted verbatim.
+- One **Owner-approved operating policy** already in force (CRM-D11, the 21-day lead holding period), which
+  the architecture implements rather than proposes.
 - Seven questions that only the Owner can answer, with what each one blocks.
 - Twenty things that must not be built yet, each with the trigger that would reopen it.
 
@@ -76,7 +78,7 @@ cross-reference handles within this package only, and are dropped on promotion.
   behind the existing middleware chain. No `auth.uid()` or `auth.jwt()` policy, no `FORCE ROW LEVEL SECURITY`,
   no column-level `GRANT UPDATE`, no second service-role key path.
 - **Context:** [Repository fact] There is not one occurrence of `auth.uid()`, `auth.jwt()`, `auth.role()` or
-  `request.jwt` across all 24 migrations; `auth.` appears only seven times as `auth.users` foreign-key targets.
+  `request.jwt` across all 25 migrations; `auth.` appears only seven times as `auth.users` foreign-key targets.
   Introducing user-scoped RLS would create a second, parallel authorization model. Separately, column-level
   `GRANT UPDATE` has zero precedent, and the independent review found it was the mechanism by which the first
   draft's merge operation could not execute at all.
@@ -218,6 +220,33 @@ cross-reference handles within this package only, and are dropped on promotion.
 
 ---
 
+### CRM-D11 — 2026-07-28 — The 21-day lead holding period is the Owner-approved default
+
+- **Status:** **Owner-approved operating policy.** Unlike CRM-D1 to CRM-D10, this records a decision the Owner
+  has already made. The architecture implements it; it does not propose it.
+- **Decision:** An agent holds an assigned lead for **21 calendar days**. After 21 days **without successful
+  progression**, the lead moves to **warm-up / reassignment** according to the operational policy. A
+  reactivated lead returns to the **originating agent** where the operational policy requires it. Permanent
+  attribution and ownership credit are modelled **separately** from current assignment.
+- **Context:** [Owner requirement] This is existing Forever operating policy, not a design proposal. An
+  earlier revision of this package presented an activity-driven variant as the default — the holding period
+  reset by any agent-attributed outbound message, and expiry producing only a flag. That variant permits an
+  indefinite claim maintained by sending one message every twentieth day, which converts a bounded holding
+  period into a permanent one, and it substituted an engineering preference for a policy the Owner had set.
+- **Consequence:** Three ownership concepts are kept structurally separate: `relationship_owner_user_id`
+  (current assignment, the only column the sweep may move), `originating_owner_user_id` (permanent
+  attribution, never written or nulled by any automated process), and `crm_opportunity_credit` (commercial
+  credit, human-written only). Because the sweep touches only the first, the transition performs no
+  commission-relevant write, which is what makes automating the Owner's rule safe. The sweep may **not**
+  select the next assignee — that requires ordered routing rules with working hours and availability, which do
+  not exist. `next_action_at` does not suppress this check; deferral requires an explicit, audited
+  `ownership_extension` activity, so a holding period cannot be extended indefinitely by scheduling a
+  reminder. The activity-driven variant is retained in `docs/crm/CRM_JOURNEYS_AND_STATE_MACHINES.md` §7.3.4 as
+  a future alternative and must not be presented anywhere as Forever's default.
+- **Review trigger:** The first ownership dispute; or a separate explicit Owner decision changing the holding
+  period, the reset condition, or the expiry action. [Unverified assumption] 21 days is a policy number; no
+  source in the research set supports 21 over 14 or 30, and it is never presented as a research finding.
+
 ## Part 2 — Owner Decision Register
 
 Seven questions that evidence and professional judgement cannot resolve. Everything else in this package has
@@ -345,7 +374,7 @@ Twenty exclusions. Each carries the trigger that would reopen it. An item with n
 ### Security and authorization
 
 12. **Any `auth.uid()` / `auth.jwt()` RLS policy, `FORCE ROW LEVEL SECURITY`, a second identity roster, or a
-    second service-role key path.** Zero occurrences across all 24 migrations. This design creates no pressure
+    second service-role key path.** Zero occurrences across all 25 migrations. This design creates no pressure
     toward any of them. *Trigger: each is a separately justified architectural decision with its own
     `docs/DECISIONS.md` entry — never a CRM implementation detail.*
 13. **Column-level `GRANT UPDATE`.** Zero occurrences repo-wide, and the mechanism that broke merge in the

@@ -2,7 +2,7 @@
 
 Task ID: FOREVER-CRM-ARCH-001
 Status: Proposed architecture — not approved, not scheduled, not authorized for implementation
-Repository state of record: main @ `821b3c4e2f6f82e0d4ddce86199a8ff24b44a094`
+Repository state of record: main @ `82e2039270168df1043050204988fbd6c009ed0e`
 Risk class: R0 (documentation only)
 
 > This document is a design record. It asserts no product truth, changes no active stage, and authorizes no
@@ -75,6 +75,16 @@ INSERT policy.**
 
 Full acceptance criteria, including the five negative tests, are in `docs/crm/CRM_IMPLEMENTATION_PLAN.md` §3.
 
+### 3.1 Two standing constraints carried forward from the superseded alternative
+
+Neither slice triggers either constraint — Slice 0 is a script and Slice 1 has zero migrations and no change to
+the public INSERT policy. Both are recorded here because each is a one-line reversal away from mattering.
+
+| Constraint | Statement |
+| ---------- | --------- |
+| **Widening `public.leads` is a privilege change, never an additive one** | [Repository fact] `supabase/migrations/20260704132000_create_leads.sql:29` is `GRANT INSERT ON public.leads TO anon, authenticated;` — no column list, two roles. [Web research] A table-level privilege applies to every column of the relation, including columns added later by `ALTER TABLE … ADD COLUMN`, and an RLS `WITH CHECK` is a row predicate, not a column allow-list (https://www.postgresql.org/docs/current/ddl-priv.html, https://www.postgresql.org/docs/current/sql-altertable.html). [Inference] A new column on `leads` is therefore anonymously writable the instant it exists, with no `GRANT` anywhere in the diff — "we added no new grant" is a fact about the migration text, not about the database. [Recommendation] Any future proposal to add **any** column to `leads` must `REVOKE INSERT … FROM anon, authenticated` and re-grant column-scoped over the intake columns only — the idiom `supabase/migrations/20260723130000_public_projection_privacy.sql:19-29` already uses — restate the constraint in the policy predicate as an independent backstop, and **prove** it against a real PostgreSQL instance with `has_column_privilege` / `has_table_privilege` probes for **both** roles under `npm run studio:pg-test`. There is no CI in this repository, so such a result is an observation by a named person on a named date, never a gate that passed. This package adds zero columns to `leads` (`docs/crm/CRM_SECURITY_AND_RBAC.md` §4.5) |
+| **The first CRM migration is never "one migration"** | [Repository fact] `supabase db push` applies pending migrations in version order, and the CLI ledger keys on the leading `YYYYMMDDHHMMSS` prefix, not on file content. [Inference] Applying any CRM migration therefore replays the **entire pending backlog** first, including `supabase/migrations/20260724090000_studio_large_archive_v1.sql`. [Recommendation] Merge is not apply: the backlog is applied first, as its own separately reviewed Owner operation, with its size re-derived at that moment from a live read of `supabase_migrations.schema_migrations` diffed against `supabase/migrations/` — never from a count written in a document. Leading indicator that this has been missed: *anyone describing the CRM apply as "one migration"; anyone reaching for `--include-all` to get past an out-of-order error* |
+
 ## 4. Why it beats the alternatives
 
 | Alternative first move | Why it loses |
@@ -110,6 +120,23 @@ of the three.
 4. Unit and project enquiries stop losing their context on submit.
 5. Gate G0 is closed or proven open — which also unblocks Draft PR #118's CTA-restoration decision.
 
+**"Response time" is four quantities, and Forever measures all four before it promises any of them.** An
+*automated acknowledgement* fires on receipt of the enquiry, runs on continuous wall-clock time, and fails
+silently when a gateway breaks, because its only recipient is a machine. A *human first response* is a
+recorded human act with an outcome — opening a record is not contact — and is meaningful only against a
+*stated business-hours window*, which is a policy decision supplying the denominator, not a fact. *After-hours
+behaviour* must then be decided in writing rather than left implicit: agents are UTC+7 and buyers are UTC+2 to
+UTC+4, so a 20:00 Moscow enquiry is 00:00 in Phuket, and routing that ignores agent availability records a
+breach no human could have prevented — which is how a coverage metric teaches its users to ignore it.
+[Owner requirement] Forever therefore commits to **no SLA number until its own medians are measured**; each
+threshold is justified on that measurement and never on a borrowed multiplier, exactly as `docs/ROADMAP.md:148`
+already frames the exit criterion, "median response time is measured and improving". [Recommendation] Once a
+number exists it lives in a versioned policy row rather than UI copy, and it may not promise sub-five-minute
+*detection*: [Repository fact] `wrangler.jsonc:18` sets the scheduled seam to `*/5 * * * *`, a hard floor on
+anything the platform must detect rather than store. Neither slice above states a number of minutes at all,
+because neither provides an outbound notification path — they state who remains responsible until someone
+acknowledges. The three separated promises are in `docs/crm/CRM_AUTOMATION_CATALOGUE.md` §8.2.
+
 An external signal is required before the phase closes, per `NORTH_STAR:273`: within 14 days of shipping, at
 least one guest enquiry arrives with its project context intact and is responded to, and the Owner can state
 last month's enquiry count without opening Supabase.
@@ -125,6 +152,11 @@ Seven questions, in `docs/crm/CRM_DECISION_RECORDS.md` Part 2. The three that ga
 3. **Ratify the constitutional reconciliation** — `FOREVER_PRODUCT_SPECIFICATION.md:17` says Forever "is not:
    … A CRM" while `FOREVER_BLUEPRINT.md` §13 charters one. The proposed resolution is in
    `docs/crm/CRM_PRODUCT_BOUNDARY.md` §2. It gates Phase 1, not the two slices above.
+
+[Owner requirement] Not among them: the **21-calendar-day holding period** from `crm_person.assigned_at`, reset
+only by a forward stage transition and expiring into `assignment_state = 'warm_up'`, remains the Owner-approved
+default and is **unchanged by this consolidation** — canonical statement
+`docs/crm/CRM_JOURNEYS_AND_STATE_MACHINES.md` §7.3.
 
 ## 8. The one sentence to remember
 

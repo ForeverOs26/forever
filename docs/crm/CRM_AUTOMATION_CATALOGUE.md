@@ -2,7 +2,7 @@
 
 Task ID: FOREVER-CRM-ARCH-001
 Status: Proposed architecture — not approved, not scheduled, not authorized for implementation
-Repository state of record: main @ 821b3c4e2f6f82e0d4ddce86199a8ff24b44a094
+Repository state of record: main @ 82e2039270168df1043050204988fbd6c009ed0e
 Risk class: R0 (documentation only)
 
 > This document is a design record. It asserts no product truth, changes no active stage, and authorizes no implementation. The active stage remains FOREVER-STUDIO-001 (`docs/CURRENT_STAGE.md`), which lists "large CRM integration" as out of scope. Any implementing task is R2 under the shared-contract rule and requires an Architect-reviewed stage change plus Owner approval.
@@ -13,7 +13,7 @@ Risk class: R0 (documentation only)
 2. **Five coverage sweeps ship as five named SQL functions and one page** (`/crm/pulse`). That is the entire buildable automation surface.
 3. **Eleven operating numbers ship as TypeScript constants** in one file, each carrying its review trigger in a comment. There is no versioned policy register, and with no run queue there is no in-flight re-timing problem to solve.
 4. **The kill switch survives as a constant plus a manual toggle** — not a control table. Code may make the switch more restrictive, never less.
-5. **The 21-day relationship claim is `flag_only`.** No sweep ever writes `owner_user_id` or `relationship_owner_user_id`.
+5. **The 21-day rule is the Owner-approved default and the sweep executes it.** At 21 calendar days without a forward stage transition the person moves to `warm_up`. The sweep may move `relationship_owner_user_id` (current assignment) and may never write `originating_owner_user_id` or any `crm_opportunity_credit` row, which is what keeps it commission-neutral. Canonical statement: `docs/crm/CRM_JOURNEYS_AND_STATE_MACHINES.md` §7.3.
 6. **The full catalogue of 25 automations is retained as a design**, with an explicit "Built in" column on every row. Most of it is designed and not built; six entries are refused permanently.
 7. **The Owner's 2-minute and 5-minute SLAs are corrected** to three separate promises on three separate clocks: instant automated acknowledgement (gateway-dependent), 60 business minutes for human first response, and a named overnight expectation.
 8. **AI is a decorated side-channel**, enforced by absence: there is no column an LLM can write and no LLM call site in the CRM feature. Call recording and transcription are not modelled at all.
@@ -86,7 +86,7 @@ A coverage definition that exists twice drifts. The Pulse tile and the nightly t
 
 | Rule | Why |
 |---|---|
-| A sweep never writes `owner_user_id` or `relationship_owner_user_id` | An ownership change is a commission-attribution event. `flag_only` is adopted across the package (§6, AUT-13; `docs/crm/CRM_JOURNEYS_AND_STATE_MACHINES.md` §7.3) |
+| A sweep never writes `originating_owner_user_id` or a `crm_opportunity_credit` row | Those two are the commission-attribution record. AUT-13 moves `assignment_state` and current assignment only, which is what makes the Owner-approved 21-day transition safe to automate (§6, AUT-13; `docs/crm/CRM_JOURNEYS_AND_STATE_MACHINES.md` §7.3) |
 | A sweep never advances, wins or loses an opportunity | Stage is commercial evidence |
 | A sweep never sends anything to a buyer | Nothing on `main` can send; outbound is `crm_job` only, and only after a gateway is bought |
 | A sweep never issues a `DELETE` | INV-D-5 makes `crm_person` undeletable independently; a contract test asserts no `.delete(` under `src/features/forever-crm/server/sweeps.server.ts` |
@@ -97,7 +97,7 @@ A coverage definition that exists twice drifts. The Pulse tile and the nightly t
 
 > A deal with a future `next_action_at` is not silent, not stalled, not overdue and does not lapse.
 
-[Owner requirement + Recommendation] This is the highest-value operational correction in this document. Forever runs a six-to-eighteen-month off-plan cycle; the pre-review draft's four operating constants were inside-sales numbers, and only one was suppressed. A buyer correctly left alone until October raised three flags and cost their Guide the relationship claim. Every staleness predicate in S2, S3, S4 and the 21-day check now carries `AND (next_action_at IS NULL OR next_action_at <= now())`.
+[Owner requirement + Recommendation] This is the highest-value operational correction in this document. Forever runs a six-to-eighteen-month off-plan cycle; the pre-review draft's four operating constants were inside-sales numbers, and only one was suppressed. A buyer correctly left alone until October raised three flags. The staleness predicates in S2, S3 and S4 now carry `AND (next_action_at IS NULL OR next_action_at <= now())`. **The 21-day holding-period check is deliberately excluded from that suppressor** — otherwise a holding period could be extended indefinitely by scheduling a reminder, which would replace the Owner-approved rule with the activity-driven variant it explicitly rejects. It is deferred only by an explicit, audited `ownership_extension` activity.
 
 ---
 
@@ -120,11 +120,18 @@ export const CRM_BUSINESS_HOURS = {
   week: { mon: [["09:00", "18:00"]], /* … */ sat: [["10:00", "16:00"]], sun: [] },
 } as const;
 
-/** Review trigger: the first ownership dispute, or the Owner declaring the rule operative. */
+/**
+ * Owner-approved default. Review trigger: the first ownership dispute, or an Owner
+ * decision changing the period, the reset condition or the expiry action.
+ * Canonical statement: docs/crm/CRM_JOURNEYS_AND_STATE_MACHINES.md §7.3.
+ */
 export const CRM_OWNERSHIP_EXCLUSIVITY = {
   days: 21,
-  anchor: "assignment_activity",
-  onExpiry: "flag_only", // never "release" — no machine performs a commission-relevant write on a clock
+  unit: "calendar_days",              // evaluated in Asia/Bangkok, not business days
+  anchor: "crm_person.assigned_at",
+  resetOn: "forward_stage_transition", // NOT any advisor activity — see §7.3.4
+  onExpiry: "warm_up",                 // moves assignment_state; never writes origination or credit
+  deferredOnlyBy: "ownership_extension",
 } as const;
 ```
 
@@ -137,7 +144,7 @@ export const CRM_OWNERSHIP_EXCLUSIVITY = {
 | `CRM_SLA_ASSIGNMENT_ACK_BUSINESS_MINUTES` | 30 | A second advisor joins |
 | `CRM_ACK_BUYER` | `{ enabled: false, templateKey: "enquiry_ack_v1" }` | A messaging gateway is bought. Seeded `false` — fail-closed |
 | `CRM_FOLLOWUP_CADENCE_DAYS` | `[4, 7, 28]` | Twelve closed opportunities with recorded `cycle_time_days`; these are inside-sales numbers on an off-plan cycle |
-| `CRM_OWNERSHIP_EXCLUSIVITY` | 21 days, `flag_only` | The first ownership dispute |
+| `CRM_OWNERSHIP_EXCLUSIVITY` | **21 calendar days**, transition to `warm_up` | The first ownership dispute, or an Owner decision changing the period, the reset condition or the expiry action |
 | `CRM_SILENT_THRESHOLD_DAYS` | 14 | Same as the cadence trigger; a fortnight is short for this cycle and is only tolerable because `next_action_at` suppresses it |
 | `CRM_TRIAGE_STALE_HOURS` | 48 | The legacy triage queue is drained |
 | `CRM_OUTBOUND_SEND_WINDOW` | buyer-local 09:00–20:00, fallback `Asia/Bangkok` | A gateway is bought, or the first complaint about a message time |
@@ -229,12 +236,12 @@ Retained in full **as a design**. The "Built in" column is the operative one on 
 
 | ID | Trigger | Condition | Action | Class | Built in |
 |---|---|---|---|---|---|
-| **AUT-13** 21-day relationship claim | `assignment activity + CRM_OWNERSHIP_EXCLUSIVITY.days` | Owner unchanged; no owner-authored activity in the window; no open opportunity with a future `next_action_at` | **Flag only.** A `crm_task` for the Owner. Release is a human action | `[HA]` | **TRG** |
+| **AUT-13** 21-day holding period | `crm_person.assigned_at + CRM_OWNERSHIP_EXCLUSIVITY` (calendar days, Asia/Bangkok) | `assignment_state = assigned`; **no forward stage transition since `assigned_at`**; no unexpired `ownership_extension` activity. `next_action_at` does **not** suppress this check | Set `assignment_state = warm_up` and write a `crm_task` for the Owner. Choosing the next assignee stays human until routing rules exist | `[DR]` | **TRG** |
 | **AUT-14** Long-cycle nurture | Buyer-timezone cadence | Consent evidenced for `direct_marketing`; not suppressed; under cap; inside window | Draft → human review → send on accept | `[HA]` | **GW** |
 | **AUT-15** Lost-lead nurture | Opportunity `lost`, plus a wait | `lost_reason_key NOT IN ('duplicate','not_qualified')`; consent evidenced | Autonomous send **prohibited**. Reviewed send permitted | `[PR]` / `[HA]` | **NEVER** / GW |
 | **AUT-16** Reactivation | Dormancy threshold | Consent evidenced; not suppressed | Draft → human review | `[HA]` | **GW** |
 
-**AUT-13 flags, it does not release.** [Owner requirement] Autonomous release is refused for three independent reasons: it is a commission-attribution change; it would fire in bulk the instant the constant changed; and a buyer deliberately left alone during a slow decision is indistinguishable in the data from a neglected one. The pre-review package specified this rule three incompatible ways — one section had the cron nulling `relationship_owner_user_id`, another forbade any automated write to it, a third forbade release outright. `flag_only` resolves it across the package.
+**AUT-13 transitions; it does not choose a successor.** [Owner requirement] The 21-day holding period is the Owner-approved default, so the sweep performs the transition rather than printing a suggestion: at expiry the person moves to `warm_up`. What it must never do is **select** the next assignee — that needs ordered routing rules with working hours and availability which do not exist — or write `originating_owner_user_id` or a `crm_opportunity_credit` row. Because those two carry the commission-attribution record and the sweep cannot touch them, moving current assignment on a clock is not a commission-relevant write, which retires the objection the pre-review package raised. Two operational guards remain: the transition is evaluated per person against `assigned_at`, so changing the constant re-times future evaluations rather than firing in bulk; and a buyer deliberately left alone is distinguished from a neglected one by an explicit `ownership_extension`, not by inference.
 
 **AUT-15 and AUT-16 are structurally blocked for most of the existing base, by design.** [Repository fact] Neither `ContactForm.tsx` nor `BoothLeadForm.tsx` renders a consent checkbox, privacy notice or marketing opt-in, and `public.leads` has no consent column; every backfilled legacy person therefore receives a `crm_suppression(scope='marketing', source='legacy_backfill')` row at creation. [Web research — descriptive only, not legal advice; qualified Thai counsel must confirm] The s.32(2) direct-marketing objection is absolute with no rebuttal, and the July 2026 PDPC draft guidance cautions against treating consent as a default or catch-all basis (https://www.lexology.com/library/detail.aspx?g=27642f25-1b92-4c09-b8ff-b4b1c4f27467; primary text, unofficial English translation — the Thai text governs — https://cc.kmutt.ac.th/Files/Act%20Eng/personal-data-protection-act-2019-en.pdf). Stated without euphemism: **a lost-lead nurture campaign over the existing lead base cannot lawfully run today.**
 
@@ -298,7 +305,7 @@ Scored against `docs/FOREVER_STRATEGIC_NORTH_STAR.md`'s Feature Decision Test, e
 | AUT-01 | Buyer acknowledgement | H | M | M | H | L | M | L | H | Gateway |
 | AUT-17 | Appointment reminder | H | M | M | H | L | M | L | H | Gateway |
 | AUT-19/20/21 | Reservation and hold chases | H | H | H | M | L | M | M | H | Phase 3 |
-| AUT-13 | 21-day claim (flag) | M | M | M | L | M | L | M | H | Trigger |
+| AUT-13 | 21-day holding period | M | M | M | L | M | L | M | H | Trigger |
 | AUT-18 | Post-appointment follow-up | H | M | H | M | M | M | M | H | Trigger |
 | AUT-22 | Duplicate detection (suggest) | M | H | H | L | M | M | M | H | Trigger |
 | AUT-24 | Change matched to interests | H | M | H | H | M | M | M | H | Trigger |
@@ -330,7 +337,7 @@ Two patterns are worth naming. **First, everything built before a gateway is int
 | AUT-22 | The first confirmed duplicate person found by hand |
 | AUT-24 | At least 20 live interest rows spanning at least 5 projects |
 | AUT-18 | At least 10 appointments with `outcome='held'` in a month |
-| AUT-13 | The first ownership dispute, or the Owner declaring the 21-day rule operative |
+| AUT-13 | The first ownership dispute, or an Owner decision changing the period, the reset condition or the expiry action. The rule itself is already the Owner-approved default |
 | AUT-06 and routing rules | At least 2 advisors plausibly owning the same inbound enquiry |
 | `crm_job` | A messaging gateway is bought |
 | An automation engine of any kind | **Sustained more than 200 new non-spam enquiries per month for three consecutive months** |
@@ -347,14 +354,60 @@ Two patterns are worth naming. **First, everything built before a gateway is int
 
 | # | Finding | Source |
 |---|---|---|
-| 1 | The "5-minute rule" is vendor folklore. The primary study's own author states the pattern appears only when data from several companies is combined; it does not reliably appear inside any single company. The publisher sold callback dialler software | [Web research] https://www.onecavo.com/wp-content/uploads/2015/11/MIT-InsideSales.com_Lead-Response-Management.pdf |
-| 2 | The strongest defensible threshold is **one hour**, its outcome variable is a meaningful conversation with a decision maker, and its most useful finding is that the bar is on the floor: of 2,241 audited companies, 23% never responded at all and the average was 42 hours | [Web research] https://thedenmangroupselling.wordpress.com/wp-content/uploads/2011/03/the-short-life-of-online-sales-leads-harvard-business-review.pdf |
+| 1 | The "5-minute rule" is vendor folklore, and it is **not a Harvard finding**. The 100x / 21x multipliers come from a 2007 study of **6 companies**, principal author Dr James Oldroyd, **published by InsideSales.com** — a company selling the callback-dialler software the study's conclusion recommends buying. Its own author states the pattern appears only when data from several companies is combined; it does not reliably appear inside any single company. Provenance, mechanism and three method defects: §8.1.1 | [Web research] two independently located copies of the same vendor PDF, neither host the publisher: https://www.onecavo.com/wp-content/uploads/2015/11/MIT-InsideSales.com_Lead-Response-Management.pdf · https://25649.fs1.hubspotusercontent-na2.net/hub/25649/file-13535879-pdf/docs/mit_study.pdf |
+| 2 | The strongest defensible threshold is **one hour**, its outcome variable is a meaningful conversation with a decision maker, and its most useful finding is that the bar is on the floor: of 2,241 audited companies, 23% never responded at all and the average was 42 hours. This *is* the Harvard-published document, and it reports different numbers from a different method on a sample 373 times larger | [Web research] publisher of record: https://hbr.org/2011/03/the-short-life-of-online-sales-leads · full text: https://thedenmangroupselling.wordpress.com/wp-content/uploads/2011/03/the-short-life-of-online-sales-leads-harvard-business-review.pdf |
 | 3 | The speed-to-lead market leader **deliberately delays** routing by up to 5 minutes in order to route correctly | [Web research] https://help.followupboss.com/hc/en-us/articles/4402128249367-Dashboard |
 | 4 | The best independent evidence is not from sales: warm transfer versus callback in clinical-trial recruitment, 25% versus 12.9%, n = 2,341, retrospective. The mechanism is **not breaking the session**, not shaving minutes off a callback | [Web research] https://pmc.ncbi.nlm.nih.gov/articles/PMC10395154/ |
 | 5 | Phuket is UTC+7, Moscow UTC+3. Peak Russian evening browsing lands 23:00–03:00 Phuket time. A single global wall-clock human SLA is recorded as failed nightly, by construction | [Repository fact / arithmetic] |
 | 6 | The only scheduled seam is a `*/5` cron, and today the lead insert bypasses the Worker entirely — there is no server-side moment at which anything could fire | [Repository fact] `wrangler.jsonc`; `src/lib/lead-service.ts:92` |
 
 Finding 6 is decisive and it is Forever's own: **a 2-minute target cannot be met on the cron path at all, and a 5-minute human target would be measured on a clock that is asleep for the hours when the buyers are awake.**
+
+### 8.1.1 Provenance — how vendor multipliers acquired a Harvard byline
+
+[Web research] The two documents routinely conflated into a single "Harvard finding" are distinct, with different authors, samples, methods and **different numbers**.
+
+| Claim as usually stated | What the primary source actually is | What that source actually says |
+|---|---|---|
+| "100x more likely to contact, 21x more likely to qualify, responding in 5 minutes rather than 30 — *Harvard*" | **Not Harvard.** The 2007 Lead Response Management study, principal author **Dr James Oldroyd**, **published by InsideSales.com**. Sample: **6 companies**, 15,000+ leads, 100,000+ dials | The multipliers are genuine quotations from that study. **Its authority is not.** The publisher sold the remedy the study recommends buying |
+| "…and HBR proved it" | The 2011 *Harvard Business Review* article **The Short Life of Online Sales Leads** — Oldroyd, McElheran, Elkington — an audit of **2,241 US firms** | **Different numbers entirely:** a 42-hour average first response among firms that responded at all, and 23% that never responded (finding 2 above) |
+
+[Web research] **Oldroyd co-authored both documents.** [Inference] That shared authorship is the mechanism. The citation chain is real — one author does connect the 2007 vendor study to a 2011 Harvard Business Review article — but the **attribution is not**: the multipliers belong to the vendor-published study, and the Harvard-published article contains different figures from a different method on a far larger sample. Repetition then collapses the two into one sentence. Nothing was fabricated; a byline migrated.
+
+[Recommendation] **Citing "the 5-minute rule" as a Harvard finding is the single most reliable tell that a source has not been checked.** Recorded here as a standing review heuristic: any source attributing 100x / 21x to Harvard has demonstrably not opened either paper. [Web research] A representative live collapse — a vendor page presenting the rule as a joint "Harvard Business Review and MIT" finding — https://caseyresponse.com/blog/lead-response-time-statistics (secondary). The clearest available reconstruction of the misattribution chain is itself a secondary blog — https://ainora.lt/blog/lead-response-time-statistics-every-study-2026 (secondary). [Inference] That no primary or academic source has reconstructed the chain is itself informative about how little scrutiny this literature receives.
+
+**Three method defects that bear directly on this design.** [Web research + Inference]
+
+| # | Defect | Design consequence |
+|---|---|---|
+| 1 | **Publisher conflict of interest** — published by a vendor selling exactly the software the conclusion recommends | The finding cannot be used to justify buying, or building, a response-acceleration mechanism. It is marketing with a method section |
+| 2 | **Observational, not experimental.** Response speed was not assigned; reps chose it. [Inference] Reps plausibly dialled the hottest and most complete leads fastest — a named contact with a real number and a stated budget gets called first. If faster-dialled leads were also *better* leads, lead quality is confounded with response speed | Nothing in the study design separates the two, so the multipliers have no defensible magnitude — only a sign. This objection is **stronger** than the pooled-data caveat because it survives even if the pooling objection is answered |
+| 3 | **It is roughly 19 years old** as of 2026-07-28 and describes US business-hours outbound telephone dialling into a short sales cycle, predating messaging-first buyer behaviour | Forever's buyers are UTC+2..+4 while the office is UTC+7, and an off-plan purchase is a months-long decision. The study's operating conditions are absent in every dimension that matters |
+
+### 8.1.2 Two figures this package refuses
+
+| Figure | Ruling |
+|---|---|
+| **"78% of customers buy from the first business to respond"** | [Web research] Searched for specifically, as a claim in its own right. **No primary source exists** that could be located: the trail terminates at social posts and marketing blogs — no study, no sample, no method, no institution at any point in the chain. [Recommendation] **Never use this figure in any Forever material, internal or external.** It is recorded here only as the object of the refusal; it is not carried forward as a fact and must not be quoted with attribution to this package |
+| **The 2024–2026 "speed to lead benchmark" layer** | [Web research] Every such page located is published by a company selling lead-response software, and they contradict each other — located headline figures span from tens of hours to tens of minutes for the same quantity, and disagree on the share of firms that never respond. Most relabel the 2011 HBR figure as current data. [Recommendation] **None of these numbers is carried into this package, in either direction.** The transferable finding is the negative one: **no credible new primary research from 2024–2026 was found.** The evidence base has not been refreshed in fifteen years; it has been recirculated |
+
+[Inference] This matters more for Forever than for a generic brokerage. The positioning is evidence-led, so an evidence-led brokerage citing a vendor-funded 2007 study of six companies as "Harvard research" would be doing precisely what it claims to be an alternative to. **This is a brand-integrity constraint, not a pedantic one.**
+
+### 8.1.3 What survives, and what is retired
+
+[Recommendation]
+
+| Verdict | Content |
+|---|---|
+| **Survives** | The **direction only.** Fast response beats slow response, and most firms are far slower than they believe. Both 2007 and 2011 agree on that, and the 2011 audit of 2,241 firms is by far the more credible of the two |
+| **Retired** | **Every multiplier** — 100x, 21x, the untraceable first-responder figure, every 2024–2026 vendor benchmark, and the roughly 7x-within-an-hour and 60x-versus-24-hours window ratios from the HBR article itself. The magnitudes are retired; the sign is kept |
+| **Design consequence** | Fast response is genuinely worth designing for — acknowledgement, claim windows, routing, escalation — but every Forever threshold must be justified on **Forever's own measured median**, never on a borrowed multiplier. [Repository fact] `docs/ROADMAP.md:148` already states the honest exit criterion: "median response time is measured and improving" |
+| **Marketing consequence** | **Reject** repeating any of these statistics in Forever's own materials |
+| **On the five-minute number specifically** | **Reject as a literal design target.** [Inference] It describes US business-hours phone dialling into a short sales cycle. Speed matters; that specific number is not evidence |
+
+[Inference] This retires the *magnitudes* and keeps the *direction*, which is exactly the position `docs/crm/CRM_MARKET_RESEARCH_2026.md` reaches independently from finding 4's warm-transfer evidence. Two independent arguments converging strengthens both.
+
+[Recommendation] The same pathology is documented in a second, unrelated literature: the "CRM failure rate" statistics of 2001–2009 report materially different figures with **no shared definition of failure** between them (https://johnnygrow.com/crm/the-crm-failure-rate-is-55-percent/ · https://crmsearch.com/implementation/crm-fail/, both secondary). [Inference] Recording the pattern twice is what turns "this statistic is weak" into "this *genre* of statistic is weak" — the more useful standing rule for reviewing anything a vendor brings to the Owner.
 
 ### 8.2 Three promises, three clocks
 
@@ -370,6 +423,46 @@ They are not one SLA and must never be reported as one.
 
 **On the 5-minute human ask:** replaced by **60 business minutes** — the strongest source-backed threshold available, and on finding 2 still far ahead of a market where 23% never respond. The business clock is elapsed time **intersected** with `CRM_BUSINESS_HOURS`. An enquiry arriving at 23:40 Phuket accrues zero business minutes until the window opens. Raw wall-clock elapsed time is stored alongside it, so nothing is concealed. [Owner requirement, unanswered] The window itself is Owner decision 4; no SLA count may be published against an assumed one.
 
+### 8.2.1 Why promises 1 and 2 are separate events, not one number
+
+[Inference] Automated acknowledgement and human first response are two different events, on two different clocks, with two different failure modes. Conflating them is precisely what makes a response-time promise unfalsifiable — which is why the table above splits them and why no report may recombine them.
+
+| Property | Promise 1 — automated acknowledgement | Promise 2 — human first response |
+|---|---|---|
+| What fires it | Receipt of the enquiry by the system | A human act with a recorded outcome. Opening a record is not contact — which is why the `first_response_at` trigger excludes rows carrying `metadata->>'link_opened' = 'true'` (`docs/crm/CRM_ANALYTICS_AND_KPI.md`) |
+| Clock | Wall-clock, continuous, timezone-irrelevant | Only meaningful against a **stated** business window |
+| Depends on | A working outbound gateway | A person being awake, notified and available |
+| Failure mode | Silent gateway failure — nobody notices, because the sender is a machine | Notification loss; or an SLA recorded as breached nightly by construction (finding 5) |
+| Measurable to | The second, because the timestamp is stored | The second, because the timestamp is stored — but the **denominator is a policy decision, not a fact** |
+
+[Recommendation] **What "acknowledged" means at 02:00 Phuket must be decided explicitly and in writing.** The two honest options are (a) an automated acknowledgement paired with a stated human-contact window, or (b) a named on-call rotation. Leaving it implicit is the failure. This document has chosen **(a)** — the three promises above plus §8.3. Option **(b) is recorded here as the rejected alternative**, which is what makes this a decision rather than a default: at current volume a rotation buys hours of coverage at the cost of a permanently on-call advisor, and there is no measured enquiry count to justify it (§8.3 option (ii) states the trigger that would).
+
+### 8.2.2 The claim window, and why first-to-claim is not sufficient alone
+
+[Web research] The most precisely specified acknowledgement pattern located is Follow Up Boss's First-to-Claim (https://help.followupboss.com/hc/en-us/articles/360014656193-First-to-Claim, official vendor documentation): agents are alerted and the first to claim wins; the unclaimed window is **capped at a maximum of 30 minutes**, stated as being to ensure timely automated communication; **at most two fallback groups** may be chained; after the second the lead is **hard-assigned to the account owner**, so a lead can never end unowned; and every fallback action is written to the lead timeline.
+
+[Web research] The same vendor documents the failure mode: claim notifications are **push-only** — never email or text — and swiping rather than tapping the notification can clear it and prevent claiming.
+
+[Recommendation] Two consequences for the deferred routing design (§7.3):
+
+1. **The 30-minute ceiling is a vendor design decision, not a suggestion.** It encodes that hours-scale silence is unacceptable. Any Forever design offering a multi-hour unclaimed hold is out of line with the only documented benchmark in this space, and `CRM_SLA_ASSIGNMENT_ACK_BUSINESS_MINUTES = 30` (§3.2) is deliberately at that ceiling.
+2. **Pure first-to-claim is not fair on its own, because the notification channel is the weak link.** It must be paired with a bounded fallback chain terminating at a **named human**, so no enquiry can end unowned through a lost notification — which is the same property AUT-12/S1 provides today by detecting the unowned record rather than by preventing it. [Inference] The push-only failure mode is the strongest available argument that an acknowledgement clock must never depend on a single delivery channel.
+
+### 8.2.3 The scheduled seam runs every five minutes — a floor, not a target
+
+[Repository fact] `wrangler.jsonc:18` sets `"crons": ["*/5 * * * *"]`; every five minutes the platform invokes the Worker's `scheduled()` export — no browser session, no HTTP endpoint, no user token — firing one bounded continuation tick. Nothing in the repository deploys it (risk A-2). That cadence is a **hard floor on detection**, and it constrains what may be promised.
+
+| Consequence | Statement |
+|---|---|
+| Timestamps | **Second-resolution.** Acknowledgement and contact times are exact because they are stored values, not sampled ones |
+| Escalation | **Five-minute resolution at best.** Anything that must be *detected* by the scheduled seam — every AUT-04 / AUT-05 rung — inherits the tick as a hard floor |
+| Therefore | Forever **must not promise sub-five-minute escalation on this runtime.** A missed short-interval acknowledgement escalates at up to roughly five minutes, not at the interval itself. Stating otherwise is a promise the platform cannot keep, which is why every escalation offset in `policy.ts` is expressed in business minutes and never in units the tick cannot resolve |
+| Therefore | **Every SLA number lives in `policy.ts` and never in UI copy.** A hard-coded number in a screen cannot be changed by a reviewed PR against one file, cannot be diffed, and cannot be reconciled with the revision each report is computed against (§3.3) |
+
+[Inference] A harder limit sits on top of the cron floor and must be stated before any acknowledgement number is published: **a response-time promise becomes stateable only once an outbound notification path to the assignee exists at all.** Neither Slice 0 — a read-only SQL script, zero tables — nor Slice 1 — an Owner-only read console, zero tables, zero migrations — provides one (`docs/crm/CRM_IMPLEMENTATION_PLAN.md`). Until a gateway is bought, the honest surface states **no number of minutes** and instead names who remains responsible until someone acknowledges.
+
+[Inference] Finding 3 above is the supporting coincidence rather than the justification: the speed-to-lead market leader ships a deliberate lead-flow delay of up to five minutes in order to route correctly. The five-minute cadence is therefore a defensible property of this design, not a defect to be apologised for.
+
 ### 8.3 Overnight
 
 | Option | Recommendation |
@@ -377,6 +470,17 @@ They are not one SLA and must never be reported as one.
 | **(i) The clock pauses** outside business hours | **Adopt now.** It is what is true today, and recording the truth is the prerequisite for changing it |
 | **(ii) A staffed evening window** aligned to Moscow evening (22:00–02:00 Phuket) | **Not now.** Build only on a measured trigger: at least 20 enquiries per month arriving 22:00–03:00 Phuket for two consecutive months. Report that as a **count**, never a share — the denominator is far under 30 |
 | **(iii) An out-of-hours acknowledgement naming a time** — "an advisor will reply after 09:00 Phuket (05:00 Moscow)" | **Adopt with (i).** It converts an unanswered night from a failure into a kept promise, and costs one template variant |
+
+**Availability must be a routing input, not an afterthought.** [Web research] Two vendors solve this in complementary ways, and both mechanisms are worth having in writing for the deferred routing design (§7.3):
+
+| Vendor | Mechanism | Source |
+|---|---|---|
+| Lofty | Routing is gated on **per-agent working hours and vacation mode**; rules will not distribute to unavailable agents. If **all** agents in a rule are unavailable the lead **falls through to the next rule** and then to a mandatory catch-all default. Rules themselves also carry working hours | https://help.lofty.com/hc/en-us/articles/360055177831-Lead-Routing-How-to-set-up-lead-routing-rules |
+| Spark | Round-robin auto-assignment requires **per-user opt-in** — a team member must switch auto-assign on to be in the rotation at all | https://knowledge.spark.re/registration-form-settings |
+
+[Inference] This matters more for Forever than for any US-market product: advisors are UTC+7, clients UTC+2 to UTC+4, so **a 20:00 Moscow enquiry is 00:00 in Phuket** (finding 5). Without availability as a routing input, round-robin cheerfully assigns 02:00 leads to sleeping advisors and the SLA clock runs against nobody — the metric records a breach no human could have prevented, which is how a coverage surface trains its users to ignore it (risk A-1).
+
+[Recommendation] When the two-advisor trigger fires, adopt both: availability evaluated in `Asia/Bangkok`, fall-through to the next rule and then to the named default, and **self-service opt-out** (Spark's model) rather than administrator rule-rebuilding. [Inference] The self-service form is the load-bearing part at five to fifteen seats: an availability model requiring an administrator to edit routing rules will not be kept current, and a stale availability model is worse than none because it is trusted.
 
 ### 8.4 The real objective is session continuity
 
@@ -426,7 +530,7 @@ Prohibition is enforced by absence: no configuration value enables any of these,
 | 2 | Sending for a marketing purpose to a suppressed person, or to a legacy-backfilled person with no fresh consent event | **INV-D-19** allow-list trigger on `crm_activity`, resolving `merged_into_person_id` first; auto-suppression at backfill |
 | 3 | Merging two persons | Merge is a human-invoked SECURITY DEFINER routine only |
 | 4 | Advancing a stage, or marking an opportunity `won` or `lost` | Absence — no automated writer of `stage_id` or `status` |
-| 5 | Releasing or reassigning ownership at the 21-day expiry | `flag_only` (§6, AUT-13) and the absence of a release path |
+| 5 | **Selecting** the next assignee at the 21-day expiry, or writing `originating_owner_user_id` or any credit row | AUT-13 moves `assignment_state` only; there is no automated assignee-selection path, and no automated writer of origination or credit |
 | 6 | Writing any project, developer, location, unit, price, availability, Passport or Intelligence fact — including deriving `units.availability_status` from a hold | **INV-D-1**; AUT-19 flags and stops |
 | 7 | Setting `crm_reservation.spa_issued_on` | **INV-D-25** guard trigger |
 | 8 | Emitting or persisting any score, confidence, probability, rank or conversion rate | **INV-D-17** — the columns do not exist |
@@ -467,7 +571,7 @@ Prohibition is enforced by absence: no configuration value enables any of these,
 | fallback Guide | AUT-06 | `[HA]` | Trigger |
 | first-response action plans | AUT-07 | `[CP]` | Phase 2 |
 | 4 / 7 / 28-day reminders | AUT-08 | `[CP]` | Phase 2, as **tasks** |
-| 21-day ownership | AUT-13 | `[HA]` | Trigger, **flag only** |
+| 21-day holding period | AUT-13 | `[DR]` | Trigger; **Owner-approved default**, moves `assignment_state` only |
 | 21-day nurture | AUT-14 | `[HA]` | Gateway |
 | stale leads | AUT-11 (S2) | `[DR]` | **Phase 1** |
 | orphaned leads | AUT-12 (S1) | `[DR]` | **Phase 1** |

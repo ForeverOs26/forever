@@ -2,7 +2,7 @@
 
 Task ID: FOREVER-CRM-ARCH-001
 Status: Proposed architecture — not approved, not scheduled, not authorized for implementation
-Repository state of record: main @ 821b3c4e2f6f82e0d4ddce86199a8ff24b44a094
+Repository state of record: main @ 82e2039270168df1043050204988fbd6c009ed0e
 Risk class: R0 (documentation only)
 
 > This document is a design record. It asserts no product truth, changes no active stage, and authorizes no implementation. The active stage remains FOREVER-STUDIO-001 (`docs/CURRENT_STAGE.md`), which lists "large CRM integration" as out of scope. Any implementing task is R2 under the shared-contract rule and requires an Architect-reviewed stage change plus Owner approval.
@@ -12,10 +12,10 @@ Risk class: R0 (documentation only)
 1. **One pipeline**, `buyer_advisory`, seven stages, thirteen entry journeys, three entry points in practice (`new`, `qualified`, none) — and it survives only because stages are entered by recorded evidence rather than by being clicked.
 2. **An inbound message is recordable by a human.** `Log message received` on the person record, and the `Reached` outcome emits it automatically. Without this the machine cannot pass `contacted` and every live conversation ages into `silent_persons_14d`.
 3. **Evidence flags; it does not refuse.** An unmet forward predicate becomes a coverage item, not a blocked advisor. `expected_value_amount`, `expected_close_on` and `next_action_at` are optional at every transition.
-4. **`next_action_at` in the future suppresses all four staleness checks** — silence, stage dwell, overdue action, and the 21-day claim. A buyer correctly left alone until October is not neglected.
+4. **`next_action_at` in the future suppresses three staleness checks** — silence, stage dwell and overdue action. A buyer correctly left alone until October is not neglected. It does **not** suppress the 21-day holding period (§7.3.2); that is deferred only by an explicit, audited `ownership_extension`.
 5. **`reserved → won` belongs to the Assigned Guide**, with a default 10 000-bps credit row written by the RPC. Reallocation stays Owner-only.
 6. **Booth captures carry `intent_tier`**; only `hot` creates an opportunity. `warm` and `browsing` keep the profile and land in a booth-follow-up queue.
-7. **The 21-day lapse is `flag_only`.** The cron writes a task for the Owner and never touches an ownership column.
+7. **The 21-day holding period is the Owner-approved default** (§7.3): 21 calendar days from assignment, reset only by a forward stage transition, expiring into `warm_up`. The sweep moves current assignment only and never writes `originating_owner_user_id` or a credit row.
 8. **The SLA numbers are named honestly**: one defensible automated-acknowledgement target, one hour as the strongest human threshold, and no response-time promise at all until the Owner states Forever's operating window.
 
 Sibling documents, cited rather than restated: `docs/crm/CRM_DOMAIN_MODEL.md` (every table, column, enum and INV-D-n invariant), `docs/crm/CRM_UX_INFORMATION_ARCHITECTURE.md` (screens), `docs/crm/CRM_SECURITY_AND_RBAC.md` (capabilities and grants), `docs/crm/CRM_PRIVACY_CONSENT_RETENTION.md` (consent, suppression, s.25), `docs/crm/CRM_ANALYTICS_AND_KPI.md` (metric keys), `docs/crm/CRM_AUTOMATION_CATALOGUE.md` (the five coverage sweeps), `docs/crm/CRM_IMPLEMENTATION_PLAN.md` (phases and migration file register).
@@ -53,7 +53,7 @@ Phase-1 migration files, FK-ordered — `crm_catalogue_v1` (`crm_channel`, `crm_
 
 [Repository fact] `public.studio_members(role TEXT NOT NULL CHECK (role IN ('owner','trusted_publisher')))` at `supabase/migrations/20260721120000_forever_studio_v1.sql:86` is the only authorization source in the repository. This document introduces **no second identity roster** and no new role value.
 
-[Recommendation] Authority is enforced in TypeScript at the app-server boundary running as `service_role`, behind `requireSupabaseAuth → requireStudioMember → resolveStudioActor`, with database guard triggers only where an application bug would otherwise be irreversible. **No `auth.uid()` predicate, no `auth.jwt()` claim check, no `FORCE ROW LEVEL SECURITY`, and no second service-role key path is introduced by anything here.** [Repository fact] Zero occurrences of all four exist across the 24 migrations, and the CRM contract test asserts the absence of `FORCE ROW LEVEL SECURITY` with its reason recorded: it would apply the zero-policy posture to `service_role` itself and deny every CRM read. A previously circulated claim that a repo-wide pinned test already forbids it is false — `src/import/migration-security.test.ts` pins one named file only.
+[Recommendation] Authority is enforced in TypeScript at the app-server boundary running as `service_role`, behind `requireSupabaseAuth → requireStudioMember → resolveStudioActor`, with database guard triggers only where an application bug would otherwise be irreversible. **No `auth.uid()` predicate, no `auth.jwt()` claim check, no `FORCE ROW LEVEL SECURITY`, and no second service-role key path is introduced by anything here.** [Repository fact] Zero occurrences of all four exist across the 25 migrations, and the CRM contract test asserts the absence of `FORCE ROW LEVEL SECURITY` with its reason recorded: it would apply the zero-policy posture to `service_role` itself and deny every CRM read. A previously circulated claim that a repo-wide pinned test already forbids it is false — `src/import/migration-security.test.ts` pins one named file only.
 
 Offboarding is `studio_members.is_active = false`, never an `auth.users` delete. Every actor-bearing CRM row carries an email snapshot (`crm_activity.actor_email`) so a deleted account never erases history.
 
@@ -471,46 +471,119 @@ Let `A` = the newest `crm_activity(kind='assignment')`, `G = o.owner_user_id`.
 | Silence | `silent_persons_14d` | yes |
 | Stage dwell | `stage_dwell_breaches` | yes |
 | Overdue action | `overdue_next_actions` | yes, by definition |
-| 21-day relationship claim | §7.3 | yes, where the person holds any open opportunity with a future `next_action_at` |
+| 21-day holding period | §7.3 | **no** — deferred only by an explicit `ownership_extension` activity |
 
 [Recommendation] `crm_pipeline_stage.target_time_in_status_hours` is seeded **NULL** for `qualified`, `viewing` and `reserved`. Inside-sales numbers do not describe this cycle. The Owner sets them from observed `cycle_time_days` once twelve transitions exist, and until then the Pulse tile reads **"Not configured"**, never `0` — a clean zero derived from missing evidence is a positive all-clear the rest of the design forbids.
 
-### 7.3 The 21-day rule, and the line the sweep may not cross
+### 7.3 The 21-day rule — the Owner-approved default
 
-[Owner requirement] A Guide who works a buyer keeps them for 21 days.
+> **[Owner requirement — canonical, and the single statement of this rule in the package.]**
+> An agent holds an assigned lead for **21 calendar days**. After 21 days **without successful progression**,
+> the lead moves to **warm-up / reassignment** according to the operational policy. A reactivated lead returns
+> to the **originating agent** where the operational policy requires it. Permanent attribution and ownership
+> credit are modelled **separately** from current assignment.
+>
+> This is the adopted Forever default. An activity-driven variant is described in §7.3.4 as a **future
+> alternative for consideration only**; it must not replace this default without a separate explicit Owner
+> decision.
+
+#### 7.3.1 The clock
 
 | Aspect | Decision |
 |---|---|
-| What is protected | the **relationship** — `crm_person.relationship_owner_user_id` — not the individual opportunity, because a buyer may hold three opportunities and a per-opportunity claim would let a second Guide take the same person via a different project |
-| What starts the clock | the assignment activity |
-| What resets it | a Guide-attributed human outbound: `direction='outbound' AND is_automated = false AND actor_user_id = relationship_owner_user_id` |
-| What does **not** reset it | the buyer replying; an automated send; another Guide's activity; a system row |
-| What happens at day 21 | **`flag_only`.** The sweep writes one `crm_task` for the Owner. It does not null `relationship_owner_user_id`, does not release any opportunity, and writes no ownership column at all. |
-| What survives | every assignment activity, every credit row, `first_touch_source_key` — a lapsed claim is not an erased contribution |
+| What is protected | the **relationship** — `crm_person.relationship_owner_user_id` — not the individual opportunity, because a buyer may hold three opportunities and a per-opportunity claim would let a second agent take the same person via a different project |
+| What starts the clock | the assignment activity (`crm_activity.kind='assignment'`), read as **`assigned_at`** |
+| Clock unit | **21 calendar days**, evaluated in Asia/Bangkok, not business days and not rolling activity |
+| What resets it | **successful progression only** — a forward stage transition on any open opportunity for that person, or a new assignment |
+| What does **not** reset it | an outbound message; a logged call; the buyer replying; an automated send; a `wa.me` tap; any activity that does not advance a stage |
+| What happens at day 21 | the person **enters `warm_up`**, per the operational policy. This is a transition the system performs, not a suggestion it prints |
+| What survives, permanently | `originating_owner_user_id`, every assignment activity, every `crm_opportunity_credit` row, `first_touch_source_key` |
+
+The reset condition is the load-bearing correction. A clock reset by *any* advisor activity can be held open
+indefinitely by sending one message every twentieth day, which converts a 21-day holding period into a
+permanent claim and is exactly the outcome the Owner's rule exists to prevent. Progression means the deal
+moved.
+
+#### 7.3.2 Why the transition is safe to automate
+
+The objection to a timer writing an ownership column is that ownership is commission-relevant. That objection
+is **retired by separating the two concerns**, which the Owner's policy requires independently:
+
+- `crm_person.relationship_owner_user_id` — **current assignment.** Operational, reassignable, and what the
+  21-day rule moves.
+- `crm_person.originating_owner_user_id` — **permanent origination.** Written once at first assignment,
+  never overwritten, never nulled by any sweep. It is what "returns to the originating agent" reads.
+- `crm_opportunity_credit` — **commercial credit.** Unchanged by any timer; only a human writes it.
+
+Because the sweep touches only the first of the three, it performs **no commission-relevant write**. What the
+sweep may never do is null `originating_owner_user_id`, alter a credit row, or choose the next assignee —
+selecting a human still requires ordered routing rules with working hours and availability, which do not
+exist yet. [Web research] Auto-assignment without them is round-robin into an empty office at 02:00 Phuket
+time: https://help.lofty.com/hc/en-us/articles/360055177831-Lead-Routing-How-to-set-up-lead-routing-rules
+
+So the transition is: **assigned → warm_up**, with `relationship_owner_user_id` retained until a human or an
+approved routing rule reassigns. Warm-up is a state the Owner and the team can see and act on; it is not an
+erasure of the agent's contribution, and §7.3.3 returns the buyer to them on reactivation.
 
 ```sql
--- The lapse flag. Evaluated once per person per sweep. Writes a task, nothing else.
+-- The 21-day lapse. Evaluated once per person per sweep, in Asia/Bangkok.
+-- Selects people whose holding period expired without a forward stage transition.
 SELECT p.id
 FROM public.crm_person p
 WHERE p.relationship_owner_user_id IS NOT NULL
   AND p.deleted_at IS NULL
   AND p.merged_into_person_id IS NULL
-  AND NOT EXISTS (
+  AND p.assignment_state = 'assigned'
+  AND p.assigned_at
+        <= ((now() AT TIME ZONE 'Asia/Bangkok')::date
+             - (SELECT days FROM crm_policy_constant('CRM_OWNERSHIP_EXCLUSIVITY')))
+  AND NOT EXISTS (                      -- successful progression resets the clock
         SELECT 1 FROM public.crm_activity a
-        WHERE a.person_id     = p.id
-          AND a.actor_user_id = p.relationship_owner_user_id
-          AND a.direction     = 'outbound'
-          AND a.is_automated  = false
-          AND a.occurred_at   > now() - interval '21 days')
-  AND NOT EXISTS (
-        SELECT 1 FROM public.crm_opportunity o
-        WHERE o.person_id = p.id AND o.status = 'open'
-          AND o.next_action_at > now());
+        WHERE a.person_id    = p.id
+          AND a.kind         = 'stage_change'
+          AND a.metadata->>'direction' = 'forward'
+          AND a.occurred_at  > p.assigned_at)
+  AND NOT EXISTS (                      -- an explicit, audited Owner extension defers it
+        SELECT 1 FROM public.crm_activity h
+        WHERE h.person_id    = p.id
+          AND h.kind         = 'ownership_extension'
+          AND (h.metadata->>'extends_until')::timestamptz > now());
 ```
 
-[Unverified assumption] **21 days is an Owner policy number, not an evidence-based one.** No source in the research set supports 21 over 14 or 30. It ships as a TypeScript constant with its review trigger — the first ownership dispute — written in the comment beside it, and it is never presented as a finding.
+**`next_action_at` does not suppress this check.** An earlier revision let a future `next_action_at` silence
+it, which allowed an advisor to hold a relationship indefinitely by scheduling a reminder — the activity-driven
+behaviour wearing the clothes of the calendar rule. A deliberate long wait is legitimate on a 6–18 month
+off-plan cycle, so the escape hatch is an **explicit `ownership_extension` activity**: attributable, dated,
+bounded, and visible to the Owner. A silent suppressor and an audited extension produce the same operational
+outcome; only one of them is reviewable. This is the one place in the package where a staleness check is
+deliberately *not* suppressed by `next_action_at`, and §7.2's universal-suppressor rule is scoped accordingly.
 
-**Why release was removed entirely.** Releasing withdraws a lapsed claim; assigning decides which human should own a relationship, which needs ordered routing rules with working hours and vacation that do not exist. [Web research] https://help.lofty.com/hc/en-us/articles/360055177831-Lead-Routing-How-to-set-up-lead-routing-rules — auto-assign without them is round-robin into an empty office at 02:00 Phuket time, worse than the pool. But the release direction was specified three incompatible ways across this package, and a machine performing a commission-relevant write on a clock is the wrong default at ten seats. The lapse becomes **visible**; the Owner acts.
+#### 7.3.3 Reactivation returns to the originating agent
+
+[Owner requirement] Where the operational policy requires it, a reactivated lead returns to the agent who
+originated it. `originating_owner_user_id` is what makes this a lookup rather than an argument.
+
+On reactivation — a new enquiry, or a dormant person re-engaging — the routing step reads
+`originating_owner_user_id` first. It reassigns to that agent when they are still active
+(`studio_members.is_active = true`); otherwise the person is routed normally and the origination record is
+left untouched, because it is attribution, not a claim. A reassignment away from the originating agent never
+rewrites the column.
+
+#### 7.3.4 The activity-driven alternative — future consideration only, not adopted
+
+[Recommendation — **not** the current default] A variant exists in which the holding period is reset by any
+agent-attributed human outbound rather than by stage progression, and in which expiry only flags. It has one
+real argument in its favour: it rewards contact effort on a cycle where months can legitimately pass between
+meaningful stage changes.
+
+It is **not adopted**, for two reasons. It permits an indefinite claim maintained by minimal activity, and it
+replaces a policy the Owner has set. It is recorded here so that a later Owner decision has something concrete
+to adopt, and it must not be presented anywhere in this package as Forever's default.
+
+**Review trigger for the whole rule:** the first ownership dispute; or an Owner decision to change the
+holding period, the reset condition, or the expiry action. [Unverified assumption] 21 days is an Owner policy
+number and no source in the research set supports 21 over 14 or 30; it ships as a named constant with this
+review trigger in the comment beside it, and it is never presented as a research finding.
 
 ### 7.4 The fallback ladder when a Guide does not respond
 

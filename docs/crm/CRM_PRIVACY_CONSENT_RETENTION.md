@@ -2,7 +2,7 @@
 
 Task ID: FOREVER-CRM-ARCH-001
 Status: Proposed architecture — not approved, not scheduled, not authorized for implementation
-Repository state of record: main @ 821b3c4e2f6f82e0d4ddce86199a8ff24b44a094
+Repository state of record: main @ 82e2039270168df1043050204988fbd6c009ed0e
 Risk class: R0 (documentation only)
 
 > This document is a design record. It asserts no product truth, changes no active stage, and authorizes no implementation. The active stage remains FOREVER-STUDIO-001 (`docs/CURRENT_STAGE.md`), which lists "large CRM integration" as out of scope. Any implementing task is R2 under the shared-contract rule and requires an Architect-reviewed stage change plus Owner approval.
@@ -262,7 +262,7 @@ $$;
 
 ### 3.4 Grants
 
-[Repository fact] Column-level `GRANT UPDATE (…)` has **zero occurrences across all 24 migrations**; the precedent that does exist (`20260724090000`) is whole-table narrowing paired with claim-checked SECURITY DEFINER RPCs. This design uses the precedent as it actually exists.
+[Repository fact] Column-level `GRANT UPDATE (…)` has **zero occurrences across all 25 migrations**; the precedent that does exist (`20260724090000`) is whole-table narrowing paired with claim-checked SECURITY DEFINER RPCs. This design uses the precedent as it actually exists.
 
 | Table | Grant to `service_role` | Exceptions |
 |---|---|---|
@@ -687,7 +687,7 @@ CONSTRAINT pbr_disposition_exclusive
 
 **No ordering constraint is asserted between `reasonable_belief_at` and `discovered_at`**, and a comment says why: an investigation legitimately reconstructs a belief time *earlier* than discovery. The earlier design carried `CHECK (a <= b OR a >= b)` over two `NOT NULL` columns — a tautology whose name claimed a guarantee it did not provide. It is deleted rather than repaired.
 
-**Deadlines are set by a `BEFORE INSERT` trigger, not a generated column.** The obvious `GENERATED ALWAYS AS (reasonable_belief_at + INTERVAL '72 hours') STORED` **does not compile**: PostgreSQL requires an `IMMUTABLE` generation expression and `timestamptz + interval` is `STABLE`. [Repository fact] The repository contains zero `GENERATED ALWAYS` columns across all 24 migrations, so the trigger form is also the consistent one.
+**Deadlines are set by a `BEFORE INSERT` trigger, not a generated column.** The obvious `GENERATED ALWAYS AS (reasonable_belief_at + INTERVAL '72 hours') STORED` **does not compile**: PostgreSQL requires an `IMMUTABLE` generation expression and `timestamptz + interval` is `STABLE`. [Repository fact] The repository contains zero `GENERATED ALWAYS` columns across all 25 migrations, so the trigger form is also the consistent one.
 
 The register does not duplicate the audit trail. `public.audit_log` records what the system did; the register records what Forever concluded and told whom. `notification_evidence` carries the delivered text or reference, because a notification that cannot be produced later did not happen.
 
