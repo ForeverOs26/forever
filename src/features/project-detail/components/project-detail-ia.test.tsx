@@ -32,6 +32,7 @@ import {
   paymentPlanDocument,
   projectPhotographs,
 } from "../project-sections";
+import { groupProjectMedia } from "../project-detail-mappers";
 import { projectQuickFacts } from "./ProjectQuickFacts";
 import { projectSummaryRows } from "./ProjectSummaryPanel";
 import { ProjectMediaMosaic } from "./ProjectMediaMosaic";
@@ -140,6 +141,48 @@ describe("the media mosaic", () => {
   it("says so plainly when a project has no photographs yet", () => {
     render(<ProjectMediaMosaic items={[]} projectName="X" onOpen={() => {}} />);
     expect(screen.getByTestId("project-media-empty")).not.toBeNull();
+  });
+
+  /**
+   * Villa Kirara, end to end through the real mapper
+   * (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001).
+   *
+   * The test above hands the component an empty array, which proves the
+   * component but not the path. This one starts from the rows the database
+   * holds — twenty-four launch-party photographs and nothing else — and asserts
+   * that what reaches the screen is the neutral empty state and that no
+   * launch-party URL appears anywhere in the rendered DOM.
+   */
+  it("renders the neutral empty state for a project whose every photograph is prohibited", () => {
+    const media = groupProjectMedia(
+      Array.from({ length: 24 }, (_unused, index) => ({
+        id: `k-${index}`,
+        project_id: "villa-kirara",
+        media_type: "gallery",
+        title: null,
+        url: `https://cdn.example.com/kirara-launch-${index}.jpg`,
+        sort_order: index,
+        semantic_role: "event",
+      })) as unknown as Parameters<typeof groupProjectMedia>[0],
+      { projectId: "villa-kirara", mainImageUrl: null },
+    );
+    const project = makeProjectDetail({ media });
+
+    const { container } = render(
+      <ProjectMediaMosaic
+        items={projectPhotographs(project)}
+        projectName="Villa Kirara"
+        onOpen={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("project-media-empty").textContent).toContain(
+      "Official photography for this project is being prepared",
+    );
+    expect(container.querySelectorAll("img")).toHaveLength(0);
+    expect(container.innerHTML).not.toContain("kirara-launch");
+    // And the page offers no Photos section at all, rather than an empty one.
+    expect(projectSections(project).map((section) => section.id)).not.toContain("photos");
   });
 
   it("opens the viewer from a tile", () => {
