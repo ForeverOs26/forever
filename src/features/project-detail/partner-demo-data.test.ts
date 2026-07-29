@@ -19,7 +19,8 @@ describe("Partner Demo committed project adapter", () => {
       type: "Condominium",
       status: "Available",
       constructionStatus: "Planning",
-      ownershipType: "Freehold",
+      ownershipType: "",
+      developerNameRaw: "Rhom Bho Property",
       location: "Bang Tao",
     });
     expect(project.developer?.name).toBe("Title");

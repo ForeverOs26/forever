@@ -1,17 +1,24 @@
 import { Building2, Globe, Mail, Phone } from "lucide-react";
 import { Section } from "@/components/layout/Section";
 import type { ProjectDetail } from "../project-detail-types";
+import { developerIdentity } from "../developer-identity";
 
 type ProjectDeveloperProps = {
   project: ProjectDetail;
 };
 
 export function ProjectDeveloper({ project }: ProjectDeveloperProps) {
-  const developer = project.developer;
+  const identity = developerIdentity(project);
+
+  // Absent when nothing names a developer, and equally absent when two sources
+  // name different ones (F2). The same predicate decides the navigation entry
+  // in `project-sections.ts`, so the pill and this section cannot disagree.
+  if (identity.state !== "named") return null;
+
+  const developer = identity.verified ? project.developer : null;
 
   if (!developer) {
-    const rawName = project.core.developerNameRaw;
-    if (!rawName) return null;
+    const rawName = identity.name;
     return (
       <Section id="developer" eyebrow="Developer" title={rawName} className="pt-0">
         <div className="rounded-3xl border border-border/60 bg-card p-6 sm:p-8">

@@ -20,6 +20,16 @@ import type { ProjectDetail, ProjectDetailRecord } from "./project-detail-types"
  * The column carries presentation data only. No provenance column is added
  * here: `metadata` holds source paths, package directories and sanitizer
  * records and remains unreadable by the anonymous role.
+ *
+ * The projection also embeds `project_amenities` with its `amenities` parent —
+ * the canonical relation, and the only relation of its kind in the generated
+ * types. Both tables grant `SELECT` to `anon`, and their row-level policies
+ * expose amenities of published projects. The embed was exercised against the
+ * live database on the original PR and returned the projects unchanged, with an
+ * empty `amenities` array where the relation held no rows.
+ *
+ * Both fields are hard query contracts: a missing column or failing embed does
+ * not hide one section. PostgREST rejects the whole select and blanks the page.
  */
 export const PROJECT_DETAIL_SELECT = `
   id, name, slug, project_type, location_area, address,
@@ -32,7 +42,8 @@ export const PROJECT_DETAIL_SELECT = `
   developer:developers(id, name, description, website, logo_url),
   media:project_media(id, media_type, title, url, sort_order, semantic_role),
   units:units(id, unit_code, unit_type, bedrooms, bathrooms, size_sqm, floor, view_type, ownership_type, base_price_thb, discounted_price_thb, price_per_sqm, availability_status, payment_plan, furniture_package, rental_guarantee, roi_estimate, notes, building:buildings(building_code)),
-  investment:investment_data(id, project_id, unit_id, expected_daily_rate, expected_monthly_rent, expected_yearly_rent, occupancy_rate, annual_roi_percent, guaranteed_rental_percent, guarantee_years, management_company, notes, created_at)
+  investment:investment_data(id, project_id, unit_id, expected_daily_rate, expected_monthly_rent, expected_yearly_rent, occupancy_rate, annual_roi_percent, guaranteed_rental_percent, guarantee_years, management_company, notes, created_at),
+  amenities:project_amenities(note, amenity:amenities(id, name, slug, category, icon))
 ` as const;
 
 /**

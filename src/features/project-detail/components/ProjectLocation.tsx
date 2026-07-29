@@ -3,6 +3,7 @@ import { MapPin } from "lucide-react";
 import { Section } from "@/components/layout/Section";
 
 import type { ProjectDetail } from "../project-detail-types";
+import { hasLocationSection, locationMapDocument } from "../project-sections";
 
 /**
  * Location (FOREVER-PROJECT-DETAIL-FAZWAZ-INSPIRED-UX-001).
@@ -23,31 +24,16 @@ export function ProjectLocation({ project }: ProjectLocationProps) {
   const address = project.core.address;
   const hasCoordinates =
     typeof project.location.latitude === "number" && typeof project.location.longitude === "number";
-  // This section renders its document as a full-width <img> captioned "Official
-  // location map", so which row it picks is a public-image decision.
-  //
-  // The recorded role decides it: `map` is what the publish lane assigns to the
-  // `map-location` category, so a classified row identifies itself. The title
-  // match survives only as a fallback for rows published before the semantic
-  // contract, which carry no role at all — and it reads the recorded title, not
-  // the URL or the filename.
-  const locationDocument =
-    project.media.documents.find(
-      (document) => document.type === "document" && document.semanticRole === "map",
-    ) ??
-    project.media.documents.find(
-      (document) =>
-        document.type === "document" &&
-        !document.semanticRole &&
-        /map/i.test(document.label + document.title),
-    );
+  const locationDocument = locationMapDocument(project);
 
   const nearby: Array<[string, string]> = [];
   if (project.location.distanceToBeach) nearby.push(["Beach", project.location.distanceToBeach]);
   if (project.location.distanceToAirport)
     nearby.push(["Airport", project.location.distanceToAirport]);
 
-  if (!area && !address && !hasCoordinates && !locationDocument) return null;
+  // One predicate, shared with the navigation, so a pill can never point at a
+  // section this returns null for.
+  if (!hasLocationSection(project)) return null;
 
   return (
     <Section

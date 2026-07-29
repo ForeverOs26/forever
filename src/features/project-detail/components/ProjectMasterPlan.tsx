@@ -1,8 +1,8 @@
 import { Map as MapIcon } from "lucide-react";
 import { Section } from "@/components/layout/Section";
 import { Button } from "@/components/ui/button";
-import { renderablePlan } from "../plan-media";
 import type { ProjectDetail } from "../project-detail-types";
+import { projectMasterPlan } from "../project-sections";
 
 type ProjectMasterPlanProps = {
   project: ProjectDetail;
@@ -14,8 +14,11 @@ type ProjectMasterPlanProps = {
  * plan and no unit plan is ever presented as the site plan (F-008).
  */
 export function ProjectMasterPlan({ project }: ProjectMasterPlanProps) {
-  const masterPlan = renderablePlan(project.media.masterPlan);
+  const masterPlan = projectMasterPlan(project);
 
+  // `hasMasterPlanSection` is this same `renderablePlan` call, and the
+  // navigation gates on it — the two cannot drift. Kept in this form so the
+  // non-null narrowing below survives.
   if (!masterPlan) return null;
 
   return (

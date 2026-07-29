@@ -3,6 +3,7 @@ import { Section } from "@/components/layout/Section";
 import { Button } from "@/components/ui/button";
 import { renderablePlans } from "../plan-media";
 import type { ProjectDetail } from "../project-detail-types";
+import { hasUnitPlansSection, projectUnitPlans } from "../project-sections";
 
 type ProjectUnitPlansProps = {
   project: ProjectDetail;
@@ -19,9 +20,9 @@ type ProjectUnitPlansProps = {
  * availability. The heading now follows the plans it names.
  */
 export function ProjectUnitPlans({ project }: ProjectUnitPlansProps) {
-  const unitPlans = renderablePlans(project.media.unitPlans);
+  const unitPlans = renderablePlans(projectUnitPlans(project));
 
-  if (unitPlans.length === 0) return null;
+  if (!hasUnitPlansSection(project)) return null;
 
   return (
     <Section id="unit-plans" eyebrow="Unit Plans" title="Available layouts" className="pt-0">
