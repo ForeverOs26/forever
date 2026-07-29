@@ -390,20 +390,26 @@ export type Database = {
         Row: {
           amenity_id: string
           created_at: string
+          is_featured: boolean
           note: string | null
           project_id: string
+          sort_order: number
         }
         Insert: {
           amenity_id: string
           created_at?: string
+          is_featured?: boolean
           note?: string | null
           project_id: string
+          sort_order?: number
         }
         Update: {
           amenity_id?: string
           created_at?: string
+          is_featured?: boolean
           note?: string | null
           project_id?: string
+          sort_order?: number
         }
         Relationships: [
           {
@@ -428,6 +434,7 @@ export type Database = {
           id: string
           media_type: string
           project_id: string
+          semantic_role: string | null
           sort_order: number
           title: string | null
           url: string
@@ -437,6 +444,7 @@ export type Database = {
           id?: string
           media_type: string
           project_id: string
+          semantic_role?: string | null
           sort_order?: number
           title?: string | null
           url: string
@@ -446,6 +454,7 @@ export type Database = {
           id?: string
           media_type?: string
           project_id?: string
+          semantic_role?: string | null
           sort_order?: number
           title?: string | null
           url?: string

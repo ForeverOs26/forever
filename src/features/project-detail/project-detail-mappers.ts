@@ -308,12 +308,18 @@ export function groupProjectMedia(
  * consulted: a render that happens to show water is not evidence of a communal
  * pool, and an editorial one-liner is not an amenity.
  *
- * Ordering is by category, then name, then slug. Neither table has a
- * `sort_order` column, so there is nothing curated to honour; this ordering is
- * chosen because it is total and stable — PostgREST does not promise an order
- * for embedded rows, and an unordered list would reshuffle between requests.
- * A real `sort_order` belongs to the Studio Amenities contract, and this
- * comparator gives way to it when it lands.
+ * Ordering honours the Owner's editorial choice first and falls back to a
+ * total, stable comparator:
+ *
+ *   1. featured amenities before non-featured ones;
+ *   2. within each group, ascending `sort_order`;
+ *   3. then category, then name, then slug.
+ *
+ * Steps 3–5 are load-bearing rather than decorative. `sort_order` defaults to
+ * `0` for every link the Owner has not ordered, so on a project that has never
+ * been through the editor every row ties and the fallback is the entire order —
+ * which is why it must be total. PostgREST does not promise an order for
+ * embedded rows, so without it the list would reshuffle between requests.
  *
  * Rows are deduplicated on amenity identity, not on name, so two distinct
  * amenities that share a display name both survive while a relation that
@@ -341,6 +347,11 @@ export function mapProjectAmenities(
     if (seen.has(key)) continue;
     seen.add(key);
 
+    // A null `is_featured` or `sort_order` means the row predates the Owner
+    // ordering it, or the embed returned nothing for it. Either way the row is
+    // unfeatured and unordered — never dropped for it.
+    const sortOrder = Number.isFinite(Number(row.sort_order)) ? Number(row.sort_order) : 0;
+
     amenities.push({
       id,
       slug,
@@ -348,11 +359,15 @@ export function mapProjectAmenities(
       category: text(amenity.category).trim(),
       icon: text(amenity.icon).trim(),
       note: text(row.note).trim(),
+      isFeatured: row.is_featured === true,
+      sortOrder: sortOrder < 0 ? 0 : sortOrder,
     });
   }
 
   return amenities.sort((left, right) => {
     return (
+      Number(right.isFeatured) - Number(left.isFeatured) ||
+      left.sortOrder - right.sortOrder ||
       left.category.localeCompare(right.category, "en") ||
       left.name.localeCompare(right.name, "en") ||
       left.slug.localeCompare(right.slug, "en")

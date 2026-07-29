@@ -110,6 +110,59 @@ export interface StudioProjectDetailRow {
   media: Array<{ url: string; media_type: string; title: string | null; sort_order: number }>;
 }
 
+/**
+ * One row of the canonical `amenities` catalogue (FOREVER-STUDIO-AMENITIES-CORE-001).
+ *
+ * `category` and `icon` are nullable columns; the data layer coalesces them to
+ * `""` at this boundary so no consumer has to decide again what a null category
+ * means. `id` is the catalogue identity, but `slug` is what the save contract
+ * speaks — see StudioProjectAmenityRow.
+ */
+export interface StudioAmenityCatalogueRow {
+  id: string;
+  slug: string;
+  name: string;
+  category: string;
+  icon: string;
+}
+
+/**
+ * One amenity assigned to one project: the `project_amenities` link flattened
+ * onto its `amenities` parent.
+ *
+ * `isFeatured` and `sortOrder` are the Owner's editorial choices and carry the
+ * public order (featured first, then sortOrder, then category/name/slug). Rows
+ * predating the editor read as `false` / `0` — unfeatured and unordered — which
+ * is exactly what they already were.
+ */
+export interface StudioProjectAmenityRow {
+  amenityId: string;
+  slug: string;
+  name: string;
+  category: string;
+  icon: string;
+  note: string;
+  isFeatured: boolean;
+  sortOrder: number;
+}
+
+/**
+ * The canonical state after one amenity reconcile, as the transaction function
+ * returns it — already in public display order.
+ *
+ * The caller returns THIS to the browser, never its own optimistic input: the
+ * function trims notes, defaults sort orders, and resolves newly created slugs
+ * to real rows, so the request body and the committed truth are not the same
+ * value.
+ */
+export interface StudioSavedProjectAmenities {
+  projectId: string;
+  amenities: StudioProjectAmenityRow[];
+  selectedCount: number;
+  featuredCount: number;
+  createdAmenitySlugs: string[];
+}
+
 /** Public listing row — NO contact columns (they live in the private table). */
 export interface StudioListingRow {
   id: string;
@@ -410,6 +463,34 @@ export interface StudioData {
     /** Test-only rollback injection; production callers always pass false. */
     injectFailure?: boolean;
   }): Promise<{ warnings: ProgressiveWarning[]; appliedFields: string[] }>;
+
+  /** The canonical amenity catalogue, ordered by (category, name, slug). */
+  listAmenityCatalogue(): Promise<StudioAmenityCatalogueRow[]>;
+  /** Every amenity assigned to one project, in public display order. */
+  listProjectAmenities(projectId: string): Promise<StudioProjectAmenityRow[]>;
+  /**
+   * One all-or-nothing reconcile of one project's canonical amenity set.
+   *
+   * `amenities` is the EXACT final set, not a patch: every existing link absent
+   * from it is deleted in the same transaction. `createdAmenities` holds only
+   * the catalogue rows the Owner explicitly asked to create — a requested slug
+   * that resolves to neither an existing amenity nor one of these is a refusal,
+   * never an implicit insert.
+   */
+  saveProjectAmenities(input: {
+    projectId: string;
+    actorId: string;
+    amenities: Array<{
+      amenity_slug: string;
+      note: string;
+      is_featured: boolean;
+      sort_order: number;
+    }>;
+    createdAmenities: Array<{ name: string; slug: string; category: string; icon: string }>;
+    suppliedAt: string;
+    /** Test-only rollback injection; production callers always pass false. */
+    injectFailure?: boolean;
+  }): Promise<StudioSavedProjectAmenities>;
 
   recordAudit(entry: StudioAuditEntry): Promise<void>;
 

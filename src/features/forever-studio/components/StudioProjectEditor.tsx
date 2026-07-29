@@ -23,6 +23,7 @@ import {
 } from "../studio.functions";
 import { projectPagePath, type StudioProjectFacts } from "../studio-types";
 import { STUDIO_OVERVIEW_KEY } from "./StudioDashboard";
+import { StudioProjectAmenitiesEditor } from "./StudioProjectAmenitiesEditor";
 import {
   isStudioRouteDenial,
   StudioRouteDenied,
@@ -230,6 +231,14 @@ export function StudioProjectEditor(props: { slug: string }) {
         </Button>
         {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
       </form>
+
+      {/*
+        A sibling section, not part of the facts form: amenities are reconciled
+        by their own transaction and must not ride on this form's submit. It
+        owns its own query and mutation and degrades to one inline line on
+        failure, so it can never affect this route's settlement.
+      */}
+      <StudioProjectAmenitiesEditor slug={props.slug} />
     </div>
   );
 }

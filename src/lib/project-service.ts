@@ -49,10 +49,9 @@ function resolveMediaUrl(url: string | null | undefined): string {
 
 type ProjectWithRelations = ProjectRow & {
   developer: Pick<DeveloperRow, "name"> | null;
-  // `semantic_role` is declared here rather than read from `MediaRow` because
-  // the generated database types lag migration 20260728120000. This is a TYPE
-  // accommodation only: if the column were absent, PostgREST would already have
-  // failed the whole embedded select with 42703 and this shape is never built.
+  // `semantic_role` is now present in the generated types, so this is no longer
+  // an accommodation for a lagging generator — it is kept because it states
+  // something the generated shape does not, on the line below.
   //
   // REQUIRED, not optional, and that is deliberate. Optional would let a future
   // edit drop `semantic_role` from `SELECT` and still compile, after which every

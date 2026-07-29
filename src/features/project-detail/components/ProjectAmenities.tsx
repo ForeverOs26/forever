@@ -77,29 +77,47 @@ function amenityIcon(icon: string): LucideIcon {
 }
 
 /**
- * Groups amenities by category, but only when a category actually separates
- * them. One category — or none — is a single flat list, because a lone
- * subheading above every item is noise, not structure.
+ * Groups amenities for display, honouring the Owner's featured choice first.
  *
- * The mapper already ordered the rows by category, so walking them in order
- * yields contiguous groups without a second sort.
+ * Two rules are in tension. The ordering contract puts featured amenities ahead
+ * of everything else; category grouping wants every "Pools & Water" row
+ * together. Re-grouping the whole list by category would silently discard the
+ * first rule, so the featured amenities are lifted into their own leading group
+ * and only the remainder is grouped by category. A buyer then reads the six
+ * things the Owner chose to lead with, then the full list organised by kind.
+ *
+ * When nothing is featured — the state every project is in until the Owner
+ * opens the editor — this degrades to exactly the previous behaviour: group by
+ * category, or one flat list when a category does not actually separate
+ * anything. A lone subheading above every item is noise, not structure.
+ *
+ * The mapper no longer orders by category first, so groups are collected by
+ * first appearance rather than assumed contiguous.
  */
 function amenityGroups(
   amenities: ProjectAmenity[],
 ): { category: string; items: ProjectAmenity[] }[] {
-  const categories = new Set(amenities.map((amenity) => amenity.category).filter(Boolean));
-  if (categories.size < 2) return [{ category: "", items: amenities }];
+  const featured = amenities.filter((amenity) => amenity.isFeatured);
+  const rest = amenities.filter((amenity) => !amenity.isFeatured);
 
-  const groups: { category: string; items: ProjectAmenity[] }[] = [];
-  for (const amenity of amenities) {
-    const existing = groups.find((group) => group.category === amenity.category);
-    if (existing) {
-      existing.items.push(amenity);
-    } else {
-      groups.push({ category: amenity.category, items: [amenity] });
+  const byCategory = (items: ProjectAmenity[]): { category: string; items: ProjectAmenity[] }[] => {
+    const categories = new Set(items.map((amenity) => amenity.category).filter(Boolean));
+    if (categories.size < 2) return items.length ? [{ category: "", items }] : [];
+
+    const groups: { category: string; items: ProjectAmenity[] }[] = [];
+    for (const amenity of items) {
+      const existing = groups.find((group) => group.category === amenity.category);
+      if (existing) {
+        existing.items.push(amenity);
+      } else {
+        groups.push({ category: amenity.category, items: [amenity] });
+      }
     }
-  }
-  return groups;
+    return groups;
+  };
+
+  if (!featured.length) return byCategory(amenities);
+  return [{ category: "Featured", items: featured }, ...byCategory(rest)];
 }
 
 export interface ProjectAmenitiesProps {
@@ -119,8 +137,10 @@ export function ProjectAmenities({ project }: ProjectAmenitiesProps) {
       data-testid="project-amenities"
     >
       <div className="space-y-10">
-        {groups.map((group) => (
-          <div key={group.category || "all"}>
+        {groups.map((group, index) => (
+          // Indexed because a "Featured" group and a category can, in principle,
+          // carry the same label.
+          <div key={`${index}-${group.category}`}>
             {group.category && (
               <h3 className="mb-4 text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
                 {group.category}
