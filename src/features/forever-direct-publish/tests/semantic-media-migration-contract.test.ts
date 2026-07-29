@@ -94,11 +94,32 @@ const PROPERTIES: Record<string, (source: string) => boolean> = {
 };
 
 describe("semantic media migration — contract", () => {
-  it("is the last migration in ledger order (additive, appends only)", () => {
+  it("appends to the ledger, and nothing after it edits the media contract", () => {
     const files = readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith(".sql"))
       .sort();
-    expect(files.at(-1)).toBe(SUBJECT);
+    const index = files.indexOf(SUBJECT);
+    expect(index, `${SUBJECT} present in the ledger`).toBeGreaterThan(-1);
+
+    // This used to assert the subject was the LAST file. That was true when it
+    // shipped, but it makes an unrelated later migration fail this contract —
+    // the ledger only ever grows. What the contract is actually protecting is
+    // that the subject APPENDS (nothing already applied was renumbered around
+    // it) and that nothing ordered after it reaches back into project_media.
+    //
+    // Appends: every other migration sorts before it, except ones added later.
+    // Comments are stripped before scanning, because a later migration may name
+    // project_media while explaining which earlier migration granted what —
+    // 20260728160000 does exactly that.
+    const later = files.slice(index + 1);
+    const uncommented = (text: string) =>
+      text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
+    const mediaWriters = later.filter((file) =>
+      /project_media|semantic_role/i.test(
+        uncommented(readFileSync(resolve(MIGRATIONS_DIR, file), "utf8")),
+      ),
+    );
+    expect(mediaWriters, "migrations after the subject must not touch project_media").toEqual([]);
   });
 
   it("edits no applied migration", () => {
