@@ -397,8 +397,31 @@ try {
   const files = migrationFiles();
   const subjectIndex = files.indexOf(SUBJECT);
   if (subjectIndex < 0) throw new Error(`${SUBJECT} not found in ${MIGRATIONS_DIR}`);
-  if (subjectIndex !== files.length - 1) {
-    throw new Error(`${SUBJECT} is not last in ledger order — additive ordering violated`);
+
+  // The subject must stay put in ledger order and nothing after it may reach
+  // back into the media contract this proof establishes.
+  //
+  // This used to demand the subject be the LAST migration. That was the right
+  // guard while it was the newest one, but it conflates two things: "nothing
+  // has rewritten the media contract behind this proof" (what actually matters)
+  // and "no migration has been added since" (which the ledger does constantly —
+  // it only ever grows). 20260728160000 adds two columns to project_amenities
+  // and touches nothing here, yet the old form failed on it.
+  //
+  // So the check is now the real one: every migration ordered after the subject
+  // must be additive with respect to project_media. Comments are stripped
+  // before scanning — a later migration may legitimately *mention* project_media
+  // while explaining itself, and the subject's own file is not re-scanned.
+  const uncommented = (sql) =>
+    sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
+  const laterMediaWriters = files.slice(subjectIndex + 1).filter((file) =>
+    /project_media|semantic_role/i.test(uncommented(readFileSync(join(MIGRATIONS_DIR, file), "utf8"))),
+  );
+  if (laterMediaWriters.length > 0) {
+    throw new Error(
+      `migration(s) ordered after ${SUBJECT} modify the media contract — ` +
+        `additive ordering violated: ${laterMediaWriters.join(", ")}`,
+    );
   }
 
   // =========================================================================
@@ -411,7 +434,10 @@ try {
   console.log(`  server: ${A.scalar("SHOW server_version")}`);
   A.file(BOOTSTRAP);
   applyChain(A, files);
-  ok(`complete chain applied (${files.length} migrations, ${SUBJECT} last)`);
+  ok(
+    `complete chain applied (${files.length} migrations; ${files.length - 1 - subjectIndex} ` +
+      `additive migration(s) ordered after ${SUBJECT}, none touching project_media)`,
+  );
 
   // -- schema ---------------------------------------------------------------
   const col = A.scalar(
