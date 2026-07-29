@@ -9,6 +9,15 @@
 import type { Property } from "@/lib/data";
 import type { ProjectDetail } from "./project-detail-types";
 import { DEMO_PREVIEW_SLUG } from "./demo-preview-constants";
+import { presentableDeveloperName } from "./developer-identity";
+import {
+  projectBrochures,
+  projectFloorPlans,
+  projectMasterPlan,
+  projectPhotographs,
+  projectUnitPlans,
+  projectVideos,
+} from "./project-sections";
 
 export { DEMO_PREVIEW_SLUG };
 
@@ -51,7 +60,12 @@ export async function getDemoPreviewProjectDetail(slug: string): Promise<Project
 }
 
 export function mapProjectDetailToProperty(project: ProjectDetail): Property {
-  const hero = project.media.hero ?? project.media.gallery[0];
+  const photographs = projectPhotographs(project);
+  const floorPlans = projectFloorPlans(project);
+  const brochures = projectBrochures(project);
+  const videos = projectVideos(project);
+  const masterPlan = projectMasterPlan(project);
+  const unitPlans = projectUnitPlans(project);
   const startingPrice = project.pricing.startingPriceTHB;
   const isUnpublishedPreview =
     project.core.isDemoPreview || project.core.slug === DEMO_PREVIEW_SLUG;
@@ -59,7 +73,7 @@ export function mapProjectDetailToProperty(project: ProjectDetail): Property {
   return {
     slug: project.core.slug,
     name: project.core.name,
-    developer: project.developer?.name ?? "",
+    developer: presentableDeveloperName(project) ?? "",
     location: project.location.area || project.core.location,
     propertyType:
       project.core.type === "Villa" ||
@@ -112,13 +126,13 @@ export function mapProjectDetailToProperty(project: ProjectDetail): Property {
     startDate: "",
     completionDate: "",
     lastInspection: project.trust.lastInspection,
-    image: hero?.url ?? "",
-    gallery: project.media.gallery.map((item) => item.url),
-    floorPlans: project.media.floorPlans.map((item) => item.url),
-    brochures: project.media.brochures.map((item) => item.url),
-    videos: project.media.videos.map((item) => item.url),
-    masterPlan: project.media.masterPlan?.url,
-    unitPlanPdf: project.media.unitPlans[0]?.url,
+    image: photographs[0]?.url ?? "",
+    gallery: photographs.map((item) => item.url),
+    floorPlans: floorPlans.map((item) => item.url),
+    brochures: brochures.map((item) => item.url),
+    videos: videos.map((item) => item.url),
+    masterPlan: masterPlan?.url,
+    unitPlanPdf: unitPlans[0]?.url,
   };
 }
 

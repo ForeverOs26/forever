@@ -1,6 +1,8 @@
 import { Section } from "@/components/layout/Section";
 
 import type { ProjectDetail } from "../project-detail-types";
+import { presentableDeveloperName } from "../developer-identity";
+import { hasOverviewSection } from "../project-sections";
 import { buildingCodes, isAvailable, unitSizeRange } from "../unit-presentation";
 
 /**
@@ -27,9 +29,11 @@ export function ProjectOverview({ project }: ProjectOverviewProps) {
     if (text) facts.push([label, text]);
   };
   push("Property type", project.core.type);
-  push("Developer", project.developer?.name || project.core.developerNameRaw);
+  // Withheld when Forever's two sources name different developers (F2).
+  push("Developer", presentableDeveloperName(project));
   push("Construction", project.core.constructionStatus);
-  push("Ownership", project.core.ownershipType);
+  // Ownership is absent (F4): `projects.ownership_type` has no source evidence
+  // behind it, and tenure is a legal claim about a purchase.
   if (buildings.length > 0) push("Buildings", buildings.join(", "));
   if (project.units.length > 0) push("Listed units", project.units.length);
   if (project.units.length > 0) push("Available now", available);
@@ -37,7 +41,9 @@ export function ProjectOverview({ project }: ProjectOverviewProps) {
   push("Location", project.location.area || project.core.location);
   push("Address", project.core.address);
 
-  if (!description && facts.length === 0) return null;
+  // Shared with the navigation (X1), so the Overview pill and the `id="overview"`
+  // section are decided by one rule rather than two that disagree.
+  if (!hasOverviewSection(project)) return null;
 
   return (
     <Section id="overview" eyebrow="Overview" title="About this project" className="pt-16 sm:pt-20">

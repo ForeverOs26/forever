@@ -1,10 +1,11 @@
 import type { ProjectDetail } from "../project-detail-types";
+import { projectContactActionsEnabled } from "../contact-actions";
 import { projectSections } from "../project-sections";
 import { ForeverPassportCard } from "@/features/passport/components/ForeverPassportCard";
 import { ForeverIntelligenceSection } from "./ForeverIntelligenceSection";
 import { ProjectDeveloper } from "./ProjectDeveloper";
 import { ProjectDocuments } from "./ProjectDocuments";
-import { ProjectFacilities } from "./ProjectFacilities";
+import { ProjectAmenities } from "./ProjectAmenities";
 import { ProjectFloorPlans } from "./ProjectFloorPlans";
 import { ProjectInvestmentAnalysis } from "./ProjectInvestmentAnalysis";
 import { ProjectInventory } from "./ProjectInventory";
@@ -50,17 +51,25 @@ export function ProjectDetailEngine({ project }: ProjectDetailEngineProps) {
       project.investment.capitalGrowthEstimate,
     );
 
+  const contactActionsEnabled = projectContactActionsEnabled();
+
   return (
     <>
       <ProjectTopSection project={project} />
       <ProjectSectionNav sections={projectSections(project)} />
 
-      {/* Bottom padding clears the sticky mobile bar. */}
-      <div className="pb-24 lg:pb-0">
+      {/*
+        Bottom padding clears the sticky mobile bar — and only exists when the
+        bar does. With the contact actions withheld behind gate G0 (F5) there is
+        nothing to clear, so the page must not leave 6rem of empty space at the
+        end of a phone screen. This is the layout reflow the contact-flow
+        specification requires around an absent capability.
+      */}
+      <div className={contactActionsEnabled ? "pb-24 lg:pb-0" : undefined}>
         <ProjectOverview project={project} />
         <ProjectUnitPreview project={project} />
         <ProjectPhotos project={project} />
-        <ProjectFacilities project={project} />
+        <ProjectAmenities project={project} />
         <ProjectMasterPlan project={project} />
         <ProjectFloorPlans project={project} />
         <ProjectUnitPlans project={project} />

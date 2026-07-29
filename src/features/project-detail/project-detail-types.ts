@@ -41,13 +41,52 @@ export type UnitRowWithBuilding = UnitRow & {
   building?: { building_code: string | null } | null;
 };
 
+/**
+ * One row of the canonical amenities relation — `project_amenities` embedded
+ * with its `amenities` parent — as the public projection returns it.
+ *
+ * The column set is exactly what the two tables hold. `project_amenities` is
+ * `(project_id, amenity_id, note, created_at)` and `amenities` is
+ * `(id, name, slug, category, icon, created_at, updated_at)`. There is no
+ * `sort_order` and no `is_featured` on either table, so neither is typed here;
+ * introducing them is a schema change, not a mapping detail.
+ */
+export type ProjectAmenityRow = {
+  note?: string | null;
+  amenity: {
+    id: string | null;
+    name: string | null;
+    slug: string | null;
+    category: string | null;
+    icon: string | null;
+  } | null;
+};
+
 export type ProjectDetailRecord = ProjectRow &
   ProgressiveProjectColumns & {
     developer: DeveloperRow | null;
     media: ProjectMediaRow[] | null;
     units: UnitRowWithBuilding[] | null;
     investment: InvestmentDataRow[] | null;
+    amenities?: ProjectAmenityRow[] | null;
   };
+
+/**
+ * One amenity as the public page consumes it.
+ *
+ * Every field is a plain string — absent values collapse to `""` rather than
+ * `null`, so a renderer never has to distinguish "no category" from "null
+ * category". Only `name` is guaranteed non-empty: a row without one is dropped
+ * during mapping, because an amenity that cannot be named cannot be shown.
+ */
+export type ProjectAmenity = {
+  id: string;
+  slug: string;
+  name: string;
+  category: string;
+  icon: string;
+  note: string;
+};
 
 export type ProjectDetailMediaType =
   | "cover"
@@ -219,4 +258,25 @@ export type ProjectDetail = {
   developer: ProjectDetailDeveloper;
   media: ProjectDetailMedia;
   units: ProjectDetailUnit[];
+  /**
+   * Amenities the project record states outright, from the canonical
+   * `project_amenities` → `amenities` relation — and from nothing else
+   * (finding F3).
+   *
+   * This is the ONLY input the "Facilities & Amenities" section may read. It
+   * used to read `core.highlights`, which are editorial one-liners: Modeva's
+   * three are "Forever Verified project record", "Bang Tao location" and
+   * "Structured project foundation". Printed under a heading promising what
+   * the project includes, those state three things the developer never said.
+   *
+   * The structured relation is kept, not flattened to `string[]`: the tables
+   * already carry `slug`, `category`, `icon` and a per-project `note`, and
+   * discarding them at the mapping boundary would mean re-querying to group or
+   * annotate. A renderer that only wants names maps over `name`.
+   *
+   * It is empty for every public project today, because the relation holds
+   * zero rows for all of them, so the section and its navigation entry are
+   * absent everywhere. That is the correct current outcome, not a placeholder.
+   */
+  amenities: ProjectAmenity[];
 };

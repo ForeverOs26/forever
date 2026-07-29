@@ -1,4 +1,4 @@
-import { Building2, CalendarCheck, Coins, KeySquare, Layers, Ruler, Users } from "lucide-react";
+import { Building2, CalendarCheck, Coins, Layers, Ruler, Users } from "lucide-react";
 
 import type { ProjectDetail } from "../project-detail-types";
 import { buildingCodes, isAvailable, unitSizeRange } from "../unit-presentation";
@@ -46,7 +46,11 @@ export function projectQuickFacts(project: ProjectDetail): Fact[] {
   if (project.units.length > 0) push(Layers, "Available now", available);
   push(Ruler, "Unit sizes", unitSizeRange(project.units));
   push(CalendarCheck, "Construction", project.core.constructionStatus);
-  push(KeySquare, "Ownership", project.core.ownershipType);
+  // No Ownership tile (F4). This file already states the principle it broke:
+  // "a confident-looking tile containing a guess is worse than no tile".
+  // `projects.ownership_type` is populated on one legacy row out of nine and no
+  // official source states freehold, leasehold or foreign quota — and this is
+  // the first screen, where an unqualified tenure claim carries most weight.
   return facts;
 }
 

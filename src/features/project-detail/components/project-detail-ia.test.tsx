@@ -9,6 +9,9 @@
  * jsdom applies no media queries, so the mobile and desktop branches of the
  * mosaic are both in the document here; assertions are scoped accordingly.
  */
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   Outlet,
@@ -21,6 +24,7 @@ import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
 import {
+  makeAmenity,
   makeMediaItem,
   makeProjectDetail,
   makeUnit,
@@ -28,7 +32,7 @@ import {
 
 import {
   projectSections,
-  projectFacilities,
+  projectAmenities,
   paymentPlanDocument,
   projectPhotographs,
 } from "../project-sections";
@@ -38,10 +42,12 @@ import { projectSummaryRows } from "./ProjectSummaryPanel";
 import { ProjectMediaMosaic } from "./ProjectMediaMosaic";
 import { ProjectLightbox } from "./ProjectLightbox";
 import { ProjectUnitPreview } from "./ProjectUnitPreview";
-import { ProjectFacilities } from "./ProjectFacilities";
-import { ProjectPhotos } from "./ProjectPhotos";
+import { ProjectAmenities } from "./ProjectAmenities";
 import { ProjectPaymentPlan } from "./ProjectPaymentPlan";
 import { ProjectMobileCTA } from "./ProjectMobileCTA";
+import { ProjectPhotos } from "./ProjectPhotos";
+import { ProjectOverview } from "./ProjectOverview";
+import { ProjectDetailEngine } from "./ProjectDetailEngine";
 
 /** Anything containing a router `Link` needs a router in the tree. */
 async function renderInRouter(ui: ReactNode, settle: string) {
@@ -324,16 +330,19 @@ describe("section navigation", () => {
     expect(ids).not.toContain("units");
     expect(ids).not.toContain("floor-plans");
     expect(ids).not.toContain("payment-plan");
-    expect(ids).not.toContain("facilities");
+    expect(ids).not.toContain("amenities");
   });
 
   it("lists a section once its content exists, and anchors match the rendered ids", () => {
     const project = makeProjectDetail({
-      core: { description: "A project.", highlights: ["Communal pool"] },
+      core: { description: "A project.", highlights: [] },
+      amenities: [makeAmenity({ name: "Communal pool" })],
       units: [makeUnit()],
       media: {
         hero: makeMediaItem({ type: "cover" }),
-        gallery: photos(2),
+        // The gallery renders from six photographs upward, so the fixture has
+        // to clear that bar for the "photos" entry to be legitimate.
+        gallery: photos(6),
         floorPlans: [],
         masterPlan: null,
         unitPlans: [],
@@ -343,9 +352,9 @@ describe("section navigation", () => {
       },
     });
     const ids = projectSections(project).map((section) => section.id);
-    expect(ids).toEqual(expect.arrayContaining(["overview", "units", "facilities"]));
-    render(<ProjectFacilities project={project} />);
-    expect(screen.getByTestId("project-facilities").getAttribute("id")).toBe("facilities");
+    expect(ids).toEqual(expect.arrayContaining(["overview", "photos", "units", "amenities"]));
+    render(<ProjectAmenities project={project} />);
+    expect(screen.getByTestId("project-amenities").getAttribute("id")).toBe("amenities");
   });
 
   /**
@@ -389,6 +398,69 @@ describe("section navigation", () => {
     expect(projectSections(many).map((section) => section.id)).toContain("photos");
     const { container } = render(<ProjectPhotos project={many} />);
     expect(container.querySelector("#photos")).not.toBeNull();
+  });
+
+  /**
+   * The page keeps exactly one `<main>`, and it belongs to `SiteShell`. The
+   * detail engine is a fragment and the section navigation is a `<nav>`; a
+   * second landmark here would give assistive technology two "main" regions on
+   * one page. jsdom cannot verify the rendered width behaviour, but it can
+   * verify this.
+   */
+  it("adds no second <main> landmark", async () => {
+    const project = makeProjectDetail({
+      core: { description: "A project." },
+      units: [makeUnit()],
+    });
+    await renderInRouter(<ProjectDetailEngine project={project} />, "About this project");
+    expect(document.querySelectorAll("main")).toHaveLength(0);
+  });
+
+  it("every navigation entry corresponds to a section the page actually renders", async () => {
+    const project = makeProjectDetail({
+      core: { description: "A project.", highlights: [] },
+      amenities: [makeAmenity({ name: "Communal pool" })],
+      units: [makeUnit()],
+      media: {
+        hero: makeMediaItem({ type: "cover" }),
+        gallery: photos(6),
+        floorPlans: [],
+        masterPlan: null,
+        unitPlans: [],
+        brochures: [],
+        videos: [],
+        documents: [],
+      },
+    });
+
+    const ids = projectSections(project).map((section) => section.id);
+    await renderInRouter(<ProjectDetailEngine project={project} />, "About this project");
+
+    for (const id of ids) {
+      expect(document.querySelector(`#${id}`), `no rendered element for #${id}`).not.toBeNull();
+    }
+  });
+
+  it("makes every rendered Documents section reachable from exactly one navigation link", async () => {
+    const project = makeProjectDetail({
+      media: {
+        documents: [
+          {
+            ...makeMediaItem({
+              id: "public-brochure",
+              type: "brochure",
+              url: "https://cdn.example.com/project-brochure.pdf",
+            }),
+            label: "Complete project brochure and residence specification",
+            note: "Public document",
+          },
+        ],
+      },
+    });
+
+    await renderInRouter(<ProjectDetailEngine project={project} />, "About this project");
+    expect(document.querySelector("#documents")).not.toBeNull();
+    expect(document.querySelectorAll('a[href="#documents"]')).toHaveLength(1);
   });
 });
 
@@ -438,7 +510,7 @@ describe("the unit preview", () => {
   it("excludes sold units by default and offers to include them", async () => {
     await renderInRouter(<ProjectUnitPreview project={project} />, "Availability");
     expect(screen.getAllByTestId("unit-preview-card")).toHaveLength(3);
-    fireEvent.click(screen.getByLabelText(/Include sold/i, { selector: "input" }));
+    fireEvent.click(screen.getByLabelText(/Include unavailable/i, { selector: "input" }));
     expect(screen.getAllByTestId("unit-preview-card")).toHaveLength(4);
     expect(screen.getByText("Sold")).not.toBeNull();
   });
@@ -482,15 +554,18 @@ describe("the unit preview", () => {
     expect(codes).toEqual(["A102", "B201", "A101"]);
   });
 
-  it("offers a real action per unit, carrying the project and unit", async () => {
+  /**
+   * F5. The per-unit button is the highest-volume contact surface on the page —
+   * one per card, up to 24 at once — and gate G0 is open, so it is absent by
+   * default. Absent, not disabled: a greyed-out control still advertises a
+   * capability and still invites a click that goes nowhere.
+   */
+  it("offers no per-unit contact action while gate G0 is open", async () => {
     await renderInRouter(<ProjectUnitPreview project={project} />, "Availability");
-    const link = within(screen.getAllByTestId("unit-preview-card")[0]).getByRole("link", {
-      name: "Request this unit",
-    });
-    const href = link.getAttribute("href") ?? "";
-    expect(href).toContain("/contact");
-    expect(decodeURIComponent(href)).toContain("Coralina");
-    expect(decodeURIComponent(href)).toContain("A101");
+    expect(screen.queryByRole("link", { name: "Request this unit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /request/i })).toBeNull();
+    // Nothing disabled is left behind in place of the action.
+    expect(document.querySelector("[disabled]")).toBeNull();
   });
 
   it("links to the complete inventory", async () => {
@@ -543,33 +618,150 @@ describe("sections Forever cannot support stay hidden", () => {
     expect(screen.queryByText(/Installment/i)).toBeNull();
   });
 
-  it("hides facilities when the record states none", () => {
-    const project = makeProjectDetail({ core: { highlights: [] } });
-    expect(projectFacilities(project)).toEqual([]);
-    const { container } = render(<ProjectFacilities project={project} />);
+  it("hides the amenities section when the relation holds no rows", () => {
+    const project = makeProjectDetail({ amenities: [] });
+    expect(projectAmenities(project)).toEqual([]);
+    const { container } = render(<ProjectAmenities project={project} />);
     expect(container.innerHTML).toBe("");
   });
 
-  it("lists only the facilities the record states", () => {
+  it("shows Facilities & Amenities once the relation holds rows", () => {
     const project = makeProjectDetail({
-      core: { highlights: ["Communal pool", "Communal pool", "24h security"] },
+      amenities: [makeAmenity({ name: "Communal pool" }), makeAmenity({ name: "24h security" })],
     });
-    expect(projectFacilities(project)).toEqual(["Communal pool", "24h security"]);
+
+    render(<ProjectAmenities project={project} />);
+    expect(screen.getByText("Facilities & Amenities")).not.toBeNull();
+    expect(screen.getByText("Communal pool")).not.toBeNull();
+    expect(screen.getByText("24h security")).not.toBeNull();
+  });
+
+  it("lists only the amenities the relation states, deduplicated on identity", () => {
+    const project = makeProjectDetail({
+      amenities: [
+        makeAmenity({ id: "a-pool", name: "Communal pool" }),
+        makeAmenity({ id: "a-pool", name: "Communal pool" }),
+        makeAmenity({ id: "a-security", name: "24h security" }),
+      ],
+    });
+    expect(projectAmenities(project).map((amenity) => amenity.name)).toEqual([
+      "Communal pool",
+      "24h security",
+    ]);
+  });
+
+  /**
+   * F3. Highlights are editorial one-liners. Modeva's three are "Forever
+   * Verified project record", "Bang Tao location" and "Structured project
+   * foundation" — printed under a heading promising what the project includes,
+   * they assert three things the developer never said.
+   */
+  it("never builds an amenity out of an editorial highlight", () => {
+    const project = makeProjectDetail({
+      core: {
+        highlights: [
+          "Forever Verified project record",
+          "Bang Tao location",
+          "Structured project foundation",
+        ],
+      },
+      amenities: [],
+    });
+
+    expect(projectAmenities(project)).toEqual([]);
+    expect(projectSections(project).map((section) => section.id)).not.toContain("amenities");
+    const { container } = render(<ProjectAmenities project={project} />);
+    expect(container.innerHTML).toBe("");
+  });
+
+  /**
+   * F4. `projects.ownership_type` is populated on one legacy row out of nine and
+   * no official source for any of them states freehold, leasehold or foreign
+   * quota. Tenure is a legal claim about a purchase.
+   */
+  it("states no ownership type on any surface, even when the column carries one", () => {
+    const project = makeProjectDetail({ core: { ownershipType: "Freehold" } });
+
+    expect(projectSummaryRows(project).map((row) => row.label)).not.toContain("Ownership");
+    expect(projectQuickFacts(project).map((fact) => fact.label)).not.toContain("Ownership");
+
+    render(<ProjectOverview project={project} />);
+    expect(screen.queryByText("Ownership")).toBeNull();
+    expect(screen.queryByText("Freehold")).toBeNull();
   });
 });
 
 describe("the mobile contact bar", () => {
-  it("offers two real actions carrying the project", async () => {
-    await renderInRouter(
+  /**
+   * F5. Gate G0 is open — the contact form's delivery has never been observed
+   * end to end — so the sticky bar is absent, not disabled.
+   */
+  it("is absent while gate G0 is open", () => {
+    const { container } = render(
       <ProjectMobileCTA project={makeProjectDetail({ core: { name: "Coralina" } })} />,
-      "Coralina",
     );
-    const bar = screen.getByTestId("project-mobile-cta");
-    const links = within(bar).getAllByRole("link");
-    expect(links).toHaveLength(2);
-    for (const link of links) {
-      expect(decodeURIComponent(link.getAttribute("href") ?? "")).toContain("Coralina");
+    expect(container.innerHTML).toBe("");
+    expect(screen.queryByTestId("project-mobile-cta")).toBeNull();
+  });
+});
+
+/**
+ * FOREVER-CONTACT-G0-DELIVERY-AUDIT-001, verdict `G0_PARTIAL`.
+ *
+ * The audit's release matrix marks every contextual submission action
+ * HIDE_UNTIL_G0, and its severity ranking puts "PR #116 removed the only
+ * context-carrying contact surface; desktop CTAs send no context at all" at #3
+ * and "unit context shown to the visitor, then silently discarded" at #4.
+ *
+ * The first property is the one that ships: no contextual action is present.
+ * The second is latent — it would only bite once the gate opens — so it is
+ * pinned here too, at the level this PR can actually control: the link must
+ * carry the project. Whether `/contact` then reads it, and whether the leads
+ * table can store a unit code, are audit items R1 and R2 and are NOT fixed
+ * here.
+ */
+describe("contact context is never silently discarded (G0_PARTIAL)", () => {
+  const project = makeProjectDetail({ core: { name: "Coralina" }, units: [makeUnit()] });
+
+  it("presents no contextual project or unit submission action at all", async () => {
+    await renderInRouter(<ProjectDetailEngine project={project} />, "About this project");
+
+    for (const name of [
+      /request details/i,
+      /request a viewing/i,
+      /request this unit/i,
+      /request private advisory/i,
+    ]) {
+      expect(screen.queryByRole("link", { name }), String(name)).toBeNull();
+      expect(screen.queryByRole("button", { name }), String(name)).toBeNull();
     }
-    expect(bar.className).toContain("lg:hidden");
+    // No form is mounted on a project page either.
+    expect(document.querySelector("form")).toBeNull();
+    // And nothing disabled is left standing in place of an action.
+    expect(document.querySelector("[disabled]")).toBeNull();
+  });
+
+  it("keeps the project on every contact link the panel would render", () => {
+    // Read the source rather than rendering the enabled variant: enabling the
+    // gate in a test would contradict the audit's requirement that no
+    // release-evidence environment turns it on.
+    const source = readFileSync(
+      resolve(process.cwd(), "src/features/project-detail/components/ProjectSummaryPanel.tsx"),
+      "utf8",
+    );
+    const bareLinks = [...source.matchAll(/<Link\s+to="\/contact"(?![^>]*search=)/g)];
+    expect(bareLinks, 'a "/contact" link with no search prop discards the project context').toEqual(
+      [],
+    );
+  });
+
+  it("has no orphaned contact component left in the feature", () => {
+    // The audit marks ProjectContactCTA REMOVE_AS_DEAD_ACTION: a defined but
+    // never-rendered component carrying a full ContactForm.
+    expect(
+      existsSync(
+        resolve(process.cwd(), "src/features/project-detail/components/ProjectContactCTA.tsx"),
+      ),
+    ).toBe(false);
   });
 });
