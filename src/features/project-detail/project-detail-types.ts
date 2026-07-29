@@ -3,14 +3,16 @@ import type { Database } from "@/integrations/supabase/types";
 export type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 export type DeveloperRow = Database["public"]["Tables"]["developers"]["Row"];
 /**
- * `semantic_role` is declared here because the generated Database types lag
- * migration 20260728120000. REQUIRED, not optional
- * (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001): an optional field would let a
- * future edit drop the column from `PROJECT_DETAIL_SELECT` and still compile,
- * after which every row arrives with the field `undefined`, every reader
- * correctly answers "show it" — that is the pre-backfill rollout guarantee — and
- * the contract fails open with a green suite. `public-query-contract.test.ts`
- * pins the select string; this pins the shape the mappers are written against.
+ * `semantic_role` is now present in the generated Database types, so this
+ * intersection no longer compensates for a lagging generator. It is kept
+ * because it pins something the generator does not
+ * (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001): the field is REQUIRED here, not
+ * optional. An optional field would let a future edit drop the column from
+ * `PROJECT_DETAIL_SELECT` and still compile, after which every row arrives with
+ * the field `undefined`, every reader correctly answers "show it" — that is the
+ * pre-backfill rollout guarantee — and the contract fails open with a green
+ * suite. `public-query-contract.test.ts` pins the select string; this pins the
+ * shape the mappers are written against.
  */
 export type ProjectMediaRow = Database["public"]["Tables"]["project_media"]["Row"] & {
   semantic_role: string | null;
@@ -46,13 +48,21 @@ export type UnitRowWithBuilding = UnitRow & {
  * with its `amenities` parent — as the public projection returns it.
  *
  * The column set is exactly what the two tables hold. `project_amenities` is
- * `(project_id, amenity_id, note, created_at)` and `amenities` is
- * `(id, name, slug, category, icon, created_at, updated_at)`. There is no
- * `sort_order` and no `is_featured` on either table, so neither is typed here;
- * introducing them is a schema change, not a mapping detail.
+ * `(project_id, amenity_id, note, is_featured, sort_order, created_at)` and
+ * `amenities` is `(id, name, slug, category, icon, created_at, updated_at)`.
+ *
+ * `is_featured` and `sort_order` are the Owner's editorial choices, added by
+ * `20260728160000_studio_project_amenities_editor.sql` and written only by
+ * `studio_save_project_amenities`. Both are `NOT NULL` with a default in the
+ * database, so a row that predates the Owner ever opening the editor reads as
+ * `false` / `0` — unfeatured and unordered — rather than as a null the mapper
+ * would have to interpret. They are typed nullable here anyway, because a
+ * PostgREST embed of a row the policy hides yields nulls for every column.
  */
 export type ProjectAmenityRow = {
   note?: string | null;
+  is_featured?: boolean | null;
+  sort_order?: number | null;
   amenity: {
     id: string | null;
     name: string | null;
@@ -74,10 +84,14 @@ export type ProjectDetailRecord = ProjectRow &
 /**
  * One amenity as the public page consumes it.
  *
- * Every field is a plain string — absent values collapse to `""` rather than
- * `null`, so a renderer never has to distinguish "no category" from "null
+ * Every text field is a plain string — absent values collapse to `""` rather
+ * than `null`, so a renderer never has to distinguish "no category" from "null
  * category". Only `name` is guaranteed non-empty: a row without one is dropped
  * during mapping, because an amenity that cannot be named cannot be shown.
+ *
+ * `isFeatured` and `sortOrder` are the Owner's ordering, carried through from
+ * the relation. They decide position only — a featured amenity is shown first,
+ * not shown differently.
  */
 export type ProjectAmenity = {
   id: string;
@@ -86,6 +100,8 @@ export type ProjectAmenity = {
   category: string;
   icon: string;
   note: string;
+  isFeatured: boolean;
+  sortOrder: number;
 };
 
 export type ProjectDetailMediaType =

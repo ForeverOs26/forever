@@ -377,6 +377,137 @@ function createStudioData(): StudioData {
       };
     },
 
+    async listAmenityCatalogue() {
+      const result = await admin
+        .from("amenities")
+        .select("id, slug, name, category, icon")
+        .order("category")
+        .order("name")
+        .order("slug");
+      const rows = (must(result, "amenities list failed") ?? []) as Array<{
+        id: string;
+        slug: string | null;
+        name: string | null;
+        category: string | null;
+        icon: string | null;
+      }>;
+      return rows.map((row) => ({
+        id: String(row.id),
+        slug: row.slug ?? "",
+        name: row.name ?? "",
+        category: row.category ?? "",
+        icon: row.icon ?? "",
+      }));
+    },
+    async listProjectAmenities(projectId) {
+      const result = await admin
+        .from("project_amenities")
+        .select("note, is_featured, sort_order, amenity:amenities(id, slug, name, category, icon)")
+        .eq("project_id", projectId);
+      // PostgREST types a to-one embed as an array; at runtime a
+      // many-to-one relationship yields a single object (or null). Narrowed
+      // through `unknown` for that reason, exactly as the rest of this module
+      // narrows untyped PostgREST rows.
+      const rows = (must(result, "project_amenities list failed") ?? []) as unknown as Array<{
+        note: string | null;
+        is_featured: boolean | null;
+        sort_order: number | null;
+        amenity: {
+          id: string | null;
+          slug: string | null;
+          name: string | null;
+          category: string | null;
+          icon: string | null;
+        } | null;
+      }>;
+      return (
+        rows
+          // A malformed embed — no parent, or a parent with no name — is dropped
+          // rather than surfaced as a blank row, exactly as the public mapper
+          // does. It is never a reason to fail the whole read.
+          .flatMap((row) => {
+            const amenity = row.amenity;
+            const name = (amenity?.name ?? "").trim();
+            if (!amenity || !name) return [];
+            const sortOrder = Number(row.sort_order ?? 0);
+            return [
+              {
+                amenityId: String(amenity.id ?? ""),
+                slug: (amenity.slug ?? "").trim(),
+                name,
+                category: (amenity.category ?? "").trim(),
+                icon: (amenity.icon ?? "").trim(),
+                note: (row.note ?? "").trim(),
+                isFeatured: row.is_featured === true,
+                sortOrder: Number.isFinite(sortOrder) && sortOrder > 0 ? sortOrder : 0,
+              },
+            ];
+          })
+          // Sorted in TS, not in PostgREST: the order spans the link row and its
+          // embedded parent, and PostgREST cannot order a parent's columns
+          // through an embed. This comparator is identical to the public
+          // mapper's (see mapProjectAmenities) and is total, so a project whose
+          // rows all share sort_order 0 still reads back in one stable order.
+          .sort(
+            (left, right) =>
+              Number(right.isFeatured) - Number(left.isFeatured) ||
+              left.sortOrder - right.sortOrder ||
+              left.category.localeCompare(right.category, "en") ||
+              left.name.localeCompare(right.name, "en") ||
+              left.slug.localeCompare(right.slug, "en"),
+          )
+      );
+    },
+    async saveProjectAmenities(input) {
+      const { data, error } = await admin.rpc("studio_save_project_amenities", {
+        p_project_id: input.projectId,
+        p_actor_id: input.actorId,
+        p_amenities: input.amenities,
+        p_created_amenities: input.createdAmenities,
+        p_supplied_at: input.suppliedAt,
+        p_inject_failure: input.injectFailure ?? false,
+      });
+      if (error) throw new Error(`studio_save_project_amenities failed: ${error.message}`);
+      const result = (data ?? {}) as {
+        project_id?: string;
+        amenities?: Array<{
+          amenity_id?: string;
+          slug?: string;
+          name?: string;
+          category?: string;
+          icon?: string;
+          note?: string;
+          is_featured?: boolean;
+          sort_order?: number;
+        }>;
+        selected_count?: number;
+        featured_count?: number;
+        created_amenity_slugs?: string[];
+      };
+      // The function already returns the set in public display order; this maps
+      // it to camelCase without re-sorting, so the app never disagrees with the
+      // transaction about what it just committed.
+      const amenities = (result.amenities ?? []).map((row) => ({
+        amenityId: String(row.amenity_id ?? ""),
+        slug: row.slug ?? "",
+        name: row.name ?? "",
+        category: row.category ?? "",
+        icon: row.icon ?? "",
+        note: row.note ?? "",
+        isFeatured: row.is_featured === true,
+        sortOrder: Number(row.sort_order ?? 0),
+      }));
+      return {
+        projectId: String(result.project_id ?? input.projectId),
+        amenities,
+        selectedCount: Number(result.selected_count ?? amenities.length),
+        featuredCount: Number(
+          result.featured_count ?? amenities.filter((row) => row.isFeatured).length,
+        ),
+        createdAmenitySlugs: result.created_amenity_slugs ?? [],
+      };
+    },
+
     async recordAudit(entry: StudioAuditEntry) {
       const result = await admin.from("audit_log").insert(entry);
       must(result, "audit_log insert failed");

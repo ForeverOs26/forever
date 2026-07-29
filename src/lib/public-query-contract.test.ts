@@ -40,11 +40,12 @@ describe("public query privacy contract", () => {
      * The catalogue's media projection, pinned as a literal — the one assertion
      * that stops the semantic contract from failing open in silence.
      *
-     * `semantic_role` is absent from the generated database types
-     * (`src/integrations/supabase/types.ts`), so both readers declare it by hand.
-     * TypeScript cannot connect a PostgREST select STRING to the shape it
-     * produces, so deleting `semantic_role` from either projection compiles
-     * cleanly. Every row then arrives with the field `undefined`,
+     * `semantic_role` is present in the generated database types
+     * (`src/integrations/supabase/types.ts`), and both readers additionally
+     * declare it as REQUIRED so it cannot quietly become optional. Neither
+     * helps here: TypeScript cannot connect a PostgREST select STRING to the
+     * shape it produces, so deleting `semantic_role` from either projection
+     * compiles cleanly. Every row then arrives with the field `undefined`,
      * `isGalleryEligibleRole` answers "show it" for all of them — deliberately,
      * that is the pre-backfill rollout guarantee — and the whole contract
      * collapses back into a `media_type` allow-list, which is blocker 117-4
