@@ -412,11 +412,14 @@ try {
   // must be additive with respect to project_media. Comments are stripped
   // before scanning — a later migration may legitimately *mention* project_media
   // while explaining itself, and the subject's own file is not re-scanned.
-  const uncommented = (sql) =>
-    sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
-  const laterMediaWriters = files.slice(subjectIndex + 1).filter((file) =>
-    /project_media|semantic_role/i.test(uncommented(readFileSync(join(MIGRATIONS_DIR, file), "utf8"))),
-  );
+  const uncommented = (sql) => sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
+  const laterMediaWriters = files
+    .slice(subjectIndex + 1)
+    .filter((file) =>
+      /project_media|semantic_role/i.test(
+        uncommented(readFileSync(join(MIGRATIONS_DIR, file), "utf8")),
+      ),
+    );
   if (laterMediaWriters.length > 0) {
     throw new Error(
       `migration(s) ordered after ${SUBJECT} modify the media contract — ` +

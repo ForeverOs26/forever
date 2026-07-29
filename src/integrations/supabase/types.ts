@@ -434,6 +434,7 @@ export type Database = {
           id: string
           media_type: string
           project_id: string
+          semantic_role: string | null
           sort_order: number
           title: string | null
           url: string
@@ -443,6 +444,7 @@ export type Database = {
           id?: string
           media_type: string
           project_id: string
+          semantic_role?: string | null
           sort_order?: number
           title?: string | null
           url: string
@@ -452,6 +454,7 @@ export type Database = {
           id?: string
           media_type?: string
           project_id?: string
+          semantic_role?: string | null
           sort_order?: number
           title?: string | null
           url?: string

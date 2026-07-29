@@ -3,14 +3,16 @@ import type { Database } from "@/integrations/supabase/types";
 export type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 export type DeveloperRow = Database["public"]["Tables"]["developers"]["Row"];
 /**
- * `semantic_role` is declared here because the generated Database types lag
- * migration 20260728120000. REQUIRED, not optional
- * (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001): an optional field would let a
- * future edit drop the column from `PROJECT_DETAIL_SELECT` and still compile,
- * after which every row arrives with the field `undefined`, every reader
- * correctly answers "show it" — that is the pre-backfill rollout guarantee — and
- * the contract fails open with a green suite. `public-query-contract.test.ts`
- * pins the select string; this pins the shape the mappers are written against.
+ * `semantic_role` is now present in the generated Database types, so this
+ * intersection no longer compensates for a lagging generator. It is kept
+ * because it pins something the generator does not
+ * (FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001): the field is REQUIRED here, not
+ * optional. An optional field would let a future edit drop the column from
+ * `PROJECT_DETAIL_SELECT` and still compile, after which every row arrives with
+ * the field `undefined`, every reader correctly answers "show it" — that is the
+ * pre-backfill rollout guarantee — and the contract fails open with a green
+ * suite. `public-query-contract.test.ts` pins the select string; this pins the
+ * shape the mappers are written against.
  */
 export type ProjectMediaRow = Database["public"]["Tables"]["project_media"]["Row"] & {
   semantic_role: string | null;

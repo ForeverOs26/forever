@@ -106,6 +106,41 @@ describe("the amenities model has one name", () => {
     );
   });
 
+  it("carries every column the two public projections select in the generated types", () => {
+    // The generated types are the one artefact that cannot be reasoned about
+    // from this feature's own source: they are produced from a database, so a
+    // reviewer reading the mappers cannot tell whether the schema they assume
+    // actually exists. This pins the three columns the final migration chain
+    // adds, generated from a disposable database holding that complete chain.
+    //
+    // It matters most for `semantic_role`. That column shipped with
+    // FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001 and its migration is applied,
+    // but the generated file was never refreshed afterwards, so both public
+    // readers had to declare the field by hand. Regenerating without this
+    // assertion would leave nothing to stop the next refresh dropping it again.
+    const generated = readFileSync(resolve(root, "src/integrations/supabase/types.ts"), "utf8");
+    const section = (table: string) => {
+      const start = generated.indexOf(`      ${table}: {`);
+      expect(start, `${table} present in the generated types`).toBeGreaterThan(-1);
+      return generated.slice(start, generated.indexOf("Relationships:", start));
+    };
+
+    // Nullable with no default in the database, so the row form is nullable and
+    // the write forms are optional.
+    const media = section("project_media");
+    expect(media).toContain("semantic_role: string | null");
+    expect(media).toContain("semantic_role?: string | null");
+
+    // NOT NULL with a default, so the row form is required and non-nullable
+    // while the write forms are optional — a row written before the columns
+    // existed still reads back as unfeatured and unordered.
+    const links = section("project_amenities");
+    expect(links).toContain("is_featured: boolean");
+    expect(links).toContain("is_featured?: boolean");
+    expect(links).toContain("sort_order: number");
+    expect(links).toContain("sort_order?: number");
+  });
+
   it("adds the two columns additively, in a migration later than every parent one", () => {
     const migrations = resolve(root, "supabase/migrations");
     const files = readdirSync(migrations)
