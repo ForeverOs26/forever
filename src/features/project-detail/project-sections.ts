@@ -162,7 +162,8 @@ export function locationMapDocument(project: ProjectDetail) {
         document.type === "document" &&
         !document.semanticRole &&
         /map/i.test(document.label + document.title),
-    ) ?? null
+    ) ??
+    null
   );
 }
 
