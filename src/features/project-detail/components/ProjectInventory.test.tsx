@@ -118,7 +118,7 @@ describe("ProjectInventory", () => {
     render(<ProjectInventory project={project} />);
 
     expect(table().getByText("Sold")).not.toBeNull();
-    expect(screen.getByText("1 of 2 available")).not.toBeNull();
+    expect(screen.getByText("1 of 2 listed units available")).not.toBeNull();
     // Available units are listed first, so a sold unit can never head the table.
     const rowHeaders = table()
       .getAllByRole("rowheader")

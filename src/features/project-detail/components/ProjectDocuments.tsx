@@ -1,18 +1,19 @@
 import { FileText } from "lucide-react";
 import { Section } from "@/components/layout/Section";
 import type { ProjectDetail } from "../project-detail-types";
+import { projectDocuments } from "../project-sections";
 
 type ProjectDocumentsProps = {
   project: ProjectDetail;
 };
 
 export function ProjectDocuments({ project }: ProjectDocumentsProps) {
-  const documents = project.media.documents;
+  const documents = projectDocuments(project);
 
   if (documents.length === 0) return null;
 
   return (
-    <Section eyebrow="Documents" title="Available documents" className="pt-0">
+    <Section id="documents" eyebrow="Documents" title="Available documents" className="pt-0">
       <div className="overflow-hidden rounded-3xl border border-border/60 bg-card">
         {documents.map((document) => (
           <a

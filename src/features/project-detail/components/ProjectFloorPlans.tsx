@@ -3,7 +3,12 @@ import { Section } from "@/components/layout/Section";
 import { Button } from "@/components/ui/button";
 import { renderablePlan, renderablePlans } from "../plan-media";
 import type { ProjectDetail } from "../project-detail-types";
-import { hasFloorPlansSection } from "../project-sections";
+import {
+  hasFloorPlansSection,
+  projectFloorPlans,
+  projectMasterPlan,
+  projectUnitPlans,
+} from "../project-sections";
 
 type ProjectFloorPlansProps = {
   project: ProjectDetail;
@@ -12,9 +17,9 @@ type ProjectFloorPlansProps = {
 export function ProjectFloorPlans({ project }: ProjectFloorPlansProps) {
   // Records without a usable URL are not items: counting them would render the
   // heading over an empty grid of broken tiles (F-008).
-  const floorPlans = renderablePlans(project.media.floorPlans);
-  const unitPlans = renderablePlans(project.media.unitPlans);
-  const masterPlan = renderablePlan(project.media.masterPlan);
+  const floorPlans = renderablePlans(projectFloorPlans(project));
+  const unitPlans = renderablePlans(projectUnitPlans(project));
+  const masterPlan = renderablePlan(projectMasterPlan(project));
 
   if (!hasFloorPlansSection(project)) return null;
 

@@ -440,6 +440,28 @@ describe("section navigation", () => {
       expect(document.querySelector(`#${id}`), `no rendered element for #${id}`).not.toBeNull();
     }
   });
+
+  it("makes every rendered Documents section reachable from exactly one navigation link", async () => {
+    const project = makeProjectDetail({
+      media: {
+        documents: [
+          {
+            ...makeMediaItem({
+              id: "public-brochure",
+              type: "brochure",
+              url: "https://cdn.example.com/project-brochure.pdf",
+            }),
+            label: "Complete project brochure and residence specification",
+            note: "Public document",
+          },
+        ],
+      },
+    });
+
+    await renderInRouter(<ProjectDetailEngine project={project} />, "About this project");
+    expect(document.querySelector("#documents")).not.toBeNull();
+    expect(document.querySelectorAll('a[href="#documents"]')).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -488,7 +510,7 @@ describe("the unit preview", () => {
   it("excludes sold units by default and offers to include them", async () => {
     await renderInRouter(<ProjectUnitPreview project={project} />, "Availability");
     expect(screen.getAllByTestId("unit-preview-card")).toHaveLength(3);
-    fireEvent.click(screen.getByLabelText(/Include sold/i, { selector: "input" }));
+    fireEvent.click(screen.getByLabelText(/Include unavailable/i, { selector: "input" }));
     expect(screen.getAllByTestId("unit-preview-card")).toHaveLength(4);
     expect(screen.getByText("Sold")).not.toBeNull();
   });

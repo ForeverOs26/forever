@@ -182,7 +182,7 @@ describe("developer identity (F2)", () => {
       // The real Cielo case: the long legal form of the same developer.
       ["Rhom Bho Property", "Rhom Bho Property Public Company Limited"],
       ["Rhom Bho Property Co., Ltd.", "Rhom Bho Property"],
-      ["Sunrise Bay Holdings", "Sunrise Bay Property Group"],
+      ["Sansiri PCL", "Sansiri Public Company Limited"],
     ] as const) {
       expect(
         developersMateriallyDisagree(canonical, raw),
@@ -192,23 +192,15 @@ describe("developer identity (F2)", () => {
   });
 
   /**
-   * The deliberate cost of the one-token rule, recorded rather than hidden.
-   *
-   * "Sansiri PCL" and "Sansiri Public Company Limited" are the same developer,
-   * and this withholds the name anyway, because after stripping both are the
-   * single token "sansiri" and a single token is not enough to distinguish that
-   * pair from "Property Perfect" vs "Perfect Group". Omitting a name is
-   * recoverable; publishing the wrong one is not.
-   *
-   * It costs nothing on the nine public projects: eight have no canonical
-   * record at all, so only one source speaks and this branch is never reached.
-   * If a real project later trips it, the fix is a canonical developer record —
-   * a Factory/data decision — not a looser rule here.
+   * Legal-form suffix removal must leave the meaningful company name intact.
+   * Property, development, group and holdings are identity-bearing words, not
+   * suffix noise.
    */
-  it("accepts a conservative false withhold rather than risk a false claim", () => {
+  it("keeps meaningful company-name tokens instead of treating them as legal noise", () => {
     for (const [canonical, raw] of [
-      ["Sansiri PCL", "Sansiri Public Company Limited"],
       ["Origin Property", "Origin Properties"],
+      ["Sunrise Bay Holdings", "Sunrise Bay Property Group"],
+      ["Phuket Development", "Phuket Group"],
     ] as const) {
       expect(developersMateriallyDisagree(canonical, raw)).toBe(true);
     }
@@ -292,7 +284,10 @@ describe("unit ordering (F6)", () => {
       makeUnit({ id: "3", code: "A2", availabilityStatus: "available" }),
     ];
 
-    const ordered = applyUnitFilters(units, { ...DEFAULT_UNIT_FILTERS, includeSold: true });
+    const ordered = applyUnitFilters(units, {
+      ...DEFAULT_UNIT_FILTERS,
+      includeUnavailable: true,
+    });
     expect(ordered.map((unit) => unit.code)).toEqual(["A2", "B2", "A1"]);
   });
 });

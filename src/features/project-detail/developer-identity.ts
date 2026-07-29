@@ -1,145 +1,97 @@
 /**
- * Who developed a project — stated only when Forever's sources agree
+ * Who developed a project, stated only when Forever's sources agree
  * (FOREVER-PR116-RELEASE-STABILIZATION-001, finding F2).
  *
- * Two sources can name a developer: the linked `developers` row
- * (`project.developer.name`) and the raw name the project's own source carried
- * (`project.core.developerNameRaw`). For eight of the nine public projects only
- * one of them speaks, and the page should say what it says.
- *
- * For Modeva both speak and they contradict each other: the linked row is named
- * **"Title"**, while Modeva's own official source says **"Rhom Bho Property"**.
- * PR #116 prints the linked name unconditionally, so the page asserts one side
- * of a contradiction the data audit marks as needing an Owner decision. That is
- * the defect. The rule below is per-project and derived from the data, not from
- * a slug list: state the name when exactly one source speaks or the two agree;
- * state nothing when two sources materially disagree.
- *
- * That keeps the Developer row and section visible on the other eight projects.
- * Hiding Developer globally would be its own kind of dishonesty.
- *
- * Resolving the contradiction is a Factory/data dependency, not a UI one. This
- * module deliberately neither creates nor edits a canonical developer record.
+ * The linked developer row and the project's own raw source name are
+ * independent speakers. One speaker may be stated. When both speak, their
+ * safely normalized core names must be exactly equal; otherwise every public
+ * consumer withholds the identity.
  */
 
 import type { ProjectDetail } from "./project-detail-types";
 
 /**
- * Legal-form and filler words that carry no identifying information.
+ * Explicit legal-form suffixes, longest first.
  *
- * Frozen and explicit: fuzzy similarity scoring has no place in a decision
- * about whether to publish a factual claim, because a threshold that is right
- * for one pair of names is wrong for the next. Dropping a known finite set of
- * corporate-form words is inspectable and gives the same answer every run.
+ * These may be removed only from the END of a name. Words such as `property`,
+ * `development`, `group`, `holding`, `the`, and `and` remain identifying
+ * company-name tokens wherever they occur. Removing them broadly made
+ * materially different companies look equal.
  */
-const NON_IDENTIFYING_TOKENS: ReadonlySet<string> = new Set([
-  "the",
-  "and",
-  "co",
-  "company",
-  "companies",
-  "corp",
-  "corporation",
-  "inc",
-  "incorporated",
-  "ltd",
-  "limited",
-  "llc",
-  "llp",
-  "plc",
-  "pcl",
-  "public",
-  "group",
-  "holding",
-  "holdings",
-  "development",
-  "developments",
-  "developer",
-  "developers",
-  "property",
-  "properties",
-  "pte",
-  "pty",
-  "sdn",
-  "bhd",
-  "gmbh",
-  "ag",
-  "sa",
-  "srl",
-  "nv",
-  "bv",
-  "kk",
-  "jsc",
-  "ojsc",
-]);
+const LEGAL_FORM_SUFFIXES: readonly (readonly string[])[] = [
+  ["public", "company", "limited"],
+  ["private", "company", "limited"],
+  ["public", "limited", "company"],
+  ["company", "limited"],
+  ["co", "limited"],
+  ["co", "ltd"],
+  ["pte", "ltd"],
+  ["pty", "ltd"],
+  ["sdn", "bhd"],
+  ["incorporated"],
+  ["corporation"],
+  ["limited"],
+  ["company"],
+  ["corp"],
+  ["inc"],
+  ["ltd"],
+  ["llc"],
+  ["llp"],
+  ["plc"],
+  ["pcl"],
+  ["gmbh"],
+  ["ojsc"],
+  ["jsc"],
+  ["srl"],
+  ["ag"],
+  ["sa"],
+  ["nv"],
+  ["bv"],
+  ["kk"],
+];
 
 /**
- * A developer name reduced to its identifying tokens.
+ * Normalize only safe equivalences: Unicode accents, case, ordinary
+ * punctuation, repeated whitespace and recognized trailing legal forms.
  *
- * Returns an empty array when the input names nobody — that is "this source is
- * silent", which is different from "this source disagrees".
+ * Suffix removal may never erase the whole name. An input made only of
+ * legal-form words is still a speaking source, not silence.
  */
 export function normaliseDeveloperName(value: string | null | undefined): string[] {
   if (!value) return [];
 
   const cleaned = value
     .normalize("NFKD")
-    // Strip combining marks, so "Ãœ" and "U" cannot read as different developers.
     .replace(/\p{M}/gu, "")
     .toLowerCase()
-    // Punctuation and symbols become separators: "Co., Ltd." -> "co ltd".
     .replace(/[\p{P}\p{S}]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 
   if (!cleaned) return [];
 
-  const tokens = cleaned.split(" ").filter(Boolean);
-  const identifying = tokens.filter((token) => !NON_IDENTIFYING_TOKENS.has(token));
+  const original = cleaned.split(" ").filter(Boolean);
+  let core = original;
 
-  // A name made entirely of corporate-form words still identifies that name and
-  // must not collapse to "silent".
-  return identifying.length > 0 ? identifying : tokens;
-}
-
-/**
- * The same normalisation, *without* dropping corporate-form words.
- *
- * Used only to check whether a one-token agreement was already an agreement
- * before stripping — the stripping is what can make two different companies
- * look identical.
- */
-export function normaliseRawTokens(value: string | null | undefined): string[] {
-  if (!value) return [];
-  const cleaned = value
-    .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/[\p{P}\p{S}]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return cleaned ? cleaned.split(" ").filter(Boolean) : [];
-}
-
-/** Whether `shorter` appears inside `longer` as an ordered subsequence. */
-function isOrderedSubsequence(shorter: readonly string[], longer: readonly string[]): boolean {
-  let index = 0;
-  for (const token of longer) {
-    if (token === shorter[index]) index += 1;
-    if (index === shorter.length) return true;
+  while (core.length > 1) {
+    const suffix = LEGAL_FORM_SUFFIXES.find(
+      (candidate) =>
+        candidate.length < core.length &&
+        candidate.every((token, index) => token === core[core.length - candidate.length + index]),
+    );
+    if (!suffix) break;
+    core = core.slice(0, -suffix.length);
   }
-  return false;
+
+  return core.length > 0 ? core : original;
 }
 
 /**
  * Whether two named developers are materially different.
  *
- * "Rhom Bho Property Public Company Limited" and "Rhom Bho Property" are the
- * same developer written two ways — a trivial difference, not a material one.
- * "Title" and "Rhom Bho Property" share nothing and are material.
- *
- * The two-token floor on subsequence matching is deliberate: a single shared
- * word is too weak to conclude two names mean the same company.
+ * Compatibility is equality-only after safe normalization. Substrings, token
+ * subsets, edit distance, prefixes, token reordering and similarity thresholds
+ * are not evidence that two sources name the same legal entity.
  */
 export function developersMateriallyDisagree(
   canonical: string | null | undefined,
@@ -148,36 +100,10 @@ export function developersMateriallyDisagree(
   const a = normaliseDeveloperName(canonical);
   const b = normaliseDeveloperName(raw);
 
-  // Only one source speaking is not a disagreement.
+  // One source speaking is not a disagreement.
   if (a.length === 0 || b.length === 0) return false;
 
-  const identical = a.length === b.length && a.every((token, index) => token === b[index]);
-
-  // A single shared token is not enough to conclude two names mean one company
-  // — and stripping corporate-form words can manufacture one. "Property Perfect
-  // Public Company Limited" and "Perfect Group" both reduce to ["perfect"],
-  // yet they are different companies; agreeing there would print a contradicted
-  // name as fact, which is the exact failure F2 exists to prevent.
-  //
-  // So a one-token agreement is only trusted when the two names were already
-  // identical before any stripping. Everything else falls through to
-  // "disagree", and the page says nothing.
-  //
-  // This errs toward withholding, deliberately. It can withhold a developer two
-  // sources genuinely agree on ("Sansiri PCL" vs "Sansiri Public Company
-  // Limited"), and omitting a name is recoverable in a way that publishing the
-  // wrong one is not. It costs nothing on the nine public projects: eight have
-  // no canonical record at all, so only one source speaks and this branch is
-  // never reached.
-  if (identical) {
-    if (a.length >= 2) return false;
-    return normaliseRawTokens(canonical).join(" ") !== normaliseRawTokens(raw).join(" ");
-  }
-
-  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
-  if (shorter.length >= 2 && isOrderedSubsequence(shorter, longer)) return false;
-
-  return true;
+  return a.length !== b.length || a.some((token, index) => token !== b[index]);
 }
 
 export type DeveloperIdentity =
@@ -186,11 +112,7 @@ export type DeveloperIdentity =
   | { state: "withheld" };
 
 /**
- * The one decision every developer surface must consult.
- *
- * `verified` distinguishes a linked canonical record from a raw source name, so
- * a caller can keep the existing "as stated by the source, not yet verified"
- * caption rather than presenting the two identically.
+ * The one decision every developer surface and adapter must consult.
  */
 export function developerIdentity(project: ProjectDetail): DeveloperIdentity {
   const canonical = project.developer?.name?.trim() ?? "";
