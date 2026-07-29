@@ -9,9 +9,59 @@
  */
 
 import { developerIdentity, presentableDeveloperName } from "./developer-identity";
-import { renderablePlan, renderablePlans } from "./plan-media";
-import type { ProjectAmenity, ProjectDetail, ProjectDetailMediaItem } from "./project-detail-types";
+import { isRenderableMediaUrl, renderablePlan, renderablePlans } from "./plan-media";
+import type {
+  ProjectAmenity,
+  ProjectDetail,
+  ProjectDetailDocument,
+  ProjectDetailMediaItem,
+} from "./project-detail-types";
 import { buildingCodes, isAvailable, unitSizeRange } from "./unit-presentation";
+import {
+  isPublicPhotograph,
+  isPubliclyPresentable,
+  neverPublicUrls,
+  prohibitedPhotographUrls,
+} from "@/lib/public-media-policy";
+
+function allRecordedProjectMedia(project: ProjectDetail): ProjectDetailMediaItem[] {
+  return [
+    ...(project.media.hero ? [project.media.hero] : []),
+    ...project.media.gallery,
+    ...project.media.floorPlans,
+    ...(project.media.masterPlan ? [project.media.masterPlan] : []),
+    ...project.media.unitPlans,
+    ...project.media.brochures,
+    ...project.media.videos,
+    ...project.media.documents,
+  ];
+}
+
+function policyRows(project: ProjectDetail) {
+  return allRecordedProjectMedia(project).map((item) => ({
+    mediaType: item.type,
+    url: item.url,
+    semanticRole: item.semanticRole,
+  }));
+}
+
+function safePublicItems<T extends ProjectDetailMediaItem>(
+  project: ProjectDetail,
+  candidates: readonly T[],
+): T[] {
+  const recorded = policyRows(project);
+  const barredEverywhere = neverPublicUrls(recorded);
+  const seen = new Set<string>();
+
+  return candidates.filter((item) => {
+    const url = item?.url?.trim();
+    if (!url || seen.has(url) || barredEverywhere.has(url)) return false;
+    if (!isPubliclyPresentable({ mediaType: item.type, semanticRole: item.semanticRole }))
+      return false;
+    seen.add(url);
+    return true;
+  });
+}
 
 /**
  * The project's photographs, cover first, in the order the publish lane
@@ -22,16 +72,73 @@ import { buildingCodes, isAvailable, unitSizeRange } from "./unit-presentation";
  * also what would put a drawing on the first screen.
  */
 export function projectPhotographs(project: ProjectDetail): ProjectDetailMediaItem[] {
-  const photographs: ProjectDetailMediaItem[] = [];
+  const recorded = policyRows(project);
+  const barredEverywhere = neverPublicUrls(recorded);
+  const barredPhotographs = prohibitedPhotographUrls(recorded);
   const seen = new Set<string>();
-  const add = (item: ProjectDetailMediaItem | null) => {
-    if (!item?.url || seen.has(item.url)) return;
-    seen.add(item.url);
-    photographs.push(item);
-  };
-  add(project.media.hero);
-  for (const item of project.media.gallery) add(item);
-  return photographs;
+
+  return [...(project.media.hero ? [project.media.hero] : []), ...project.media.gallery].filter(
+    (item) => {
+      const url = item?.url?.trim();
+      if (!url || seen.has(url) || barredEverywhere.has(url) || barredPhotographs.has(url))
+        return false;
+      if (!isPublicPhotograph({ mediaType: item.type, semanticRole: item.semanticRole }))
+        return false;
+      seen.add(url);
+      return true;
+    },
+  );
+}
+
+export function projectFloorPlans(project: ProjectDetail): ProjectDetailMediaItem[] {
+  return safePublicItems(project, project.media.floorPlans).filter(
+    (item) => item.type === "floor_plan" && isRenderableMediaUrl(item.url),
+  );
+}
+
+export function projectUnitPlans(project: ProjectDetail): ProjectDetailMediaItem[] {
+  return safePublicItems(project, project.media.unitPlans).filter(
+    (item) => item.type === "unit_plan" && isRenderableMediaUrl(item.url),
+  );
+}
+
+export function projectMasterPlan(project: ProjectDetail): ProjectDetailMediaItem | null {
+  const item = project.media.masterPlan;
+  if (!item || item.type !== "master_plan") return null;
+  return renderablePlan(safePublicItems(project, [item])[0]);
+}
+
+export function projectBrochures(project: ProjectDetail): ProjectDetailMediaItem[] {
+  return safePublicItems(project, project.media.brochures).filter(
+    (item) => item.type === "brochure" && isRenderableMediaUrl(item.url),
+  );
+}
+
+export function projectVideos(project: ProjectDetail): ProjectDetailMediaItem[] {
+  return safePublicItems(project, project.media.videos).filter(
+    (item) => item.type === "video" && isRenderableMediaUrl(item.url),
+  );
+}
+
+const PUBLIC_DOCUMENT_TYPES: ReadonlySet<string> = new Set([
+  "brochure",
+  "price_list",
+  "master_plan",
+  "unit_plan",
+  "payment_plan",
+  "document",
+]);
+
+/** All public-safe documents, including the separately rendered payment plan. */
+export function publicProjectDocuments(project: ProjectDetail): ProjectDetailDocument[] {
+  return safePublicItems(project, project.media.documents).filter(
+    (document) => PUBLIC_DOCUMENT_TYPES.has(document.type) && isRenderableMediaUrl(document.url),
+  );
+}
+
+/** Documents rendered in the general section; payment plans have their own section. */
+export function projectDocuments(project: ProjectDetail): ProjectDetailDocument[] {
+  return publicProjectDocuments(project).filter((document) => document.type !== "payment_plan");
 }
 
 /**
@@ -105,7 +212,9 @@ export function projectAmenityNames(project: ProjectDetail): string[] {
  * the section offers the verified file and states nothing else.
  */
 export function paymentPlanDocument(project: ProjectDetail) {
-  return project.media.documents.find((document) => document.type === "payment_plan") ?? null;
+  return (
+    publicProjectDocuments(project).find((document) => document.type === "payment_plan") ?? null
+  );
 }
 
 /**
@@ -124,15 +233,15 @@ export function hasPhotosSection(project: ProjectDetail): boolean {
 }
 
 export function hasMasterPlanSection(project: ProjectDetail): boolean {
-  return renderablePlan(project.media.masterPlan) !== null;
+  return projectMasterPlan(project) !== null;
 }
 
 export function hasFloorPlansSection(project: ProjectDetail): boolean {
-  return renderablePlans(project.media.floorPlans).length > 0;
+  return renderablePlans(projectFloorPlans(project)).length > 0;
 }
 
 export function hasUnitPlansSection(project: ProjectDetail): boolean {
-  return renderablePlans(project.media.unitPlans).length > 0;
+  return renderablePlans(projectUnitPlans(project)).length > 0;
 }
 
 export function hasAmenitiesSection(project: ProjectDetail): boolean {
@@ -151,13 +260,16 @@ export function hasUnitsSection(project: ProjectDetail): boolean {
   return project.units.length > 0;
 }
 
+export function hasDocumentsSection(project: ProjectDetail): boolean {
+  return projectDocuments(project).length > 0;
+}
+
 /** The map document `ProjectLocation` offers, when the project has one. */
 export function locationMapDocument(project: ProjectDetail) {
+  const documents = publicProjectDocuments(project);
   return (
-    project.media.documents.find(
-      (document) => document.type === "document" && document.semanticRole === "map",
-    ) ??
-    project.media.documents.find(
+    documents.find((document) => document.type === "document" && document.semanticRole === "map") ??
+    documents.find(
       (document) =>
         document.type === "document" &&
         !document.semanticRole &&
@@ -233,5 +345,6 @@ export function projectSections(project: ProjectDetail): ProjectSection[] {
   add("payment-plan", "Payment Plan", hasPaymentPlanSection(project));
   add("developer", "Developer", hasDeveloperSection(project));
   add("location", "Location", hasLocationSection(project));
+  add("documents", "Documents", hasDocumentsSection(project));
   return sections;
 }

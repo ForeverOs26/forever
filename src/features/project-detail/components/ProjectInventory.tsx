@@ -8,23 +8,18 @@ import {
   listedResidenceCount,
   verifiedTotalProjectUnits,
 } from "../inventory-scale";
+import { unitAvailabilityPresentation } from "../unit-presentation";
 
 type ProjectInventoryProps = {
   project: ProjectDetail;
 };
 
-/** Statuses that mean "not currently buyable". Anything else reads as available. */
-const UNAVAILABLE_STATUSES = new Set(["sold", "sold_out", "reserved", "booked", "blocked"]);
-
 function isAvailable(unit: ProjectDetailUnit): boolean {
-  return !UNAVAILABLE_STATUSES.has(unit.availabilityStatus.trim().toLowerCase());
+  return unitAvailabilityPresentation(unit.availabilityStatus).availableCountEligible;
 }
 
-/** Title-case a raw status token for display ("sold_out" -> "Sold out"). */
 function statusLabel(status: string): string {
-  const cleaned = status.trim().replace(/[_-]+/g, " ");
-  if (!cleaned) return "Not available";
-  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
+  return unitAvailabilityPresentation(status).label;
 }
 
 /**
@@ -124,7 +119,7 @@ export function ProjectInventory({ project }: ProjectInventoryProps) {
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="font-serif text-xl text-foreground">Availability and prices</h3>
           <p className="text-sm text-muted-foreground">
-            {availableCount} of {rows.length} available
+            {availableCount} of {rows.length} listed units available
             {project.pricing.lastPriceUpdate
               ? ` · price list ${project.pricing.lastPriceUpdate}`
               : ""}

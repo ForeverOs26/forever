@@ -16,6 +16,7 @@ import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";
 import type { Property } from "@/lib/data";
 import { getDemoPreviewProjectDetail, mapProjectDetailToProperty } from "./demo-preview";
 import type { ProjectDetail, ProjectDetailUnit } from "./project-detail-types";
+import { buildModevaPartnerDemoCore } from "./partner-demo-truth";
 
 type SourcedValue = { value: string | null };
 type ModevaPriceListRow = {
@@ -74,25 +75,7 @@ export function buildModevaPartnerDemoProjectDetail(): ProjectDetail {
     // Modeva holds no amenity rows, so the demo shows no Facilities & Amenities
     // section either — the demo must not claim more than production (F3).
     amenities: [],
-    core: {
-      id: "partner-demo-modeva",
-      slug: "modeva",
-      name: "Modeva",
-      type: "Condominium",
-      status: "Available",
-      constructionStatus: "Planning",
-      ownershipType: "Freehold",
-      location: "Bang Tao",
-      address: "Bang Tao, Phuket, Thailand",
-      tagline: "Published project record for guided review",
-      description:
-        "Modeva is a published project record in the Forever Core Database. This presentation shows only fields supported by committed project sources.",
-      highlights: ["Bang Tao, Phuket", "Freehold recorded", "Planning status recorded"],
-      beds: "1–3 bedrooms represented in the reviewed inventory",
-      area: "29–148 sq.m. represented in the reviewed inventory",
-      isFeatured: true,
-      isActive: true,
-    },
+    core: buildModevaPartnerDemoCore(),
     pricing: {
       // The project seed intentionally has no project-level starting price.
       startingPriceTHB: 0,

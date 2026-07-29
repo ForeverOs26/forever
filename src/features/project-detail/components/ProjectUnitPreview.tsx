@@ -142,7 +142,7 @@ export function ProjectUnitPreview({ project }: ProjectUnitPreviewProps) {
     filters.bedrooms !== "all" ||
     filters.building !== "all" ||
     filters.type !== "all" ||
-    filters.includeSold ||
+    filters.includeUnavailable ||
     filters.sort !== "listed-order";
 
   const select =
@@ -234,17 +234,20 @@ export function ProjectUnitPreview({ project }: ProjectUnitPreviewProps) {
           </select>
         </label>
 
-        {facets.soldCount > 0 ? (
+        {facets.notAvailableCount > 0 ? (
           <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm">
             <input
               type="checkbox"
               className="h-3.5 w-3.5 accent-current"
-              checked={filters.includeSold}
+              checked={filters.includeUnavailable}
               onChange={(event) =>
-                setFilters((current) => ({ ...current, includeSold: event.target.checked }))
+                setFilters((current) => ({
+                  ...current,
+                  includeUnavailable: event.target.checked,
+                }))
               }
             />
-            Include sold ({facets.soldCount})
+            Include unavailable ({facets.notAvailableCount})
           </label>
         ) : null}
 
@@ -266,7 +269,9 @@ export function ProjectUnitPreview({ project }: ProjectUnitPreviewProps) {
 
       {shown.length === 0 ? (
         <p className="mt-6 rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
-          No unit matches this combination. Clear the filters to see the full list.
+          {isFiltered
+            ? "No unit matches this combination. Clear the filters to see the available list."
+            : "No listed unit is explicitly recorded as available. Use Include unavailable to review all listed units."}
         </p>
       ) : (
         <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

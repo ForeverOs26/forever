@@ -14,18 +14,83 @@
 
 import type { ProjectDetailUnit } from "./project-detail-types";
 
-/** Statuses that mean "not currently buyable". Anything else reads as available. */
-const UNAVAILABLE_STATUSES = new Set(["sold", "sold_out", "reserved", "booked", "blocked"]);
+export type UnitAvailabilityState = "available" | "sold" | "reserved" | "unavailable" | "unknown";
 
-export function isAvailable(unit: ProjectDetailUnit): boolean {
-  return !UNAVAILABLE_STATUSES.has(unit.availabilityStatus.trim().toLowerCase());
+export interface UnitAvailabilityPresentation {
+  normalizedStatus: UnitAvailabilityState;
+  availableCountEligible: boolean;
+  defaultFilterIncluded: boolean;
+  label: string;
 }
 
-/** Title-case a raw status token for display ("sold_out" -> "Sold out"). */
-export function statusLabel(status: string): string {
-  const cleaned = status.trim().replace(/[_-]+/g, " ");
-  if (!cleaned) return "Not available";
-  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
+/** One fail-closed decision for counts, filters and badges. */
+export function unitAvailabilityPresentation(
+  status: string | null | undefined,
+): UnitAvailabilityPresentation {
+  const token = (status ?? "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+
+  let normalizedStatus: UnitAvailabilityState;
+  let label: string;
+
+  switch (token) {
+    case "available":
+      normalizedStatus = "available";
+      label = "Available";
+      break;
+    case "selling":
+      normalizedStatus = "available";
+      label = "Selling";
+      break;
+    case "sold":
+      normalizedStatus = "sold";
+      label = "Sold";
+      break;
+    case "sold out":
+      normalizedStatus = "sold";
+      label = "Sold out";
+      break;
+    case "reserved":
+      normalizedStatus = "reserved";
+      label = "Reserved";
+      break;
+    case "held":
+    case "hold":
+      normalizedStatus = "reserved";
+      label = "Held";
+      break;
+    case "booked":
+      normalizedStatus = "reserved";
+      label = "Booked";
+      break;
+    case "blocked":
+      normalizedStatus = "reserved";
+      label = "Blocked";
+      break;
+    case "unavailable":
+    case "not available":
+      normalizedStatus = "unavailable";
+      label = "Not available";
+      break;
+    default:
+      normalizedStatus = "unknown";
+      label = "Status not recorded";
+  }
+
+  const available = normalizedStatus === "available";
+  return {
+    normalizedStatus,
+    availableCountEligible: available,
+    defaultFilterIncluded: available,
+    label,
+  };
+}
+
+export function isAvailable(unit: ProjectDetailUnit): boolean {
+  return unitAvailabilityPresentation(unit.availabilityStatus).availableCountEligible;
+}
+
+export function statusLabel(status: string | null | undefined): string {
+  return unitAvailabilityPresentation(status).label;
 }
 
 /**
@@ -97,7 +162,7 @@ export interface UnitFilterState {
   bedrooms: string;
   building: string;
   type: string;
-  includeSold: boolean;
+  includeUnavailable: boolean;
   sort: UnitSort;
 }
 
@@ -105,7 +170,7 @@ export const DEFAULT_UNIT_FILTERS: UnitFilterState = {
   bedrooms: "all",
   building: "all",
   type: "all",
-  includeSold: false,
+  includeUnavailable: false,
   sort: "listed-order",
 };
 
@@ -127,15 +192,15 @@ export function unitFacets(units: readonly ProjectDetailUnit[]): {
   bedrooms: UnitFacet[];
   buildings: UnitFacet[];
   types: UnitFacet[];
-  soldCount: number;
+  notAvailableCount: number;
 } {
   const bedrooms = new Map<string, number>();
   const buildings = new Map<string, number>();
   const types = new Map<string, number>();
-  let soldCount = 0;
+  let notAvailableCount = 0;
 
   for (const unit of units) {
-    if (!isAvailable(unit)) soldCount += 1;
+    if (!isAvailable(unit)) notAvailableCount += 1;
     if (unit.bedrooms !== null && unit.bedrooms !== undefined) {
       const key = String(unit.bedrooms);
       bedrooms.set(key, (bedrooms.get(key) ?? 0) + 1);
@@ -156,7 +221,7 @@ export function unitFacets(units: readonly ProjectDetailUnit[]): {
     bedrooms: facets(bedrooms, (value) => (value === "1" ? "1 bedroom" : `${value} bedrooms`)),
     buildings: facets(buildings, (value) => `Building ${value}`),
     types: facets(types, (value) => value),
-    soldCount,
+    notAvailableCount,
   };
 }
 
@@ -166,7 +231,11 @@ export function applyUnitFilters(
   filters: UnitFilterState,
 ): ProjectDetailUnit[] {
   const filtered = units.filter((unit) => {
-    if (!filters.includeSold && !isAvailable(unit)) return false;
+    if (
+      !filters.includeUnavailable &&
+      !unitAvailabilityPresentation(unit.availabilityStatus).defaultFilterIncluded
+    )
+      return false;
     if (filters.bedrooms !== "all" && String(unit.bedrooms ?? "") !== filters.bedrooms)
       return false;
     if (filters.building !== "all" && (unit.buildingCode ?? "") !== filters.building) return false;

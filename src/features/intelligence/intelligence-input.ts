@@ -1,4 +1,11 @@
 import type { ProjectDetail } from "@/features/project-detail/project-detail-types";
+import { developerIdentity } from "@/features/project-detail/developer-identity";
+import {
+  projectDocuments,
+  projectFloorPlans,
+  projectPhotographs,
+} from "@/features/project-detail/project-sections";
+import { unitAvailabilityPresentation } from "@/features/project-detail/unit-presentation";
 import type { IntelligenceInput } from "./intelligence-types";
 
 function parseFirstPercent(value: string): number | null {
@@ -23,13 +30,15 @@ function average(values: Array<number | null>): number | null {
 
 export function createIntelligenceInput(project: ProjectDetail): IntelligenceInput {
   const units = project.units;
-  const availableUnitCount = units.filter((unit) =>
-    ["available", "selling"].includes(unit.availabilityStatus.toLowerCase()),
+  const availableUnitCount = units.filter(
+    (unit) => unitAvailabilityPresentation(unit.availabilityStatus).availableCountEligible,
   ).length;
-  const soldUnitCount = units.filter((unit) =>
-    ["sold", "sold_out", "sold out"].includes(unit.availabilityStatus.toLowerCase()),
+  const soldUnitCount = units.filter(
+    (unit) => unitAvailabilityPresentation(unit.availabilityStatus).normalizedStatus === "sold",
   ).length;
   const investmentRows = project.investment.rows;
+  const identity = developerIdentity(project);
+  const photographs = projectPhotographs(project);
 
   return {
     project,
@@ -67,12 +76,13 @@ export function createIntelligenceInput(project: ProjectDetail): IntelligenceInp
       unitCount: units.length,
       availableUnitCount,
       soldUnitCount,
-      hasHeroImage: Boolean(project.media.hero),
-      galleryCount: project.media.gallery.length,
-      floorPlanCount: project.media.floorPlans.length,
-      documentCount: project.media.documents.length,
-      developerName: project.developer?.name ?? "",
-      developerDescription: project.developer?.description ?? "",
+      hasHeroImage: photographs.length > 0,
+      galleryCount: photographs.length,
+      floorPlanCount: projectFloorPlans(project).length,
+      documentCount: projectDocuments(project).length,
+      developerName: identity.state === "named" ? identity.name : "",
+      developerDescription:
+        identity.state === "named" ? (project.developer?.description ?? "") : "",
       investmentRowsCount: investmentRows.length,
       averageOccupancyRate: average(investmentRows.map((row) => row.occupancyRate)),
       averageAnnualRoiPercent: average(investmentRows.map((row) => row.annualRoiPercent)),
