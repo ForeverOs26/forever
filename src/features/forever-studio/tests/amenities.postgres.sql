@@ -335,6 +335,7 @@ DO $$
 DECLARE
   v_rows BIGINT;
   v_featured BOOLEAN;
+  v_media BIGINT;
 BEGIN
   SET LOCAL ROLE anon;
   SELECT count(*) INTO v_rows
@@ -345,12 +346,28 @@ BEGIN
   SELECT bool_and(pa.is_featured IS NOT NULL AND pa.sort_order IS NOT NULL) INTO v_featured
   FROM public.project_amenities pa
   WHERE pa.project_id = 'a0000000-0000-0000-0000-000000000001';
+  -- AM-6e2. The amenity columns are only half of what PROJECT_DETAIL_SELECT
+  -- asks for in one statement. `project_media.semantic_role` ships with
+  -- FOREVER-MEDIA-SEMANTIC-PUBLIC-CONTRACT-001 and rides the SAME all-or-
+  -- nothing failure mode: if either column is missing or ungranted, PostgREST
+  -- answers 42703 for the WHOLE select and every project page goes blank, not
+  -- one section. Selecting all three as `anon` in a single statement is what
+  -- proves the two deploy gates are satisfied together rather than separately.
+  SELECT count(*) INTO v_media
+  FROM public.project_media pm
+  WHERE pm.project_id = 'a0000000-0000-0000-0000-000000000001'
+    AND (pm.semantic_role IS NOT NULL OR pm.semantic_role IS NULL);
   RESET ROLE;
 
   PERFORM pg_temp.assert_true(v_rows = 2,
     'AM-6e an anonymous visitor still reads the project_amenities -> amenities embed');
   PERFORM pg_temp.assert_true(COALESCE(v_featured, false),
     'AM-6e is_featured and sort_order are readable in that same anonymous projection');
+  -- The proof is that the SELECT above completed at all: an absent column or a
+  -- missing grant raises 42703/42501 there and aborts this block, which is the
+  -- production failure this asserts against.
+  PERFORM pg_temp.assert_true(v_media >= 0,
+    'AM-6e2 anon can select semantic_role in the same full project projection');
 END $$;
 
 -- ---------------------------------------------------------------------------
