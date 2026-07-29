@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * FOREVER-CRM-SLICE0-CORRECTION-001 — EXECUTABLE privacy fixtures for the
- * Slice 0 read-only lead baseline script.
+ * FOREVER-PR125-INDEPENDENT-REVIEW-CORRECTION-001 — executable privacy,
+ * role/RLS and mutation fixtures for the Slice 0 read-only lead baseline.
  *
  * WHY THIS EXISTS
  * ---------------
@@ -11,15 +11,9 @@
  * `source` column. Only running it can.
  *
  * This runner executes the EXACT checked-in script against a disposable
- * PostgreSQL cluster, once per table state, and asserts on the real output:
- *
- *   1  zero rows                          8  five rows, URL-shaped source
- *   2  one row                            9  mixed known and unknown statuses
- *   3  four rows                         10  one-to-four rows in a single month
- *   4  five rows                         11  five rows in one month
- *   5  five known-source rows            12  five rows split across months
- *   6  five unknown-source rows          13  duplicate-email groups
- *   7  five rows, email-shaped source    14  no duplicate-email groups
+ * PostgreSQL cluster for the full calendar, source, status, completeness and
+ * duplication matrix. It also proves ordinary-browser RLS versus BYPASSRLS
+ * behavior, known/unknown ACL handling, and executable SQL/privacy mutations.
  *
  * Every value is INVENTED. No production lead is copied, read or referenced.
  * Addresses use the reserved `.invalid` TLD (RFC 2606) so nothing here can
@@ -215,8 +209,8 @@ process.on("SIGINT", () => { cleanup(); process.exit(130); });
 // ---------------------------------------------------------------------------
 // Result parsing
 // ---------------------------------------------------------------------------
-function runBaselineScript() {
-  const out = psqlRaw(TASK_DB, ["-t", "-A", "-F", SEP, "-f", SQL_PATH]);
+function runBaselineScript(scriptPath = SQL_PATH) {
+  const out = psqlRaw(TASK_DB, ["-t", "-A", "-F", SEP, "-f", scriptPath]);
   const lines = out.split(/\r?\n/).filter((l) => l.length > 0);
   const rows = [];
   let readOnlyProof = null;
@@ -249,30 +243,41 @@ const UNKNOWN_SOURCE_PLAIN = "whatsapp_broadcast_2026";
 const UNKNOWN_SOURCE_EMAIL = "leaked.person@example.invalid";
 const UNKNOWN_SOURCE_URL = "https://tracker.example.invalid/campaign?ref=7";
 const UNKNOWN_SOURCE_PHONE = "+66000000199";
+const UNKNOWN_SOURCE_PERSON = "Synthetic Source Person";
+const UNKNOWN_SOURCE_MULTILINE = "line one\nline two";
+const UNKNOWN_SOURCE_SQL = "SELECT secret FROM people; --";
+const UNKNOWN_SOURCE_HTML = "<img src=x onerror=alert(1)>";
+const UNKNOWN_SOURCE_UNICODE = "แหล่งที่มา-未知-🙂";
+const UNKNOWN_SOURCE_LONG = `long-${"x".repeat(5000)}`;
 const UNKNOWN_STATUS = "archived_by_hand";
 
 /** Every invented value that must never appear in the script's output. */
 const SECRETS_THAT_MUST_NOT_LEAK = [
   UNKNOWN_SOURCE_PLAIN, UNKNOWN_SOURCE_EMAIL, UNKNOWN_SOURCE_URL,
-  UNKNOWN_SOURCE_PHONE, UNKNOWN_STATUS,
+  UNKNOWN_SOURCE_PHONE, UNKNOWN_SOURCE_PERSON, UNKNOWN_SOURCE_MULTILINE,
+  UNKNOWN_SOURCE_SQL, UNKNOWN_SOURCE_HTML, UNKNOWN_SOURCE_UNICODE,
+  UNKNOWN_SOURCE_LONG, UNKNOWN_STATUS,
 ];
 
 let seq = 0;
-function lead({ month = "2026-03", source = "contact_form", status = "new", email = null } = {}) {
+function lead(overrides = {}) {
   seq += 1;
-  return {
+  const month = overrides.month ?? "2026-03";
+  const row = {
     name: `Synthetic Person ${seq}`,
-    email: email ?? `synthetic.person.${seq}@example.invalid`,
+    email: `synthetic.person.${seq}@example.invalid`,
     phone: `+6600000${String(1000 + seq)}`,
     country: "Invented Country",
     budget: "Invented budget band",
     interest: "Invented interest",
     project_slug: `invented-project-${seq}`,
     message: `Invented fixture message ${seq}`,
-    status,
-    source,
+    status: "new",
+    source: "contact_form",
     created_at: `${month}-15T09:00:00Z`,
   };
+  const { month: _month, ...fields } = overrides;
+  return { ...row, ...fields };
 }
 
 function pii(rows) {
@@ -280,10 +285,10 @@ function pii(rows) {
   for (const r of rows) {
     values.push(r.name, r.email, r.phone, r.country, r.budget, r.interest, r.project_slug, r.message);
   }
-  return values;
+  return values.filter((value) => typeof value === "string" && value.length > 0);
 }
 
-const q = (v) => `'${String(v).replace(/'/g, "''")}'`;
+const q = (v) => v === null ? "NULL" : `'${String(v).replace(/'/g, "''")}'`;
 
 function seed(rows) {
   exec(TASK_DB, "DELETE FROM public.leads;");
@@ -361,6 +366,21 @@ function universalAssertions(scenario, rows, out, seeded) {
     const qual = find(rows, "policy_qual");
     assert(qual.value_text.length > 0, "policy_qual is empty rather than '(none)'");
   });
+
+  check(scenario, "role bypass and relation-owner facts are present", () => {
+    const service = find(rows, "role_security_properties", "service_role");
+    const owner = all(rows, "role_security_properties").find((r) => /owns_relation true/.test(r.value_text));
+    const anon = find(rows, "role_security_properties", "anon");
+    assert(service !== undefined && /bypassrls true/.test(service.value_text),
+      `service_role BYPASSRLS fact missing: ${service?.value_text}`);
+    assert(owner !== undefined && /superuser true/.test(owner.value_text),
+      `relation-owner/superuser fact missing: ${owner?.value_text}`);
+    assert(anon !== undefined && /bypassrls false/.test(anon.value_text),
+      `anon role property row missing: ${anon?.value_text}`);
+    assert(find(rows, "relation_owner") !== undefined, "relation_owner row missing");
+    assert(/ordinary RLS path/.test(find(rows, "rls_select_boundary")?.value_text ?? ""),
+      "role-accurate RLS boundary wording missing");
+  });
 }
 
 /**
@@ -386,12 +406,76 @@ function assertNoMonthAnywhere(scenario, rows, why) {
   });
 }
 
+function assertSuppressedMetric(scenario, rows, metric, label = null) {
+  check(scenario, `${metric}${label === null ? "" : `/${label}`} is SUPPRESSED_LT_5 with no number`, () => {
+    const row = find(rows, metric, label);
+    assert(row !== undefined, `missing ${metric}${label === null ? "" : `/${label}`}`);
+    assert(row.value_text === "SUPPRESSED_LT_5", `expected SUPPRESSED_LT_5, got ${row.value_text}`);
+    assert(row.value_num === "" && row.pct === "", `suppressed row carried a number: ${row.raw}`);
+  });
+}
+
+function assertDimensionSuppressed(scenario, rows, metric) {
+  check(scenario, `${metric} is one fixed dimension-level suppression row`, () => {
+    const dimensionRows = all(rows, metric);
+    assert(dimensionRows.length === 1, `expected one row, got ${dimensionRows.length}`);
+    const [row] = dimensionRows;
+    assert(row.label === "", `suppressed dimension exposed label ${JSON.stringify(row.label)}`);
+    assert(row.value_num === "" && row.pct === "", `suppressed dimension exposed a number: ${row.raw}`);
+    assert(row.value_text === "SUPPRESSED_LT_5", `expected SUPPRESSED_LT_5, got ${row.value_text}`);
+  });
+}
+
+function assertDimensionReleased(scenario, rows, metric, expected) {
+  check(scenario, `${metric} releases exactly the expected safe buckets`, () => {
+    const actual = all(rows, metric).map((r) => [r.label, r.value_num, r.pct]);
+    assert(JSON.stringify(actual) === JSON.stringify(expected),
+      `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+  });
+}
+
+function rowsWithEmailGroups(groupSizes, uniqueCount = 0, extra = {}) {
+  const rows = [];
+  groupSizes.forEach((size, groupIndex) => {
+    const email = `duplicate.group.${groupIndex + 1}@example.invalid`;
+    for (let i = 0; i < size; i += 1) rows.push(lead({ ...extra, email }));
+  });
+  for (let i = 0; i < uniqueCount; i += 1) rows.push(lead(extra));
+  return rows;
+}
+
 // ---------------------------------------------------------------------------
 // The fourteen scenarios
 // ---------------------------------------------------------------------------
 function scenarios() {
   const known = (n, source, month = "2026-03") =>
     Array.from({ length: n }, () => lead({ source, month }));
+  const mixed = (knownCount, unknownCount, field, unknownValue, extra = {}) => [
+    ...Array.from({ length: knownCount }, () => lead(extra)),
+    ...Array.from({ length: unknownCount }, () => lead({ ...extra, [field]: unknownValue })),
+  ];
+  const sourceShapes = [
+    ["email", UNKNOWN_SOURCE_EMAIL],
+    ["phone", UNKNOWN_SOURCE_PHONE],
+    ["URL", UNKNOWN_SOURCE_URL],
+    ["person name", UNKNOWN_SOURCE_PERSON],
+    ["multiline", UNKNOWN_SOURCE_MULTILINE],
+    ["SQL-shaped", UNKNOWN_SOURCE_SQL],
+    ["HTML", UNKNOWN_SOURCE_HTML],
+    ["Unicode", UNKNOWN_SOURCE_UNICODE],
+    ["very long", UNKNOWN_SOURCE_LONG],
+  ].map(([shape, value]) => ({
+    name: `source shape · ${shape}`,
+    rows: Array.from({ length: 5 }, () => lead({ source: value, month: "2026-08" })),
+    assert: (s, rows) => {
+      check(s, `${shape} source is fixed-vocabulary output only`, () => {
+        const row = find(rows, "leads_from_source", "Other / unknown source");
+        assert(row?.value_num === "5", `expected safe unknown-source count 5, got ${row?.raw}`);
+        assert(!rows.some((r) => `${r.label}${r.value_text}`.includes(value)),
+          `${shape} source escaped into output`);
+      });
+    },
+  }));
 
   return [
     {
@@ -402,14 +486,8 @@ function scenarios() {
           assert(find(rows, "total_leads").value_num === "0",
             `expected 0, got ${JSON.stringify(find(rows, "total_leads").value_num)}`);
         });
-        check(s, "months_containing_leads is a factual numeric zero", () => {
-          assert(find(rows, "months_containing_leads").value_num === "0", "expected a numeric 0");
-        });
-        check(s, "with_email is a factual numeric zero", () => {
-          assert(find(rows, "with_email").value_num === "0", "expected a numeric 0");
-        });
-        check(s, "every rate reports NOT_MEASURABLE_NO_DATA, never 0", () => {
-          for (const metric of ["email_completeness_rate", "phone_completeness_rate", "duplicate_rate", "null_or_blank_rate"]) {
+        check(s, "every non-total cohort metric is withheld on an empty table", () => {
+          for (const metric of ["months_containing_leads", "with_email", "email_completeness_rate", "phone_completeness_rate", "duplicate_rate"]) {
             const row = find(rows, metric);
             assert(row !== undefined, `missing ${metric}`);
             assert(row.value_text === "NOT_MEASURABLE_NO_DATA",
@@ -446,13 +524,7 @@ function scenarios() {
               `${metric} should be SUPPRESSED_LT_5, got ${JSON.stringify(find(rows, metric).value_text)}`);
           }
         });
-        check(s, "the grouped month is folded and its size suppressed", () => {
-          const group = all(rows, "leads_in_month");
-          assert(group.length === 1, `expected one folded month row, got ${group.length}`);
-          assert(group[0].label === "Other / suppressed", `expected the fold-in bucket, got ${group[0].label}`);
-          assert(group[0].value_text === "SUPPRESSED_LT_5", "a fold-in bucket below the floor must report SUPPRESSED_LT_5");
-          assert(group[0].value_num === "", "a suppressed bucket must not carry a number");
-        });
+        assertDimensionSuppressed(s, rows, "leads_in_month");
         assertNoMonthAnywhere(s, rows, "one row");
       },
     },
@@ -569,14 +641,8 @@ function scenarios() {
       name: "10 · three rows in a single month",
       rows: Array.from({ length: 3 }, () => lead({ month: "2026-07" })),
       assert: (s, rows) => {
-        check(s, "a single small month is never revealed", () => {
-          const group = all(rows, "leads_in_month");
-          assert(group.length === 1 && group[0].label === "Other / suppressed",
-            "the only month must be folded into the suppressed bucket");
-          assert(group[0].value_text === "SUPPRESSED_LT_5", "its size must be suppressed too");
-          assert(find(rows, "earliest_lead_month").value_text === "SUPPRESSED_LT_5",
-            "the summary must not reveal what the grouped output suppresses");
-        });
+        assertDimensionSuppressed(s, rows, "leads_in_month");
+        assertSuppressedMetric(s, rows, "earliest_lead_month");
         assertNoMonthAnywhere(s, rows, "three rows in one month");
       },
     },
@@ -600,21 +666,11 @@ function scenarios() {
         ...Array.from({ length: 2 }, () => lead({ month: "2026-02" })),
       ],
       assert: (s, rows) => {
-        check(s, "each month below the floor is folded, and the bucket reaches the floor", () => {
-          const group = all(rows, "leads_in_month");
-          assert(group.length === 1 && group[0].label === "Other / suppressed",
-            `both months are below the floor and must fold, got ${group.map((r) => r.label).join(", ")}`);
-          assert(group[0].value_num === "5",
-            `the fold-in bucket holds all five rows and is at the floor, so its size shows: got ${group[0].value_num}`);
-        });
-        check(s, "the calendar summary follows the total, as the rule specifies", () => {
-          assert(find(rows, "earliest_lead_month").value_text === "2026-01",
-            "at five total leads the summary discloses, per the stated rule");
-          assert(find(rows, "lead_month_range").value_text === "2026-01 .. 2026-02", "expected the range");
-        });
-        check(s, "months_containing_leads stays a factual count", () => {
-          assert(find(rows, "months_containing_leads").value_num === "2", "expected 2");
-        });
+        assertDimensionSuppressed(s, rows, "leads_in_month");
+        for (const metric of ["earliest_lead_month", "latest_lead_month", "lead_month_range", "months_containing_leads"]) {
+          assertSuppressedMetric(s, rows, metric);
+        }
+        assertNoMonthAnywhere(s, rows, "3+2 split");
       },
     },
     {
@@ -624,11 +680,11 @@ function scenarios() {
         ...Array.from({ length: 3 }, () => lead({ month: "2026-06", email: "repeat.two@example.invalid" })),
       ],
       assert: (s, rows) => {
-        check(s, "duplicate groups are counted without emitting an address", () => {
-          assert(find(rows, "normalized_emails_seen_more_than_once").value_num === "2", "expected 2 groups");
-          assert(find(rows, "rows_in_duplicated_email_groups").value_num === "6", "expected 6 rows");
-          assert(find(rows, "max_duplicate_group_size").value_num === "3", "expected a max group of 3");
-          assert(find(rows, "duplicate_rate").value_num === "100.00", "expected a measured 100.00 rate");
+        for (const metric of ["normalized_emails_seen_more_than_once", "rows_in_duplicated_email_groups", "duplicate_rate"]) {
+          assertSuppressedMetric(s, rows, metric);
+        }
+        check(s, "maximum duplicate group size is not emitted", () => {
+          assert(find(rows, "max_duplicate_group_size") === undefined, "unsafe maximum group size row remains");
         });
         check(s, "no repeated address appears in the output", () => {
           for (const r of rows) {
@@ -656,6 +712,382 @@ function scenarios() {
         });
       },
     },
+    {
+      name: "calendar · ten rows split 5+5",
+      rows: [
+        ...Array.from({ length: 5 }, () => lead({ month: "2026-01" })),
+        ...Array.from({ length: 5 }, () => lead({ month: "2026-02" })),
+      ],
+      assert: (s, rows) => {
+        check(s, "both floor-sized months and summaries are released", () => {
+          assert(find(rows, "leads_in_month", "2026-01")?.value_num === "5", "January 5 missing");
+          assert(find(rows, "leads_in_month", "2026-02")?.value_num === "5", "February 5 missing");
+          assert(find(rows, "earliest_lead_month")?.value_text === "2026-01", "earliest month missing");
+          assert(find(rows, "latest_lead_month")?.value_text === "2026-02", "latest month missing");
+          assert(find(rows, "months_containing_leads")?.value_num === "2", "safe distinct-month count missing");
+        });
+      },
+    },
+    {
+      name: "calendar · twelve rows split 10+2",
+      rows: [
+        ...Array.from({ length: 10 }, () => lead({ month: "2026-01" })),
+        ...Array.from({ length: 2 }, () => lead({ month: "2026-02" })),
+      ],
+      assert: (s, rows) => {
+        assertDimensionSuppressed(s, rows, "leads_in_month");
+        for (const metric of ["earliest_lead_month", "latest_lead_month", "lead_month_range", "months_containing_leads"]) {
+          assertSuppressedMetric(s, rows, metric);
+        }
+        assertNoMonthAnywhere(s, rows, "10+2 split");
+      },
+    },
+    {
+      name: "source · one unknown beside ten known",
+      rows: mixed(10, 1, "source", UNKNOWN_SOURCE_PLAIN, { month: "2026-08" }),
+      assert: (s, rows) => {
+        assertDimensionSuppressed(s, rows, "leads_from_source");
+        assertSuppressedMetric(s, rows, "source_attribution_exists");
+      },
+    },
+    {
+      name: "source · four unknown beside ten known",
+      rows: mixed(10, 4, "source", UNKNOWN_SOURCE_PLAIN, { month: "2026-08" }),
+      assert: (s, rows) => assertDimensionSuppressed(s, rows, "leads_from_source"),
+    },
+    {
+      name: "source · five unknown beside five known",
+      rows: mixed(5, 5, "source", UNKNOWN_SOURCE_PLAIN, { month: "2026-08" }),
+      assert: (s, rows) => {
+        check(s, "both source cohorts at five are released", () => {
+          assert(find(rows, "leads_from_source", "contact_form")?.value_num === "5", "known source 5 missing");
+          assert(find(rows, "leads_from_source", "Other / unknown source")?.value_num === "5", "unknown source 5 missing");
+        });
+      },
+    },
+    ...sourceShapes,
+    {
+      name: "status · all known",
+      rows: Array.from({ length: 5 }, () => lead({ status: "qualified", month: "2026-08" })),
+      assert: (s, rows) => {
+        assertDimensionReleased(s, rows, "leads_with_status", [["qualified", "5", "100.00"]]);
+        check(s, "single safe status reports no variation", () => {
+          assert(find(rows, "status_has_meaningful_variation")?.value_text === "false", "expected false");
+        });
+      },
+    },
+    {
+      name: "status · one unknown beside ten known",
+      rows: mixed(10, 1, "status", UNKNOWN_STATUS, { month: "2026-08" }),
+      assert: (s, rows) => {
+        assertDimensionSuppressed(s, rows, "leads_with_status");
+        assertSuppressedMetric(s, rows, "status_has_meaningful_variation");
+      },
+    },
+    {
+      name: "status · four unknown beside ten known",
+      rows: mixed(10, 4, "status", UNKNOWN_STATUS, { month: "2026-08" }),
+      assert: (s, rows) => assertDimensionSuppressed(s, rows, "leads_with_status"),
+    },
+    {
+      name: "status · five unknown beside five known",
+      rows: mixed(5, 5, "status", UNKNOWN_STATUS, { month: "2026-08" }),
+      assert: (s, rows) => {
+        check(s, "both status cohorts at five are released", () => {
+          assert(find(rows, "leads_with_status", "new")?.value_num === "5", "known status 5 missing");
+          assert(find(rows, "leads_with_status", "Other / unknown status")?.value_num === "5", "unknown status 5 missing");
+          assert(find(rows, "status_has_meaningful_variation")?.value_text === "true", "safe variation missing");
+        });
+      },
+    },
+    {
+      name: "status · multiple large statuses plus one small",
+      rows: [
+        ...Array.from({ length: 5 }, () => lead({ status: "new", month: "2026-08" })),
+        ...Array.from({ length: 5 }, () => lead({ status: "contacted", month: "2026-08" })),
+        ...Array.from({ length: 2 }, () => lead({ status: UNKNOWN_STATUS, month: "2026-08" })),
+      ],
+      assert: (s, rows) => {
+        assertDimensionSuppressed(s, rows, "leads_with_status");
+        assertSuppressedMetric(s, rows, "status_has_meaningful_variation");
+      },
+    },
+    {
+      name: "completeness · one missing message",
+      rows: [
+        lead({ message: "", month: "2026-08" }),
+        ...Array.from({ length: 9 }, () => lead({ month: "2026-08" })),
+      ],
+      assert: (s, rows) => assertSuppressedMetric(s, rows, "null_or_blank_count", "message"),
+    },
+    {
+      name: "completeness · four missing messages",
+      rows: [
+        ...Array.from({ length: 4 }, () => lead({ message: "", month: "2026-08" })),
+        ...Array.from({ length: 6 }, () => lead({ month: "2026-08" })),
+      ],
+      assert: (s, rows) => assertSuppressedMetric(s, rows, "null_or_blank_count", "message"),
+    },
+    {
+      name: "completeness · five missing and five present messages",
+      rows: [
+        ...Array.from({ length: 5 }, () => lead({ message: "", month: "2026-08" })),
+        ...Array.from({ length: 5 }, () => lead({ month: "2026-08" })),
+      ],
+      assert: (s, rows) => {
+        check(s, "missing-message partition 5+5 is released", () => {
+          const row = find(rows, "null_or_blank_count", "message");
+          assert(row?.value_num === "5" && row.pct === "50.00", `expected 5/50%, got ${row?.raw}`);
+        });
+      },
+    },
+    {
+      name: "completeness · one missing email cannot be inferred from present count",
+      rows: [
+        lead({ email: "", month: "2026-08" }),
+        ...Array.from({ length: 9 }, () => lead({ month: "2026-08" })),
+      ],
+      assert: (s, rows) => {
+        for (const metric of ["with_email", "email_completeness_rate", "distinct_normalized_emails"]) {
+          assertSuppressedMetric(s, rows, metric);
+        }
+        assertSuppressedMetric(s, rows, "null_or_blank_count", "email");
+      },
+    },
+    {
+      name: "completeness · both versus without-both complement leak",
+      rows: [
+        lead({ email: "", phone: "", month: "2026-08" }),
+        ...Array.from({ length: 9 }, () => lead({ month: "2026-08" })),
+      ],
+      assert: (s, rows) => {
+        assertSuppressedMetric(s, rows, "with_email_and_phone");
+        assertSuppressedMetric(s, rows, "with_neither_email_nor_phone");
+      },
+    },
+    {
+      name: "duplicates · one group of two",
+      rows: rowsWithEmailGroups([2], 8, { month: "2026-08" }),
+      assert: (s, rows) => {
+        for (const metric of ["normalized_emails_seen_more_than_once", "rows_in_duplicated_email_groups", "duplicate_rate"]) {
+          assertSuppressedMetric(s, rows, metric);
+        }
+      },
+    },
+    {
+      name: "duplicates · one group of four",
+      rows: rowsWithEmailGroups([4], 6, { month: "2026-08" }),
+      assert: (s, rows) => {
+        for (const metric of ["normalized_emails_seen_more_than_once", "rows_in_duplicated_email_groups", "duplicate_rate"]) {
+          assertSuppressedMetric(s, rows, metric);
+        }
+      },
+    },
+    {
+      name: "duplicates · one group of five",
+      rows: rowsWithEmailGroups([5], 5, { month: "2026-08" }),
+      assert: (s, rows) => {
+        for (const metric of ["normalized_emails_seen_more_than_once", "rows_in_duplicated_email_groups", "duplicate_rate"]) {
+          assertSuppressedMetric(s, rows, metric);
+        }
+      },
+    },
+    {
+      name: "duplicates · four duplicate groups",
+      rows: rowsWithEmailGroups([2, 2, 2, 2], 2, { month: "2026-08" }),
+      assert: (s, rows) => assertSuppressedMetric(s, rows, "normalized_emails_seen_more_than_once"),
+    },
+    {
+      name: "duplicates · five groups but small non-duplicate complement",
+      rows: rowsWithEmailGroups([2, 2, 2, 2, 2], 2, { month: "2026-08" }),
+      assert: (s, rows) => {
+        for (const metric of ["normalized_emails_seen_more_than_once", "rows_in_duplicated_email_groups", "duplicate_rate"]) {
+          assertSuppressedMetric(s, rows, metric);
+        }
+      },
+    },
+    {
+      name: "duplicates · five groups and safe duplicated/non-duplicated cohorts",
+      rows: rowsWithEmailGroups([2, 2, 2, 2, 2], 5, { month: "2026-08" }),
+      assert: (s, rows) => {
+        check(s, "five groups, ten duplicated rows and five non-duplicated rows are released", () => {
+          assert(find(rows, "normalized_emails_seen_more_than_once")?.value_num === "5", "expected five groups");
+          assert(find(rows, "rows_in_duplicated_email_groups")?.value_num === "10", "expected ten duplicated rows");
+          assert(find(rows, "duplicate_rate")?.value_num === "66.67", "expected 66.67 percent");
+        });
+      },
+    },
+    {
+      name: "duplicates · duplicated-row cohort of four",
+      rows: rowsWithEmailGroups([2, 2], 6, { month: "2026-08" }),
+      assert: (s, rows) => assertSuppressedMetric(s, rows, "rows_in_duplicated_email_groups"),
+    },
+    {
+      name: "duplicates · duplicated-row cohort of five",
+      rows: rowsWithEmailGroups([2, 3], 5, { month: "2026-08" }),
+      assert: (s, rows) => {
+        assertSuppressedMetric(s, rows, "rows_in_duplicated_email_groups");
+        assertSuppressedMetric(s, rows, "normalized_emails_seen_more_than_once");
+      },
+    },
+  ];
+}
+
+const runtimeControls = {
+  role_security: {},
+  sql_mutations: {},
+};
+
+function expectSqlFailure(name, sql, expected) {
+  let output = "";
+  try {
+    psqlRaw(TASK_DB, ["-c", sql]);
+  } catch (error) {
+    output = `${error.stdout ?? ""}\n${error.stderr ?? ""}\n${error.message ?? ""}`;
+  }
+  assert(output.length > 0, `${name} unexpectedly succeeded`);
+  assert(expected.test(output), `${name} failed for the wrong reason: ${output.replace(/\s+/g, " ").slice(0, 300)}`);
+  runtimeControls.sql_mutations[name] = { rejected: true, expected_error: expected.source };
+}
+
+function mutatedBaseline(name, needle, replacement) {
+  const raw = readFileSync(SQL_PATH, "utf8");
+  const mutated = raw.replace(needle, replacement);
+  assert(mutated !== raw, `${name}: fixture mutation did not change the checked-in SQL`);
+  const path = join(work, `${name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.sql`);
+  writeFileSync(path, mutated, "utf8");
+  return path;
+}
+
+function runRoleSecurityControls() {
+  const scenario = "role/security controls";
+  seed(Array.from({ length: 5 }, () => lead({ month: "2026-09" })));
+
+  check(scenario, "anon and authenticated ordinary RLS reads return no rows despite SELECT grants", () => {
+    for (const role of ["anon", "authenticated"]) {
+      const visible = scalar(TASK_DB, `SET ROLE ${role}; SELECT count(*) FROM public.leads; RESET ROLE;`);
+      assert(visible === "0", `${role} saw ${visible} rows through the ordinary RLS path`);
+    }
+    runtimeControls.role_security.browser_roles_rls_denied = true;
+  });
+
+  check(scenario, "service_role BYPASSRLS sees fixture rows according to its privileged role", () => {
+    const visible = scalar(TASK_DB, "SET ROLE service_role; SELECT count(*) FROM public.leads; RESET ROLE;");
+    assert(visible === "5", `service_role saw ${visible} rows, expected 5`);
+    runtimeControls.role_security.service_role_bypass_visible_rows = 5;
+  });
+
+  check(scenario, "known-role ACL is raw-disclosable", () => {
+    const out = runBaselineScript();
+    const raw = find(out.rows, "relation_acl_raw");
+    assert(raw !== undefined && raw.value_text !== "SUPPRESSED_NON_STANDARD_ROLE_IN_ACL",
+      `known-role ACL was unexpectedly suppressed: ${raw?.value_text}`);
+    runtimeControls.role_security.known_role_acl_disclosable = true;
+  });
+
+  check(scenario, "unknown ACL role suppresses raw ACL and never emits its name", () => {
+    const role = `operator_private_${process.pid}`;
+    exec(TASK_DB, `CREATE ROLE ${role} NOLOGIN; GRANT SELECT ON public.leads TO ${role};`);
+    const out = runBaselineScript();
+    assert(find(out.rows, "relation_acl_raw")?.value_text === "SUPPRESSED_NON_STANDARD_ROLE_IN_ACL",
+      "raw ACL was not suppressed for an unknown role");
+    assert(!out.text.includes(role), "unknown ACL role name leaked into output");
+    assert(find(out.rows, "acl_privilege", "Other / non-standard role.SELECT") !== undefined,
+      "fixed non-standard role label missing");
+    runtimeControls.role_security.unknown_role_acl_suppressed = true;
+  });
+}
+
+function runSqlMutationControls() {
+  const scenario = "SQL mutation controls";
+  seed(Array.from({ length: 5 }, () => lead({ month: "2026-10", source: UNKNOWN_SOURCE_EMAIL })));
+
+  check(scenario, "direct UPDATE is rejected in the read-only transaction", () => {
+    expectSqlFailure("direct_update", "BEGIN; SET TRANSACTION READ ONLY; UPDATE public.leads SET status = 'contacted'; ROLLBACK;", /read-only transaction/i);
+  });
+  check(scenario, "writable CTE is rejected in the read-only transaction", () => {
+    expectSqlFailure("writable_cte", "BEGIN; SET TRANSACTION READ ONLY; WITH changed AS (UPDATE public.leads SET status = 'contacted' RETURNING 1) SELECT count(*) FROM changed; ROLLBACK;", /read-only transaction/i);
+  });
+  check(scenario, "volatile mutating function is rejected in the read-only transaction", () => {
+    expectSqlFailure("volatile_function", "BEGIN; SET TRANSACTION READ ONLY; SELECT public.mutate_marker(); ROLLBACK;", /read-only transaction/i);
+    assert(scalar(TASK_DB, "SELECT value FROM public.mutation_marker;") === "0", "volatile function changed the marker");
+  });
+  check(scenario, "CALL to a mutating procedure is rejected in the read-only transaction", () => {
+    expectSqlFailure("call_procedure", "BEGIN; SET TRANSACTION READ ONLY; CALL public.mutate_leads(); ROLLBACK;", /read-only transaction/i);
+  });
+
+  check(scenario, "removing the read-only boundary makes a write visible but ROLLBACK prevents persistence", () => {
+    const visible = psqlRaw(TASK_DB, ["-t", "-A", "-c",
+      "BEGIN; UPDATE public.leads SET status = 'contacted'; SELECT count(*) FROM public.leads WHERE status = 'contacted'; ROLLBACK;"])
+      .split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    assert(visible.includes("5"), `weakened boundary did not expose the write in-transaction: ${visible.join("|")}`);
+    assert(scalar(TASK_DB, "SELECT count(*) FROM public.leads WHERE status = 'contacted';") === "0",
+      "weakened-boundary control persisted after ROLLBACK");
+    runtimeControls.sql_mutations.weakened_readonly_boundary = { detected: true, persisted: false };
+  });
+
+  check(scenario, "raw-source mutation emits the synthetic source and is detected", () => {
+    const path = mutatedBaseline("raw-source",
+      "        'Other / unknown source')",
+      "        ln.source_key)");
+    const out = runBaselineScript(path);
+    assert(out.text.includes(UNKNOWN_SOURCE_EMAIL), "raw-source mutation did not create the intended leak");
+    runtimeControls.sql_mutations.raw_source = { injected: true, detected: true };
+  });
+
+  check(scenario, "total-only calendar mutation recreates the 3+2 month leak and is detected", () => {
+    seed([
+      ...Array.from({ length: 3 }, () => lead({ month: "2026-01" })),
+      ...Array.from({ length: 2 }, () => lead({ month: "2026-02" })),
+    ]);
+    const path = mutatedBaseline("total-only-calendar",
+      "      WHEN EXISTS (\n        SELECT 1 FROM month_raw\n        WHERE n > 0 AND n < (SELECT min_group_size FROM params)\n      ) THEN 'SUPPRESSED_LT_5'",
+      "      WHEN (SELECT total FROM totals) < (SELECT min_group_size FROM params)\n        THEN 'SUPPRESSED_LT_5'");
+    const out = runBaselineScript(path);
+    assert(find(out.rows, "earliest_lead_month")?.value_text === "2026-01", "calendar mutation did not leak earliest month");
+    assert(find(out.rows, "latest_lead_month")?.value_text === "2026-02", "calendar mutation did not leak latest month");
+    runtimeControls.sql_mutations.total_only_calendar = { injected: true, detected: true };
+  });
+
+  check(scenario, "large categorical sibling mutation recreates complement disclosure and is detected", () => {
+    seed(mixedRowsForControl(10, 2, "source", UNKNOWN_SOURCE_PLAIN));
+    const path = mutatedBaseline("categorical-sibling",
+      "FROM source_raw s\nWHERE (SELECT source_mode FROM dimension_release) = 'DISCLOSE'",
+      "FROM source_raw s");
+    const out = runBaselineScript(path);
+    assert(find(out.rows, "leads_from_source", "contact_form")?.value_num === "10",
+      "categorical mutation did not expose the large sibling");
+    assert(find(out.rows, "leads_from_source", "Other / unknown source")?.value_num === "2",
+      "categorical mutation did not expose the small sibling");
+    runtimeControls.sql_mutations.categorical_sibling = { injected: true, detected: true };
+  });
+
+  check(scenario, "binary complement mutation exposes present count beside one missing row and is detected", () => {
+    seed([lead({ email: "", month: "2026-10" }), ...Array.from({ length: 9 }, () => lead({ month: "2026-10" }))]);
+    const path = mutatedBaseline("binary-complement",
+      "       CASE WHEN (SELECT release_mode FROM binary_release WHERE partition_name = 'presence_email') = 'DISCLOSE'\n            THEN (SELECT side_b::numeric FROM binary_release WHERE partition_name = 'presence_email') END,",
+      "       (SELECT side_b::numeric FROM binary_release WHERE partition_name = 'presence_email'),");
+    const out = runBaselineScript(path);
+    assert(find(out.rows, "with_email")?.value_num === "9", "binary mutation did not expose the complement");
+    runtimeControls.sql_mutations.binary_complement = { injected: true, detected: true };
+  });
+
+  check(scenario, "duplicate mutation exposes a one-group cohort and is detected", () => {
+    seed(rowsWithEmailGroups([2], 8, { month: "2026-10" }));
+    const path = mutatedBaseline("duplicate-cohort",
+      "       CASE WHEN (SELECT release_mode FROM duplicate_release) = 'DISCLOSE'\n            THEN (SELECT duplicate_groups::numeric FROM duplicate_stats) END,",
+      "       (SELECT duplicate_groups::numeric FROM duplicate_stats),");
+    const out = runBaselineScript(path);
+    assert(find(out.rows, "normalized_emails_seen_more_than_once")?.value_num === "1",
+      "duplicate mutation did not expose the one-group cohort");
+    runtimeControls.sql_mutations.duplicate_cohort = { injected: true, detected: true };
+  });
+}
+
+function mixedRowsForControl(knownCount, unknownCount, field, unknownValue) {
+  return [
+    ...Array.from({ length: knownCount }, () => lead({ month: "2026-10" })),
+    ...Array.from({ length: unknownCount }, () => lead({ month: "2026-10", [field]: unknownValue })),
   ];
 }
 
@@ -665,7 +1097,7 @@ function scenarios() {
 const identity = {};
 
 async function main() {
-  console.log("\nFOREVER-CRM-SLICE0-CORRECTION-001 — executable privacy fixtures");
+  console.log("\nFOREVER-PR125-INDEPENDENT-REVIEW-CORRECTION-001 — executable privacy fixtures");
   console.log(`\nScript under test: ${SQL_PATH}`);
 
   // --- STEPS 1-2: a free port nobody owns -----------------------------------
@@ -748,15 +1180,13 @@ async function main() {
       project_slug TEXT,
       message TEXT,
       status TEXT NOT NULL DEFAULT 'new',
-      source TEXT NOT NULL DEFAULT 'contact_form',
-      CONSTRAINT leads_name_not_empty CHECK (length(btrim(name)) > 0),
-      CONSTRAINT leads_phone_not_empty CHECK (length(btrim(phone)) > 0)
+      source TEXT NOT NULL DEFAULT 'contact_form'
     );
     CREATE ROLE anon NOLOGIN;
     CREATE ROLE authenticated NOLOGIN;
-    CREATE ROLE service_role NOLOGIN;
+    CREATE ROLE service_role NOLOGIN BYPASSRLS;
     ALTER TABLE public.leads ENABLE ROW LEVEL SECURITY;
-    GRANT INSERT ON public.leads TO anon, authenticated;
+    GRANT ALL ON public.leads TO anon, authenticated;
     GRANT ALL ON public.leads TO service_role;
     CREATE POLICY "Anyone can submit a lead"
       ON public.leads FOR INSERT TO anon, authenticated
@@ -768,6 +1198,14 @@ async function main() {
       );
     CREATE INDEX idx_leads_created_at ON public.leads(created_at DESC);
     CREATE INDEX idx_leads_status ON public.leads(status);
+    CREATE TABLE public.mutation_marker (value integer NOT NULL);
+    INSERT INTO public.mutation_marker(value) VALUES (0);
+    CREATE FUNCTION public.mutate_marker() RETURNS integer
+      LANGUAGE sql VOLATILE
+      AS 'UPDATE public.mutation_marker SET value = value + 1 RETURNING value';
+    CREATE PROCEDURE public.mutate_leads()
+      LANGUAGE sql
+      AS 'UPDATE public.leads SET status = status';
   `);
   console.log("[8]   fixture table, roles, grants and policy created\n");
 
@@ -779,6 +1217,11 @@ async function main() {
     scenario.assert(scenario.name, out.rows, out);
     console.log("");
   }
+
+  runRoleSecurityControls();
+  console.log("");
+  runSqlMutationControls();
+  console.log("");
 }
 
 let exitCode = 0;
@@ -796,13 +1239,14 @@ console.log("[9]   cluster stopped");
 const summaryPath = process.env.FOREVER_CRM_PG_SUMMARY;
 if (summaryPath) {
   writeFileSync(summaryPath, JSON.stringify({
-    task_id: "FOREVER-CRM-SLICE0-CORRECTION-001",
+    task_id: "FOREVER-PR125-INDEPENDENT-REVIEW-CORRECTION-001",
     cluster_identity: identity,
     scenarios: scenarios().map((s) => s.name),
     assertions_passed: passed,
     assertions_failed: failures.length,
     failures,
     results,
+    runtime_controls: runtimeControls,
   }, null, 2));
   console.log(`      summary written to ${summaryPath}`);
 }
@@ -816,10 +1260,10 @@ if (failures.length > 0) {
   exitCode = 1;
 } else {
   console.log(
-    "Executable proof holds: no raw source or status text, no email-shaped or URL-shaped\n" +
-    "value, no personal value, months suppressed below five and exact at five or more,\n" +
-    "factual zeros stay zero, rates report NOT_MEASURABLE_NO_DATA on an empty table,\n" +
-    "and the privilege and policy evidence is present in every state.\n",
+    "Executable proof holds: complete dimensions and complements suppress together,\n" +
+    "all adversarial source shapes remain fixed-vocabulary output, duplicate cohorts\n" +
+    "cannot be reconstructed, browser-role and BYPASSRLS behavior are distinguished,\n" +
+    "and every intentional SQL/privacy weakening is detected.\n",
   );
 }
 process.exit(exitCode);

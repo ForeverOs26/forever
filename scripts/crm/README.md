@@ -1,7 +1,7 @@
 # CRM Slice 0 — measured read-only lead baseline
 
 Task ID: `FOREVER-CRM-SLICE0-MEASURED-BASELINE-001`, corrected by
-`FOREVER-CRM-SLICE0-CORRECTION-001`.
+`FOREVER-PR125-INDEPENDENT-REVIEW-CORRECTION-001`.
 Authority: [`docs/crm/CRM_FINAL_RECOMMENDATION.md`](../../docs/crm/CRM_FINAL_RECOMMENDATION.md) §3, merged PR #122.
 
 ## What is here
@@ -18,8 +18,8 @@ The canonical CRM architecture refuses to build anything with a schema until
 Forever knows how many enquiries it actually receives. `docs/ROADMAP.md:228`
 gates the build-versus-buy decision on "lead volume exceeds the simple internal
 workflow" — a trigger that could not be evaluated, because `public.leads` has
-one INSERT policy, no SELECT policy, and no code in the repository reads a lead
-back. This script produces the number, and nothing else.
+one INSERT policy, no browser-role SELECT policy, and no code in the repository
+reads a lead back. This script produces the number, and nothing else.
 
 Slice 0 is measurement only. It creates zero tables, zero migrations and zero
 application code, and it implements no part of Slice 1.
@@ -80,7 +80,7 @@ psql -h 127.0.0.1 -p 5432 -U postgres -d postgres -f scripts/crm/crm-slice0-lead
 | - | ------- | ------- |
 | 1 | `1_SAFETY_PROOF` | Is this transaction actually read-only, and what is the scope of its evidence? |
 | 2 | `2_SCHEMA_SNAPSHOT` | Columns, indexes, constraints, RLS flags |
-| 3 | `3_SECURITY_SNAPSHOT` | Complete RLS policies including predicates, full table ACL, effective privileges |
+| 3 | `3_SECURITY_SNAPSHOT` | Complete RLS policies, full table ACL, effective privileges, role bypass properties and relation ownership |
 | 4 | `4_LEAD_BASELINE` | Total leads, month range, distinct emails, contactability |
 | 5 | `5_BY_MONTH` | Volume per calendar month |
 | 6 | `6_BY_SOURCE` | Which capture surface produced them |
@@ -131,19 +131,26 @@ those five values are emitted, plus `(missing status)` and
 No production data is modified to achieve this. Categorisation happens in the
 `SELECT`, inside the read-only transaction.
 
-**It cannot expose a small group.** Any grouped category with fewer than five
-leads is folded into `Other / suppressed`, and a fold-in bucket that is itself
-below the floor reports `SUPPRESSED_LT_5` rather than a number.
+**It cannot expose a small cohort by a sibling or complement.** The floor is
+applied to complete partitions, never to isolated rows:
 
-The same floor governs **every calendar output** — earliest month, latest month
-and month range — so a one-to-four-row table cannot reveal its month through an
-unsuppressed summary while the grouped month output is suppressed:
-
-| Total leads | Every calendar output |
-| ----------- | --------------------- |
-| 0 | `NOT_MEASURABLE_NO_DATA` |
-| 1–4 | `SUPPRESSED_LT_5` |
-| 5 or more | the exact month |
+- For month, source and status, every non-zero bucket must contain at least five
+  rows. If any bucket contains 1–4, the whole dimension becomes one fixed
+  `SUPPRESSED_LT_5` row: no label, count, percentage, summary or large sibling
+  survives.
+- Calendar summaries use the same predicate. A 5-row month is releasable; 3+2
+  and 10+2 are wholly suppressed; 5+5 is releasable. Earliest/latest/range and
+  the distinct-month count are suppressed with the monthly rows.
+- Binary partitions such as with/without email, with/without phone,
+  missing/present, with/without both contact methods, and duplicated versus
+  non-duplicated rows are released only when every non-zero side is at least
+  five. Both sides, their rates and related subtraction aids are withheld
+  together.
+- Duplication statistics are released only when the duplicated/non-duplicated
+  partition is safe and a non-zero duplicate-group count is at least five. A
+  truthful no-duplicates result may report zero on a table of at least five
+  rows. `max_duplicate_group_size` is not emitted because it cannot be
+  consistently released without exposing a small group.
 
 ## Counts, rates, schema gaps and suppression are four different things
 
@@ -153,8 +160,8 @@ correctly, for factual counts. The actual rule is:
 
 | Kind of answer | On an empty table |
 | -------------- | ----------------- |
-| A **factual count** — `total_leads`, `months_containing_leads`, `with_email`, the per-field `null_or_blank_count` | numeric `0`. Zero is an honest answer to "how many". |
-| A **ratio, rate, variation, duplication significance or behavioral conclusion** — `email_completeness_rate`, `duplicate_rate`, `status_has_meaningful_variation` | `NOT_MEASURABLE_NO_DATA`. A rate has no value at a denominator of zero, and reporting it as 0 would assert something the data does not say. |
+| `total_leads` | Numeric `0`; it is the only cohort count always released. |
+| Any other cohort count, rate, variation or behavioral conclusion | `NOT_MEASURABLE_NO_DATA`; the table contains no cohort to measure. |
 | A fact the **current schema cannot support** — `unit_context_exists`, `response_time_calculable` | `NOT_MEASURABLE_FROM_CURRENT_SCHEMA`, never 0. |
 | A fact withheld by the **group-size floor** | `SUPPRESSED_LT_5`. |
 
@@ -186,9 +193,23 @@ Reported for `anon`, `authenticated` and `service_role` at minimum. The raw
 platform role; otherwise it reports `SUPPRESSED_NON_STANDARD_ROLE_IN_ACL`, so an
 operator-created role carrying a personal identifier cannot be printed.
 
-**This script changes no privilege.** Whatever breadth the live ACL turns out to
-have is recorded as a finding. Hardening it is a separate, later, Owner-approved
-PR.
+**Role properties and ownership.** Section 3 also reads `rolsuper`,
+`rolbypassrls` and relation ownership from the PostgreSQL catalogs. The accurate
+boundary is role-specific:
+
+- `anon` and `authenticated` have no applicable SELECT policy in the current
+  policy set, so their reads are denied through the ordinary policy-bound RLS
+  path.
+- This does not mean no role can read `public.leads`. `service_role`, the table
+  owner, superusers and roles with `BYPASSRLS` may access rows according to their
+  privileged server-side role. RLS is not a boundary against every PostgreSQL
+  role.
+- `TRUNCATE`, `REFERENCES`, `TRIGGER`, `MAINTAIN` and similar non-row operations
+  are not governed by row policies.
+
+**This script changes no privilege, policy or role.** Whatever breadth the live
+ACL turns out to have is recorded as a separate security-hardening finding.
+Hardening it is a later, Owner-approved PR.
 
 ## Tests
 
@@ -198,14 +219,15 @@ Two, and neither replaces the other.
 node scripts/crm/crm-slice0-lead-baseline.test.mjs
 ```
 
-The **static contract test** reads the SQL as text: 17 positive rules and 27
-negative fixtures. It pins the transaction discipline, the absence of write
-verbs, the PII boundary, the closed source and status vocabulary, the calendar
-floor, the full privilege and policy evidence, the count-versus-rate rule, and
-the absence of any historical claim the measurement cannot support. It strips
-comments and string literals before scanning, so the script can safely *name*
-forbidden verbs and privilege names in its own documentation without tripping
-the check, while a real write statement is still caught.
+The **static contract test** reads the SQL as text: 19 positive rules and 31
+negative fixtures. Every positive rule and every mutation runs against LF and
+CRLF, each with and without a final newline: 201 checks total. A mutation must
+first prove that it changed its input; a non-mutating fixture fails the harness.
+The rules pin transaction discipline, absence of write verbs, the PII boundary,
+closed source/status vocabulary, partition-level calendar/binary/categorical
+release, complete privilege/policy/role evidence, and historical honesty. The
+parser strips comments and string literals before executable-keyword scans, so
+documentation can name forbidden verbs while executable SQL is still caught.
 
 Every rule is proved to be capable of failing. The negative fixtures are
 deliberately broken variants of the real script — a smuggled `UPDATE`,
@@ -213,27 +235,33 @@ deliberately broken variants of the real script — a smuggled `UPDATE`,
 the `ROLLBACK`, a raw email or name selected as output, an emitted email hash, a
 lowered suppression floor, an embedded project ref or connection string, a
 second table read, a raw source or status value echoed instead of categorised, a
-vocabulary widened with an invented value, an exact month emitted without the
-calendar floor, a privilege probe narrowed back to four privileges, `MAINTAIN`
-issued without a version guard, a raw ACL emitted without the known-role gate, a
-dropped policy predicate, a rate reported as 0 on an empty table, and two
-restored historical over-claims. Each must be rejected.
+vocabulary widened with an invented value, total-only calendar release, an exact
+categorical sibling, a complementary binary count or duplicate count emitted
+without its gate, a privilege probe narrowed back to four privileges,
+`MAINTAIN` issued without a version guard, a raw ACL emitted without the
+known-role gate, a dropped policy predicate, a blanket RLS claim, and restored
+historical over-claims. Each must be injected and rejected in every
+representation.
 
 ```bash
 node scripts/crm/crm-slice0-lead-baseline.pg.test.mjs
 ```
 
-The **executable fixtures** do what no text scan can: they run the exact
-checked-in script against a disposable PostgreSQL cluster and assert on what it
-actually emits. Fourteen table states — zero, one, four and five rows; known,
-unknown, email-shaped and URL-shaped `source`; mixed known and unknown statuses;
-one small month, one month at the floor, and five rows split across months; with
-and without duplicate-email groups — proving that raw unknown source text,
-email-shaped text and URL-shaped text never appear, that months stay suppressed
-below five and are exact at five or more, that factual zeros stay zero while
-rates report `NOT_MEASURABLE_NO_DATA`, and that the privilege and policy output
-is present in every state. All fixture data is invented; addresses use the
-RFC 2606 reserved `.invalid` TLD. No production lead is ever copied.
+The **executable fixtures** run the exact checked-in script against a disposable
+PostgreSQL 17 cluster: 429 assertions across 46 table states plus 14
+role/security and SQL-mutation controls. The matrix includes 0/1/4 rows;
+calendar 5, 3+2, 5+5 and 10+2; source/status cohorts of 1/4/5; large siblings
+with small catch-alls; email-, phone-, URL-, person-name-, multiline-,
+SQL-shaped, HTML-, Unicode- and very-long sources; missing cohorts of 1/4/5;
+binary complement attacks; and the complete duplicate matrix.
+
+The controls prove ordinary `anon`/`authenticated` reads are constrained by
+RLS even with SELECT grants, while a BYPASSRLS `service_role` behaves as a
+privileged role. They exercise known and unknown ACL roles, direct UPDATE,
+writable CTE, volatile function, `CALL`, weakened read-only, raw-source,
+total-only calendar, categorical sibling, binary complement and duplicate
+weakenings. Every value is invented; addresses use the RFC 2606 reserved
+`.invalid` TLD. No production lead is copied.
 
 The runner proves the identity of the cluster it is talking to **before** it
 issues any DDL: it asks the OS for a free port, verifies no process owns it,
