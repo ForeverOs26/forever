@@ -36,7 +36,9 @@ import {
   paymentPlanDocument,
   projectPhotographs,
 } from "../project-sections";
+import { buildDecisionDeckModel } from "../decision-deck-model";
 import { groupProjectMedia } from "../project-detail-mappers";
+import type { ProjectDetail } from "../project-detail-types";
 import { projectQuickFacts } from "./ProjectQuickFacts";
 import { projectSummaryRows } from "./ProjectSummaryPanel";
 import { ProjectMediaMosaic } from "./ProjectMediaMosaic";
@@ -75,6 +77,16 @@ function photos(count: number) {
       title: `Photograph ${index}`,
       sortOrder: index,
     }),
+  );
+}
+
+function unitPreview(project: ProjectDetail) {
+  const model = buildDecisionDeckModel(project);
+  return (
+    <ProjectUnitPreview
+      units={model.units}
+      lastPriceUpdate={model.passport.compact.lastPriceUpdate}
+    />
   );
 }
 
@@ -184,7 +196,7 @@ describe("the media mosaic", () => {
     );
 
     expect(screen.getByTestId("project-media-empty").textContent).toContain(
-      "Official photography for this project is being prepared",
+      "Official photography for this project is not recorded",
     );
     expect(container.querySelectorAll("img")).toHaveLength(0);
     expect(container.innerHTML).not.toContain("kirara-launch");
@@ -412,7 +424,7 @@ describe("section navigation", () => {
       core: { description: "A project." },
       units: [makeUnit()],
     });
-    await renderInRouter(<ProjectDetailEngine project={project} />, "About this project");
+    await renderInRouter(<ProjectDetailEngine project={project} />, "Recorded project facts");
     expect(document.querySelectorAll("main")).toHaveLength(0);
   });
 
@@ -433,8 +445,8 @@ describe("section navigation", () => {
       },
     });
 
-    const ids = projectSections(project).map((section) => section.id);
-    await renderInRouter(<ProjectDetailEngine project={project} />, "About this project");
+    const ids = buildDecisionDeckModel(project).navigation.map((section) => section.id);
+    await renderInRouter(<ProjectDetailEngine project={project} />, "Recorded project facts");
 
     for (const id of ids) {
       expect(document.querySelector(`#${id}`), `no rendered element for #${id}`).not.toBeNull();
@@ -458,7 +470,7 @@ describe("section navigation", () => {
       },
     });
 
-    await renderInRouter(<ProjectDetailEngine project={project} />, "About this project");
+    await renderInRouter(<ProjectDetailEngine project={project} />, "Recorded project facts");
     expect(document.querySelector("#documents")).not.toBeNull();
     expect(document.querySelectorAll('a[href="#documents"]')).toHaveLength(1);
   });
@@ -508,7 +520,7 @@ describe("the unit preview", () => {
   });
 
   it("excludes sold units by default and offers to include them", async () => {
-    await renderInRouter(<ProjectUnitPreview project={project} />, "Availability");
+    await renderInRouter(unitPreview(project), "Availability");
     expect(screen.getAllByTestId("unit-preview-card")).toHaveLength(3);
     fireEvent.click(screen.getByLabelText(/Include unavailable/i, { selector: "input" }));
     expect(screen.getAllByTestId("unit-preview-card")).toHaveLength(4);
@@ -516,14 +528,14 @@ describe("the unit preview", () => {
   });
 
   it("shows the price and the status on every card", async () => {
-    await renderInRouter(<ProjectUnitPreview project={project} />, "Availability");
+    await renderInRouter(unitPreview(project), "Availability");
     const first = screen.getAllByTestId("unit-preview-card")[0];
     expect(within(first).getByText("฿5,000,000")).not.toBeNull();
     expect(within(first).getByText("Available")).not.toBeNull();
   });
 
   it("derives its filter options from the loaded inventory only", async () => {
-    await renderInRouter(<ProjectUnitPreview project={project} />, "Availability");
+    await renderInRouter(unitPreview(project), "Availability");
     const bedrooms = screen.getByRole("combobox", { name: "Bedrooms" });
     const values = within(bedrooms)
       .getAllByRole("option")
@@ -534,7 +546,7 @@ describe("the unit preview", () => {
   });
 
   it("filters in memory and can be cleared", async () => {
-    await renderInRouter(<ProjectUnitPreview project={project} />, "Availability");
+    await renderInRouter(unitPreview(project), "Availability");
     fireEvent.change(screen.getByRole("combobox", { name: "Building" }), {
       target: { value: "B" },
     });
@@ -544,7 +556,7 @@ describe("the unit preview", () => {
   });
 
   it("sorts by price without dropping a unit", async () => {
-    await renderInRouter(<ProjectUnitPreview project={project} />, "Availability");
+    await renderInRouter(unitPreview(project), "Availability");
     fireEvent.change(screen.getByRole("combobox", { name: "Sort by" }), {
       target: { value: "price-desc" },
     });
@@ -561,22 +573,22 @@ describe("the unit preview", () => {
    * capability and still invites a click that goes nowhere.
    */
   it("offers no per-unit contact action while gate G0 is open", async () => {
-    await renderInRouter(<ProjectUnitPreview project={project} />, "Availability");
+    await renderInRouter(unitPreview(project), "Availability");
     expect(screen.queryByRole("link", { name: "Request this unit" })).toBeNull();
     expect(screen.queryByRole("button", { name: /request/i })).toBeNull();
     // Nothing disabled is left behind in place of the action.
     expect(document.querySelector("[disabled]")).toBeNull();
   });
 
-  it("links to the complete inventory", async () => {
-    await renderInRouter(<ProjectUnitPreview project={project} />, "Availability");
-    expect(screen.getByRole("link", { name: /View all 4 units/ }).getAttribute("href")).toBe(
-      "#inventory",
-    );
+  it("keeps the complete inventory in the one canonical Units section", async () => {
+    await renderInRouter(unitPreview(project), "Availability");
+    expect(screen.getByTestId("project-unit-preview").getAttribute("id")).toBe("units");
+    expect(document.querySelector("#inventory")).toBeNull();
+    expect(document.querySelector('a[href="#inventory"]')).toBeNull();
   });
 
   it("renders nothing when the project has no units", () => {
-    const { container } = render(<ProjectUnitPreview project={makeProjectDetail({ units: [] })} />);
+    const { container } = render(unitPreview(makeProjectDetail({ units: [] })));
     expect(container.innerHTML).toBe("");
   });
 });
@@ -724,7 +736,7 @@ describe("contact context is never silently discarded (G0_PARTIAL)", () => {
   const project = makeProjectDetail({ core: { name: "Coralina" }, units: [makeUnit()] });
 
   it("presents no contextual project or unit submission action at all", async () => {
-    await renderInRouter(<ProjectDetailEngine project={project} />, "About this project");
+    await renderInRouter(<ProjectDetailEngine project={project} />, "Recorded project facts");
 
     for (const name of [
       /request details/i,

@@ -19,6 +19,7 @@ import {
 } from "./developer-identity";
 import { mapProjectDetailToProperty } from "./demo-preview";
 import { buildModevaPartnerDemoCore } from "./partner-demo-truth";
+import { buildDecisionDeckModel } from "./decision-deck-model";
 import { buildProjectStructuredData } from "./project-structured-data";
 import type {
   ProjectDetail,
@@ -215,7 +216,13 @@ describe("F1-AVAILABILITY-FAIL-OPEN", () => {
       ],
     });
 
-    render(<ProjectUnitPreview project={project} />);
+    const model = buildDecisionDeckModel(project);
+    render(
+      <ProjectUnitPreview
+        units={model.units}
+        lastPriceUpdate={model.passport.compact.lastPriceUpdate}
+      />,
+    );
     expect(screen.getByText("0 of 2 listed units available")).not.toBeNull();
     expect(
       screen.getByText(

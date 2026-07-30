@@ -208,8 +208,57 @@ describe("JSON-LD truth boundary", () => {
     expect(json).toContain("Construction Status");
     expect(json).toContain("Planning");
     expect(json).toContain('"category":"Condominium"');
-    expect(json).toContain("A recorded description.");
+    expect(json).not.toContain("A recorded description.");
+    expect(json).toContain("Recorded project type: Condominium.");
     expect(json).toContain('"price":4500000');
+  });
+
+  it("re-derives structured media from the canonical semantic selector", () => {
+    const project = detail({});
+    project.media.hero = {
+      id: "event-cover",
+      type: "cover",
+      title: "Launch event",
+      url: "https://cdn.example.com/launch-event.jpg",
+      sortOrder: 0,
+      semanticRole: "event",
+    };
+
+    const json = buildProjectStructuredData(
+      project,
+      "https://example.com/projects/x",
+      "https://cdn.example.com/fabricated-fallback.jpg",
+    )
+      .map((script) => script.children)
+      .join("\n");
+
+    expect(json).not.toContain("launch-event.jpg");
+    expect(json).not.toContain("fabricated-fallback.jpg");
+  });
+
+  it("uses the same resolved location as the visible Decision Deck", () => {
+    const project = detail({ core: { location: "Legacy locality" } });
+    project.location.area = "Canonical locality";
+    const json = allJson(project);
+
+    expect(json).toContain('"addressLocality":"Canonical locality"');
+    expect(json).not.toContain('"addressLocality":"Legacy locality"');
+  });
+
+  it("honors the safe developer-conflict marker in every machine-readable surface", () => {
+    const project = detail({ core: { developerIdentityState: "conflicting" } });
+    project.developer = {
+      id: "developer",
+      name: "Must Stay Withheld",
+      description: "",
+      website: "",
+      contactName: "",
+      contactPhone: "",
+      contactEmail: "",
+      logoUrl: "",
+    };
+
+    expect(allJson(project)).not.toContain("Must Stay Withheld");
   });
 });
 
