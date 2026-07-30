@@ -158,6 +158,8 @@ export type ProjectDetailCore = {
   isActive: boolean;
   /** A local/demo-only record, never a published project. */
   isDemoPreview?: boolean;
+  /** Uses deterministic local preview data and must not trigger public DB reads. */
+  usesLocalPreviewData?: boolean;
   /**
    * Raw source names shown as unverified fallbacks when no canonical link
    * exists. Optional so existing adapters/fixtures that predate progressive
@@ -165,6 +167,9 @@ export type ProjectDetailCore = {
    */
   developerNameRaw?: string;
   locationNameRaw?: string;
+  /** Safe truth-state markers retained after conflicting source values are erased. */
+  developerIdentityState?: "conflicting";
+  ownershipPresentationState?: "withheld";
 };
 
 export type ProjectDetailPricing = {

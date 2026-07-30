@@ -10,6 +10,9 @@
 import modevaBrochureImage from "../../../forever-data/projects/modeva/source/brochure/MODEVA E BROCHURE-05.jpg";
 import modevaBrochurePdf from "../../../forever-data/projects/modeva/source/brochure/THE MODEVA E-BROCHURE_ENGLISH_UPDATED.pdf";
 import modevaPriceListPdf from "../../../forever-data/projects/modeva/source/price-list/MOB - Price list V.2. - Updated 03.07.2026.pdf";
+// The launcher supplies this intentionally gitignored Owner archive in Partner
+// Demo mode. Clean public worktrees must still type-check without copying it.
+// @ts-expect-error launcher-only ignored JSON module
 import modevaPriceList from "../../../forever-data/projects/modeva/extracted/price-list.json";
 
 import { isPartnerDemoModeEnabled } from "@/lib/partner-demo-mode";

@@ -80,7 +80,13 @@ export function projectPhotographs(project: ProjectDetail): ProjectDetailMediaIt
   return [...(project.media.hero ? [project.media.hero] : []), ...project.media.gallery].filter(
     (item) => {
       const url = item?.url?.trim();
-      if (!url || seen.has(url) || barredEverywhere.has(url) || barredPhotographs.has(url))
+      if (
+        !url ||
+        !isRenderableMediaUrl(url) ||
+        seen.has(url) ||
+        barredEverywhere.has(url) ||
+        barredPhotographs.has(url)
+      )
         return false;
       if (!isPublicPhotograph({ mediaType: item.type, semanticRole: item.semanticRole }))
         return false;

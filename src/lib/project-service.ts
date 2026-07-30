@@ -22,7 +22,7 @@ import type {
   RentalDemand,
   SalesStatus,
 } from "@/lib/data";
-import { isKnownFictitiousProjectSlug } from "@/lib/public-truth";
+import { isKnownFictitiousProjectSlug, KNOWN_FICTITIOUS_PROJECT_SLUGS } from "@/lib/public-truth";
 import {
   isPublicPhotograph,
   isPubliclyPresentable,
@@ -252,6 +252,31 @@ export type ListProjectsFilters = {
   limit?: number;
 };
 
+const DEFAULT_RELATED_PROJECT_LIMIT = 3;
+
+function normaliseRelatedProjectLimit(limit: number): number {
+  if (!Number.isFinite(limit)) return DEFAULT_RELATED_PROJECT_LIMIT;
+  return Math.max(0, Math.floor(limit));
+}
+
+const RELATED_PUBLISHED_SELECT = `
+  slug, name, location_area, is_active, public_status
+` as const;
+
+type RelatedPublishedProjectRow = {
+  slug: string;
+  name: string;
+  location_area: string | null;
+  is_active: boolean;
+  public_status: string | null;
+};
+
+export interface RelatedPublishedProject {
+  slug: string;
+  name: string;
+  location: string;
+}
+
 /**
  * Loads the local-development-only Coralina preview, guarded by a direct
  * `import.meta.env.DEV` check on the dynamic import call. Vite statically
@@ -299,7 +324,7 @@ export const ProjectService = {
     const { data, error } = await query;
     if (error) throw error;
     const projects = (data ?? [])
-      .filter((row) => !isKnownFictitiousProjectSlug((row as { slug: string }).slug))
+      .filter((row) => !isKnownFictitiousProjectSlug((row as unknown as { slug: string }).slug))
       .map((row) => mapToProperty(row as unknown as ProjectWithRelations));
     const previews = await loadDemoPreviewProperties();
     const combined = [...projects, ...previews];
@@ -330,6 +355,56 @@ export const ProjectService = {
     return mapToProperty(data as unknown as ProjectWithRelations);
   },
 
+  /**
+   * Published projects suitable for a related-project surface.
+   *
+   * This read deliberately bypasses every development-only preview adapter:
+   * related projects are public catalogue records, never Coralina's local
+   * preview or the launcher-controlled Partner Demo dataset.
+   */
+  async listRelatedPublished(
+    currentSlug: string,
+    limit = DEFAULT_RELATED_PROJECT_LIMIT,
+  ): Promise<RelatedPublishedProject[]> {
+    const boundedLimit = normaliseRelatedProjectLimit(limit);
+    if (boundedLimit === 0) return [];
+
+    const quarantinedSlugs = `(${KNOWN_FICTITIOUS_PROJECT_SLUGS.join(",")})`;
+    const { data, error } = await supabase
+      .from("projects")
+      // Related cards need only identity and location. Do not pull descriptions,
+      // developer rows or media into the route merely to discard them.
+      .select(RELATED_PUBLISHED_SELECT)
+      .eq("is_active", true)
+      // Deployed by progressive ingestion; generated types lag this existing
+      // projects column, so constrain only this field name instead of churning
+      // the entire generated schema.
+      .eq("public_status" as never, "published")
+      .neq("slug", currentSlug)
+      .not("slug", "in", quarantinedSlugs)
+      .order("is_featured", { ascending: false })
+      .order("created_at", { ascending: true })
+      .order("slug", { ascending: true })
+      .limit(boundedLimit);
+
+    if (error) throw error;
+
+    return ((data ?? []) as unknown as RelatedPublishedProjectRow[])
+      .filter(
+        (row) =>
+          row.is_active &&
+          row.public_status === "published" &&
+          row.slug !== currentSlug &&
+          !isKnownFictitiousProjectSlug(row.slug),
+      )
+      .map((row) => ({
+        slug: row.slug,
+        name: row.name,
+        location: row.location_area ?? "",
+      }))
+      .slice(0, boundedLimit);
+  },
+
   /** Slugs only — cheap query for sitemap / static enumeration. */
   async listActiveSlugs(): Promise<string[]> {
     const partnerDemoProjects = await loadPartnerDemoProperties();
@@ -347,6 +422,8 @@ export const projectKeys = {
   all: ["projects"] as const,
   list: (filters: ListProjectsFilters = {}) => ["projects", "list", filters] as const,
   detail: (slug: string) => ["projects", "detail", slug] as const,
+  relatedPublished: (currentSlug: string, limit = DEFAULT_RELATED_PROJECT_LIMIT) =>
+    ["projects", "related", "published", currentSlug, normaliseRelatedProjectLimit(limit)] as const,
 };
 
 export const projectListQuery = (filters: ListProjectsFilters = {}) =>
@@ -360,3 +437,14 @@ export const projectDetailQuery = (slug: string) =>
     queryKey: projectKeys.detail(slug),
     queryFn: () => ProjectService.getBySlug(slug),
   });
+
+export const projectRelatedPublishedQuery = (
+  currentSlug: string,
+  limit = DEFAULT_RELATED_PROJECT_LIMIT,
+) => {
+  const boundedLimit = normaliseRelatedProjectLimit(limit);
+  return queryOptions({
+    queryKey: projectKeys.relatedPublished(currentSlug, boundedLimit),
+    queryFn: () => ProjectService.listRelatedPublished(currentSlug, boundedLimit),
+  });
+};

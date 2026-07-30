@@ -115,6 +115,9 @@ export type DeveloperIdentity =
  * The one decision every developer surface and adapter must consult.
  */
 export function developerIdentity(project: ProjectDetail): DeveloperIdentity {
+  if (project.core.developerIdentityState === "conflicting") {
+    return { state: "withheld" };
+  }
   const canonical = project.developer?.name?.trim() ?? "";
   const raw = project.core.developerNameRaw?.trim() ?? "";
 

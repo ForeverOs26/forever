@@ -21,13 +21,11 @@
  * stored record and needs a human eye on the source, not a guess in the UI.
  */
 import type { ProjectDetailMediaItem } from "./project-detail-types";
+import { publicBrowserUrl } from "./public-url";
 
 /** A URL the browser can actually open: absolute http(s), or root-relative. */
 export function isRenderableMediaUrl(url: string | null | undefined): boolean {
-  if (typeof url !== "string") return false;
-  const trimmed = url.trim();
-  if (!trimmed) return false;
-  return /^(https?:\/\/|\/)/i.test(trimmed);
+  return Boolean(publicBrowserUrl(url));
 }
 
 /** The subset of a plan collection that can actually be displayed. */

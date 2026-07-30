@@ -216,7 +216,7 @@ export function ProjectLightbox({
                       : "border-white/20 opacity-60 hover:opacity-100"
                   }`}
                 >
-                  {prepared.has(thumbIndex) || Math.abs(thumbIndex - index) <= 6 ? (
+                  {prepared.has(thumbIndex) ? (
                     <img
                       src={item.url}
                       alt=""

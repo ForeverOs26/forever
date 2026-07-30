@@ -1,11 +1,10 @@
 import { useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
 
 import { Section } from "@/components/layout/Section";
 import { Button } from "@/components/ui/button";
 
-import type { ProjectDetail, ProjectDetailUnit } from "../project-detail-types";
-import { projectContactActionsEnabled } from "../contact-actions";
+import type { DecisionDeckUnits, DecisionDeckValue } from "../decision-deck-model";
+import type { ProjectDetailUnit } from "../project-detail-types";
 import {
   applyUnitFilters,
   areaLabel,
@@ -19,23 +18,19 @@ import {
 } from "../unit-presentation";
 
 /**
- * Available units, near the top (FOREVER-PROJECT-DETAIL-FAZWAZ-INSPIRED-UX-001).
+ * The one canonical Units section. It starts as a compact ten-row preview and
+ * expands into a bounded, scrollable inventory without duplicating the data
+ * elsewhere on the page.
  *
- * Previously a visitor had to reach the bottom of the page to learn whether
- * anything was for sale. A short, filtered preview sits directly after the
- * overview instead, with the complete inventory still below for anyone who
- * wants every row.
- *
- * Three things this does not do: it does not refetch on a filter change (the
- * inventory is already in memory), it does not render hundreds of cards (the
- * preview is capped and "View all" hands over to the table), and it does not
- * offer a filter value no unit has.
+ * Filtering stays in memory, Listed order is the default, and filter choices
+ * are derived only from the loaded inventory.
  */
 
-const PREVIEW_SIZE = 6;
+const PREVIEW_SIZE = 10;
 
 export interface ProjectUnitPreviewProps {
-  project: ProjectDetail;
+  units: DecisionDeckUnits;
+  lastPriceUpdate: DecisionDeckValue<string>;
 }
 
 const SORTS: Array<{ value: UnitSort; label: string }> = [
@@ -46,15 +41,7 @@ const SORTS: Array<{ value: UnitSort; label: string }> = [
   { value: "area-desc", label: "Area: large to small" },
 ];
 
-function UnitCard({
-  unit,
-  projectName,
-  contactActionsEnabled,
-}: {
-  unit: ProjectDetailUnit;
-  projectName: string;
-  contactActionsEnabled: boolean;
-}) {
+function UnitCard({ unit }: { unit: ProjectDetailUnit }) {
   const available = isAvailable(unit);
   return (
     <li
@@ -110,34 +97,22 @@ function UnitCard({
         submission path. Absent, not disabled: the card ends at its facts and
         the trailing spacing goes with the button.
       */}
-      {contactActionsEnabled ? (
-        <div className="mt-4 pt-1">
-          <Button asChild size="sm" variant="outline" className="w-full">
-            <Link to="/contact" search={{ project: projectName, unit: unit.code }}>
-              Request this unit
-            </Link>
-          </Button>
-        </div>
-      ) : null}
     </li>
   );
 }
 
-export function ProjectUnitPreview({ project }: ProjectUnitPreviewProps) {
+export function ProjectUnitPreview({ units, lastPriceUpdate }: ProjectUnitPreviewProps) {
   const [filters, setFilters] = useState<UnitFilterState>(DEFAULT_UNIT_FILTERS);
   const [expanded, setExpanded] = useState(false);
 
-  const facets = useMemo(() => unitFacets(project.units), [project.units]);
-  const filtered = useMemo(
-    () => applyUnitFilters(project.units, filters),
-    [project.units, filters],
-  );
+  const facets = useMemo(() => unitFacets(units.rows), [units.rows]);
+  const filtered = useMemo(() => applyUnitFilters(units.rows, filters), [units.rows, filters]);
 
-  if (project.units.length === 0) return null;
+  if (units.summary.state !== "supported" || units.rows.length === 0) return null;
 
-  const shown = expanded ? filtered.slice(0, 24) : filtered.slice(0, PREVIEW_SIZE);
-  const availableTotal = project.units.filter(isAvailable).length;
-  const contactActionsEnabled = projectContactActionsEnabled();
+  const shown = expanded ? filtered : filtered.slice(0, PREVIEW_SIZE);
+  const { availableCount, listedCount } = units.summary.value;
+  const priceUpdate = lastPriceUpdate.state === "supported" ? lastPriceUpdate.value : "";
   const isFiltered =
     filters.bedrooms !== "all" ||
     filters.building !== "all" ||
@@ -152,9 +127,10 @@ export function ProjectUnitPreview({ project }: ProjectUnitPreviewProps) {
     <Section
       id="units"
       eyebrow="Availability"
-      title={`${availableTotal} of ${project.units.length} listed units available`}
-      className="pt-0"
+      title={`${availableCount} of ${listedCount} listed units available`}
+      className="py-11 sm:py-16"
       data-testid="project-unit-preview"
+      data-decision-deck-section
     >
       <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter units">
         {facets.bedrooms.length > 1 ? (
@@ -264,7 +240,7 @@ export function ProjectUnitPreview({ project }: ProjectUnitPreviewProps) {
 
       <p className="mt-4 text-sm text-muted-foreground" aria-live="polite">
         Showing {shown.length} of {filtered.length} matching units
-        {project.pricing.lastPriceUpdate ? ` · price list ${project.pricing.lastPriceUpdate}` : ""}
+        {priceUpdate ? ` · price list ${priceUpdate}` : ""}
       </p>
 
       {shown.length === 0 ? (
@@ -274,14 +250,17 @@ export function ProjectUnitPreview({ project }: ProjectUnitPreviewProps) {
             : "No listed unit is explicitly recorded as available. Use Include unavailable to review all listed units."}
         </p>
       ) : (
-        <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <ul
+          tabIndex={expanded ? 0 : undefined}
+          aria-label={expanded ? "Complete filtered unit inventory" : undefined}
+          className={`mt-4 grid gap-3 pr-1 sm:grid-cols-2 lg:grid-cols-3 ${
+            expanded
+              ? "max-h-[640px] overflow-y-auto overscroll-contain rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:max-h-[620px]"
+              : ""
+          }`}
+        >
           {shown.map((unit) => (
-            <UnitCard
-              key={unit.id || unit.code}
-              unit={unit}
-              projectName={project.core.name}
-              contactActionsEnabled={contactActionsEnabled}
-            />
+            <UnitCard key={unit.id || unit.code} unit={unit} />
           ))}
         </ul>
       )}
@@ -289,12 +268,14 @@ export function ProjectUnitPreview({ project }: ProjectUnitPreviewProps) {
       <div className="mt-6 flex flex-wrap gap-3">
         {!expanded && filtered.length > PREVIEW_SIZE ? (
           <Button variant="outline" onClick={() => setExpanded(true)}>
-            Show more units
+            Show all {filtered.length} matching units
           </Button>
         ) : null}
-        <Button asChild variant="ghost">
-          <a href="#inventory">View all {project.units.length} units</a>
-        </Button>
+        {expanded && filtered.length > PREVIEW_SIZE ? (
+          <Button variant="ghost" onClick={() => setExpanded(false)}>
+            Show first {PREVIEW_SIZE}
+          </Button>
+        ) : null}
       </div>
     </Section>
   );

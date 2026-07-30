@@ -1,8 +1,10 @@
 import { createFileRoute, Link, notFound, useRouter } from "@tanstack/react-router";
-import { useSuspenseQuery } from "@tanstack/react-query";
 import { ProjectDetailEngine } from "@/features/project-detail/components/ProjectDetailEngine";
-import { projectDetailQuery } from "@/features/project-detail/project-detail-query";
-import { buildProjectStructuredData } from "@/features/project-detail/project-structured-data";
+import { loadProjectDetailRouteData } from "@/features/project-detail/project-detail-route-loader";
+import {
+  buildProjectStructuredData,
+  projectPublicFactDescription,
+} from "@/features/project-detail/project-structured-data";
 import { projectSocialImage } from "@/features/project-detail/project-sections";
 import type { ProjectDetail } from "@/features/project-detail/project-detail-types";
 import { SiteShell } from "@/components/SiteShell";
@@ -11,11 +13,7 @@ import { Button } from "@/components/ui/button";
 import { PUBLIC_SITE_ORIGIN } from "@/lib/sitemap";
 
 export const Route = createFileRoute("/projects/$slug")({
-  loader: async ({ context, params }) => {
-    const project = await context.queryClient.ensureQueryData(projectDetailQuery(params.slug));
-    if (!project) throw notFound();
-    return { project };
-  },
+  loader: ({ context, params }) => loadProjectDetailRouteData(context.queryClient, params.slug),
   head: ({ params, loaderData }) => buildProjectHead(params.slug, loaderData?.project),
   component: ProjectDetailPage,
   notFoundComponent: NotFoundView,
@@ -30,15 +28,7 @@ function buildProjectHead(slug: string, project?: ProjectDetail) {
     ? `${project.core.name} - Forever Project Record`
     : "Project Record - Forever";
   const description = project
-    ? [
-        project.core.location
-          ? `${project.core.name} in ${project.core.location}.`
-          : `${project.core.name}.`,
-        project.core.tagline ? `${project.core.tagline}.` : null,
-        "Forever project record.",
-      ]
-        .filter(Boolean)
-        .join(" ")
+    ? projectPublicFactDescription(project)
     : "Forever project record for a Phuket development.";
   const url = `${PUBLIC_SITE_ORIGIN}/projects/${slug}`;
   const meta = [
@@ -79,12 +69,14 @@ function NotFoundView() {
   );
 }
 
-function ErrorView({ error, reset }: { error: Error; reset: () => void }) {
+function ErrorView({ reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
   return (
     <SiteShell>
       <Section eyebrow="Something went wrong" title="We couldn't load this project">
-        <p className="text-sm text-muted-foreground">{error.message}</p>
+        <p className="text-sm text-muted-foreground">
+          The public project record is temporarily unavailable.
+        </p>
         <div className="mt-6">
           <Button
             onClick={() => {
@@ -101,14 +93,24 @@ function ErrorView({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 function ProjectDetailPage() {
-  const { slug } = Route.useParams();
-  const { data: project } = useSuspenseQuery(projectDetailQuery(slug));
+  const { project, relatedProjects } = Route.useLoaderData();
 
   if (!project) throw notFound();
 
   return (
     <SiteShell>
-      <ProjectDetailEngine project={project} />
+      <ProjectDetailEngine
+        project={project}
+        relatedProjects={relatedProjects.map((related) => ({
+          slug: related.slug,
+          name: related.name,
+          location: related.location,
+          // This query's contract already filtered these two states at both
+          // the database and defensive mapping boundaries.
+          isPublished: true,
+          isActive: true,
+        }))}
+      />
     </SiteShell>
   );
 }
