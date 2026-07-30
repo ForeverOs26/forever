@@ -89,17 +89,70 @@ describe("browser table-write privilege migration", () => {
     expect(ddl).toMatch(/MAINTAIN/);
   });
 
-  it("never reaches for REVOKE ALL and never revokes SELECT", () => {
+  it("never reaches for REVOKE ALL, and revokes SELECT exactly once — the leads exception", () => {
     // A column-less REVOKE ALL removes COLUMN-level grants too, which would blank
     // the catalogue and every project page. Naming privileges is the whole safety
     // property, so it is pinned here rather than trusted.
     // `(?<![-\w])` so the task identifier FOREVER-LISTINGS-BROWSER-WRITE-REVOKE-001
     // in a NOTICE string is not mistaken for a REVOKE statement.
     expect(ddl).not.toMatch(/(?<![-\w])REVOKE\s+ALL/i);
-    expect(ddl).not.toMatch(/(?<![-\w])REVOKE\b[^;]*\bSELECT\b/i);
+
+    // Exactly one SELECT revocation is permitted, and it must be the whole
+    // statement, character for character: one table, two named roles, one named
+    // privilege. A broadened or schema-wide variant fails this, and so does a
+    // second one — which is what stops "revoke the leads read" from drifting into
+    // "revoke reads" in a later edit.
+    const revokeStatements = (ddl.match(/(?<![-\w])REVOKE\b[^;]*;/gi) ?? []).map((statement) =>
+      statement.replace(/\s+/g, " ").trim(),
+    );
+    expect(revokeStatements.filter((statement) => /\bSELECT\b/i.test(statement))).toEqual([
+      "REVOKE SELECT ON TABLE public.leads FROM anon, authenticated;",
+    ]);
+
     // And specifically the grant the public amenities embed depends on — the same
     // invariant `amenities-contract.test.tsx` scans the whole chain for.
     expect(ddl).not.toMatch(/REVOKE\s+SELECT\s+ON\s+(?:TABLE\s+)?public\.(project_)?amenities\b/i);
+    // No column-level revocation reaches the catalogue tables either.
+    expect(ddl).not.toMatch(/REVOKE[^;]*\bSELECT\s*\(/i);
+  });
+
+  it("revokes the leads read BEFORE it snapshots the read surface", () => {
+    // Placement is not cosmetic. Section 4 refuses to commit if the SELECT surface
+    // moved after the snapshot, so the same statement placed next to the section 2
+    // GRANT aborts the whole migration on its own postcondition — measured in a
+    // disposable cluster, not reasoned about. Pinning the order here is what keeps
+    // a future reorganisation from reintroducing that.
+    const revokeAt = ddl.search(/REVOKE SELECT ON TABLE public\.leads FROM anon, authenticated;/);
+    const snapshotAt = ddl.search(/set_config\('forever\.lbwr_select_fp'/);
+    const sweepAt = ddl.search(/EXECUTE format\('REVOKE %s ON TABLE/);
+    expect(revokeAt, "the leads SELECT revoke must be present").toBeGreaterThan(-1);
+    expect(snapshotAt, "the read-surface snapshot must be present").toBeGreaterThan(-1);
+    expect(revokeAt).toBeLessThan(snapshotAt);
+    expect(revokeAt).toBeLessThan(sweepAt);
+    // And it is the first privilege statement in the transaction, after only the
+    // two SET LOCAL guards that must cover its ACCESS EXCLUSIVE lock.
+    const beginAt = ddl.search(/^\s*BEGIN;/m);
+    const between = ddl.slice(beginAt, revokeAt);
+    expect(between).toMatch(/SET LOCAL lock_timeout/);
+    expect(between).not.toMatch(/(?<![-\w])(GRANT|REVOKE)\b/i);
+  });
+
+  it("states the leads read removal as a postcondition rather than a hope", () => {
+    // The end state must be asserted in both directions: the two leads cells are
+    // gone, and the rest of the read surface is exactly what it was.
+    expect(ddl).toMatch(/has_table_privilege\('anon', 'public\.leads', 'SELECT'\)/);
+    expect(ddl).toMatch(/has_table_privilege\('authenticated', 'public\.leads', 'SELECT'\)/);
+    expect(ddl).toMatch(/forever\.lbwr_select_fp_expected/);
+    expect(ddl).toMatch(/forever\.lbwr_leads_select_anon_before/);
+    expect(ddl).toMatch(/forever\.lbwr_leads_select_auth_before/);
+    // The before-state is recorded, never required to be `true`: on a fresh
+    // database and on every re-application it is already false, and this migration
+    // has to stay idempotent.
+    expect(ddl).not.toMatch(/IF NOT has_table_privilege\('anon', 'public\.leads', 'SELECT'\)/);
+    // The behavioural consequence is declared in the file itself, not only in the
+    // pull request, because the file is what outlives the pull request.
+    expect(sql).toMatch(/DECLARED BEHAVIOURAL CHANGE/);
+    expect(sql).toMatch(/401\/403/);
   });
 
   it("restores the one approved browser table write explicitly", () => {

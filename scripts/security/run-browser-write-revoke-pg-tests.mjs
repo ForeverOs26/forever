@@ -2,13 +2,19 @@
 /**
  * FOREVER-LISTINGS-BROWSER-WRITE-REVOKE-001 — disposable PostgreSQL privilege suite.
  *
- * Proves the browser table-write contract that
+ * Proves the browser privilege contract that
  * `supabase/migrations/20260730090000_listings_browser_write_revoke.sql` defines:
  *
- *   anon and authenticated keep every SELECT they had, keep INSERT on
- *   public.leads, and hold no INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES,
- *   TRIGGER or MAINTAIN on anything else in schema public — including on a table
- *   created after the migration.
+ *   anon and authenticated keep every SELECT they had EXCEPT on public.leads,
+ *   keep INSERT on public.leads, and hold no INSERT, UPDATE, DELETE, TRUNCATE,
+ *   REFERENCES, TRIGGER or MAINTAIN on anything else in schema public —
+ *   including on a table created after the migration.
+ *
+ * The leads exception runs in both directions and both are load-bearing: the
+ * contact form must still be able to write a lead, and neither browser role may
+ * read one back. The read half is proven against the failure mode it exists to
+ * remove — a permissive RLS SELECT policy is added on purpose, and the read must
+ * still be refused by privilege.
  *
  * Everything runs on a throwaway cluster under the OS temp directory. No
  * production or staging credential is read, no linked project is used, and the
@@ -428,11 +434,17 @@ function firstLine(text) {
 }
 
 /**
- * The approved write, exercised for real as each browser role — no RETURNING,
- * matching the `Prefer: return=minimal` shape supabase-js actually sends, and
- * satisfying both the CHECK constraints and the RLS WITH CHECK.
+ * Both halves of the leads contract, exercised for real as each browser role.
+ *
+ * WRITE: the approved INSERT — no RETURNING, matching the `Prefer: return=minimal`
+ * shape supabase-js actually sends, and satisfying both the CHECK constraints and
+ * the RLS WITH CHECK. It must succeed with SELECT revoked, which is the whole
+ * reason the revoke is shippable.
+ *
+ * READ: refused by privilege, in the catalogue and behaviourally, including the
+ * `RETURNING` variant that a future `.insert().select()` would produce.
  */
-function assertLeadsInsert(db, label) {
+function assertLeadsContract(db, label) {
   const proofs = [];
   for (const role of BROWSER_ROLES) {
     const before = Number(scalar(db, `SELECT count(*) FROM public.leads`));
@@ -446,7 +458,8 @@ function assertLeadsInsert(db, label) {
       error === null && after === before + 1,
       error ? firstLine(error) : `rows ${before} -> ${after}`,
     );
-    proofs.push({ role, inserted: after === before + 1, error: error ? firstLine(error) : null });
+    const proof = { role, inserted: after === before + 1, error: error ? firstLine(error) : null };
+    proofs.push(proof);
 
     // The other verbs on leads must be refused by privilege, not merely filtered.
     for (const [verb, statement2] of [
@@ -462,37 +475,171 @@ function assertLeadsInsert(db, label) {
       );
     }
 
-    // SELECT on leads is deliberately preserved by this migration. Assert the
-    // ACTUAL posture rather than a hoped-for one: the privilege is present and RLS
-    // is the only thing withholding the rows. Stating it plainly is what keeps it
-    // from being mistaken for a solved problem.
-    const rows = scalar(db, `SET ROLE ${role}; SELECT count(*) FROM public.leads;`);
+    // SELECT on leads is revoked by this migration. The read must be refused by
+    // PRIVILEGE — not merely emptied by RLS, which is the posture this replaces.
+    const read = expectError(db, `SET ROLE ${role}; SELECT count(*) FROM public.leads;`);
     assert(
-      `${label}: leads SELECT still permitted for ${role} and returns 0 rows (RLS, not privilege)`,
-      rows === "0",
-      `count=${rows} — table privilege retained by design; no SELECT policy exists, so RLS filters every row`,
+      `${label}: leads SELECT denied by privilege for ${role} (42501, not an empty result)`,
+      read !== null && isInsufficientPrivilege(read),
+      read === null
+        ? "the read SUCCEEDED — RLS emptied it, but the privilege layer did not refuse it"
+        : firstLine(read),
     );
+    const catalogue = scalar(db, `SELECT has_table_privilege('${role}','public.leads','SELECT')`);
+    assert(
+      `${label}: leads SELECT absent from the catalogue for ${role}`,
+      catalogue === "f",
+      `has_table_privilege=${catalogue}`,
+    );
+
+    // The exact shape supabase-js sends when `.select()` IS chained: INSERT with a
+    // RETURNING clause needs SELECT and must now be refused. Asserted so that a
+    // future `.insert(payload).select()` fails understandably rather than
+    // mysteriously — and so the refusal is proven to expose no row either way.
+    const returning = expectError(
+      db,
+      `SET ROLE ${role}; INSERT INTO public.leads (name,email,phone,status,source) ` +
+        `VALUES ('Fixture ${role} returning','${role}-returning@example.invalid','+66000000001','new','contact_form') ` +
+        `RETURNING id, name, email;`,
+    );
+    assert(
+      `${label}: leads INSERT ... RETURNING denied for ${role} — no row is handed back`,
+      returning !== null && isInsufficientPrivilege(returning),
+      returning === null ? "the statement RETURNED a row" : firstLine(returning),
+    );
+    proof.selectDenied = read !== null && isInsufficientPrivilege(read);
+    proof.returningDenied = returning !== null && isInsufficientPrivilege(returning);
   }
   return proofs;
 }
 
-/** Every preserved SELECT, exercised as each browser role against real rows. */
+/**
+ * The failure mode the leads revoke exists to remove, exercised rather than argued.
+ *
+ * Before the migration, prospect PII was withheld by exactly one control: `leads`
+ * carries no SELECT policy. A permissive one would have exposed every row. This adds
+ * that policy DELIBERATELY and requires the read to be refused anyway, which is only
+ * possible because the table privilege is gone.
+ *
+ * The policy is dropped in `finally`, and the caller re-asserts the policy
+ * fingerprint afterwards, so a failure here cannot leave the suite measuring a
+ * mutated schema.
+ */
+function assertLeadsPrivacyUnderPermissivePolicy(db, label) {
+  const POLICY = "lbwr_permissive_select_negative_control";
+  // An ordinary role that is SUBJECT to row-level security. `service_role` and
+  // `postgres` cannot play this part: both carry BYPASSRLS in production and the
+  // owner is exempt anyway, so a read by either proves nothing about the policy.
+  const PROBE = "lbwr_rls_subject_probe";
+  const outcome = { policyCreated: false, roles: {} };
+  const rowsPresent = Number(scalar(db, `SELECT count(*) FROM public.leads`));
+  sql(
+    db,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='${PROBE}') THEN CREATE ROLE ${PROBE} NOLOGIN NOBYPASSRLS; END IF; END $$;`,
+  );
+  sql(db, `GRANT SELECT ON public.leads TO ${PROBE};`);
+  sql(db, `CREATE POLICY "${POLICY}" ON public.leads FOR SELECT TO PUBLIC USING (true);`);
+  outcome.policyCreated = true;
+  try {
+    // The control must be a real one: with a permissive policy in place, the ONLY
+    // thing left refusing the read is the missing privilege.
+    assert(
+      `${label}: the leakage control runs against a populated leads table`,
+      rowsPresent > 0,
+      `${rowsPresent} row(s) available to leak`,
+    );
+    // Proven, not assumed: an RLS-subject role holding SELECT reads every row
+    // through this policy. Without this the denial below could pass because the
+    // policy was a no-op, and the control would prove nothing.
+    const viaPolicy = scalar(db, `SET ROLE ${PROBE}; SELECT count(*) FROM public.leads;`);
+    outcome.rlsSubjectReadThroughPolicy = { rows: viaPolicy, of: rowsPresent };
+    assert(
+      `${label}: the control policy is genuinely permissive — an RLS-subject reader sees every lead through it`,
+      Number(viaPolicy) === rowsPresent && rowsPresent > 0,
+      `${PROBE} saw ${viaPolicy} of ${rowsPresent} row(s)`,
+    );
+
+    for (const role of BROWSER_ROLES) {
+      const error = expectError(db, `SET ROLE ${role}; SELECT * FROM public.leads;`);
+      outcome.roles[role] = {
+        denied: error !== null && isInsufficientPrivilege(error),
+        error: error ? firstLine(error) : null,
+      };
+      assert(
+        `${label}: a permissive SELECT policy still exposes NO lead to ${role} (privilege refuses first)`,
+        error !== null && isInsufficientPrivilege(error),
+        error === null
+          ? "the rows were READABLE — the privilege layer did not refuse the read"
+          : firstLine(error),
+      );
+    }
+  } finally {
+    sql(db, `DROP POLICY IF EXISTS "${POLICY}" ON public.leads;`);
+    sql(db, `REVOKE SELECT ON public.leads FROM ${PROBE};`);
+    sql(db, `DROP ROLE IF EXISTS ${PROBE};`);
+    outcome.policyRemoved =
+      scalar(
+        db,
+        `SELECT count(*) FROM pg_catalog.pg_policies WHERE schemaname='public' AND tablename='leads' AND policyname='${POLICY}'`,
+      ) === "0";
+    outcome.probeRoleRemoved =
+      scalar(db, `SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='${PROBE}'`) === "0";
+  }
+  assert(
+    `${label}: the temporary leakage-control policy and probe role are removed again`,
+    outcome.policyRemoved && outcome.probeRoleRemoved,
+    outcome.policyRemoved && outcome.probeRoleRemoved
+      ? "policy set and role set restored"
+      : `policyRemoved=${outcome.policyRemoved} probeRoleRemoved=${outcome.probeRoleRemoved} — STATE LEFT DIRTY`,
+  );
+  return outcome;
+}
+
+/**
+ * Every preserved SELECT, exercised as each browser role against real rows.
+ *
+ * The migration is allowed to move exactly two table-level SELECT cells — `leads`
+ * for each browser role, granted before and denied after — and nothing else. Both
+ * directions are checked: an unintended revoke anywhere else fails, and so does a
+ * leads cell that did NOT move, which is what would happen if the section 0 revoke
+ * were dropped or misplaced in a future edit.
+ */
+const INTENDED_SELECT_REMOVALS = new Set(["leads|anon|SELECT", "leads|authenticated|SELECT"]);
+
 function assertSelectPreserved(db, label, beforeMatrix, beforeColumns) {
   const tables = query(db, TABLES_SQL);
   const afterMatrix = privilegeMatrix(db);
   const selectDrift = [];
+  const intendedSeen = [];
   for (const table of tables) {
     for (const role of BROWSER_ROLES) {
       const key = `${table}|${role}|SELECT`;
-      if (beforeMatrix.get(key) !== afterMatrix.get(key)) {
+      if (beforeMatrix.get(key) === afterMatrix.get(key)) continue;
+      if (
+        INTENDED_SELECT_REMOVALS.has(key) &&
+        beforeMatrix.get(key) === "granted" &&
+        afterMatrix.get(key) === "denied"
+      ) {
+        intendedSeen.push(key);
+      } else {
         selectDrift.push(`${key}: ${beforeMatrix.get(key)} -> ${afterMatrix.get(key)}`);
       }
     }
   }
   assert(
-    `${label}: table-level SELECT unchanged for both browser roles`,
+    `${label}: no UNINTENDED table-level SELECT moved for either browser role`,
     selectDrift.length === 0,
-    selectDrift.length === 0 ? `${tables.length} tables compared` : selectDrift.join("; "),
+    selectDrift.length === 0
+      ? `${tables.length} tables x 2 roles compared, ${tables.length * 2 - intendedSeen.length} cells byte-identical`
+      : selectDrift.join("; "),
+  );
+  assert(
+    `${label}: exactly the two intended leads SELECT cells were removed, granted -> denied`,
+    intendedSeen.length === INTENDED_SELECT_REMOVALS.size &&
+      [...INTENDED_SELECT_REMOVALS].every((key) => intendedSeen.includes(key)),
+    intendedSeen.length > 0
+      ? intendedSeen.join(", ")
+      : "NONE moved — the section 0 revoke did not run, or leads never held SELECT in this fixture",
   );
 
   const afterColumns = columnGrants(db);
@@ -640,6 +787,20 @@ function assertServiceRolePreserved(db, label, beforeMatrix) {
     importOwner === null,
     importOwner ? firstLine(importOwner) : "SELECT permitted",
   );
+
+  // The server side of the leads revoke. Revoking the browser read is only correct
+  // if the reads a future CRM or server handler needs are untouched, so both the
+  // BYPASSRLS service role and the table owner are proven to still read leads.
+  const seeded = scalar(db, `SELECT count(*) FROM public.leads`);
+  for (const role of ["service_role", "postgres"]) {
+    const error = expectError(db, `SET ROLE ${role}; SELECT count(*) FROM public.leads;`);
+    const seen = error ? null : scalar(db, `SET ROLE ${role}; SELECT count(*) FROM public.leads;`);
+    assert(
+      `${label}: ${role} still reads public.leads after the browser revoke`,
+      error === null && seen === seeded,
+      error ? firstLine(error) : `${seen} of ${seeded} row(s) visible`,
+    );
+  }
 }
 
 function assertRlsPreserved(db, label, beforePolicies, beforeRls) {
@@ -958,7 +1119,8 @@ try {
   const cleanResult = assertAclMatrix("clean_install", "clean install");
   psqlFile("clean_install", FIXTURES);
   assertListingsDenied("clean_install", "clean install");
-  const cleanLeads = assertLeadsInsert("clean_install", "clean install");
+  const cleanLeads = assertLeadsContract("clean_install", "clean install");
+  const cleanLeak = assertLeadsPrivacyUnderPermissivePolicy("clean_install", "clean install");
   const defaultsAfterA = defaultAclMatrix("clean_install");
   results.cleanInstall = {
     migrationsApplied: files.length,
@@ -966,7 +1128,8 @@ try {
     violations: cleanResult.violations,
     defaultAclBefore: defaultsBeforeA,
     defaultAclAfter: defaultsAfterA,
-    leadsInsert: cleanLeads,
+    leadsContract: cleanLeads,
+    leadsPermissivePolicyLeakControl: cleanLeak,
   };
 
   // ======================================================================
@@ -1016,7 +1179,8 @@ try {
 
   const upgradeResult = assertAclMatrix("upgrade_path", "upgrade path");
   assertListingsDenied("upgrade_path", "upgrade path");
-  const upgradeLeads = assertLeadsInsert("upgrade_path", "upgrade path");
+  const upgradeLeads = assertLeadsContract("upgrade_path", "upgrade path");
+  const upgradeLeak = assertLeadsPrivacyUnderPermissivePolicy("upgrade_path", "upgrade path");
   const selectProof = assertSelectPreserved(
     "upgrade_path",
     "upgrade path",
@@ -1088,7 +1252,16 @@ try {
     afterDefaults,
     beforePolicies: beforePolicies.length,
     afterPolicies: policyFingerprint("upgrade_path").length,
-    leadsInsert: upgradeLeads,
+    leadsContract: upgradeLeads,
+    leadsPermissivePolicyLeakControl: upgradeLeak,
+    leadsSelectBefore: {
+      anon: beforeMatrix.get("leads|anon|SELECT"),
+      authenticated: beforeMatrix.get("leads|authenticated|SELECT"),
+    },
+    leadsSelectAfter: {
+      anon: privilegeMatrix("upgrade_path").get("leads|anon|SELECT"),
+      authenticated: privilegeMatrix("upgrade_path").get("leads|authenticated|SELECT"),
+    },
     selectProof,
     canaryBefore,
     canaryAfter,
@@ -1121,7 +1294,16 @@ try {
     }
     const restoredClean =
       browserWriteViolations(privilegeMatrix("upgrade_path"), query("upgrade_path", TABLES_SQL))
-        .length === 0 && sameSet(beforePolicies, policyFingerprint("upgrade_path"));
+        .length === 0 &&
+      sameSet(beforePolicies, policyFingerprint("upgrade_path")) &&
+      // The read half of the contract is restored too, not only the write half.
+      BROWSER_ROLES.every(
+        (role) =>
+          scalar(
+            "upgrade_path",
+            `SELECT has_table_privilege('${role}','public.leads','SELECT')`,
+          ) === "f",
+      );
     assert(`negative control detected: ${name}`, detected, detail);
     assert(
       `negative control restored: ${name}`,
@@ -1307,11 +1489,117 @@ try {
     `REVOKE UPDATE ON public.listings FROM anon`,
   );
 
+  negativeControl(
+    "leads SELECT re-granted to a browser role",
+    `GRANT SELECT ON public.leads TO anon`,
+    () => {
+      const catalogue = privilegeMatrix("upgrade_path").get("leads|anon|SELECT") === "granted";
+      // Behavioural, because the catalogue alone would not tell a reviewer whether
+      // prospect rows became reachable: the read must stop raising 42501.
+      const behaviour = expectError(
+        "upgrade_path",
+        `SET ROLE anon; SELECT count(*) FROM public.leads;`,
+      );
+      return {
+        detected: catalogue && behaviour === null,
+        detail: catalogue
+          ? "catalogue: leads|anon|SELECT back to granted; behavioural: the read succeeded instead of raising 42501"
+          : "not detected",
+      };
+    },
+    `REVOKE SELECT ON public.leads FROM anon`,
+  );
+
+  // Chosen from the catalogue rather than named by hand. A hardcoded table can
+  // quietly stop being a table-level SELECT holder — `projects` is exactly that, it
+  // is reached through COLUMN grants — and the control would then mutate nothing and
+  // "pass" by never firing. Column-granted tables are excluded so that `SELECT *`
+  // is a real behavioural probe for the table-level privilege.
+  const columnGrantedTables = new Set(beforeColumns.map((row) => row.split("|")[0].split(".")[0]));
+  const catalogueSelectTable = tablesB.find(
+    (table) =>
+      table !== "leads" &&
+      !columnGrantedTables.has(table) &&
+      beforeMatrix.get(`${table}|authenticated|SELECT`) === "granted",
+  );
+  assert(
+    "a table-level-SELECT catalogue table is available for the preservation control",
+    Boolean(catalogueSelectTable),
+    catalogueSelectTable ?? "none found — the SELECT-preservation control cannot fire",
+  );
+
+  negativeControl(
+    `another catalogue SELECT (public.${catalogueSelectTable}) revoked alongside the intended leads one`,
+    `REVOKE SELECT ON public.${catalogueSelectTable} FROM authenticated`,
+    () => {
+      const matrix = privilegeMatrix("upgrade_path");
+      // The detector that owns this invariant is assertSelectPreserved's split
+      // between INTENDED and unintended movement. Reproduced here directly: the
+      // leads cells are allowed to have moved, projects is not.
+      const unintended = [];
+      for (const table of query("upgrade_path", TABLES_SQL)) {
+        for (const role of BROWSER_ROLES) {
+          const key = `${table}|${role}|SELECT`;
+          if (beforeMatrix.get(key) === matrix.get(key)) continue;
+          if (INTENDED_SELECT_REMOVALS.has(key)) continue;
+          unintended.push(`${key}: ${beforeMatrix.get(key)} -> ${matrix.get(key)}`);
+        }
+      }
+      const behaviour = expectError(
+        "upgrade_path",
+        `SET ROLE authenticated; SELECT * FROM public.${catalogueSelectTable} LIMIT 1;`,
+      );
+      return {
+        detected: unintended.length > 0 && behaviour !== null,
+        detail:
+          unintended.length > 0
+            ? `${unintended.join("; ")}; behavioural: ${firstLine(behaviour ?? "the read SUCCEEDED")} — the leads exception did not swallow it`
+            : "not detected",
+      };
+    },
+    `GRANT SELECT ON public.${catalogueSelectTable} TO authenticated`,
+  );
+
+  negativeControl(
+    "a permissive-policy leakage control that proves nothing because the policy grants no row",
+    `CREATE POLICY "lbwr_vacuous_leak_control" ON public.leads FOR SELECT TO PUBLIC USING (false)`,
+    () => {
+      const PROBE = "lbwr_vacuity_probe";
+      sql(
+        "upgrade_path",
+        `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='${PROBE}') THEN CREATE ROLE ${PROBE} NOLOGIN NOBYPASSRLS; END IF; END $$;`,
+      );
+      sql("upgrade_path", `GRANT SELECT ON public.leads TO ${PROBE}`);
+      const rows = Number(scalar("upgrade_path", `SELECT count(*) FROM public.leads`));
+      const viaPolicy = Number(
+        scalar("upgrade_path", `SET ROLE ${PROBE}; SELECT count(*) FROM public.leads;`),
+      );
+      // The naive form of the leakage test still passes here — a SELECT policy
+      // exists and the browser roles are refused — while establishing nothing,
+      // because this policy would have exposed no row even with the privilege
+      // in place. The permissiveness guard is what rejects it.
+      const browserRefused = BROWSER_ROLES.every((role) => {
+        const error = expectError("upgrade_path", `SET ROLE ${role}; SELECT * FROM public.leads;`);
+        return error !== null && isInsufficientPrivilege(error);
+      });
+      sql("upgrade_path", `REVOKE SELECT ON public.leads FROM ${PROBE}`);
+      sql("upgrade_path", `DROP ROLE IF EXISTS ${PROBE}`);
+      const guardRejects = viaPolicy !== rows;
+      return {
+        detected: rows > 0 && browserRefused && guardRejects,
+        detail: guardRejects
+          ? `the browser roles were still refused, so a leakage test WITHOUT the permissiveness guard would have passed; the guard rejects it — an RLS-subject reader saw ${viaPolicy} of ${rows} row(s) through this policy`
+          : `the guard did not reject it — an RLS-subject reader saw ${viaPolicy} of ${rows}, so the control is not reproducing a vacuous policy`,
+      };
+    },
+    `DROP POLICY IF EXISTS "lbwr_vacuous_leak_control" ON public.leads`,
+  );
+
   results.negativeControls = negatives;
   assert(
-    "all ten negative controls detected and restored",
-    negatives.length === 10 && negatives.every((entry) => entry.detected && entry.restored),
-    `${negatives.filter((entry) => entry.detected && entry.restored).length}/10`,
+    "all thirteen negative controls detected and restored",
+    negatives.length === 13 && negatives.every((entry) => entry.detected && entry.restored),
+    `${negatives.filter((entry) => entry.detected && entry.restored).length}/13`,
   );
 
   // Final state after every control is restored.

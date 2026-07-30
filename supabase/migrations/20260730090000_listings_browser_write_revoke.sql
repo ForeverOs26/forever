@@ -1,6 +1,8 @@
 -- FOREVER-LISTINGS-BROWSER-WRITE-REVOKE-001
 -- Revoke browser table-write privileges everywhere in schema `public` except the
--- one approved exception: INSERT on `public.leads`.
+-- one approved exception: INSERT on `public.leads`. And revoke browser READ access
+-- to `public.leads` itself — an intake-only table holding prospect personal data,
+-- and the one place where the same single-control argument applies to PII.
 --
 -- WHY THIS EXISTS
 -- ---------------
@@ -44,17 +46,54 @@
 -- consulted, and each barrier independently suffices. This adds a layer; it does
 -- not remove one. No policy is created, altered or dropped by this file.
 --
+-- THE ONE READ THIS MIGRATION DOES REMOVE
+-- ---------------------------------------
+-- `public.leads` is an intake table, not catalogue data. Its columns are name,
+-- email, phone, country, budget, interest, project_slug and a free-text message.
+-- `anon` and `authenticated` held table-level SELECT on it, inherited from the very
+-- same bootstrap default as the writes, and the only thing withholding those rows
+-- was that `leads` carries no SELECT policy. That is precisely the single-control
+-- situation this migration exists to remove on 29 tables of public catalogue data,
+-- left in place on the one table whose asset is personal data. Measured in a
+-- disposable cluster: adding one permissive SELECT policy made every lead row
+-- anonymously readable; with SELECT revoked the identical policy exposed nothing
+-- (42501). The anon key ships in the browser bundle, so "no one would add that
+-- policy" is not a control.
+--
+-- Section 0 therefore revokes exactly that, and only that:
+--
+--     REVOKE SELECT ON TABLE public.leads FROM anon, authenticated;
+--
+-- Nothing in the browser reads leads. `src/lib/lead-service.ts` calls
+-- `.insert(payload)` with no chained `.select()`, so supabase-js sends
+-- `Prefer: return=minimal`, the statement carries no RETURNING clause, and INSERT
+-- alone is sufficient — exercised for real as both roles in the disposable suite.
+--
+-- DECLARED BEHAVIOURAL CHANGE: PostgREST now answers 401/403 to a hypothetical
+-- `GET /rest/v1/leads` where it previously answered 200 with an empty array. No
+-- application path issues that request. If `.select()` is ever chained onto the lead
+-- insert it will raise 42501 instead of returning the row; the suite proves both
+-- halves, so that failure would be understood rather than mysterious.
+--
+-- Placement is load-bearing. The revoke runs FIRST, before section 1 snapshots the
+-- read surface, so section 4 measures the intended end state. Placed next to the
+-- section 2 GRANT instead, it aborts the transaction on this migration's own
+-- SELECT-preservation postcondition — measured, not assumed.
+--
 -- WHAT IS DELIBERATELY PRESERVED
 -- ------------------------------
---   * Every table-level SELECT grant — the 24 tables the public catalogue reads.
+--   * Every table-level SELECT grant except the two leads cells above — the 23
+--     remaining tables the public catalogue reads, untouched.
 --   * Every COLUMN-level SELECT grant made by 20260723130000, 20260726140000 and
 --     20260728120000 (186 column grants across projects, units, buildings,
 --     developers, project_media and investment_data). Naming the seven write
 --     privileges explicitly, instead of `REVOKE ALL`, is what makes that safe: a
 --     column-less `REVOKE ALL` removes COLUMN grants too and would blank the
---     catalogue and every project page. This file contains no `REVOKE ALL` and no
---     `REVOKE ... SELECT`, and the migration verifies at COMMIT time that the
---     SELECT surface it started with is byte-identical to the one it ends with.
+--     catalogue and every project page. This file contains no `REVOKE ALL` and
+--     exactly one `REVOKE ... SELECT` — the single table-scoped, role-scoped leads
+--     statement in section 0. The migration verifies at COMMIT time that the read
+--     surface it ends with is the one it started with, with exactly those two cells
+--     removed and nothing else added or lost, in either direction.
 --   * `INSERT ON public.leads TO anon, authenticated` — the public contact form,
 --     restated explicitly in section 2. Both roles are intended: the base
 --     migration grants INSERT to both and the "Anyone can submit a lead" policy
@@ -70,8 +109,8 @@
 -- policies present, every one of them would begin failing. `relforcerowsecurity`
 -- must stay false.
 --
--- ONE THING THIS MIGRATION CANNOT FIX
--- -----------------------------------
+-- ONE THING THIS MIGRATION CANNOT FIX  —  OWNER_GATED_EXTERNAL_STEP_REQUIRED
+-- --------------------------------------------------------------------------
 -- Schema `public` carries TWO table default-ACL entries, one per defining owner
 -- role. Section 3 discovers them from `pg_default_acl` rather than assuming names:
 --
@@ -102,9 +141,91 @@
 
 BEGIN;
 
--- REVOKE is a catalog update, not a data operation. Yield rather than queue.
+-- REVOKE is a catalog update, not a data operation. Yield rather than queue. These
+-- two guards come first so that they also cover section 0 — the ACCESS EXCLUSIVE
+-- lock section 0 takes on `leads` is the transaction's first, and an unguarded first
+-- lock is the one most able to queue behind a long-running reader.
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
+
+-- ---------------------------------------------------------------------------
+-- 0. Prospect PII: remove browser READ access to `public.leads`.
+--
+--    First, ahead of every snapshot and every sweep, so section 4 measures the
+--    intended end state instead of treating this deliberate change as drift.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_pre_fp      TEXT;
+  v_expected_fp TEXT;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'anon')
+     OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'authenticated') THEN
+    RAISE EXCEPTION
+      'roles anon and authenticated must both exist before the browser-write contract can be defined';
+  END IF;
+
+  -- The two cells this migration sets out to remove, read BEFORE the revoke, so the
+  -- change is reported as a measured before/after rather than asserted. Deliberately
+  -- NOT asserted to be `true`: on a database where they were never granted, and on
+  -- every re-application, they are already false and this file must stay idempotent.
+  PERFORM set_config('forever.lbwr_leads_select_anon_before',
+                     has_table_privilege('anon', 'public.leads', 'SELECT')::text, false);
+  PERFORM set_config('forever.lbwr_leads_select_auth_before',
+                     has_table_privilege('authenticated', 'public.leads', 'SELECT')::text, false);
+
+  -- The browser read surface as it stands now, and beside it the surface this
+  -- migration intends to produce: identical in every cell except the two `leads`
+  -- TABLE_SELECT cells, which become false. Section 4 requires the end state to
+  -- equal the second one exactly, so no other SELECT grant may disappear and no new
+  -- SELECT grant may appear — the intended removal is stated as data, not trusted.
+  SELECT md5(string_agg(entry_now, E'\n' ORDER BY entry_now)),
+         md5(string_agg(entry_expected, E'\n' ORDER BY entry_expected))
+    INTO v_pre_fp, v_expected_fp
+  FROM (
+    SELECT c.relname || '|' || w.rolname || '|TABLE_SELECT|'
+             || has_table_privilege(w.rolname::name, c.oid, 'SELECT')::text AS entry_now,
+           c.relname || '|' || w.rolname || '|TABLE_SELECT|'
+             || (has_table_privilege(w.rolname::name, c.oid, 'SELECT')
+                 AND c.relname <> 'leads')::text AS entry_expected
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    CROSS JOIN (VALUES ('anon'), ('authenticated')) AS w(rolname)
+    WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+    UNION ALL
+    -- Column ACLs are a separate catalog from the table ACL: `REVOKE ... ON TABLE`
+    -- cannot reach them, and `leads` carries none. Both sides are therefore the
+    -- same expression — stated rather than assumed, so a future column grant on
+    -- `leads` would still have to survive section 4 unchanged.
+    SELECT c.relname || '.' || a.attname || '|'
+             || COALESCE(gr.rolname::text, 'PUBLIC') || '|COLUMN_' || e.privilege_type || '|true',
+           c.relname || '.' || a.attname || '|'
+             || COALESCE(gr.rolname::text, 'PUBLIC') || '|COLUMN_' || e.privilege_type || '|true'
+    FROM pg_catalog.pg_attribute a
+    JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    CROSS JOIN LATERAL pg_catalog.aclexplode(a.attacl) AS e
+    LEFT JOIN pg_catalog.pg_roles gr ON gr.oid = e.grantee
+    WHERE n.nspname = 'public'
+      AND a.attacl IS NOT NULL AND a.attnum > 0 AND NOT a.attisdropped
+      AND COALESCE(gr.rolname::text, 'PUBLIC') IN ('anon', 'authenticated')
+  ) s;
+  PERFORM set_config('forever.lbwr_select_fp_pre', COALESCE(v_pre_fp, 'EMPTY'), false);
+  PERFORM set_config('forever.lbwr_select_fp_expected', COALESCE(v_expected_fp, 'EMPTY'), false);
+
+  RAISE NOTICE 'FOREVER-LISTINGS-BROWSER-WRITE-REVOKE-001: leads SELECT before — anon=%, authenticated=%',
+    current_setting('forever.lbwr_leads_select_anon_before'),
+    current_setting('forever.lbwr_leads_select_auth_before');
+END
+$$;
+
+-- The single read this migration removes. One table, two named roles, one named
+-- privilege: no `REVOKE ALL`, no schema-wide revocation, no column-level revocation
+-- on any catalogue table, and no RLS change standing in for it. A PUBLIC-derived
+-- SELECT would survive this statement, so section 4 checks the EFFECTIVE privilege
+-- rather than the ACL entry and fails loudly instead of reporting a clean result it
+-- has not earned. No table in `public` grants PUBLIC anything today.
+REVOKE SELECT ON TABLE public.leads FROM anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 1. Snapshot the SELECT surface, then remove every browser write privilege
@@ -117,15 +238,13 @@ DECLARE
   v_tables      INT := 0;
   v_select_fp   TEXT;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'anon')
-     OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'authenticated') THEN
-    RAISE EXCEPTION
-      'roles anon and authenticated must both exist before the browser-write contract can be defined';
-  END IF;
+  -- The role-existence guard now lives in section 0, which runs before the first
+  -- statement that depends on either role.
 
-  -- The SELECT surface, table-level and column-level, before any change. Section 4
-  -- recomputes this and refuses to commit if it moved. A migration that claims to
-  -- preserve public reads should be able to prove it, not assert it.
+  -- The SELECT surface, table-level and column-level, as section 0 leaves it and
+  -- before the write sweep touches anything. Section 4 recomputes this and refuses
+  -- to commit if it moved. A migration that claims to preserve public reads should
+  -- be able to prove it, not assert it.
   SELECT md5(string_agg(entry, E'\n' ORDER BY entry)) INTO v_select_fp
   FROM (
     SELECT c.relname || '|' || w.rolname || '|TABLE_SELECT|'
@@ -195,14 +314,11 @@ $$;
 -- that call in future would need SELECT as well; the disposable suite proves both
 -- halves of that so the failure would be understood rather than mysterious.
 --
--- SELECT on `leads` is NOT revoked by this migration. `anon` holding SELECT on the
--- lead table is a real finding — RLS is the only thing withholding prospect names,
--- emails and phone numbers today, because `leads` has no SELECT policy — but
--- removing it changes what PostgREST answers, which is a visible behavioural
--- change and a separate decision. This migration's contract is table WRITES.
--- Every existing SELECT grant, including this one, is preserved unchanged and the
--- `leads` SELECT question is carried forward as a recommendation, not silently
--- resolved here.
+-- This GRANT is what makes the section 0 revoke safe to ship in the same file. The
+-- contact form needs INSERT and nothing else, both halves land in one transaction,
+-- and so no window exists in which the browser can neither write a lead nor be
+-- refused cleanly. INSERT does not imply SELECT and does not require it: measured
+-- for both roles, with and without the read privilege.
 GRANT INSERT ON TABLE public.leads TO anon, authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -281,13 +397,14 @@ $$;
 -- ---------------------------------------------------------------------------
 DO $$
 DECLARE
-  v_rel        RECORD;
-  v_role       TEXT;
-  v_priv       TEXT;
-  v_privs      TEXT[];
-  v_violations TEXT[] := ARRAY[]::TEXT[];
-  v_select_now TEXT;
-  v_select_was TEXT;
+  v_rel             RECORD;
+  v_role            TEXT;
+  v_priv            TEXT;
+  v_privs           TEXT[];
+  v_violations      TEXT[] := ARRAY[]::TEXT[];
+  v_select_now      TEXT;
+  v_select_was      TEXT;
+  v_select_expected TEXT;
 BEGIN
   v_privs := ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'];
   IF current_setting('server_version_num')::int >= 170000 THEN
@@ -348,13 +465,42 @@ BEGIN
           || ' after=' || COALESCE(v_select_now, 'EMPTY'));
   END IF;
 
+  -- 4d. The two reads this migration set out to remove are gone. Checked as an
+  -- EFFECTIVE privilege, so a PUBLIC-derived or role-inherited SELECT that survived
+  -- the section 0 statement is reported rather than quietly passing.
+  IF has_table_privilege('anon', 'public.leads', 'SELECT') THEN
+    v_violations := v_violations
+      || 'anon STILL holds SELECT on public.leads — section 0 did not take effect '
+         '(a PUBLIC-derived or inherited grant does this; inspect the leads ACL)';
+  END IF;
+  IF has_table_privilege('authenticated', 'public.leads', 'SELECT') THEN
+    v_violations := v_violations
+      || 'authenticated STILL holds SELECT on public.leads — section 0 did not take effect '
+         '(a PUBLIC-derived or inherited grant does this; inspect the leads ACL)';
+  END IF;
+
+  -- 4e. And the end state is EXACTLY the surface section 0 measured before its
+  -- revoke, with those two cells removed and nothing else moved. 4c proves the write
+  -- sweep changed no read; this proves section 0 changed no read but the two it
+  -- names. Together they close both directions: no additional SELECT grant may
+  -- disappear, and no new SELECT grant may appear.
+  v_select_expected := current_setting('forever.lbwr_select_fp_expected', true);
+  IF COALESCE(v_select_now, 'EMPTY') IS DISTINCT FROM COALESCE(v_select_expected, 'MISSING') THEN
+    v_violations := v_violations
+      || ('the browser SELECT surface is not the intended one: expected='
+          || COALESCE(v_select_expected, 'MISSING') || ' actual=' || COALESCE(v_select_now, 'EMPTY')
+          || ' (expected = the pre-revoke surface with exactly the two leads TABLE_SELECT cells false)');
+  END IF;
+
   IF array_length(v_violations, 1) IS NOT NULL THEN
     RAISE EXCEPTION
       'FOREVER-LISTINGS-BROWSER-WRITE-REVOKE-001 postcondition failed: %',
       array_to_string(v_violations, '; ');
   END IF;
 
-  RAISE NOTICE 'FOREVER-LISTINGS-BROWSER-WRITE-REVOKE-001: postcondition verified — browser writes limited to leads INSERT, SELECT surface unchanged';
+  RAISE NOTICE 'FOREVER-LISTINGS-BROWSER-WRITE-REVOKE-001: postcondition verified — browser writes limited to leads INSERT; leads SELECT anon %->false, authenticated %->false; every other read grant byte-identical',
+    COALESCE(current_setting('forever.lbwr_leads_select_anon_before', true), 'unknown'),
+    COALESCE(current_setting('forever.lbwr_leads_select_auth_before', true), 'unknown');
 END
 $$;
 
