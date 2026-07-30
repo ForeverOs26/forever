@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { isKnownFictitiousProjectSlug } from "@/lib/public-truth";
 import { mapProjectDetail } from "./project-detail-mappers";
 import { publicProjectDetail } from "./public-project-detail";
+import type { PublicProjectDetailDTO } from "./public-project-detail";
 import type { ProjectDetail, ProjectDetailRecord } from "./project-detail-types";
 
 /**
@@ -79,23 +80,20 @@ async function loadPartnerDemoProjectDetail(
   const project = await getPartnerDemoProjectDetail(slug);
   return {
     active: true,
-    project: project
-      ? {
-          ...project,
-          core: { ...project.core, usesLocalPreviewData: true },
-        }
-      : null,
+    project,
   };
 }
 
 export const ProjectDetailService = {
-  async getBySlug(slug: string): Promise<ProjectDetail | null> {
+  async getBySlug(slug: string): Promise<PublicProjectDetailDTO | null> {
     // Quarantined fictitious seed rows must not be reachable by direct URL.
     if (isKnownFictitiousProjectSlug(slug)) return null;
 
     const partnerDemo = await loadPartnerDemoProjectDetail(slug);
     if (partnerDemo.active) {
-      return partnerDemo.project ? publicProjectDetail(partnerDemo.project) : null;
+      return partnerDemo.project
+        ? publicProjectDetail(partnerDemo.project, { usesLocalPreviewData: true })
+        : null;
     }
 
     const demoPreview = await loadDemoPreviewProjectDetail(slug);

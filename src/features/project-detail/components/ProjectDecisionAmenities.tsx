@@ -20,7 +20,7 @@ import {
 import { Section } from "@/components/layout/Section";
 
 import type { DecisionDeckValue } from "../decision-deck-model";
-import type { ProjectAmenity } from "../project-detail-types";
+import type { PublicProjectAmenityDTO } from "../public-project-detail";
 
 const ICONS: Readonly<Record<string, LucideIcon>> = {
   bath: Bath,
@@ -62,7 +62,7 @@ function supported<T>(
 }
 
 export interface ProjectDecisionAmenitiesProps {
-  amenities: DecisionDeckValue<readonly ProjectAmenity[]>;
+  amenities: DecisionDeckValue<readonly PublicProjectAmenityDTO[]>;
 }
 
 export function ProjectDecisionAmenities({ amenities }: ProjectDecisionAmenitiesProps) {
@@ -80,8 +80,8 @@ export function ProjectDecisionAmenities({ amenities }: ProjectDecisionAmenities
     >
       <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {amenities.value.map((amenity) => {
-          const Icon = amenityIcon(amenity.icon);
-          const category = amenity.isFeatured ? "Featured" : amenity.category.trim();
+          const Icon = amenityIcon(amenity.icon ?? "");
+          const category = amenity.isFeatured ? "Featured" : (amenity.category?.trim() ?? "");
           return (
             <li
               key={amenity.id || amenity.slug || amenity.name}

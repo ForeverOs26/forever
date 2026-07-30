@@ -15,12 +15,21 @@ import {
   makeUnit,
 } from "@/features/forever-database/tests/fixtures";
 
-import { ProjectDetailEngine } from "./components/ProjectDetailEngine";
+import { ProjectDetailEngine as PublicProjectDetailEngine } from "./components/ProjectDetailEngine";
 import { projectContactActionsEnabled } from "./contact-actions";
-import { buildDecisionDeckModel } from "./decision-deck-model";
-import { buildProjectStructuredData } from "./project-structured-data";
+import {
+  buildDecisionDeckModel as buildPublicDecisionDeckModel,
+  type BuildDecisionDeckOptions,
+  type DecisionDeckRelatedProjectInput,
+} from "./decision-deck-model";
+import { buildProjectStructuredData as buildPublicProjectStructuredData } from "./project-structured-data";
+import { publicProjectDetail } from "./public-project-detail";
 import { projectSocialImage } from "./project-sections";
-import type { ProjectDetailDocument, ProjectDetailMediaItem } from "./project-detail-types";
+import type {
+  ProjectDetail,
+  ProjectDetailDocument,
+  ProjectDetailMediaItem,
+} from "./project-detail-types";
 import {
   applyUnitFilters,
   DEFAULT_UNIT_FILTERS,
@@ -28,6 +37,29 @@ import {
 } from "./unit-presentation";
 
 const PROJECT_URL = "https://forever.example/projects/negative-control";
+
+function buildDecisionDeckModel(project: ProjectDetail, options: BuildDecisionDeckOptions = {}) {
+  return buildPublicDecisionDeckModel(publicProjectDetail(project), options);
+}
+
+function buildProjectStructuredData(project: ProjectDetail, url: string, image?: string) {
+  return buildPublicProjectStructuredData(publicProjectDetail(project), url, image);
+}
+
+function ProjectDetailEngine({
+  project,
+  relatedProjects,
+}: {
+  project: ProjectDetail;
+  relatedProjects?: readonly DecisionDeckRelatedProjectInput[];
+}) {
+  return (
+    <PublicProjectDetailEngine
+      project={publicProjectDetail(project)}
+      relatedProjects={relatedProjects}
+    />
+  );
+}
 
 async function renderInRouter(ui: ReactNode, heading: string) {
   const rootRoute = createRootRoute({

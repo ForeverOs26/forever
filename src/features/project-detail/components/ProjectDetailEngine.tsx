@@ -3,7 +3,7 @@ import {
   type DecisionDeckRelatedProjectInput,
   type DecisionDeckValue,
 } from "../decision-deck-model";
-import type { ProjectDetail } from "../project-detail-types";
+import type { PublicProjectDetailDTO } from "../public-project-detail";
 import "../decision-deck.css";
 
 import { ProjectDecisionAmenities } from "./ProjectDecisionAmenities";
@@ -23,7 +23,7 @@ import { ProjectUnitPreview } from "./ProjectUnitPreview";
 import { ProjectUpdates } from "./ProjectUpdates";
 
 export interface ProjectDetailEngineProps {
-  project: ProjectDetail;
+  project: PublicProjectDetailDTO;
   relatedProjects?: readonly DecisionDeckRelatedProjectInput[];
 }
 

@@ -2,30 +2,18 @@
  * One truth-safe presentation model for the Project Detail Decision Deck.
  *
  * This module deliberately contains no JSX and performs no query. It translates
- * the canonical `ProjectDetail` once, so section rendering, section navigation,
+ * the narrow `PublicProjectDetailDTO` once, so section rendering, section navigation,
  * the compact Passport and the detailed Passport cannot make different truth
  * decisions from the same record.
  */
 
-import { developerIdentity } from "./developer-identity";
 import { listedResidencesPhrase } from "./inventory-scale";
-import {
-  locationMapDocument,
-  projectAmenities,
-  projectFloorPlans,
-  projectMasterPlan,
-  projectPhotographs,
-  projectUnitPlans,
-  projectVideos,
-  publicProjectDocuments,
-} from "./project-sections";
 import type {
-  ProjectAmenity,
-  ProjectDetail,
-  ProjectDetailDocument,
-  ProjectDetailMediaItem,
-  ProjectDetailUnit,
-} from "./project-detail-types";
+  PublicProjectAmenityDTO,
+  PublicProjectDetailDTO,
+  PublicProjectMediaDTO,
+  PublicProjectUnitDTO,
+} from "./public-project-detail";
 import { isAvailable } from "./unit-presentation";
 import { publicRecordedText } from "./public-value";
 import { publicBrowserUrl, publicHttpUrl } from "./public-url";
@@ -147,26 +135,24 @@ export interface DecisionDeckMediaAsset {
   type: string;
   url: string;
   sortOrder: number;
-  semanticRole: string | null;
   label: string;
   source: "public-project-media";
 }
 
-function mediaAsset(item: ProjectDetailMediaItem, label: string): DecisionDeckMediaAsset {
+function mediaAsset(item: PublicProjectMediaDTO, label: string): DecisionDeckMediaAsset {
   return {
     id: item.id,
     type: item.type,
     url: item.url.trim(),
     sortOrder: item.sortOrder,
-    semanticRole: item.semanticRole,
     label,
     source: "public-project-media",
   };
 }
 
-function safePhotos(project: ProjectDetail): DecisionDeckMediaAsset[] {
-  return projectPhotographs(project).map((item, index) =>
-    mediaAsset(item, `${project.core.name.trim() || "Project"} photograph ${index + 1}`),
+function safePhotos(project: PublicProjectDetailDTO): DecisionDeckMediaAsset[] {
+  return (project.media?.photographs ?? []).map((item, index) =>
+    mediaAsset(item, `${project.name.trim() || "Project"} photograph ${index + 1}`),
   );
 }
 
@@ -189,12 +175,12 @@ export function isDirectPlayableProjectFilmUrl(value: string | null | undefined)
   }
 }
 
-function projectFilm(project: ProjectDetail): DecisionDeckValue<DecisionDeckMediaAsset> {
-  const publicVideos = projectVideos(project);
+function projectFilm(project: PublicProjectDetailDTO): DecisionDeckValue<DecisionDeckMediaAsset> {
+  const publicVideos = project.media?.videos ?? [];
   const film = publicVideos.find((item) => isDirectPlayableProjectFilmUrl(item.url));
 
   if (film) return supported(mediaAsset(film, "Project film"));
-  if (project.media.videos.length > 0) {
+  if (publicVideos.length > 0) {
     return unavailable("no-direct-playable-recorded-video");
   }
   return empty("no-video-recorded");
@@ -212,47 +198,50 @@ export interface DecisionDeckUnits {
    * component's explicit `Listed order`; this model never introduces a hidden
    * ranking or silently rearranges the source.
    */
-  rows: readonly ProjectDetailUnit[];
+  rows: readonly PublicProjectUnitDTO[];
   summary: DecisionDeckValue<DecisionDeckInventorySummary>;
 }
 
-function projectUnits(project: ProjectDetail): DecisionDeckUnits {
-  if (project.units.length === 0) {
+function projectUnits(project: PublicProjectDetailDTO): DecisionDeckUnits {
+  const units = project.units ?? [];
+  if (units.length === 0) {
     return {
-      rows: project.units,
+      rows: units,
       summary: empty("no-listed-inventory"),
     };
   }
 
-  const listedCount = project.units.length;
+  const listedCount = units.length;
   return {
-    rows: project.units,
+    rows: units,
     summary: supported({
       listedCount,
-      availableCount: project.units.filter(isAvailable).length,
+      availableCount: units.filter(isAvailable).length,
       listedLabel: listedResidencesPhrase(listedCount),
     }),
   };
 }
 
-function sortCanonicalAmenities(amenities: readonly ProjectAmenity[]): ProjectAmenity[] {
+function sortCanonicalAmenities(
+  amenities: readonly PublicProjectAmenityDTO[],
+): PublicProjectAmenityDTO[] {
   return [...amenities].sort(
     (left, right) =>
       Number(right.isFeatured) - Number(left.isFeatured) ||
       left.sortOrder - right.sortOrder ||
-      left.category.localeCompare(right.category, "en") ||
+      (left.category ?? "").localeCompare(right.category ?? "", "en") ||
       left.name.localeCompare(right.name, "en") ||
-      left.slug.localeCompare(right.slug, "en"),
+      (left.slug ?? "").localeCompare(right.slug ?? "", "en"),
   );
 }
 
 export interface DecisionDeckAmenities {
-  featured: DecisionDeckValue<readonly ProjectAmenity[]>;
-  all: DecisionDeckValue<readonly ProjectAmenity[]>;
+  featured: DecisionDeckValue<readonly PublicProjectAmenityDTO[]>;
+  all: DecisionDeckValue<readonly PublicProjectAmenityDTO[]>;
 }
 
-function amenitiesPresentation(project: ProjectDetail): DecisionDeckAmenities {
-  const all = sortCanonicalAmenities(projectAmenities(project));
+function amenitiesPresentation(project: PublicProjectDetailDTO): DecisionDeckAmenities {
+  const all = sortCanonicalAmenities(project.amenities ?? []);
   const featured = all.filter((amenity) => amenity.isFeatured).slice(0, 8);
 
   return {
@@ -274,12 +263,12 @@ export interface DecisionDeckPlans {
   all: DecisionDeckValue<readonly DecisionDeckMediaAsset[]>;
 }
 
-function plansPresentation(project: ProjectDetail): DecisionDeckPlans {
+function plansPresentation(project: PublicProjectDetailDTO): DecisionDeckPlans {
   const seenUrls = new Set<string>();
   const category = (
     id: DecisionDeckPlanCategoryId,
     label: string,
-    candidates: readonly ProjectDetailMediaItem[],
+    candidates: readonly PublicProjectMediaDTO[],
   ): DecisionDeckPlanCategory | null => {
     const items: DecisionDeckMediaAsset[] = [];
     for (const item of candidates) {
@@ -291,11 +280,11 @@ function plansPresentation(project: ProjectDetail): DecisionDeckPlans {
     return items.length > 0 ? { id, label, items } : null;
   };
 
-  const master = projectMasterPlan(project);
+  const master = project.media?.masterPlan;
   const categories = [
     category("master-plan", "Master plan", master ? [master] : []),
-    category("floor-plans", "Floor plan", projectFloorPlans(project)),
-    category("unit-plans", "Unit plan", projectUnitPlans(project)),
+    category("floor-plans", "Floor plan", project.media?.floorPlans ?? []),
+    category("unit-plans", "Unit plan", project.media?.unitPlans ?? []),
   ].filter((item): item is DecisionDeckPlanCategory => item !== null);
   const all = categories.flatMap((item) => item.items);
 
@@ -327,24 +316,19 @@ const DOCUMENT_LABELS: Readonly<Record<DecisionDeckDocument["type"], string>> = 
 };
 
 function documentsPresentation(
-  project: ProjectDetail,
+  project: PublicProjectDetailDTO,
   plans: DecisionDeckPlans,
 ): DecisionDeckValue<readonly DecisionDeckDocument[]> {
   const planUrls = new Set(
     plans.all.state === "supported" ? plans.all.value.map((item) => item.url) : [],
   );
-  const mapDocument = locationMapDocument(project);
   const counts = new Map<DecisionDeckDocument["type"], number>();
   const documents: DecisionDeckDocument[] = [];
 
-  for (const document of publicProjectDocuments(project)) {
+  for (const document of project.media?.documents ?? []) {
     if (!GENERAL_DOCUMENT_TYPES.has(document.type as DecisionDeckDocument["type"])) continue;
     if (planUrls.has(document.url.trim())) continue;
-    if (
-      mapDocument &&
-      mapDocument.id === document.id &&
-      mapDocument.url.trim() === document.url.trim()
-    ) {
+    if (document.type === "document" && document.isMap) {
       continue;
     }
 
@@ -372,21 +356,23 @@ export interface DecisionDeckDeveloper {
   logoUrl: string;
 }
 
-function developerPresentation(project: ProjectDetail): DecisionDeckValue<DecisionDeckDeveloper> {
-  const identity = developerIdentity(project);
-  if (identity.state === "withheld") {
+function developerPresentation(
+  project: PublicProjectDetailDTO,
+): DecisionDeckValue<DecisionDeckDeveloper> {
+  const developer = project.developer;
+  if (developer?.state === "withheld") {
     return conflicting("developer-sources-disagree");
   }
-  if (identity.state === "absent") return empty("developer-not-recorded");
-  const name = publicRecordedText(identity.name);
+  if (!developer) return empty("developer-not-recorded");
+  const name = publicRecordedText(developer.name);
   if (!name) return empty("developer-not-recorded");
 
   return supported({
     name,
-    verified: identity.verified,
-    description: identity.verified ? (project.developer?.description.trim() ?? "") : "",
-    website: identity.verified ? publicHttpUrl(project.developer?.website) : "",
-    logoUrl: identity.verified ? (project.developer?.logoUrl.trim() ?? "") : "",
+    verified: developer.verified,
+    description: developer.verified ? (developer.description?.trim() ?? "") : "",
+    website: developer.verified ? publicHttpUrl(developer.website) : "",
+    logoUrl: developer.verified ? publicHttpUrl(developer.logoUrl) : "",
   });
 }
 
@@ -400,37 +386,42 @@ export interface DecisionDeckLocation {
   nearbySchools: readonly string[];
   nearbyHospitals: readonly string[];
   lifestyle: readonly string[];
-  mapDocument: ProjectDetailDocument | null;
+  mapDocument: PublicProjectMediaDTO | null;
 }
 
-function locationPresentation(project: ProjectDetail): DecisionDeckValue<DecisionDeckLocation> {
-  const area = publicRecordedText(project.location.area || project.core.location);
-  const address = publicRecordedText(project.core.address);
+function locationPresentation(
+  project: PublicProjectDetailDTO,
+): DecisionDeckValue<DecisionDeckLocation> {
+  const location = project.location;
+  const area = publicRecordedText(location?.area);
+  const address = publicRecordedText(location?.address);
   const latitude =
-    typeof project.location.latitude === "number" &&
-    Number.isFinite(project.location.latitude) &&
-    project.location.latitude >= -90 &&
-    project.location.latitude <= 90
-      ? project.location.latitude
+    typeof location?.latitude === "number" &&
+    Number.isFinite(location.latitude) &&
+    location.latitude >= -90 &&
+    location.latitude <= 90
+      ? location.latitude
       : null;
   const longitude =
-    typeof project.location.longitude === "number" &&
-    Number.isFinite(project.location.longitude) &&
-    project.location.longitude >= -180 &&
-    project.location.longitude <= 180
-      ? project.location.longitude
+    typeof location?.longitude === "number" &&
+    Number.isFinite(location.longitude) &&
+    location.longitude >= -180 &&
+    location.longitude <= 180
+      ? location.longitude
       : null;
   const hasCoordinates = latitude !== null && longitude !== null;
-  const mapDocument = locationMapDocument(project);
-  const nearbySchools = recordedList(project.location.nearbySchools);
-  const nearbyHospitals = recordedList(project.location.nearbyHospitals);
-  const lifestyle = recordedList(project.location.lifestyle);
+  const mapDocument =
+    project.media?.documents?.find((document) => document.type === "document" && document.isMap) ??
+    null;
+  const nearbySchools = recordedList(location?.nearbySchools ?? []);
+  const nearbyHospitals = recordedList(location?.nearbyHospitals ?? []);
+  const lifestyle = recordedList(location?.lifestyle ?? []);
   const present = Boolean(
     area ||
     address ||
     hasCoordinates ||
-    publicRecordedText(project.location.distanceToBeach) ||
-    publicRecordedText(project.location.distanceToAirport) ||
+    publicRecordedText(location?.distanceToBeach) ||
+    publicRecordedText(location?.distanceToAirport) ||
     nearbySchools.length ||
     nearbyHospitals.length ||
     lifestyle.length ||
@@ -443,8 +434,8 @@ function locationPresentation(project: ProjectDetail): DecisionDeckValue<Decisio
         address,
         latitude,
         longitude,
-        distanceToBeach: publicRecordedText(project.location.distanceToBeach),
-        distanceToAirport: publicRecordedText(project.location.distanceToAirport),
+        distanceToBeach: publicRecordedText(location?.distanceToBeach),
+        distanceToAirport: publicRecordedText(location?.distanceToAirport),
         nearbySchools,
         nearbyHospitals,
         lifestyle,
@@ -462,14 +453,14 @@ export interface DecisionDeckOverview {
 }
 
 function overviewPresentation(
-  project: ProjectDetail,
+  project: PublicProjectDetailDTO,
   units: DecisionDeckUnits,
 ): DecisionDeckValue<DecisionDeckOverview> {
   const overview: DecisionDeckOverview = {
-    projectType: recordedText(project.core.type),
-    constructionContext: recordedText(project.core.constructionStatus),
-    location: recordedText(project.location.area || project.core.location),
-    address: recordedText(project.core.address),
+    projectType: recordedText(project.projectType),
+    constructionContext: recordedText(project.constructionStatus),
+    location: recordedText(project.location?.area),
+    address: recordedText(project.location?.address),
     listedInventory: units.summary,
   };
   const present = Object.values(overview).some((field) => field.state === "supported");
@@ -504,10 +495,10 @@ export interface DecisionDeckPassport {
 }
 
 function passportPresentation(
-  project: ProjectDetail,
+  project: PublicProjectDetailDTO,
   units: DecisionDeckUnits,
 ): DecisionDeckPassport {
-  const slug = project.core.slug.trim();
+  const slug = project.slug.trim();
   const foreverId = slug
     ? supported(`FOREVER-${slug.toUpperCase()}`)
     : empty<string>("project-slug-not-recorded");
@@ -517,7 +508,7 @@ function passportPresentation(
   // reopen the same claim through a second path.
   const verdict = unavailable<string>("published-verdict-not-recorded");
   const lastInspection = unavailable<string>("published-inspection-not-recorded");
-  const lastPriceUpdate = recordedText(project.pricing.lastPriceUpdate);
+  const lastPriceUpdate = recordedText(project.pricing?.lastPriceUpdate);
 
   const compact: DecisionDeckCompactPassport = {
     foreverId,
@@ -562,7 +553,7 @@ export interface DecisionDeckIntelligenceEvidence {
 }
 
 function intelligencePresentation(
-  _project: ProjectDetail,
+  _project: PublicProjectDetailDTO,
 ): DecisionDeckValue<DecisionDeckIntelligenceEvidence> {
   return unavailable("no-direct-published-intelligence-evidence");
 }
@@ -580,22 +571,22 @@ export interface DecisionDeckDecisionRail {
 }
 
 function decisionRailPresentation(
-  project: ProjectDetail,
+  project: PublicProjectDetailDTO,
   units: DecisionDeckUnits,
   passport: DecisionDeckPassport,
 ): DecisionDeckDecisionRail {
   return {
     verdict: passport.compact.verdict,
-    priceFromTHB: positiveNumber(project.pricing.startingPriceTHB),
+    priceFromTHB: positiveNumber(project.pricing?.startingPriceTHB),
     currentInventory: units.summary,
     buyerProfile: passport.compact.buyerProfile,
     strongestVerifiedReason: unavailable("verified-reason-not-recorded"),
     principalVerifiedCaution: unavailable("verified-caution-not-recorded"),
-    constructionContext: recordedText(project.core.constructionStatus),
-    ownership:
-      project.core.ownershipPresentationState === "withheld" || project.core.ownershipType.trim()
-        ? withheld("ownership-not-approved-for-public-presentation")
-        : empty("ownership-not-recorded"),
+    constructionContext: recordedText(project.constructionStatus),
+    // Ownership has no approved public evidence contract. The DTO contains no
+    // ownership property at all; the presentation state is a fixed release
+    // policy, not a blank private-schema field.
+    ownership: withheld("ownership-not-approved-for-public-presentation"),
     lastVerifiedUpdate: passport.compact.lastPriceUpdate,
   };
 }
@@ -607,9 +598,9 @@ export interface DecisionDeckUpdate {
 }
 
 function updatesPresentation(
-  project: ProjectDetail,
+  project: PublicProjectDetailDTO,
 ): DecisionDeckValue<readonly DecisionDeckUpdate[]> {
-  const date = publicRecordedText(project.pricing.lastPriceUpdate);
+  const date = publicRecordedText(project.pricing?.lastPriceUpdate);
   return date
     ? supported([{ type: "price-list", label: "Price list updated", date }])
     : empty("no-supported-project-updates");
@@ -634,10 +625,10 @@ export interface BuildDecisionDeckOptions {
 }
 
 function relatedPresentation(
-  project: ProjectDetail,
+  project: PublicProjectDetailDTO,
   candidates: readonly DecisionDeckRelatedProjectInput[],
 ): DecisionDeckValue<readonly DecisionDeckRelatedProject[]> {
-  const currentSlug = project.core.slug.trim().toLowerCase();
+  const currentSlug = project.slug.trim().toLowerCase();
   const seen = new Set<string>();
   const related: DecisionDeckRelatedProject[] = [];
 
@@ -697,7 +688,7 @@ export interface DecisionDeckModel {
 }
 
 export function buildDecisionDeckModel(
-  project: ProjectDetail,
+  project: PublicProjectDetailDTO,
   options: BuildDecisionDeckOptions = {},
 ): DecisionDeckModel {
   const photos = safePhotos(project);

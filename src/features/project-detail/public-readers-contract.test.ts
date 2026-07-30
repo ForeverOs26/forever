@@ -40,9 +40,18 @@ import { ProjectService } from "@/lib/project-service";
 import { GALLERY_EXCLUDED_ROLES } from "@/lib/public-media-policy";
 
 import { groupProjectMedia } from "./project-detail-mappers";
+import { publicProjectDetail } from "./public-project-detail";
 import { projectPhotographs, projectSocialImage } from "./project-sections";
-import { buildProjectStructuredData } from "./project-structured-data";
+import { buildProjectStructuredData as buildPublicProjectStructuredData } from "./project-structured-data";
 import type { ProjectMediaRow } from "./project-detail-types";
+
+function buildProjectStructuredData(
+  project: ReturnType<typeof makeProjectDetail>,
+  url: string,
+  image?: string,
+) {
+  return buildPublicProjectStructuredData(publicProjectDetail(project), url, image);
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures

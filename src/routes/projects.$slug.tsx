@@ -5,8 +5,10 @@ import {
   buildProjectStructuredData,
   projectPublicFactDescription,
 } from "@/features/project-detail/project-structured-data";
-import { projectSocialImage } from "@/features/project-detail/project-sections";
-import type { ProjectDetail } from "@/features/project-detail/project-detail-types";
+import {
+  publicProjectSocialImage,
+  type PublicProjectDetailDTO,
+} from "@/features/project-detail/public-project-detail";
 import { SiteShell } from "@/components/SiteShell";
 import { Section } from "@/components/layout/Section";
 import { Button } from "@/components/ui/button";
@@ -20,13 +22,11 @@ export const Route = createFileRoute("/projects/$slug")({
   errorComponent: ErrorView,
 });
 
-function buildProjectHead(slug: string, project?: ProjectDetail) {
+function buildProjectHead(slug: string, project?: PublicProjectDetailDTO) {
   // The same filtered photograph list the page itself renders. Not a second
   // "hero ?? gallery[0]" of its own — that expression is how a reader drifts.
-  const image = project ? (projectSocialImage(project) ?? undefined) : undefined;
-  const title = project
-    ? `${project.core.name} - Forever Project Record`
-    : "Project Record - Forever";
+  const image = project ? (publicProjectSocialImage(project) ?? undefined) : undefined;
+  const title = project ? `${project.name} - Forever Project Record` : "Project Record - Forever";
   const description = project
     ? projectPublicFactDescription(project)
     : "Forever project record for a Phuket development.";

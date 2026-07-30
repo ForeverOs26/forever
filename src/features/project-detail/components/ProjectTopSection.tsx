@@ -4,14 +4,14 @@ import { ArrowLeft, Building2, FlaskConical, MapPin, ShieldCheck } from "lucide-
 import { Container } from "@/components/layout/Container";
 
 import type { DecisionDeckModel, DecisionDeckValue } from "../decision-deck-model";
-import type { ProjectDetail } from "../project-detail-types";
+import type { PublicProjectDetailDTO } from "../public-project-detail";
 import { ProjectDecisionRail } from "./ProjectDecisionRail";
 import { ProjectLightbox, useLightbox } from "./ProjectLightbox";
 import { ProjectMediaMosaic } from "./ProjectMediaMosaic";
 import { ProjectPassportStrip } from "./ProjectPassportStrip";
 
 export interface ProjectTopSectionProps {
-  project: ProjectDetail;
+  project: PublicProjectDetailDTO;
   model: DecisionDeckModel;
 }
 
@@ -35,7 +35,7 @@ export function ProjectTopSection({ project, model }: ProjectTopSectionProps) {
         title: asset.label,
         url: asset.url,
         sortOrder: asset.sortOrder,
-        semanticRole: asset.semanticRole,
+        semanticRole: null,
       }))
     : [];
   const lightbox = useLightbox();
@@ -60,7 +60,7 @@ export function ProjectTopSection({ project, model }: ProjectTopSectionProps) {
         </Link>
 
         <div className="mt-3 flex flex-wrap items-center gap-2.5">
-          {project.core.isDemoPreview ? (
+          {project.isDemoPreview ? (
             <span className="inline-flex items-center gap-2 rounded-full border border-amber-300/60 bg-amber-50 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.16em] text-amber-900">
               <FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />
               Unpublished project preview
@@ -82,7 +82,7 @@ export function ProjectTopSection({ project, model }: ProjectTopSectionProps) {
 
         <div className="mt-3 min-w-0">
           <h1 className="font-serif text-[clamp(2rem,1.4rem+2.1vw,3rem)] leading-[1.05] tracking-tight text-foreground">
-            {project.core.name}
+            {project.name}
           </h1>
           {location ? (
             <p className="mt-3 inline-flex items-center gap-2 text-base text-muted-foreground">
@@ -107,7 +107,7 @@ export function ProjectTopSection({ project, model }: ProjectTopSectionProps) {
           <div data-composition-id="media" className="min-w-0">
             <ProjectMediaMosaic
               items={photographs}
-              projectName={project.core.name}
+              projectName={project.name}
               onOpen={lightbox.open}
               film={supported(model.media.film) ? model.media.film.value : null}
             />
@@ -126,7 +126,7 @@ export function ProjectTopSection({ project, model }: ProjectTopSectionProps) {
         index={lightbox.index}
         onIndexChange={lightbox.onIndexChange}
         onClose={lightbox.close}
-        label={`${project.core.name} photographs`}
+        label={`${project.name} photographs`}
       />
     </section>
   );

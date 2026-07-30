@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import { mapProjectDetail } from "./project-detail-mappers";
+import { publicProjectDetail } from "./public-project-detail";
 import type { ProjectDetail, ProjectDetailRecord } from "./project-detail-types";
 import {
-  buildProjectStructuredData,
+  buildProjectStructuredData as buildPublicProjectStructuredData,
   mapRecordedStatusToAvailability,
 } from "./project-structured-data";
+
+function buildProjectStructuredData(project: ProjectDetail, url: string, image?: string) {
+  return buildPublicProjectStructuredData(publicProjectDetail(project), url, image);
+}
 
 /**
  * FOREVER-TRUTH-001A JSON-LD regressions: structured data must follow the

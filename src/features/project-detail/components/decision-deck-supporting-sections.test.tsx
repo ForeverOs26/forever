@@ -41,7 +41,6 @@ function mediaAsset(overrides: Partial<DecisionDeckMediaAsset> = {}): DecisionDe
     type: "gallery",
     url: "https://cdn.example.com/asset.jpg",
     sortOrder: 0,
-    semanticRole: null,
     label: "Generated media label",
     source: "public-project-media",
     ...overrides,

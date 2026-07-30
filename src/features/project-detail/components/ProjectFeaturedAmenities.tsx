@@ -3,17 +3,17 @@ import { Circle } from "lucide-react";
 import { Section } from "@/components/layout/Section";
 
 import type { DecisionDeckValue } from "../decision-deck-model";
-import type { ProjectAmenity } from "../project-detail-types";
+import type { PublicProjectAmenityDTO } from "../public-project-detail";
 
 type FeaturedAmenitiesInput =
-  | DecisionDeckValue<readonly ProjectAmenity[]>
-  | readonly ProjectAmenity[];
+  | DecisionDeckValue<readonly PublicProjectAmenityDTO[]>
+  | readonly PublicProjectAmenityDTO[];
 
 export interface ProjectFeaturedAmenitiesProps {
   amenities: FeaturedAmenitiesInput;
 }
 
-function supportedAmenities(input: FeaturedAmenitiesInput): readonly ProjectAmenity[] {
+function supportedAmenities(input: FeaturedAmenitiesInput): readonly PublicProjectAmenityDTO[] {
   if ("state" in input) {
     return input.state === "supported" ? input.value : [];
   }
@@ -42,7 +42,7 @@ export function ProjectFeaturedAmenities({ amenities }: ProjectFeaturedAmenities
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {items.map((amenity, index) => {
           const name = amenity.name.trim();
-          const note = amenity.note.trim();
+          const note = amenity.note?.trim() ?? "";
           return (
             <li
               key={`${amenity.id || amenity.slug || name}-${index}`}

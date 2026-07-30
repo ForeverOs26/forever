@@ -18,7 +18,13 @@ import {
   makeUnit,
 } from "@/features/forever-database/tests/fixtures";
 
-import { ProjectDetailEngine } from "./ProjectDetailEngine";
+import { publicProjectDetail } from "../public-project-detail";
+import type { ProjectDetail } from "../project-detail-types";
+import { ProjectDetailEngine as PublicProjectDetailEngine } from "./ProjectDetailEngine";
+
+function ProjectDetailEngine({ project }: { project: ProjectDetail }) {
+  return <PublicProjectDetailEngine project={publicProjectDetail(project)} />;
+}
 
 async function renderInRouter(ui: ReactNode, settle: string) {
   const rootRoute = createRootRoute({

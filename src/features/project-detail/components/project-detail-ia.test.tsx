@@ -36,8 +36,9 @@ import {
   paymentPlanDocument,
   projectPhotographs,
 } from "../project-sections";
-import { buildDecisionDeckModel } from "../decision-deck-model";
+import { buildDecisionDeckModel as buildPublicDecisionDeckModel } from "../decision-deck-model";
 import { groupProjectMedia } from "../project-detail-mappers";
+import { publicProjectDetail } from "../public-project-detail";
 import type { ProjectDetail } from "../project-detail-types";
 import { projectQuickFacts } from "./ProjectQuickFacts";
 import { projectSummaryRows } from "./ProjectSummaryPanel";
@@ -49,7 +50,15 @@ import { ProjectPaymentPlan } from "./ProjectPaymentPlan";
 import { ProjectMobileCTA } from "./ProjectMobileCTA";
 import { ProjectPhotos } from "./ProjectPhotos";
 import { ProjectOverview } from "./ProjectOverview";
-import { ProjectDetailEngine } from "./ProjectDetailEngine";
+import { ProjectDetailEngine as PublicProjectDetailEngine } from "./ProjectDetailEngine";
+
+function buildDecisionDeckModel(project: ProjectDetail) {
+  return buildPublicDecisionDeckModel(publicProjectDetail(project));
+}
+
+function ProjectDetailEngine({ project }: { project: ProjectDetail }) {
+  return <PublicProjectDetailEngine project={publicProjectDetail(project)} />;
+}
 
 /** Anything containing a router `Link` needs a router in the tree. */
 async function renderInRouter(ui: ReactNode, settle: string) {

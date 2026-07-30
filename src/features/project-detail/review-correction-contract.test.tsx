@@ -19,8 +19,9 @@ import {
 } from "./developer-identity";
 import { mapProjectDetailToProperty } from "./demo-preview";
 import { buildModevaPartnerDemoCore } from "./partner-demo-truth";
-import { buildDecisionDeckModel } from "./decision-deck-model";
-import { buildProjectStructuredData } from "./project-structured-data";
+import { buildDecisionDeckModel as buildPublicDecisionDeckModel } from "./decision-deck-model";
+import { buildProjectStructuredData as buildPublicProjectStructuredData } from "./project-structured-data";
+import { publicProjectDetail } from "./public-project-detail";
 import type {
   ProjectDetail,
   ProjectDetailDocument,
@@ -72,13 +73,17 @@ function document(
 }
 
 function structuredJson(project: ProjectDetail): string {
-  return buildProjectStructuredData(
-    project,
+  return buildPublicProjectStructuredData(
+    publicProjectDetail(project),
     `https://example.com/projects/${project.core.slug}`,
     projectSocialImage(project) ?? undefined,
   )
     .map((script) => script.children)
     .join("\n");
+}
+
+function buildDecisionDeckModel(project: ProjectDetail) {
+  return buildPublicDecisionDeckModel(publicProjectDetail(project));
 }
 
 describe("F2-NEAR-MATCH and F2-CONSUMER-BYPASS", () => {

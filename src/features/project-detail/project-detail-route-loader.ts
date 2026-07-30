@@ -13,7 +13,7 @@ export async function loadProjectDetailRouteData(queryClient: QueryClient, slug:
   // projects are optional even for public records: their reader must never
   // replace a successfully loaded core project with an error page.
   let relatedProjects: RelatedPublishedProject[] = [];
-  if (!project.core.isDemoPreview && !project.core.usesLocalPreviewData) {
+  if (!project.isDemoPreview && !project.usesLocalPreviewData) {
     try {
       relatedProjects = await queryClient.ensureQueryData(projectRelatedPublishedQuery(slug));
     } catch {

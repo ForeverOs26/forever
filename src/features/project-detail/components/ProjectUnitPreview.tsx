@@ -4,7 +4,7 @@ import { Section } from "@/components/layout/Section";
 import { Button } from "@/components/ui/button";
 
 import type { DecisionDeckUnits, DecisionDeckValue } from "../decision-deck-model";
-import type { ProjectDetailUnit } from "../project-detail-types";
+import type { PublicProjectUnitDTO } from "../public-project-detail";
 import {
   applyUnitFilters,
   areaLabel,
@@ -41,7 +41,7 @@ const SORTS: Array<{ value: UnitSort; label: string }> = [
   { value: "area-desc", label: "Area: large to small" },
 ];
 
-function UnitCard({ unit }: { unit: ProjectDetailUnit }) {
+function UnitCard({ unit }: { unit: PublicProjectUnitDTO }) {
   const available = isAvailable(unit);
   return (
     <li

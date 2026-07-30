@@ -112,7 +112,7 @@ export function ProjectPlans({ plans }: ProjectPlansProps) {
         title: label,
         url: asset.url,
         sortOrder: asset.sortOrder,
-        semanticRole: asset.semanticRole,
+        semanticRole: null,
       })),
   );
 

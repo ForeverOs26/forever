@@ -12,7 +12,18 @@
  * shows as an em dash, not as "price on request".
  */
 
-import type { ProjectDetailUnit } from "./project-detail-types";
+export interface UnitPresentationInput {
+  id: string;
+  code: string;
+  availabilityStatus: string;
+  buildingCode?: string;
+  type?: string;
+  bedrooms?: number | null;
+  sizeSqm?: number | null;
+  floor?: number | null;
+  basePriceTHB?: number | null;
+  discountedPriceTHB?: number | null;
+}
 
 export type UnitAvailabilityState = "available" | "sold" | "reserved" | "unavailable" | "unknown";
 
@@ -85,7 +96,7 @@ export function unitAvailabilityPresentation(
   };
 }
 
-export function isAvailable(unit: ProjectDetailUnit): boolean {
+export function isAvailable(unit: UnitPresentationInput): boolean {
   return unitAvailabilityPresentation(unit.availabilityStatus).availableCountEligible;
 }
 
@@ -102,7 +113,7 @@ export function statusLabel(status: string | null | undefined): string {
  * whose price exists only there shows an em dash rather than leaking that table
  * or inventing a "price on request" claim the record does not support.
  */
-export function priceLabel(unit: ProjectDetailUnit): string {
+export function priceLabel(unit: UnitPresentationInput): string {
   const price = unit.discountedPriceTHB ?? unit.basePriceTHB;
   if (price === null || price === undefined) return "—";
   const numeric = Number(price);
@@ -110,7 +121,7 @@ export function priceLabel(unit: ProjectDetailUnit): string {
   return `฿${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(numeric)}`;
 }
 
-export function areaLabel(unit: ProjectDetailUnit): string {
+export function areaLabel(unit: UnitPresentationInput): string {
   if (unit.sizeSqm === null || unit.sizeSqm === undefined) return "—";
   const numeric = Number(unit.sizeSqm);
   if (!Number.isFinite(numeric)) return "—";
@@ -118,14 +129,14 @@ export function areaLabel(unit: ProjectDetailUnit): string {
 }
 
 /** Numeric price for sorting and ranges, or null when the record has none. */
-export function priceValue(unit: ProjectDetailUnit): number | null {
+export function priceValue(unit: UnitPresentationInput): number | null {
   const price = unit.discountedPriceTHB ?? unit.basePriceTHB;
   if (price === null || price === undefined) return null;
   const numeric = Number(price);
   return Number.isFinite(numeric) ? numeric : null;
 }
 
-export function areaValue(unit: ProjectDetailUnit): number | null {
+export function areaValue(unit: UnitPresentationInput): number | null {
   if (unit.sizeSqm === null || unit.sizeSqm === undefined) return null;
   const numeric = Number(unit.sizeSqm);
   return Number.isFinite(numeric) ? numeric : null;
@@ -138,7 +149,7 @@ export function areaValue(unit: ProjectDetailUnit): number | null {
  * shown as sold, never folded into the available count. Deterministic order
  * keeps the table stable between loads.
  */
-export function unitRows(units: readonly ProjectDetailUnit[]): ProjectDetailUnit[] {
+export function unitRows<T extends UnitPresentationInput>(units: readonly T[]): T[] {
   return [...units].sort((left, right) => {
     const leftAvailable = isAvailable(left);
     const rightAvailable = isAvailable(right);
@@ -188,7 +199,7 @@ export interface UnitFacet {
  * have it. Counts are over the whole inventory, not the current selection, so
  * the control does not renumber itself as the user narrows it.
  */
-export function unitFacets(units: readonly ProjectDetailUnit[]): {
+export function unitFacets(units: readonly UnitPresentationInput[]): {
   bedrooms: UnitFacet[];
   buildings: UnitFacet[];
   types: UnitFacet[];
@@ -208,7 +219,7 @@ export function unitFacets(units: readonly ProjectDetailUnit[]): {
     if (unit.buildingCode) {
       buildings.set(unit.buildingCode, (buildings.get(unit.buildingCode) ?? 0) + 1);
     }
-    const type = unit.type.trim();
+    const type = unit.type?.trim() ?? "";
     if (type) types.set(type, (types.get(type) ?? 0) + 1);
   }
 
@@ -226,10 +237,10 @@ export function unitFacets(units: readonly ProjectDetailUnit[]): {
 }
 
 /** Apply the filters entirely in memory: the inventory is already loaded. */
-export function applyUnitFilters(
-  units: readonly ProjectDetailUnit[],
+export function applyUnitFilters<T extends UnitPresentationInput>(
+  units: readonly T[],
   filters: UnitFilterState,
-): ProjectDetailUnit[] {
+): T[] {
   const filtered = units.filter((unit) => {
     if (
       !filters.includeUnavailable &&
@@ -239,7 +250,7 @@ export function applyUnitFilters(
     if (filters.bedrooms !== "all" && String(unit.bedrooms ?? "") !== filters.bedrooms)
       return false;
     if (filters.building !== "all" && (unit.buildingCode ?? "") !== filters.building) return false;
-    if (filters.type !== "all" && unit.type.trim() !== filters.type) return false;
+    if (filters.type !== "all" && (unit.type?.trim() ?? "") !== filters.type) return false;
     return true;
   });
 
@@ -261,7 +272,7 @@ export function applyUnitFilters(
 }
 
 /** Human range across the inventory, e.g. "30 – 64 m²". Empty when unknown. */
-export function unitSizeRange(units: readonly ProjectDetailUnit[]): string {
+export function unitSizeRange(units: readonly UnitPresentationInput[]): string {
   const values = units.map(areaValue).filter((value): value is number => value !== null);
   if (values.length === 0) return "";
   const min = Math.min(...values);
@@ -272,7 +283,7 @@ export function unitSizeRange(units: readonly ProjectDetailUnit[]): string {
 }
 
 /** Distinct building codes present in the inventory, in stable order. */
-export function buildingCodes(units: readonly ProjectDetailUnit[]): string[] {
+export function buildingCodes(units: readonly UnitPresentationInput[]): string[] {
   const codes = new Set<string>();
   for (const unit of units) if (unit.buildingCode) codes.add(unit.buildingCode);
   return [...codes].sort((a, b) => a.localeCompare(b, "en", { numeric: true }));

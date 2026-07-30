@@ -8,12 +8,22 @@ import {
 } from "@/features/forever-database/tests/fixtures";
 
 import {
-  buildDecisionDeckModel,
+  buildDecisionDeckModel as buildPublicDecisionDeckModel,
+  type BuildDecisionDeckOptions,
   DECISION_DECK_COMPOSITION_ORDER,
   DECISION_DECK_SECTION_ORDER,
   isDirectPlayableProjectFilmUrl,
 } from "./decision-deck-model";
-import type { ProjectDetailDocument, ProjectDetailMediaItem } from "./project-detail-types";
+import { publicProjectDetail } from "./public-project-detail";
+import type {
+  ProjectDetail,
+  ProjectDetailDocument,
+  ProjectDetailMediaItem,
+} from "./project-detail-types";
+
+function buildDecisionDeckModel(project: ProjectDetail, options: BuildDecisionDeckOptions = {}) {
+  return buildPublicDecisionDeckModel(publicProjectDetail(project), options);
+}
 
 function document(type: string, id: string, url: string): ProjectDetailDocument {
   return {
@@ -154,7 +164,7 @@ describe("Decision Deck truth states", () => {
     ];
     const model = buildDecisionDeckModel(makeProjectDetail({ units }));
 
-    expect(model.units.rows).toBe(units);
+    expect(model.units.rows).not.toBe(units);
     expect(model.units.rows.map((unit) => unit.code)).toEqual(["C-301", "A-101", "B-201"]);
     expect(model.units.summary).toEqual({
       state: "supported",
