@@ -936,6 +936,7 @@ function scenarios() {
 const runtimeControls = {
   role_security: {},
   sql_mutations: {},
+  mutation_injection: {},
 };
 
 function expectSqlFailure(name, sql, expected) {
@@ -950,13 +951,288 @@ function expectSqlFailure(name, sql, expected) {
   runtimeControls.sql_mutations[name] = { rejected: true, expected_error: expected.source };
 }
 
-function mutatedBaseline(name, needle, replacement) {
-  const raw = readFileSync(SQL_PATH, "utf8");
-  const mutated = raw.replace(needle, replacement);
+// ---------------------------------------------------------------------------
+// Newline-independent SQL mutation
+// ---------------------------------------------------------------------------
+/**
+ * A privacy-weakening fixture is only a control if the weakening actually
+ * reaches the SQL, and that turns out to be a cross-platform problem rather
+ * than a cosmetic one. `core.autocrlf=true` is the default on a Windows Git
+ * install and this repository pins no `.gitattributes`, so the very same commit
+ * legitimately lands on disk as LF for one contributor and as CRLF for the
+ * next. A needle carrying a literal "\n" cannot match CRLF text;
+ * `String.prototype.replace` then returns its input untouched, and a fixture
+ * that weakens nothing proves nothing.
+ *
+ * So every weakening is declared once, in `SQL_WEAKENINGS`, and injected
+ * through one shared helper that compiles each needle to a pattern whose every
+ * line break is `\r?\n`, conforms the replacement to whatever convention the
+ * file on disk already uses, and then PROVES the result instead of assuming it:
+ *
+ *   * the pattern must match exactly the expected number of times — zero means
+ *     the needle no longer describes the script, more than one means it is no
+ *     longer specific enough to weaken a single place;
+ *   * an anchor that lies OUTSIDE the needle — normally the very metric the
+ *     weakening is meant to expose — must sit within `ANCHOR_WINDOW`
+ *     characters of every match, so a needle that starts matching some other
+ *     similar-looking span is rejected instead of silently rewriting the wrong
+ *     statement;
+ *   * the mutated text is assembled by splicing only the matched spans, and its
+ *     length is cross-checked against that arithmetic, so nothing else moved;
+ *   * the mutated text must differ from the input and must not mix newline
+ *     conventions.
+ *
+ * The SQL under test is never normalised. It is mutated and executed exactly as
+ * the checkout produced it, because the point of this runner is to prove what
+ * the committed script does on a real machine — not what a tidied copy would do.
+ */
+
+/** Characters either side of a match within which the location anchor must appear. */
+const ANCHOR_WINDOW = 400;
+
+/**
+ * Every privacy weakening this runner injects into the real script. `anchor` is
+ * deliberately outside `needle`: it names the emitted metric or CTE output the
+ * weakening is supposed to expose, so a needle that drifts is caught.
+ */
+const SQL_WEAKENINGS = {
+  "raw-source": {
+    needle: "        'Other / unknown source')",
+    replacement: "        ln.source_key)",
+    anchor: "sv.source_key = ln.source_key",
+  },
+  "total-only-calendar": {
+    needle: "      WHEN EXISTS (\n        SELECT 1 FROM month_raw\n"
+      + "        WHERE n > 0 AND n < (SELECT min_group_size FROM params)\n"
+      + "      ) THEN 'SUPPRESSED_LT_5'",
+    replacement: "      WHEN (SELECT total FROM totals) < (SELECT min_group_size FROM params)\n"
+      + "        THEN 'SUPPRESSED_LT_5'",
+    anchor: "END AS calendar_mode",
+  },
+  "categorical-sibling": {
+    needle: "FROM source_raw s\nWHERE (SELECT source_mode FROM dimension_release) = 'DISCLOSE'",
+    replacement: "FROM source_raw s",
+    anchor: "'6_BY_SOURCE', 'leads_from_source'",
+  },
+  "binary-complement": {
+    needle: "       CASE WHEN (SELECT release_mode FROM binary_release WHERE partition_name = 'presence_email') = 'DISCLOSE'\n"
+      + "            THEN (SELECT side_b::numeric FROM binary_release WHERE partition_name = 'presence_email') END,",
+    replacement: "       (SELECT side_b::numeric FROM binary_release WHERE partition_name = 'presence_email'),",
+    anchor: "'4_LEAD_BASELINE', 'with_email'",
+  },
+  "duplicate-cohort": {
+    needle: "       CASE WHEN (SELECT release_mode FROM duplicate_release) = 'DISCLOSE'\n"
+      + "            THEN (SELECT duplicate_groups::numeric FROM duplicate_stats) END,",
+    replacement: "       (SELECT duplicate_groups::numeric FROM duplicate_stats),",
+    anchor: "'normalized_emails_seen_more_than_once'",
+  },
+};
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, (match) => `\\${match}`);
+}
+
+/** The newline convention a piece of text already uses. */
+function sqlEol(text) {
+  const crlf = (text.match(/\r\n/g) ?? []).length;
+  const lf = (text.match(/\n/g) ?? []).length - crlf;
+  const cr = (text.match(/\r/g) ?? []).length - crlf;
+  if (cr > 0) return "MIXED";
+  if (crlf > 0 && lf === 0) return "CRLF";
+  if (lf > 0 && crlf === 0) return "LF";
+  if (crlf === 0 && lf === 0) return "NONE";
+  return "MIXED";
+}
+
+/** Rewrite every line break in `text` to `eol`. */
+function conformEol(text, eol) {
+  const lf = text.replace(/\r\n/g, "\n");
+  return eol === "CRLF" ? lf.replace(/\n/g, "\r\n") : lf;
+}
+
+/** A pattern matching `needle` under either newline convention. */
+function newlineAgnosticPattern(needle) {
+  return new RegExp(escapeRegExp(needle).replace(/\r?\n/g, "\\r?\\n"), "g");
+}
+
+/**
+ * Apply one declared weakening to `raw` and prove it landed where it should.
+ * Throws — so the harness fails closed — on anything less than certainty.
+ */
+function mutateSqlText(name, raw, needle, replacement, { expected = 1, anchor } = {}) {
+  const eol = sqlEol(raw);
+  assert(eol === "LF" || eol === "CRLF",
+    `${name}: the SQL under test reports ${eol} line endings; refusing to mutate text whose newline convention cannot be preserved`);
+  assert(!needle.includes("\r") && !replacement.includes("\r"),
+    `${name}: fixture must not hard-code CR — line breaks are matched as \\r?\\n and written in the checkout's own convention`);
+  assert(typeof anchor === "string" && anchor.length > 0 && !/[\r\n]/.test(anchor),
+    `${name}: a non-empty, newline-free location anchor is required`);
+
+  const matches = [...raw.matchAll(newlineAgnosticPattern(needle))];
+  assert(matches.length === expected,
+    `${name}: fixture needle matched ${matches.length} time(s) in the SQL under test, expected ${expected}`
+      + (matches.length === 0
+        ? ` — the needle no longer describes the script (a needle that hard-codes one newline convention cannot match a ${eol} checkout)`
+        : " — the needle is not specific enough to weaken exactly one place"));
+
+  const conformed = conformEol(replacement, eol);
+  const offsets = [];
+  let mutated = "";
+  let cursor = 0;
+  for (const match of matches) {
+    const start = match.index;
+    const end = start + match[0].length;
+    const window = raw.slice(Math.max(0, start - ANCHOR_WINDOW), Math.min(raw.length, end + ANCHOR_WINDOW));
+    assert(window.includes(anchor),
+      `${name}: mutation landed at offset ${start}, where the expected anchor ${JSON.stringify(anchor)} is absent — the needle matched the wrong part of the script`);
+    mutated += raw.slice(cursor, start) + conformed;
+    cursor = end;
+    offsets.push({ start, length: match[0].length });
+  }
+  mutated += raw.slice(cursor);
+
   assert(mutated !== raw, `${name}: fixture mutation did not change the checked-in SQL`);
+  assert(sqlEol(mutated) === eol,
+    `${name}: mutation changed the newline convention from ${eol} to ${sqlEol(mutated)}`);
+  const removed = offsets.reduce((total, o) => total + o.length, 0);
+  assert(mutated.length === raw.length - removed + (conformed.length * offsets.length),
+    `${name}: mutated length ${mutated.length} does not equal the input with exactly ${offsets.length} span(s) replaced`);
+
+  return { mutated, eol, replacements: offsets.length, offsets };
+}
+
+/**
+ * Write the declared weakening `name` to a private copy of the script and
+ * return its path. The checked-in SQL is read, never rewritten.
+ */
+function mutatedBaseline(name) {
+  const spec = SQL_WEAKENINGS[name];
+  assert(spec !== undefined, `${name}: no such declared SQL weakening`);
+  const raw = readFileSync(SQL_PATH, "utf8");
+  const proof = mutateSqlText(name, raw, spec.needle, spec.replacement, spec);
   const path = join(work, `${name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.sql`);
-  writeFileSync(path, mutated, "utf8");
+  writeFileSync(path, proof.mutated, "utf8");
+  runtimeControls.mutation_injection[name] = {
+    checkout_eol_preserved: proof.eol,
+    replacements: proof.replacements,
+    offsets: proof.offsets,
+    changed_the_sql: true,
+  };
   return path;
+}
+
+/** Prove the shared helper refuses a mutation it cannot vouch for. */
+function expectMutationRejected(label, fn, expected) {
+  let message = null;
+  try {
+    fn();
+  } catch (error) {
+    message = error.message;
+  }
+  assert(message !== null, `${label}: the mutation helper accepted a mutation it must reject`);
+  assert(expected.test(message), `${label}: rejected for the wrong reason: ${message}`);
+  runtimeControls.mutation_injection.fail_closed ??= {};
+  runtimeControls.mutation_injection.fail_closed[label] = message;
+  return message;
+}
+
+/**
+ * Prove — from whichever representation this checkout actually produced — that
+ * every declared weakening injects under all four combinations of newline
+ * convention and trailing newline, and that the helper fails closed otherwise.
+ * Pure text work: no cluster, no file, no database.
+ */
+function runMutationHelperProofs() {
+  const scenario = "mutation helper cross-platform proof";
+  const disk = readFileSync(SQL_PATH, "utf8");
+  const body = disk.replace(/\r\n?/g, "\n").replace(/\n$/, "");
+  const representations = [
+    { name: "LF with final newline", eol: "LF", raw: `${body}\n` },
+    { name: "LF without final newline", eol: "LF", raw: body },
+    { name: "CRLF with final newline", eol: "CRLF", raw: `${body.replace(/\n/g, "\r\n")}\r\n` },
+    { name: "CRLF without final newline", eol: "CRLF", raw: body.replace(/\n/g, "\r\n") },
+  ];
+  const checkoutEol = sqlEol(disk);
+  runtimeControls.mutation_injection.checkout = {
+    eol: checkoutEol,
+    ends_with_newline: /\n$/.test(disk),
+    bytes: Buffer.byteLength(disk, "utf8"),
+  };
+  runtimeControls.mutation_injection.representations = {};
+
+  check(scenario, `the script is read as ${checkoutEol} and every weakening is declared newline-agnostically`, () => {
+    assert(checkoutEol === "LF" || checkoutEol === "CRLF",
+      `the SQL on disk reports ${checkoutEol} line endings`);
+    const names = Object.keys(SQL_WEAKENINGS);
+    assert(names.length === 5, `expected five declared weakenings, found ${names.length}`);
+    for (const [name, spec] of Object.entries(SQL_WEAKENINGS)) {
+      assert(!spec.needle.includes("\r") && !spec.replacement.includes("\r"),
+        `${name} hard-codes CR instead of relying on the \\r?\\n rewrite`);
+      assert(!/[\r\n]/.test(spec.anchor), `${name} anchor must be newline-free`);
+      assert(!spec.needle.includes(spec.anchor),
+        `${name} anchor lies inside its own needle, so it could not detect a mis-located match`);
+    }
+  });
+
+  for (const rep of representations) {
+    check(scenario, `every declared weakening injects exactly once under ${rep.name}`, () => {
+      assert(sqlEol(rep.raw) === rep.eol, `representation ${rep.name} is not ${rep.eol}`);
+      const proofs = {};
+      for (const [name, spec] of Object.entries(SQL_WEAKENINGS)) {
+        const proof = mutateSqlText(name, rep.raw, spec.needle, spec.replacement, spec);
+        assert(proof.replacements === (spec.expected ?? 1),
+          `${name} replaced ${proof.replacements} span(s) under ${rep.name}`);
+        assert(proof.eol === rep.eol, `${name} did not preserve ${rep.eol} under ${rep.name}`);
+        assert(proof.mutated !== rep.raw, `${name} returned byte-identical SQL under ${rep.name}`);
+        proofs[name] = { replacements: proof.replacements, offsets: proof.offsets, eol_preserved: proof.eol };
+      }
+      runtimeControls.mutation_injection.representations[rep.name] = proofs;
+    });
+  }
+
+  const crlf = representations[2].raw;
+  const calendar = SQL_WEAKENINGS["total-only-calendar"];
+
+  check(scenario, "a needle that cannot match the checkout is rejected, which is what an LF-only needle becomes under CRLF", () => {
+    const literal = [...crlf.matchAll(new RegExp(escapeRegExp(calendar.needle), "g"))];
+    assert(literal.length === 0,
+      "a literal-LF needle unexpectedly matched CRLF text, so this control proves nothing");
+    expectMutationRejected("lf_only_needle_under_crlf", () => {
+      mutateSqlText("lf-only-needle", crlf,
+        calendar.needle.replace("month_raw", "month_raw_that_does_not_exist"),
+        calendar.replacement, calendar);
+    }, /matched 0 time\(s\)/);
+  });
+
+  check(scenario, "a needle carrying a hard-coded CRLF is rejected", () => {
+    expectMutationRejected("crlf_only_needle", () => {
+      mutateSqlText("crlf-only-needle", crlf,
+        calendar.needle.replace(/\n/g, "\r\n"), calendar.replacement, calendar);
+    }, /must not hard-code CR/);
+  });
+
+  check(scenario, "a needle matching more than the expected number of places is rejected", () => {
+    expectMutationRejected("too_many_replacements", () => {
+      mutateSqlText("ambiguous-needle", crlf, "'SUPPRESSED_LT_5'", "'DISCLOSED'",
+        { expected: 1, anchor: calendar.anchor });
+    }, /matched \d+ time\(s\).*expected 1/);
+  });
+
+  check(scenario, "a mutation that returns byte-identical SQL is rejected", () => {
+    expectMutationRejected("byte_identical_result", () => {
+      // The replacement is the needle itself. It is conformed to the source's
+      // CRLF, splices back over the span it matched, and so must be caught by
+      // the byte-identity guard rather than by any newline guard.
+      mutateSqlText("no-op", crlf, calendar.needle, calendar.needle, calendar);
+    }, /did not change the checked-in SQL/);
+  });
+
+  check(scenario, "a mutation whose location anchor is absent is rejected as mis-located", () => {
+    expectMutationRejected("anchor_absent", () => {
+      mutateSqlText("wrong-location", crlf, calendar.needle, calendar.replacement,
+        { ...calendar, anchor: "END AS duplicate_release_mode" });
+    }, /matched the wrong part of the script/);
+  });
 }
 
 function runRoleSecurityControls() {
@@ -1027,9 +1303,7 @@ function runSqlMutationControls() {
   });
 
   check(scenario, "raw-source mutation emits the synthetic source and is detected", () => {
-    const path = mutatedBaseline("raw-source",
-      "        'Other / unknown source')",
-      "        ln.source_key)");
+    const path = mutatedBaseline("raw-source");
     const out = runBaselineScript(path);
     assert(out.text.includes(UNKNOWN_SOURCE_EMAIL), "raw-source mutation did not create the intended leak");
     runtimeControls.sql_mutations.raw_source = { injected: true, detected: true };
@@ -1040,9 +1314,7 @@ function runSqlMutationControls() {
       ...Array.from({ length: 3 }, () => lead({ month: "2026-01" })),
       ...Array.from({ length: 2 }, () => lead({ month: "2026-02" })),
     ]);
-    const path = mutatedBaseline("total-only-calendar",
-      "      WHEN EXISTS (\n        SELECT 1 FROM month_raw\n        WHERE n > 0 AND n < (SELECT min_group_size FROM params)\n      ) THEN 'SUPPRESSED_LT_5'",
-      "      WHEN (SELECT total FROM totals) < (SELECT min_group_size FROM params)\n        THEN 'SUPPRESSED_LT_5'");
+    const path = mutatedBaseline("total-only-calendar");
     const out = runBaselineScript(path);
     assert(find(out.rows, "earliest_lead_month")?.value_text === "2026-01", "calendar mutation did not leak earliest month");
     assert(find(out.rows, "latest_lead_month")?.value_text === "2026-02", "calendar mutation did not leak latest month");
@@ -1051,9 +1323,7 @@ function runSqlMutationControls() {
 
   check(scenario, "large categorical sibling mutation recreates complement disclosure and is detected", () => {
     seed(mixedRowsForControl(10, 2, "source", UNKNOWN_SOURCE_PLAIN));
-    const path = mutatedBaseline("categorical-sibling",
-      "FROM source_raw s\nWHERE (SELECT source_mode FROM dimension_release) = 'DISCLOSE'",
-      "FROM source_raw s");
+    const path = mutatedBaseline("categorical-sibling");
     const out = runBaselineScript(path);
     assert(find(out.rows, "leads_from_source", "contact_form")?.value_num === "10",
       "categorical mutation did not expose the large sibling");
@@ -1064,9 +1334,7 @@ function runSqlMutationControls() {
 
   check(scenario, "binary complement mutation exposes present count beside one missing row and is detected", () => {
     seed([lead({ email: "", month: "2026-10" }), ...Array.from({ length: 9 }, () => lead({ month: "2026-10" }))]);
-    const path = mutatedBaseline("binary-complement",
-      "       CASE WHEN (SELECT release_mode FROM binary_release WHERE partition_name = 'presence_email') = 'DISCLOSE'\n            THEN (SELECT side_b::numeric FROM binary_release WHERE partition_name = 'presence_email') END,",
-      "       (SELECT side_b::numeric FROM binary_release WHERE partition_name = 'presence_email'),");
+    const path = mutatedBaseline("binary-complement");
     const out = runBaselineScript(path);
     assert(find(out.rows, "with_email")?.value_num === "9", "binary mutation did not expose the complement");
     runtimeControls.sql_mutations.binary_complement = { injected: true, detected: true };
@@ -1074,9 +1342,7 @@ function runSqlMutationControls() {
 
   check(scenario, "duplicate mutation exposes a one-group cohort and is detected", () => {
     seed(rowsWithEmailGroups([2], 8, { month: "2026-10" }));
-    const path = mutatedBaseline("duplicate-cohort",
-      "       CASE WHEN (SELECT release_mode FROM duplicate_release) = 'DISCLOSE'\n            THEN (SELECT duplicate_groups::numeric FROM duplicate_stats) END,",
-      "       (SELECT duplicate_groups::numeric FROM duplicate_stats),");
+    const path = mutatedBaseline("duplicate-cohort");
     const out = runBaselineScript(path);
     assert(find(out.rows, "normalized_emails_seen_more_than_once")?.value_num === "1",
       "duplicate mutation did not expose the one-group cohort");
@@ -1099,6 +1365,14 @@ const identity = {};
 async function main() {
   console.log("\nFOREVER-PR125-INDEPENDENT-REVIEW-CORRECTION-001 — executable privacy fixtures");
   console.log(`\nScript under test: ${SQL_PATH}`);
+
+  // --- STEP 0: the mutation machinery, before anything costly ----------------
+  // Pure text work. It runs first because a fixture that cannot inject its
+  // weakening on THIS checkout invalidates the mutation controls at the end of
+  // the run, and that should be reported before a cluster is ever started.
+  console.log("\n  mutation helper cross-platform proof");
+  runMutationHelperProofs();
+  console.log("");
 
   // --- STEPS 1-2: a free port nobody owns -----------------------------------
   PORT = await claimFreePort();

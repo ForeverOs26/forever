@@ -248,8 +248,9 @@ node scripts/crm/crm-slice0-lead-baseline.pg.test.mjs
 ```
 
 The **executable fixtures** run the exact checked-in script against a disposable
-PostgreSQL 17 cluster: 429 assertions across 46 table states plus 14
-role/security and SQL-mutation controls. The matrix includes 0/1/4 rows;
+PostgreSQL 17 cluster: 439 assertions across 46 table states plus 14
+role/security and SQL-mutation controls and 10 mutation-machinery proofs. The
+matrix includes 0/1/4 rows;
 calendar 5, 3+2, 5+5 and 10+2; source/status cohorts of 1/4/5; large siblings
 with small catch-alls; email-, phone-, URL-, person-name-, multiline-,
 SQL-shaped, HTML-, Unicode- and very-long sources; missing cohorts of 1/4/5;
@@ -262,6 +263,31 @@ writable CTE, volatile function, `CALL`, weakened read-only, raw-source,
 total-only calendar, categorical sibling, binary complement and duplicate
 weakenings. Every value is invented; addresses use the RFC 2606 reserved
 `.invalid` TLD. No production lead is copied.
+
+### The line-ending contract
+
+Both runners must behave identically whatever newline convention the checkout
+produced. This is not hypothetical: `core.autocrlf=true` is the default on a
+Windows Git install and this repository pins no `.gitattributes`, so the same
+commit legitimately lands on disk as LF for one contributor and as CRLF for the
+next. A fixture needle carrying a literal `\n` silently fails to match CRLF
+text, `String.prototype.replace` returns its input untouched, and the control
+would then prove nothing.
+
+Neither runner normalises the SQL it tests. The static test synthesises all four
+representations from the file on disk and matches every needle newline as
+`\r?\n`. The executable fixtures mutate and run the script exactly as the
+checkout produced it, injecting every weakening through one shared helper that
+matches newlines as `\r?\n`, writes the replacement in the checkout's own
+convention, and then proves the injection rather than assuming it: the needle
+must match exactly once, an anchor outside the needle must sit next to the
+match, the spliced result must differ from the input, and the newline
+convention must survive. Ten further assertions replay all five weakenings
+against LF and CRLF, with and without a final newline, and prove the helper
+rejects an LF-only needle, a hard-coded CRLF needle, a needle matching more
+than once, a byte-identical result and a mis-located match. Both suites are
+expected to be green — 201 and 439 — under all four representations and on a
+real `core.autocrlf=true` checkout.
 
 The runner proves the identity of the cluster it is talking to **before** it
 issues any DDL: it asks the OS for a free port, verifies no process owns it,
