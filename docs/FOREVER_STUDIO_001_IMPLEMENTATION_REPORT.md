@@ -6,6 +6,37 @@ Branch: `claude/forever-studio-upload-dfev75`
 Durable-resume corrective starting head: `6c14e979f6cbda0d91297560d342a06d58eba1ba`
 Date: 2026-07-23 (durable-resume correction and final staging acceptance)
 
+## Corrective note — explicit material windows supersede filename routing (2026-07-31)
+
+This report describes a Studio upload form with a single generic **Materials**
+picker, whose per-file routing category was derived by
+`classifyFileName(file.name)` from folder keywords, filename keywords and
+extension. **That is no longer the product model and those statements no
+longer describe current behaviour for direct uploads.**
+
+FOREVER-STUDIO-EXPLICIT-MATERIAL-SLOTS-001 replaces it: Studio presents a
+separate, clearly labelled upload window per material purpose, and the window
+the Owner uploads into IS the routing instruction. The selected
+`materialPurpose` crosses the wire with every directly uploaded file, is
+validated server-side against a closed allowlist, is stored on the private job
+manifest, and maps deterministically into the ingestion/media vocabulary. A
+filename keyword can no longer override it.
+
+Filename classification survives in exactly two bounded places, both
+documented at `classifyFileName` in `server/extraction.ts`: a job whose stored
+manifest predates this contract and therefore carries no explicit purpose, and
+an entry discovered inside an archive where no per-entry purpose was supplied.
+
+Unchanged by that work: the direct-authorization contract (an Owner or Trusted
+Publisher upload is publication authorization, producing `owner_provided` /
+`trusted_publisher_provided` and never `owner_verified` or
+`forever_verified`), the technical byte-safety contract (streamed byte count,
+SHA-256, magic-byte class, declared-vs-observed mismatch, sanitization,
+private staging, verified public derivatives), and the rule that missing data
+never blocks publication. No review, readiness, completeness, provenance or
+approval gate was added. No database migration was required — the job file
+manifest is schemaless `JSONB`.
+
 ## Post-merge canonical reconciliation (2026-07-23)
 
 PR #95 is merged and the seven Studio migrations are contiguous on staging through `20260722140000`. A separate production preflight used the exact canonical production project, official CA, verified TLS, and explicit read-only transactions. Production remains at the 13 pre-Studio migrations through `20260718113000`; the official dry run proposes exactly the seven committed Studio migrations, in order, and no partial Studio schema, bucket, function, policy, or migration-history state exists. Before/after deterministic production fingerprints are identical.

@@ -80,6 +80,325 @@ export const STUDIO_WORKFLOW_LABELS: Record<StudioWorkflow, string> = {
   resale_listing: "Resale Listing",
 };
 
+// ---------------------------------------------------------------------------
+// Explicit material purpose (FOREVER-STUDIO-EXPLICIT-MATERIAL-SLOTS-001)
+// ---------------------------------------------------------------------------
+
+/**
+ * What the Owner said a directly uploaded file IS.
+ *
+ * Studio shows one upload window per purpose; uploading into a window IS the
+ * routing instruction. This value — not the filename — decides how a directly
+ * uploaded file is routed, so `document.pdf` dropped into Price List is a
+ * price list and `price-list.pdf` dropped into Documents is a document.
+ *
+ * Closed vocabulary on purpose. The browser may only send one of these, and
+ * the server re-checks the value against this same list before it is trusted
+ * (see `isStudioMaterialPurpose` and the server-side validator): an arbitrary
+ * string from a browser is never accepted as a routing instruction.
+ *
+ * Client-safe: a plain string union. The mapping from a purpose into the
+ * server's ingestion/media vocabulary lives on the server and never ships to
+ * the browser.
+ */
+export type StudioMaterialPurpose =
+  | "brochure"
+  | "price_list"
+  | "payment_plan"
+  | "project_photo"
+  | "video"
+  | "master_plan"
+  | "floor_plan"
+  | "unit_plan"
+  | "construction_photo"
+  | "construction_video"
+  | "document_legal"
+  | "developer_profile"
+  | "map_location"
+  | "project_archive";
+
+export const STUDIO_MATERIAL_PURPOSES: readonly StudioMaterialPurpose[] = [
+  "brochure",
+  "price_list",
+  "payment_plan",
+  "project_photo",
+  "video",
+  "master_plan",
+  "floor_plan",
+  "unit_plan",
+  "construction_photo",
+  "construction_video",
+  "document_legal",
+  "developer_profile",
+  "map_location",
+  "project_archive",
+];
+
+/** Whether a string is a purpose Studio recognizes. The server's allowlist. */
+export function isStudioMaterialPurpose(value: unknown): value is StudioMaterialPurpose {
+  return (
+    typeof value === "string" && (STUDIO_MATERIAL_PURPOSES as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * How a stored manifest entry got its routing category.
+ *
+ *   owner_selected     the Owner chose the upload window; authoritative
+ *   filename_fallback  no explicit purpose was supplied (a job created before
+ *                      this contract existed, or an entry discovered inside an
+ *                      archive), so the deterministic filename classifier
+ *                      routed it
+ *
+ * Recorded so the fallback's reach stays provable rather than assumed. It is
+ * routing provenance only — never a review state, a readiness signal, or a
+ * verification claim, and it never gates publication.
+ */
+export type StudioMaterialPurposeSource = "owner_selected" | "filename_fallback";
+
+/** One upload window in the Studio UI. */
+export interface StudioMaterialWindow {
+  purpose: StudioMaterialPurpose;
+  /** Window heading; also the accessible name of its file input. */
+  label: string;
+  /** One short sentence describing what belongs here. */
+  hint: string;
+  /** `accept` for this window's picker — a hint to the OS, never a gate. */
+  accept: string;
+  /** Whether this window also offers direct camera capture. */
+  camera: boolean;
+  /** Grouping heading used to keep the form compact. */
+  group: StudioMaterialGroup;
+}
+
+export type StudioMaterialGroup =
+  | "Project materials"
+  | "Commercial"
+  | "Plans"
+  | "Construction"
+  | "Documents & package";
+
+export const STUDIO_MATERIAL_GROUPS: readonly StudioMaterialGroup[] = [
+  "Project materials",
+  "Commercial",
+  "Plans",
+  "Construction",
+  "Documents & package",
+];
+
+const IMAGE_ACCEPT = "image/*,.heic,.webp";
+const VIDEO_ACCEPT = "video/*";
+const DOCUMENT_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.json";
+const PLAN_ACCEPT = `${DOCUMENT_ACCEPT},image/*`;
+
+/**
+ * Every upload window Studio offers, in display order.
+ *
+ * All are OPTIONAL. Nothing here requires the Owner to prepare folders, rename
+ * files, or fill every window — an empty window is simply a material Forever
+ * does not have yet, and material can be added at any time later.
+ */
+export const STUDIO_MATERIAL_WINDOWS: readonly StudioMaterialWindow[] = [
+  {
+    purpose: "brochure",
+    label: "Brochure",
+    hint: "The project brochure or e-brochure.",
+    accept: DOCUMENT_ACCEPT,
+    camera: false,
+    group: "Project materials",
+  },
+  {
+    purpose: "project_photo",
+    label: "Project Photos / Renders",
+    hint: "Photographs and renders of the project.",
+    accept: IMAGE_ACCEPT,
+    camera: true,
+    group: "Project materials",
+  },
+  {
+    purpose: "video",
+    label: "Video",
+    hint: "Project or promotional video files.",
+    accept: VIDEO_ACCEPT,
+    camera: false,
+    group: "Project materials",
+  },
+  {
+    purpose: "developer_profile",
+    label: "Developer / Company Profile",
+    hint: "Developer background or company profile material.",
+    accept: `${DOCUMENT_ACCEPT},image/*`,
+    camera: false,
+    group: "Project materials",
+  },
+  {
+    purpose: "price_list",
+    label: "Price List",
+    hint: "Prices or availability, whatever the file is called.",
+    accept: DOCUMENT_ACCEPT,
+    camera: false,
+    group: "Commercial",
+  },
+  {
+    purpose: "payment_plan",
+    label: "Payment Plan",
+    hint: "Payment terms, instalment or deposit schedules.",
+    accept: DOCUMENT_ACCEPT,
+    camera: false,
+    group: "Commercial",
+  },
+  {
+    purpose: "master_plan",
+    label: "Master Plan",
+    hint: "The site or master plan of the whole development.",
+    accept: PLAN_ACCEPT,
+    camera: false,
+    group: "Plans",
+  },
+  {
+    purpose: "floor_plan",
+    label: "Floor Plans",
+    hint: "Building or storey floor plans.",
+    accept: PLAN_ACCEPT,
+    camera: false,
+    group: "Plans",
+  },
+  {
+    purpose: "unit_plan",
+    label: "Unit Plans",
+    hint: "Layouts of individual units, villas or houses.",
+    accept: PLAN_ACCEPT,
+    camera: false,
+    group: "Plans",
+  },
+  {
+    purpose: "map_location",
+    label: "Map / Location",
+    hint: "Location maps and surrounding-area material.",
+    accept: PLAN_ACCEPT,
+    camera: false,
+    group: "Plans",
+  },
+  {
+    purpose: "construction_photo",
+    label: "Construction Photos",
+    hint: "Site progress photos — any filename, including straight from the camera.",
+    accept: IMAGE_ACCEPT,
+    camera: true,
+    group: "Construction",
+  },
+  {
+    purpose: "construction_video",
+    label: "Construction Videos",
+    hint: "Site progress video, including drone footage.",
+    accept: VIDEO_ACCEPT,
+    camera: false,
+    group: "Construction",
+  },
+  {
+    purpose: "document_legal",
+    label: "Documents / Legal",
+    hint: "Contracts, title documents and other paperwork.",
+    accept: DOCUMENT_ACCEPT,
+    camera: false,
+    group: "Documents & package",
+  },
+  {
+    purpose: "project_archive",
+    label: "Full Project Archive / Other Package",
+    hint: "A complete ZIP package — no need to sort it first.",
+    accept: ".zip",
+    camera: false,
+    group: "Documents & package",
+  },
+];
+
+export const STUDIO_MATERIAL_WINDOW_BY_PURPOSE: Record<
+  StudioMaterialPurpose,
+  StudioMaterialWindow
+> = Object.fromEntries(STUDIO_MATERIAL_WINDOWS.map((window) => [window.purpose, window])) as Record<
+  StudioMaterialPurpose,
+  StudioMaterialWindow
+>;
+
+/**
+ * Which windows a workflow shows FIRST.
+ *
+ * Presentation only. Every other window stays reachable in the same form under
+ * "More material types" — a workflow narrows the common case, it never removes
+ * access to a material the Owner actually has.
+ */
+export const STUDIO_WORKFLOW_PRIMARY_PURPOSES: Record<
+  StudioWorkflow,
+  readonly StudioMaterialPurpose[]
+> = {
+  new_development: [
+    "brochure",
+    "project_photo",
+    "video",
+    "developer_profile",
+    "price_list",
+    "payment_plan",
+    "master_plan",
+    "floor_plan",
+    "unit_plan",
+    "map_location",
+    "construction_photo",
+    "construction_video",
+    "document_legal",
+    "project_archive",
+  ],
+  project_update: [
+    "brochure",
+    "project_photo",
+    "video",
+    "developer_profile",
+    "price_list",
+    "payment_plan",
+    "master_plan",
+    "floor_plan",
+    "unit_plan",
+    "map_location",
+    "construction_photo",
+    "construction_video",
+    "document_legal",
+    "project_archive",
+  ],
+  price_availability_update: [
+    "price_list",
+    "payment_plan",
+    "document_legal",
+    "brochure",
+    "project_archive",
+  ],
+  construction_media_update: [
+    "construction_photo",
+    "construction_video",
+    "document_legal",
+    "project_archive",
+  ],
+  resale_listing: [
+    "project_photo",
+    "video",
+    "floor_plan",
+    "unit_plan",
+    "document_legal",
+    "project_archive",
+  ],
+};
+
+/** Primary windows for a workflow, in canonical display order. */
+export function primaryMaterialWindows(workflow: StudioWorkflow): StudioMaterialWindow[] {
+  const primary = new Set(STUDIO_WORKFLOW_PRIMARY_PURPOSES[workflow]);
+  return STUDIO_MATERIAL_WINDOWS.filter((window) => primary.has(window.purpose));
+}
+
+/** Every remaining window, still reachable, in canonical display order. */
+export function additionalMaterialWindows(workflow: StudioWorkflow): StudioMaterialWindow[] {
+  const primary = new Set(STUDIO_WORKFLOW_PRIMARY_PURPOSES[workflow]);
+  return STUDIO_MATERIAL_WINDOWS.filter((window) => !primary.has(window.purpose));
+}
+
 export type StudioJobStatus = "received" | "processing" | "published" | "failed";
 
 export type StudioJobFileStatus =
@@ -104,7 +423,19 @@ export interface StudioJobFile {
   /** Browser-declared size/type — recorded but never trusted. */
   declaredSize: number | null;
   declaredType: string | null;
-  /** Deterministic routing category (Fast Intake classifier vocabulary). */
+  /**
+   * The upload window the Owner chose for this file. Authoritative for
+   * routing and never re-derived from the filename. Absent only on manifests
+   * written before this contract existed.
+   */
+  materialPurpose?: StudioMaterialPurpose | null;
+  /** Whether `category` came from the Owner's window or the legacy fallback. */
+  purposeSource?: StudioMaterialPurposeSource;
+  /**
+   * Routing category in the server's ingestion/media vocabulary. Derived
+   * deterministically from `materialPurpose` when the Owner selected a window,
+   * and only otherwise from the filename classifier.
+   */
   category: string;
   status: StudioJobFileStatus;
   /** Actual server-observed byte size (streamed count, not the declaration). */
@@ -172,7 +503,18 @@ export interface StartJobInput {
   projectSlug?: string;
   projectFacts?: StudioProjectFacts;
   resaleFacts?: StudioResaleFacts;
-  files: Array<{ name: string; size?: number; contentType?: string }>;
+  /**
+   * Directly selected files. Studio always sends `materialPurpose` — the
+   * window the Owner uploaded into. It is optional in the type ONLY so a job
+   * declared by an older client (or a legacy programmatic caller) still
+   * processes through the filename-classifier fallback instead of failing.
+   */
+  files: Array<{
+    name: string;
+    size?: number;
+    contentType?: string;
+    materialPurpose?: StudioMaterialPurpose;
+  }>;
 }
 
 export interface StartJobResult {

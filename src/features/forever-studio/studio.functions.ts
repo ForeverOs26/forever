@@ -15,8 +15,10 @@ import { z } from "zod";
 
 import { requireStudioMember } from "./studio-auth";
 import {
+  STUDIO_MATERIAL_PURPOSES,
   STUDIO_MAX_AMENITY_SORT_ORDER,
   STUDIO_WORKFLOWS,
+  type StudioMaterialPurpose,
   type StudioWorkflow,
 } from "./studio-types";
 
@@ -67,6 +69,14 @@ const startJobSchema = z
           name: z.string(),
           size: z.number().optional(),
           contentType: z.string().optional(),
+          // The upload window the Owner chose. A CLOSED allowlist: anything
+          // outside it fails validation and the whole request is refused —
+          // never stripped and never quietly replaced by a filename guess.
+          // Optional only so a job declared by an older client still processes
+          // through the documented legacy fallback.
+          materialPurpose: z
+            .enum(STUDIO_MATERIAL_PURPOSES as [StudioMaterialPurpose, ...StudioMaterialPurpose[]])
+            .optional(),
         }),
       )
       .max(200),

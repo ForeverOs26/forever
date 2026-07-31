@@ -31,6 +31,7 @@ import { slugify } from "@/import/persistence-projection";
 
 import {
   isStudioAmenityCategory,
+  isStudioMaterialPurpose,
   projectPagePath,
   resalePagePath,
   STUDIO_MAX_AMENITY_SORT_ORDER,
@@ -346,6 +347,18 @@ export async function startUploadJob(
     if (typeof file.size === "number" && file.size > MAX_UPLOAD_BYTES) {
       throw new StudioAccessError("file_too_large", `${file.name} exceeds the 1 GB limit.`);
     }
+    // The material purpose is a ROUTING INSTRUCTION from the browser, so it is
+    // re-checked here against the closed allowlist rather than taken on trust
+    // — the endpoint schema already rejects unknown values, and this second
+    // check keeps the guarantee for every other caller of this service.
+    // Absent is legitimate (legacy caller → filename fallback); present but
+    // unrecognized is a refusal, never a silent downgrade to guessing.
+    if (file.materialPurpose !== undefined && !isStudioMaterialPurpose(file.materialPurpose)) {
+      throw new StudioAccessError(
+        "material_purpose_invalid",
+        "That upload window is not one Forever recognizes.",
+      );
+    }
   }
   const projectSlug = cleanText(input.projectSlug);
   if (projectSlug && !SLUG_PATTERN.test(projectSlug)) {
@@ -363,6 +376,7 @@ export async function startUploadJob(
     name: file.name,
     size: file.size,
     contentType: file.contentType,
+    materialPurpose: file.materialPurpose,
   }));
   const jobId = crypto.randomUUID();
   const declared = declareJobFiles(jobId, declaredFilesInput);

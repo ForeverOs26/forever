@@ -29,7 +29,11 @@ import { classifyPath } from "@/intake/classify";
 import { isUsableCountry, sanitizePriceList, usableIntakeFact } from "@/intake/sanitize";
 import type { IntakeCategory, IntakeProjectFacts } from "@/intake/types";
 
-import type { StudioJobFile } from "../studio-types";
+import {
+  isStudioMaterialPurpose,
+  type StudioJobFile,
+  type StudioMaterialPurpose,
+} from "../studio-types";
 import type { StudioDeps, StudioJobRow } from "./contracts";
 import {
   createPublicDerivative,
@@ -79,8 +83,54 @@ export function mediaTypeForCategory(category: IntakeCategory): string | null {
   return DOCUMENT_MEDIA_CATEGORIES[category] ?? null;
 }
 
+/**
+ * LEGACY / ARCHIVE-ENTRY FALLBACK ONLY.
+ *
+ * Guessing a file's purpose from its name is no longer how a direct Studio
+ * upload is routed — the Owner states the purpose by choosing an upload
+ * window, and `categoryForPurpose` maps that choice deterministically. This
+ * classifier now runs in exactly two bounded places:
+ *
+ *   1. a job whose stored manifest predates the explicit-purpose contract and
+ *      therefore carries no `materialPurpose` (resume / retry of an old job);
+ *   2. an entry discovered INSIDE an archive, where the Owner supplied a
+ *      purpose for the package but not for each entry within it.
+ *
+ * It must never be used to route, re-route, or second-guess a directly
+ * uploaded file whose window the Owner already chose.
+ */
 export function classifyFileName(name: string): IntakeCategory {
   return classifyPath(name).category;
+}
+
+/**
+ * The Owner's chosen window → the ingestion/media routing vocabulary.
+ *
+ * Total and deterministic: every purpose has exactly one category, and the
+ * mapping consults nothing else — not the filename, not the extension, not the
+ * declared content type. Two windows may share a category (a construction
+ * photo and a project photo are both `photo`); the ORIGINAL purpose is kept on
+ * the manifest so the distinction survives, and the media title honours it.
+ */
+const CATEGORY_FOR_PURPOSE: Record<StudioMaterialPurpose, IntakeCategory> = {
+  brochure: "brochure",
+  price_list: "price-list",
+  payment_plan: "payment-plan",
+  project_photo: "photo",
+  video: "video",
+  master_plan: "master-plan",
+  floor_plan: "floor-plan",
+  unit_plan: "unit-plan",
+  construction_photo: "photo",
+  construction_video: "video",
+  document_legal: "legal-document",
+  developer_profile: "developer-profile",
+  map_location: "map-location",
+  project_archive: "archive",
+};
+
+export function categoryForPurpose(purpose: StudioMaterialPurpose): IntakeCategory {
+  return CATEGORY_FOR_PURPOSE[purpose];
 }
 
 /** Storage-safe object name: never trust a client-chosen path. */
@@ -139,20 +189,59 @@ export function publicPathForDerivative(
   return `${publicJobPrefix(jobId)}/${attemptPrefixFromToken(token)}/${ordinal}-${hashPrefix}.${PUBLIC_IMAGE_EXTENSION[format]}`;
 }
 
-/** Declare every file into the PRIVATE staging bucket. */
+/**
+ * Declare every file into the PRIVATE staging bucket.
+ *
+ * ROUTING RULE: the upload window the Owner chose is authoritative. When a
+ * file carries an explicit `materialPurpose`, its category comes from that
+ * purpose alone and the filename is never consulted — so a price list called
+ * `document.pdf` routes as a price list, and a document called
+ * `price-list.pdf` uploaded under Documents stays a document. The filename
+ * classifier runs ONLY for a file with no explicit purpose (see
+ * `classifyFileName`).
+ *
+ * Callers must have validated the purpose against the closed allowlist before
+ * reaching here; an unrecognized value is treated as absent rather than
+ * trusted, so a hostile browser string can never invent a routing category.
+ */
 export function declareJobFiles(
   jobId: string,
-  files: Array<{ name: string; size?: number; contentType?: string }>,
+  files: Array<{
+    name: string;
+    size?: number;
+    contentType?: string;
+    materialPurpose?: StudioMaterialPurpose;
+  }>,
 ): StudioJobFile[] {
-  return files.map((file, index) => ({
-    name: file.name,
-    stagingBucket: PRIVATE_SOURCE_BUCKET,
-    stagingPath: stagingPathForJobFile(jobId, index, file.name),
-    declaredSize: file.size ?? null,
-    declaredType: file.contentType ?? null,
-    category: classifyFileName(file.name),
-    status: "declared" as const,
-  }));
+  return files.map((file, index) => {
+    const purpose = isStudioMaterialPurpose(file.materialPurpose) ? file.materialPurpose : null;
+    return {
+      name: file.name,
+      stagingBucket: PRIVATE_SOURCE_BUCKET,
+      stagingPath: stagingPathForJobFile(jobId, index, file.name),
+      declaredSize: file.size ?? null,
+      declaredType: file.contentType ?? null,
+      materialPurpose: purpose,
+      purposeSource: purpose ? ("owner_selected" as const) : ("filename_fallback" as const),
+      category: purpose ? categoryForPurpose(purpose) : classifyFileName(file.name),
+      status: "declared" as const,
+    };
+  });
+}
+
+/**
+ * The routing category of a stored manifest entry.
+ *
+ * The Owner's recorded purpose wins whenever one is present, so a retry of an
+ * explicit job re-derives the SAME category it was declared with and can never
+ * drift into a filename guess. An entry with no purpose is a manifest written
+ * before this contract existed: it keeps whatever category the classifier gave
+ * it at declaration time, exactly as it processed before.
+ */
+export function routingCategoryForFile(file: StudioJobFile): IntakeCategory {
+  return isStudioMaterialPurpose(file.materialPurpose)
+    ? categoryForPurpose(file.materialPurpose)
+    : (file.category as IntakeCategory);
 }
 
 // ---------------------------------------------------------------------------
@@ -492,18 +581,34 @@ export const NEUTRAL_MEDIA_TITLE: Partial<Record<IntakeCategory, string>> = {
   "furniture-package": "Furniture package",
 };
 
+/**
+ * Neutral public title. Original filenames never participate.
+ *
+ * A file the Owner uploaded into a Construction window is a construction
+ * update wherever it was uploaded from — the explicit purpose is honoured
+ * first, and the workflow-level rule stays as the fallback for material with
+ * no purpose (legacy manifests and archive entries).
+ */
 function neutralPublicMediaTitle(
   category: IntakeCategory,
+  purpose: StudioMaterialPurpose | null,
   ordinal: number,
   constructionUpdate: boolean,
   dateLabel: string,
 ): string {
-  if (constructionUpdate && category === "photo") return `Construction update ${dateLabel}`;
+  if (purpose === "construction_photo" || purpose === "construction_video") {
+    return `Construction update ${dateLabel}`;
+  }
+  if (!purpose && constructionUpdate && category === "photo") {
+    return `Construction update ${dateLabel}`;
+  }
   return `${NEUTRAL_MEDIA_TITLE[category] ?? "Project media"} ${ordinal}`;
 }
 
 interface MediaCandidate {
   category: IntakeCategory;
+  /** The Owner's chosen window, when this candidate came from a direct file. */
+  purpose?: StudioMaterialPurpose | null;
   name: string;
   contentType: string;
   originalSha256: string;
@@ -741,11 +846,15 @@ export async function gatherMaterials(
       file.declaredMismatch = true;
     }
 
+    // The Owner's chosen window decides routing; the filename is only ever a
+    // hint about HOW to read the bytes (JSON/PDF parsing), never about WHAT
+    // the material is.
+    const category = routingCategoryForFile(file);
     const lower = file.name.toLowerCase();
     const isJson = lower.endsWith(".json");
     const isPdf = lower.endsWith(".pdf");
-    const isArchive = file.category === "archive";
-    const isMedia = mediaTypeForCategory(file.category as IntakeCategory) !== null;
+    const isArchive = category === "archive";
+    const isMedia = mediaTypeForCategory(category) !== null;
 
     // --- Structured JSON (bounded parse) -----------------------------------
     if (isJson) {
@@ -795,7 +904,7 @@ export async function gatherMaterials(
     }
 
     // --- Price-list PDF (bounded parse; SIP best-effort) -------------------
-    if (file.category === "price-list" && isPdf) {
+    if (category === "price-list" && isPdf) {
       if (digest.size > MAX_PARSE_BYTES) {
         warnings.push(
           fileWarning(
@@ -861,12 +970,15 @@ export async function gatherMaterials(
 
     // --- Media: publishable ONLY when the observed bytes match the role ----
     if (isMedia) {
-      if (!isPublishableMediaClass(file.category as IntakeCategory, observedClass)) {
+      // Bytes incompatible with the chosen window are NEVER quietly re-filed
+      // under a window that would accept them: the Owner's purpose stands, the
+      // original stays private, and the job continues with its other files.
+      if (!isPublishableMediaClass(category, observedClass)) {
         warnings.push(
           fileWarning(
             "media_class_mismatch",
             file.name,
-            `${file.name} does not look like a valid ${file.category} (${observedClass}); it was retained privately and not published.`,
+            `${file.name} does not look like a valid ${category} (${observedClass}); it was retained privately and not published.`,
           ),
         );
         continue;
@@ -884,7 +996,8 @@ export async function gatherMaterials(
       }
       seenHashes.set(digest.sha256, file.name);
       mediaCandidates.push({
-        category: file.category as IntakeCategory,
+        category,
+        purpose: isStudioMaterialPurpose(file.materialPurpose) ? file.materialPurpose : null,
         name: file.name,
         originalSha256: digest.sha256,
         originalSize: digest.size,
@@ -999,6 +1112,7 @@ export async function gatherMaterials(
     if (candidate.category === "brochure" && !firstBrochureUrl) firstBrochureUrl = url;
     const title = neutralPublicMediaTitle(
       candidate.category,
+      candidate.purpose ?? null,
       sortOrder + 1,
       constructionUpdate,
       dateLabel,
@@ -1013,6 +1127,10 @@ export async function gatherMaterials(
           job_id: job.id,
           original_name: candidate.name,
           category: candidate.category,
+          // The Owner's chosen window, carried through to publication so the
+          // routing decision stays inspectable. Null for archive entries and
+          // legacy manifests, which have no explicit per-file purpose.
+          material_purpose: candidate.purpose ?? null,
           // Public-safe projection only: the extracted `claims` (GPS, device
           // make/model, capture time, software) stay on the private job record
           // and must never reach the anonymously readable project_media row.
