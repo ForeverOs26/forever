@@ -8,6 +8,16 @@ The strategic direction is governed by `docs/FOREVER_STRATEGIC_NORTH_STAR.md`.
 
 ## Current phase
 
+**FOREVER CRM SLICE 1 — Guest Lead Workspace and Accountable Follow-up**
+
+CRM Slice 1 implementation is Owner-authorized. Its boundary, role model, staff-access model, security contract and PR sequence are frozen in [`FOREVER_CRM_SLICE1_IMPLEMENTATION_CONTRACT.md`](FOREVER_CRM_SLICE1_IMPLEMENTATION_CONTRACT.md); the active stage detail is in [`CURRENT_STAGE.md`](CURRENT_STAGE.md). This authorizes a controlled minimum vertical slice, not a completed CRM, not a generic enterprise CRM, and not the external-CRM trigger recorded under "Deferred until a real trigger" below — which remains unmet at measured zero lead volume.
+
+Phase 2 of this roadmap is the phase CRM Slice 1 begins delivering. The four CRM actor types are Owner, Working Sales Manager, Agent and a system automation actor; the initial cohort of roughly 16 users is an operational estimate and not a limit of any kind.
+
+### Retained Studio rollout state
+
+Studio production readiness is not superseded and not closed. It remains an open Owner decision, unchanged by the CRM stage change, and Studio stays dormant unless separately authorized.
+
 **Forever Studio — Production Preflight and Owner Rollout Decision**
 
 FOREVER-TRUTH-001A repository implementation is completed and canonical after PR #94. Fabricated public claims and optimistic evidence defaults are removed or fail closed. The prepared production cleanup plan remains unexecuted and Owner-gated; PR #94 performed no production inventory or cleanup.
@@ -133,19 +143,26 @@ Turn interest into qualified conversations, viewings, reservations, and closed d
 
 ### Candidate work
 
-- lead alert;
-- Navigator profile attached to a lead;
-- simple advisor queue and statuses;
-- RU/EN first-response templates;
-- comparison and advisor report workflow;
-- measurable stages: new → contacted → qualified → viewing → reserved → closed/lost;
-- response-time and funnel analytics.
+**CRM Slice 1 delivers the operational core of this phase.** Its authorized boundary is in [`FOREVER_CRM_SLICE1_IMPLEMENTATION_CONTRACT.md`](FOREVER_CRM_SLICE1_IMPLEMENTATION_CONTRACT.md) §14, and its deferred list in §15 governs what this candidate list may not be read as authorizing.
 
-Use the existing Supabase lead boundary and Advisory foundations before buying or building a large CRM.
+- context-preserving lead capture, a Lead Workspace and a mandatory single next action — **CRM Slice 1**;
+- assignment, ownership, the append-only timeline and the 21-day accountability rule — **CRM Slice 1**;
+- Working Sales Manager My Work / My Team views and manager exception queues — **CRM Slice 1**;
+- Owner-only staff access, scalable team membership and audited role history — **CRM Slice 1**;
+- measurable stages: new → contacted → qualified → viewing → reserved → closed/lost — **CRM Slice 1**, with `closed/lost` resolved into two terminal values;
+- funnel counts and ages — **CRM Slice 1**, as counts and ages only;
+- lead alert and any outbound notification — **deferred**: nothing in the repository can send a message, and no messaging gateway is purchased;
+- Navigator profile attached to a lead — **deferred to Slice 2**;
+- RU/EN first-response templates — **deferred**;
+- comparison and advisor report workflow — **deferred**;
+- response-time targets in minutes or hours — **not built**, and not to be published before Forever's own medians are measured.
+
+Use the existing Supabase lead boundary and Advisory foundations before buying or building a large CRM. CRM Slice 1 is the internal minimum operational layer; it is not the external CRM whose trigger is recorded below.
 
 ### Exit criteria
 
-- median response time is measured and improving;
+- one real enquiry arrives with its context intact, is assigned, carries a next action, and is answered;
+- enquiries received, enquiries with no recorded contact, and overdue follow-ups are all reportable as counts and ages without opening the database;
 - contact-to-viewing baseline exists;
 - at least one reservation or transaction is attributed to Forever-assisted work;
 - the report and advisor workflow save measurable time or improve conversion.
@@ -225,7 +242,9 @@ These are capabilities, not automatic priorities.
 - new scoring — trigger: sufficient verified data and guest validation support a rule;
 - Knowledge persistence RC6/RC7 — trigger: Git artifacts or current storage prevent required operations;
 - Booth hardware — trigger: catalogue and partner distribution justify a measured pilot;
-- external CRM — trigger: lead volume exceeds the simple internal workflow;
+- external CRM — trigger: lead volume exceeds the simple internal workflow. **Unmet.** Measured `public.leads` volume is zero, so no purchase, integration or migration is authorized; the reference point for "the simple internal workflow" is now CRM Slice 1, and the reconsideration threshold is sustained enquiry volume above roughly 200 per month;
+- CRM automation, sequences and workflow engine — trigger: the same sustained volume above roughly 200 enquiries per month;
+- unified communications, WhatsApp/Gmail/Calendar synchronization and telephony — trigger: a purchased messaging gateway, and a resolved answer on who owns the guest conversation history today;
 - Factory autonomy — trigger: bounded automation has a sustained low-incident record and measurable ROI.
 
 ## Metrics
@@ -237,7 +256,8 @@ Reservations or closed transactions in which Forever materially influenced the g
 ### Operating metrics
 
 - qualified conversations;
-- median first-response time;
+- enquiries received, and enquiries with no recorded contact at all;
+- median first-response time — measured for Forever's own understanding, never published as a target;
 - Navigator completion to contact;
 - contact to viewing;
 - viewing to reservation;
@@ -248,6 +268,8 @@ Reservations or closed transactions in which Forever materially influenced the g
 - Forever-attributed commission or revenue.
 
 Commits, tests, modules, documents, agents, and catalogue size without demand are not primary business metrics.
+
+During CRM Slice 1 these are reported as **counts and ages**. No percentage is rendered against a denominator below 30, and no per-person ratio, conversion rate or ranking is built — a rate shown at single-digit volume is not a small measurement but a wrong one, and once it is on a screen it becomes a management fact.
 
 ## Backlog boundary
 
