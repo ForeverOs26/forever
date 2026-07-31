@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Images } from "lucide-react";
+import { ChevronLeft, ChevronRight, Images, Play } from "lucide-react";
 
+import type { DecisionDeckMediaAsset } from "../decision-deck-model";
 import type { ProjectDetailMediaItem } from "../project-detail-types";
 
 /**
@@ -26,6 +27,7 @@ export interface ProjectMediaMosaicProps {
   items: readonly ProjectDetailMediaItem[];
   projectName: string;
   onOpen: (index: number) => void;
+  film?: DecisionDeckMediaAsset | null;
 }
 
 const RADIUS = "rounded-2xl";
@@ -34,18 +36,27 @@ function tileAlt(item: ProjectDetailMediaItem, projectName: string, index: numbe
   return item.title?.trim() || `${projectName} photograph ${index + 1}`;
 }
 
-export function ProjectMediaMosaic({ items, projectName, onOpen }: ProjectMediaMosaicProps) {
+export function ProjectMediaMosaic({
+  items,
+  projectName,
+  onOpen,
+  film = null,
+}: ProjectMediaMosaicProps) {
   const [mobileIndex, setMobileIndex] = useState(0);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const touchStartX = useRef<number | null>(null);
 
   if (items.length === 0) {
     return (
-      <div
-        data-testid="project-media-empty"
-        className={`flex aspect-[16/10] w-full items-center justify-center border border-dashed border-border bg-secondary/50 text-sm text-muted-foreground ${RADIUS}`}
-      >
-        Official photography for this project is being prepared.
+      <div className="space-y-3">
+        <div
+          data-testid="project-media-empty"
+          className={`flex aspect-[16/10] w-full flex-col items-center justify-center gap-3 border border-dashed border-border bg-secondary/50 px-6 text-center text-sm text-muted-foreground ${RADIUS}`}
+        >
+          <Images className="h-5 w-5 text-accent" aria-hidden="true" />
+          Official photography for this project is not recorded.
+        </div>
+        {film ? <FilmTile /> : null}
       </div>
     );
   }
@@ -58,7 +69,16 @@ export function ProjectMediaMosaic({ items, projectName, onOpen }: ProjectMediaM
     const next = (mobileIndex + delta + items.length) % items.length;
     setMobileIndex(next);
     const track = trackRef.current;
-    if (track) track.scrollTo({ left: next * track.clientWidth, behavior: "smooth" });
+    const reduceMotion =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (track) {
+      track.scrollTo({
+        left: next * track.clientWidth,
+        behavior: reduceMotion ? "auto" : "smooth",
+      });
+    }
   };
 
   return (
@@ -93,6 +113,8 @@ export function ProjectMediaMosaic({ items, projectName, onOpen }: ProjectMediaM
                 type="button"
                 key={item.id}
                 onClick={() => onOpen(index)}
+                tabIndex={index === mobileIndex ? 0 : -1}
+                aria-hidden={index === mobileIndex ? undefined : "true"}
                 className="relative w-full shrink-0 snap-center focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 aria-label={`Open ${tileAlt(item, projectName, index)}`}
               >
@@ -148,6 +170,8 @@ export function ProjectMediaMosaic({ items, projectName, onOpen }: ProjectMediaM
                     type="button"
                     onClick={() => onOpen(index)}
                     aria-label={`Open ${tileAlt(item, projectName, index)}`}
+                    aria-current={index === mobileIndex ? "true" : undefined}
+                    tabIndex={index === mobileIndex ? 0 : -1}
                     className={`block h-16 w-24 shrink-0 overflow-hidden rounded-lg border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                       index === mobileIndex ? "border-accent" : "border-border/60"
                     }`}
@@ -254,6 +278,28 @@ export function ProjectMediaMosaic({ items, projectName, onOpen }: ProjectMediaM
           </div>
         ) : null}
       </div>
+
+      {film ? <FilmTile /> : null}
     </div>
+  );
+}
+
+function FilmTile() {
+  return (
+    <a
+      href="#film"
+      data-testid="mosaic-film-tile"
+      className="mt-3 flex min-h-16 items-center justify-between rounded-xl bg-primary px-5 text-primary-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+    >
+      <span>
+        <span className="block text-[11px] uppercase tracking-[0.18em] text-primary-foreground/60">
+          Recorded media
+        </span>
+        <span className="mt-1 block text-sm font-medium">Open project film</span>
+      </span>
+      <span className="grid h-10 w-10 place-items-center rounded-full border border-primary-foreground/35">
+        <Play className="h-4 w-4 fill-current" aria-hidden="true" />
+      </span>
+    </a>
   );
 }

@@ -1,6 +1,6 @@
 import { PUBLIC_SITE_ORIGIN } from "@/lib/sitemap";
-import { presentableDeveloperName } from "./developer-identity";
-import type { ProjectDetail } from "./project-detail-types";
+import { publicProjectSocialImage, type PublicProjectDetailDTO } from "./public-project-detail";
+import { publicRecordedText } from "./public-value";
 
 /**
  * JSON-LD structured data for the public Project Detail route
@@ -23,7 +23,7 @@ import type { ProjectDetail } from "./project-detail-types";
 
 /** A fact counts as recorded only when non-empty and not the absence sentinel. */
 function recorded(value: string | null | undefined): value is string {
-  return Boolean(value && value.trim().length > 0 && value.trim() !== "Not available");
+  return Boolean(publicRecordedText(value));
 }
 
 const AVAILABILITY_BY_RECORDED_STATUS: Record<string, string> = {
@@ -36,25 +36,56 @@ export function mapRecordedStatusToAvailability(status: string): string | undefi
   return AVAILABILITY_BY_RECORDED_STATUS[status];
 }
 
-export function buildProjectStructuredData(project: ProjectDetail, url: string, image?: string) {
+/**
+ * One fact-only description shared by visible metadata and structured data.
+ * Free-text marketing copy is deliberately excluded because it can carry a
+ * stale developer name after the developer truth layer has withheld identity.
+ */
+export function projectPublicFactDescription(project: PublicProjectDetailDTO): string {
+  const location = publicRecordedText(project.location?.area);
+  const projectType = publicRecordedText(project.projectType);
+  const constructionStatus = publicRecordedText(project.constructionStatus);
+  const facts = [
+    location ? `${project.name} in ${location}.` : `${project.name}.`,
+    projectType ? `Recorded project type: ${projectType}.` : null,
+    constructionStatus ? `Recorded construction status: ${constructionStatus}.` : null,
+    "Forever project record.",
+  ];
+  return facts.filter((fact): fact is string => fact !== null).join(" ");
+}
+
+export function buildProjectStructuredData(
+  project: PublicProjectDetailDTO,
+  url: string,
+  image?: string,
+) {
+  const publicDescription = projectPublicFactDescription(project);
+  const location = publicRecordedText(project.location?.area);
+  // Do not trust a caller-provided social image as a second media policy. The
+  // structured-data image is always re-derived from the same semantic selector
+  // used by the visible mosaic and metadata. The optional argument remains for
+  // API compatibility and is accepted only when it equals that result.
+  const canonicalImage = publicProjectSocialImage(project);
+  const publicImage = image && image === canonicalImage ? image : canonicalImage;
   const additionalProperty = [
-    recorded(project.core.constructionStatus)
+    recorded(project.constructionStatus)
       ? {
           "@type": "PropertyValue",
           name: "Construction Status",
-          value: project.core.constructionStatus,
+          value: project.constructionStatus,
         }
       : null,
   ].filter(Boolean);
 
-  const availability = recorded(project.core.status)
-    ? mapRecordedStatusToAvailability(project.core.status)
+  const availability = recorded(project.status)
+    ? mapRecordedStatusToAvailability(project.status)
     : undefined;
 
   // The same developer decision the visible page makes (F2), so the two cannot
   // diverge. `recorded()` still applies: a "Not available" sentinel is not a
   // brand.
-  const presentableDeveloper = presentableDeveloperName(project);
+  const presentableDeveloper =
+    project.developer?.state === "resolved" ? project.developer.name : null;
   const brandName =
     presentableDeveloper && recorded(presentableDeveloper) ? presentableDeveloper : null;
 
@@ -64,26 +95,26 @@ export function buildProjectStructuredData(project: ProjectDetail, url: string, 
       children: JSON.stringify({
         "@context": "https://schema.org",
         "@type": "Product",
-        name: project.core.name,
-        ...(recorded(project.core.description) ? { description: project.core.description } : {}),
+        name: project.name,
+        description: publicDescription,
         // Omitted, not emitted empty. The module's own rule is that an absent
         // fact is never serialized, and `image: []` broke it — it stated that
         // the project's pictures had been considered and there were none, in a
         // field consumers read as the project's photograph. A project whose only
         // photographs depict something else has no image to give.
-        ...(image ? { image: [image] } : {}),
+        ...(publicImage ? { image: [publicImage] } : {}),
         url,
-        ...(recorded(project.core.type) ? { category: project.core.type } : {}),
+        ...(recorded(project.projectType) ? { category: project.projectType } : {}),
         // Suppressed when Forever's two sources name different developers (F2).
         // JSON-LD is the machine-readable copy of the page: publishing a
         // contradicted brand to search engines is the same false claim, made
         // somewhere it outlives the page and cannot be read in context.
         ...(brandName ? { brand: { "@type": "Organization", name: brandName } } : {}),
-        ...(project.pricing.startingPriceTHB > 0
+        ...((project.pricing?.startingPriceTHB ?? 0) > 0
           ? {
               offers: {
                 "@type": "Offer",
-                price: project.pricing.startingPriceTHB,
+                price: project.pricing?.startingPriceTHB,
                 priceCurrency: "THB",
                 ...(availability ? { availability } : {}),
                 url,
@@ -98,15 +129,15 @@ export function buildProjectStructuredData(project: ProjectDetail, url: string, 
       children: JSON.stringify({
         "@context": "https://schema.org",
         "@type": "Place",
-        name: project.core.name,
-        ...(recorded(project.core.tagline) ? { description: project.core.tagline } : {}),
-        ...(image ? { image } : {}),
+        name: project.name,
+        description: publicDescription,
+        ...(publicImage ? { image: publicImage } : {}),
         url,
-        ...(recorded(project.core.location)
+        ...(recorded(location)
           ? {
               address: {
                 "@type": "PostalAddress",
-                addressLocality: project.core.location,
+                addressLocality: location,
               },
             }
           : {}),
@@ -124,7 +155,7 @@ export function buildProjectStructuredData(project: ProjectDetail, url: string, 
             name: "Projects",
             item: `${PUBLIC_SITE_ORIGIN}/projects`,
           },
-          { "@type": "ListItem", position: 2, name: project.core.name, item: url },
+          { "@type": "ListItem", position: 2, name: project.name, item: url },
         ],
       }),
     },

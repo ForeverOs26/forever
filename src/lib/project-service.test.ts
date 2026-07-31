@@ -18,7 +18,7 @@ vi.mock("@/features/project-detail/partner-demo-data", () => ({
   listPartnerDemoProperties,
 }));
 
-import { ProjectService } from "./project-service";
+import { projectKeys, projectRelatedPublishedQuery, ProjectService } from "./project-service";
 import { KNOWN_FICTITIOUS_PROJECT_SLUGS } from "./public-truth";
 
 function projectRow(slug: string, overrides: Record<string, unknown> = {}) {
@@ -29,6 +29,7 @@ function projectRow(slug: string, overrides: Record<string, unknown> = {}) {
     media: [],
     is_active: true,
     is_featured: false,
+    public_status: "published",
     created_at: "2026-01-01",
     project_type: "Villa",
     ...overrides,
@@ -85,12 +86,18 @@ function stubQueryResult(result: { data: unknown; error: null }) {
   const query: Record<string, unknown> = {
     select: vi.fn(),
     eq: vi.fn(),
+    neq: vi.fn(),
+    not: vi.fn(),
     order: vi.fn(),
+    limit: vi.fn(),
     maybeSingle: vi.fn(),
   };
   (query.select as ReturnType<typeof vi.fn>).mockReturnValue(query);
   (query.eq as ReturnType<typeof vi.fn>).mockReturnValue(query);
+  (query.neq as ReturnType<typeof vi.fn>).mockReturnValue(query);
+  (query.not as ReturnType<typeof vi.fn>).mockReturnValue(query);
   (query.order as ReturnType<typeof vi.fn>).mockReturnValue(query);
+  (query.limit as ReturnType<typeof vi.fn>).mockReturnValue(query);
   (query.maybeSingle as ReturnType<typeof vi.fn>).mockResolvedValue({
     data: Array.isArray(result.data) ? (result.data[0] ?? null) : result.data,
     error: null,
@@ -103,6 +110,8 @@ function stubQueryResult(result: { data: unknown; error: null }) {
 beforeEach(() => {
   vi.stubEnv("VITE_PARTNER_DEMO", "false");
   from.mockClear();
+  listDemoPreviewProperties.mockClear();
+  listPartnerDemoProperties.mockClear();
   stubQueryResult({ data: [projectRow("modeva"), projectRow("other")], error: null });
   listDemoPreviewProperties.mockResolvedValue([preview()]);
   listPartnerDemoProperties.mockResolvedValue(null);
@@ -123,7 +132,8 @@ describe("ProjectService.listActive", () => {
 
   it("applies an exact limit after combining published projects and previews", async () => {
     await expect(ProjectService.listActive({ limit: 2 })).resolves.toHaveLength(2);
-    expect((from.mock.results[0]?.value as Record<string, unknown>).limit).toBeUndefined();
+    const query = from.mock.results[0]?.value as Record<string, ReturnType<typeof vi.fn>>;
+    expect(query.limit).not.toHaveBeenCalled();
   });
 
   it("uses committed local data without touching Supabase in Partner Demo mode", async () => {
@@ -149,6 +159,67 @@ describe("ProjectService.listActive", () => {
 
     const projects = await ProjectService.listActive();
     expect(projects.map((p) => p.slug)).toEqual(["modeva"]);
+  });
+});
+
+describe("ProjectService.listRelatedPublished", () => {
+  it("returns only other published projects in deterministic public order", async () => {
+    vi.stubEnv("VITE_PARTNER_DEMO", "true");
+    listPartnerDemoProperties.mockResolvedValue([preview("modeva"), preview("coralina")]);
+
+    const quarantined = KNOWN_FICTITIOUS_PROJECT_SLUGS[0];
+    const query = stubQueryResult({
+      data: [
+        projectRow("modeva"),
+        projectRow("draft-project", { public_status: "draft" }),
+        projectRow(quarantined),
+        projectRow("alpha"),
+        projectRow("beta"),
+        projectRow("gamma"),
+        projectRow("delta"),
+      ],
+      error: null,
+    });
+
+    await expect(ProjectService.listRelatedPublished("modeva")).resolves.toMatchObject([
+      { slug: "alpha" },
+      { slug: "beta" },
+      { slug: "gamma" },
+    ]);
+
+    expect(listPartnerDemoProperties).not.toHaveBeenCalled();
+    expect(listDemoPreviewProperties).not.toHaveBeenCalled();
+    expect(from).toHaveBeenCalledWith("projects");
+    expect(query.select).toHaveBeenCalledWith(expect.stringContaining("public_status"));
+    expect(query.eq).toHaveBeenNthCalledWith(1, "is_active", true);
+    expect(query.eq).toHaveBeenNthCalledWith(2, "public_status", "published");
+    expect(query.neq).toHaveBeenCalledWith("slug", "modeva");
+    expect(query.not).toHaveBeenCalledWith(
+      "slug",
+      "in",
+      `(${KNOWN_FICTITIOUS_PROJECT_SLUGS.join(",")})`,
+    );
+    expect(query.order).toHaveBeenNthCalledWith(1, "is_featured", { ascending: false });
+    expect(query.order).toHaveBeenNthCalledWith(2, "created_at", { ascending: true });
+    expect(query.order).toHaveBeenNthCalledWith(3, "slug", { ascending: true });
+    expect(query.limit).toHaveBeenCalledWith(3);
+  });
+
+  it("exports a distinct, normalized query key for route consumers", () => {
+    expect(projectKeys.relatedPublished("modeva")).toEqual([
+      "projects",
+      "related",
+      "published",
+      "modeva",
+      3,
+    ]);
+    expect(projectRelatedPublishedQuery("modeva", 3.9).queryKey).toEqual([
+      "projects",
+      "related",
+      "published",
+      "modeva",
+      3,
+    ]);
   });
 });
 

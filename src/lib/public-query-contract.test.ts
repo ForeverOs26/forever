@@ -35,6 +35,8 @@ describe("public query privacy contract", () => {
     for (const column of ["start_date_display", "completion_date_display"]) {
       expect(listSource).toMatch(new RegExp(`\\b${column}\\b`));
     }
+    expect(listSource).toContain("main_image_url, is_featured, is_active, created_at");
+    expect(listSource).toContain("slug, name, location_area, is_active, public_status");
 
     /**
      * The catalogue's media projection, pinned as a literal — the one assertion
@@ -62,11 +64,22 @@ describe("public query privacy contract", () => {
       // closed vocabulary. It is the only column added to the public media
       // projection, and `metadata` (source paths, package directories,
       // sanitizer records) stays unreadable by the anonymous role.
-      "media:project_media(id, media_type, title, url, sort_order, semantic_role)",
-      "units:units(id, unit_code, unit_type, bedrooms, bathrooms, size_sqm, floor, view_type, ownership_type, base_price_thb, discounted_price_thb, price_per_sqm, availability_status, payment_plan, furniture_package, rental_guarantee, roi_estimate, notes, building:buildings(building_code))",
-      "investment:investment_data(id, project_id, unit_id, expected_daily_rate, expected_monthly_rent, expected_yearly_rent, occupancy_rate, annual_roi_percent, guaranteed_rental_percent, guarantee_years, management_company, notes, created_at)",
+      "media:project_media(id, media_type, url, sort_order, semantic_role)",
+      "units:units(id, unit_code, unit_type, bedrooms, size_sqm, floor, base_price_thb, discounted_price_thb, availability_status, building:buildings(building_code))",
     ]) {
       expect(detailSource).toContain(projection);
+    }
+    for (const privateOrUnsupported of [
+      "ownership_type",
+      "media_type, title",
+      "payment_plan",
+      "furniture_package",
+      "rental_guarantee",
+      "roi_estimate",
+      "investment:investment_data(",
+      "management_company",
+    ]) {
+      expect(detailSource).not.toContain(privateOrUnsupported);
     }
     expect(detailSource).not.toMatch(/contact_(name|phone|email)/);
     // The building embed exists only to name a unit's building. `buildings`

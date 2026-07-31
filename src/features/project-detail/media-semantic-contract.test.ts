@@ -548,7 +548,7 @@ describe("gallery composition once roles are recorded", () => {
 describe("the public projection", () => {
   it("requests the semantic role and no provenance column", () => {
     expect(PROJECT_DETAIL_SELECT).toContain(
-      "media:project_media(id, media_type, title, url, sort_order, semantic_role)",
+      "media:project_media(id, media_type, url, sort_order, semantic_role)",
     );
     expect(PROJECT_DETAIL_SELECT).not.toMatch(/project_media\([^)]*\bmetadata\b/);
     expect(PROJECT_DETAIL_SELECT).not.toMatch(/project_media\([^)]*\bcreated_at\b/);

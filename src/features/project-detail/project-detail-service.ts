@@ -1,6 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 import { isKnownFictitiousProjectSlug } from "@/lib/public-truth";
 import { mapProjectDetail } from "./project-detail-mappers";
+import { publicProjectDetail } from "./public-project-detail";
+import type { PublicProjectDetailDTO } from "./public-project-detail";
 import type { ProjectDetail, ProjectDetailRecord } from "./project-detail-types";
 
 /**
@@ -44,16 +46,13 @@ import type { ProjectDetail, ProjectDetailRecord } from "./project-detail-types"
  */
 export const PROJECT_DETAIL_SELECT = `
   id, name, slug, project_type, location_area, address,
-  short_description, full_description, construction_status,
-  ownership_type, distance_to_beach, distance_to_airport, latitude, longitude,
+  construction_status, distance_to_beach, distance_to_airport, latitude, longitude,
   main_image_url, brochure_url, is_featured, is_active, sales_status,
-  starting_price_thb, price_range, price_per_sqm_display, last_price_update,
-  tagline, highlights, beds_display, area_range, nearby_schools,
-  nearby_hospitals, lifestyle, developer_name_raw, location_name_raw,
+  starting_price_thb, last_price_update, nearby_schools,
+  nearby_hospitals, lifestyle, developer_name_raw,
   developer:developers(id, name, description, website, logo_url),
-  media:project_media(id, media_type, title, url, sort_order, semantic_role),
-  units:units(id, unit_code, unit_type, bedrooms, bathrooms, size_sqm, floor, view_type, ownership_type, base_price_thb, discounted_price_thb, price_per_sqm, availability_status, payment_plan, furniture_package, rental_guarantee, roi_estimate, notes, building:buildings(building_code)),
-  investment:investment_data(id, project_id, unit_id, expected_daily_rate, expected_monthly_rent, expected_yearly_rent, occupancy_rate, annual_roi_percent, guaranteed_rental_percent, guarantee_years, management_company, notes, created_at),
+  media:project_media(id, media_type, url, sort_order, semantic_role),
+  units:units(id, unit_code, unit_type, bedrooms, size_sqm, floor, base_price_thb, discounted_price_thb, availability_status, building:buildings(building_code)),
   amenities:project_amenities(note, is_featured, sort_order, amenity:amenities(id, name, slug, category, icon))
 ` as const;
 
@@ -73,22 +72,32 @@ async function loadPartnerDemoProjectDetail(
   slug: string,
 ): Promise<{ active: boolean; project: ProjectDetail | null }> {
   if (!import.meta.env.DEV) return { active: false, project: null };
+  if (import.meta.env.VITE_PARTNER_DEMO !== "true") {
+    return { active: false, project: null };
+  }
+
   const { getPartnerDemoProjectDetail } = await import("./partner-demo-data");
   const project = await getPartnerDemoProjectDetail(slug);
-  const active = import.meta.env.VITE_PARTNER_DEMO === "true";
-  return { active, project };
+  return {
+    active: true,
+    project,
+  };
 }
 
 export const ProjectDetailService = {
-  async getBySlug(slug: string): Promise<ProjectDetail | null> {
+  async getBySlug(slug: string): Promise<PublicProjectDetailDTO | null> {
     // Quarantined fictitious seed rows must not be reachable by direct URL.
     if (isKnownFictitiousProjectSlug(slug)) return null;
 
     const partnerDemo = await loadPartnerDemoProjectDetail(slug);
-    if (partnerDemo.active) return partnerDemo.project;
+    if (partnerDemo.active) {
+      return partnerDemo.project
+        ? publicProjectDetail(partnerDemo.project, { usesLocalPreviewData: true })
+        : null;
+    }
 
     const demoPreview = await loadDemoPreviewProjectDetail(slug);
-    if (demoPreview) return demoPreview;
+    if (demoPreview) return publicProjectDetail(demoPreview);
 
     const { data, error } = await supabase
       .from("projects")
@@ -100,6 +109,6 @@ export const ProjectDetailService = {
     if (error) throw error;
     if (!data) return null;
 
-    return mapProjectDetail(data as unknown as ProjectDetailRecord);
+    return publicProjectDetail(mapProjectDetail(data as unknown as ProjectDetailRecord));
   },
 };

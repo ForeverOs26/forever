@@ -40,9 +40,18 @@ import { ProjectService } from "@/lib/project-service";
 import { GALLERY_EXCLUDED_ROLES } from "@/lib/public-media-policy";
 
 import { groupProjectMedia } from "./project-detail-mappers";
+import { publicProjectDetail } from "./public-project-detail";
 import { projectPhotographs, projectSocialImage } from "./project-sections";
-import { buildProjectStructuredData } from "./project-structured-data";
+import { buildProjectStructuredData as buildPublicProjectStructuredData } from "./project-structured-data";
 import type { ProjectMediaRow } from "./project-detail-types";
+
+function buildProjectStructuredData(
+  project: ReturnType<typeof makeProjectDetail>,
+  url: string,
+  image?: string,
+) {
+  return buildPublicProjectStructuredData(publicProjectDetail(project), url, image);
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -365,12 +374,14 @@ describe("the image that leaves the site", () => {
   });
 
   /**
-   * NEGATIVE CONTROL — one unsafe OG/JSON-LD reader, restored.
+   * NEGATIVE CONTROL — one unsafe OG reader, rejected at the JSON-LD boundary.
    *
    * The route used to compute its own `hero ?? gallery[0]` from the raw rows.
    * Reconstructed here over the unfiltered set, it returns the seasonal graphic.
+   * The structured-data builder now re-applies the canonical image policy so an
+   * unsafe caller cannot bypass the route-level decision.
    */
-  it("negative control: an OG reader over unfiltered rows is detectably wrong", () => {
+  it("negative control: an image from unfiltered rows is rejected by JSON-LD", () => {
     const project = detail(SIERRA, "https://cdn/sierra-holiday-moments.png");
     const unsafe =
       SIERRA.find((item) => item.media_type === "cover")?.url ??
@@ -379,10 +390,12 @@ describe("the image that leaves the site", () => {
     expect(unsafe).toBe("https://cdn/sierra-holiday-moments.png");
     expect(projectSocialImage(project)).not.toBe(unsafe);
 
+    const unsafePayload = JSON.stringify({ image: unsafe });
+    expect(unsafePayload).toContain("holiday-moments");
+
     const scripts = buildProjectStructuredData(project, "https://forever.example/p", unsafe);
-    // The unsafe value only reaches JSON-LD if a caller hands it over — which is
-    // why the route now has exactly one place to get it from.
-    expect(JSON.stringify(scripts)).toContain("holiday-moments");
+    expect(JSON.stringify(scripts)).not.toContain("holiday-moments");
+    expect(JSON.stringify(scripts)).toContain("sierra-exterior");
   });
 });
 
