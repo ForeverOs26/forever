@@ -31,7 +31,7 @@ describe("claim-scoped storage side effects", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Scoped Paths" },
-      files: [{ name: "photo.jpg" }],
+      files: [{ name: "photo.jpg", materialPurpose: "project_photo" }],
     });
     uploadAll(world, started.uploads);
     await processUploadJob(world.deps, OWNER, started.jobId);
@@ -53,7 +53,10 @@ describe("claim-scoped storage side effects", () => {
       workflow: "new_development",
       projectFacts: { name: "Mixed Buckets" },
       // photo → project-images; brochure PDF → project-documents.
-      files: [{ name: "photo.jpg" }, { name: "brochure.pdf" }],
+      files: [
+        { name: "photo.jpg", materialPurpose: "project_photo" },
+        { name: "brochure.pdf", materialPurpose: "brochure" },
+      ],
     });
     uploadAll(world, started.uploads, { "brochure.pdf": tinyPdf() });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
@@ -68,7 +71,7 @@ describe("claim-scoped storage side effects", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Stale Vs Winner" },
-      files: [{ name: "photo.jpg" }],
+      files: [{ name: "photo.jpg", materialPurpose: "project_photo" }],
     });
     uploadAll(world, started.uploads);
 
@@ -114,7 +117,7 @@ describe("claim-scoped storage side effects", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Crash Orphans" },
-      files: [{ name: "photo.jpg" }],
+      files: [{ name: "photo.jpg", materialPurpose: "project_photo" }],
     });
     uploadAll(world, started.uploads);
 
@@ -151,7 +154,7 @@ describe("audit failure after a committed publication", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Audit Outage Project" },
-      files: [{ name: "photo.jpg" }],
+      files: [{ name: "photo.jpg", materialPurpose: "project_photo" }],
     });
     uploadAll(world, started.uploads);
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
@@ -184,7 +187,7 @@ describe("audit failure after a committed publication", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "resale_listing",
       resaleFacts: { title: "Audit Outage Resale", contactPhone: "+66 1" },
-      files: [{ name: "photo.jpg" }],
+      files: [{ name: "photo.jpg", materialPurpose: "project_photo" }],
     });
     uploadAll(world, started.uploads);
     const result = await processUploadJob(world.deps, OWNER, started.jobId);

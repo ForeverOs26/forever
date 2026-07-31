@@ -18,7 +18,10 @@ describe("explicit upload-complete readiness boundary", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Slow Complete Upload" },
-      files: [{ name: "large.jpg" }, { name: "late.jpg" }],
+      files: [
+        { name: "large.jpg", materialPurpose: "project_photo" },
+        { name: "late.jpg", materialPurpose: "project_photo" },
+      ],
     });
     world.storage.put(started.uploads[0].bucket, started.uploads[0].path, largeJpeg(), "text/html");
 

@@ -72,7 +72,7 @@ each kind of material:
 | Brochure                             | The project brochure or e-brochure               |
 | Project Photos / Renders             | Photographs and renders of the project           |
 | Video                                | Project or promotional video                     |
-| Developer / Company Profile          | Developer background or company profile          |
+| Developer / Company Profile          | Developer background — kept private (see below)  |
 | Price List                           | Prices or availability                           |
 | Payment Plan                         | Payment terms, instalments, deposit schedules    |
 | Master Plan                          | The site or master plan of the whole development |
@@ -107,6 +107,19 @@ If you would rather not sort at all, put the whole package into **Full
 Project Archive / Other Package**. Forever opens it and routes what it finds
 by the names and folders inside the ZIP. That is a convenience for
 unsorted packages only; it never overrides a window you chose yourself.
+
+**A ZIP in any other window keeps that window.** Put a ZIP of photographs
+into **Project Photos / Renders** and every usable photo inside it is a
+project photo — the names and folders inside the ZIP do not get a vote.
+Put a ZIP into **Documents / Legal** and its contents are documents, so
+they are kept privately rather than published to the gallery. This is true
+whatever the ZIP weighs: a large archive uploads in resumable parts, which
+changes how the file travels and nothing about what it is.
+
+**Developer / Company Profile** is the one window with no public page of
+its own. What you upload there is kept privately and may be used to fill in
+the developer details shown on the project page; it does not create a
+separate developer section, and uploading it publishes nothing on its own.
 
 Forever uploads the files, extracts what it can, creates or updates the
 page, and publishes it. You then get four buttons: **Open page**, **Share**,

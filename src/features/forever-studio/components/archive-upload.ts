@@ -21,9 +21,16 @@ import {
   LARGE_ARCHIVE_MAX_BYTES,
   LARGE_ARCHIVE_MIN_BYTES,
   type StudioArchivePartTarget,
+  type StudioMaterialPurpose,
 } from "../studio-types";
 
-/** ZIPs above the legacy inline limit must use the chunked lane. */
+/**
+ * ZIPs above the legacy inline limit must use the chunked lane.
+ *
+ * A TRANSPORT test and nothing else: it reads the file's size and format, and
+ * it is deliberately blind to the window the Owner chose. Which lane a file
+ * takes may depend on how big it is; what the file IS may not.
+ */
 export function isLargeArchive(file: File): boolean {
   return /\.zip$/i.test(file.name) && file.size > LARGE_ARCHIVE_MIN_BYTES;
 }
@@ -182,10 +189,17 @@ async function uploadOnePart(
  * the upload cannot complete (the caller offers a resume — re-running
  * resumes from the stored parts, keyed by the exact per-part manifest
  * rather than the filename).
+ *
+ * `materialPurpose` is the window the Owner filed THIS archive under. It
+ * travels with every plan request — including the replans a paused or retried
+ * upload issues — and the server records it durably on the archive, so the
+ * Owner's choice is preserved even though the archive never appears in the
+ * job's ordinary file manifest.
  */
 export async function uploadLargeArchive(
   jobId: string,
   file: File,
+  materialPurpose: StudioMaterialPurpose,
   onProgress: (progress: ArchiveUploadProgress) => void,
 ): Promise<{ archiveId: string }> {
   onProgress({
@@ -198,7 +212,7 @@ export async function uploadLargeArchive(
   const partSha256 = await computeUploadPartManifest(file);
   const requestPlan = () =>
     studioPlanArchiveUpload({
-      data: { jobId, fileName: file.name, declaredSize: file.size, partSha256 },
+      data: { jobId, fileName: file.name, declaredSize: file.size, materialPurpose, partSha256 },
     });
   let plan = await requestPlan();
   const report = (state: ArchiveUploadProgress["state"], partsDone: number) =>

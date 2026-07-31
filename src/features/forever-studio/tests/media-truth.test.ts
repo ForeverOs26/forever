@@ -240,7 +240,11 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Synthetic Media Truth Project" },
-      files: [{ name: "phone.jpg" }, { name: "phone.mov" }, { name: "phone.heic" }],
+      files: [
+        { name: "phone.jpg", materialPurpose: "project_photo" },
+        { name: "phone.mov", materialPurpose: "video" },
+        { name: "phone.heic", materialPurpose: "project_photo" },
+      ],
     });
     uploadAll(world, started.uploads, {
       "phone.jpg": privateJpeg,
@@ -323,7 +327,10 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Opaque Public Media" },
-      files: [...names, warningName].map((name) => ({ name })),
+      files: [...names, warningName].map((name) => ({
+        name,
+        materialPurpose: "project_photo" as const,
+      })),
     });
     const contents = Object.fromEntries(
       names.map((name, index) => [name, syntheticJpeg(true, 6, index + 1)]),
@@ -338,7 +345,11 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
 
     expect(result.status).toBe("published");
     const keys = world.storage.publicKeys(PUBLIC_IMAGE_BUCKET);
-    expect(keys).toHaveLength(names.length - 1);
+    // Every .jpg the Owner filed under Project Photos publishes. One of these
+    // names embeds a "Documents" folder, which the filename classifier used to
+    // route away from the gallery; the chosen window now decides, so the count
+    // is the full set and the hostile names still never reach a public string.
+    expect(keys).toHaveLength(names.length);
     for (const [index, key] of keys.entries()) {
       expect(key).toMatch(
         new RegExp(
@@ -347,7 +358,7 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
       );
     }
     expect(world.executor.store.media.map((item) => item.title)).toEqual(
-      names.slice(0, -1).map((_, index) => `Project photo ${index + 1}`),
+      names.map((_, index) => `Project photo ${index + 1}`),
     );
 
     const publicRecords = world.executor.store.media.map((item) => ({
@@ -389,7 +400,7 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Source Race" },
-      files: [{ name: "phone.jpg" }],
+      files: [{ name: "phone.jpg", materialPurpose: "project_photo" }],
     });
     uploadAll(world, started.uploads, { "phone.jpg": syntheticJpeg(true, 6) });
     const originalDownload = world.storage.downloadWithin.bind(world.storage);
@@ -421,7 +432,7 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Warning Redaction" },
-      files: [{ name: privateName }],
+      files: [{ name: privateName, materialPurpose: "project_photo" }],
     });
     uploadAll(world, started.uploads, { [privateName]: tinyFtyp("heic") });
 
@@ -441,7 +452,7 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Archive Media Truth" },
-      files: [{ name: "materials.zip" }],
+      files: [{ name: "materials.zip", materialPurpose: "project_archive" }],
     });
     world.archives.set("materials.zip", [
       { name: "C:/FixtureOwner/private/phone.jpg", data: syntheticJpeg(true, 6) },
@@ -469,7 +480,7 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Media Truth Replay" },
-      files: [{ name: "phone.jpg" }],
+      files: [{ name: "phone.jpg", materialPurpose: "project_photo" }],
     });
     uploadAll(world, started.uploads, { "phone.jpg": syntheticJpeg(true, 6) });
     const first = await processUploadJob(world.deps, OWNER, started.jobId);
@@ -577,7 +588,7 @@ describe("FOREVER-MEDIA-TRUTH-001 dimension / pixel-count boundary", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Dimension Bomb" },
-      files: [{ name: "bomb.png" }],
+      files: [{ name: "bomb.png", materialPurpose: "project_photo" }],
     });
     uploadAll(world, started.uploads, { "bomb.png": syntheticPngWithDimensions(50000, 50000) });
 
@@ -776,7 +787,7 @@ describe("FOREVER-MEDIA-TRUTH-001 ICC / color-profile policy", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Display P3 Photo" },
-      files: [{ name: "photo.jpg" }],
+      files: [{ name: "photo.jpg", materialPurpose: "project_photo" }],
     });
     uploadAll(world, started.uploads, { "photo.jpg": syntheticJpegWithIcc(1) });
 

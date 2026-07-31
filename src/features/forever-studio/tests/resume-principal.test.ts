@@ -176,7 +176,7 @@ describe("resume principal separation", () => {
     const started = await startUploadJob(world.deps, PUBLISHER, {
       workflow: "new_development",
       projectFacts: { name: "Disabled Publisher Project" },
-      files: [{ name: "private-source.jpg" }],
+      files: [{ name: "private-source.jpg", materialPurpose: "project_photo" }],
     });
     const target = started.uploads[0];
     world.storage.put(target.bucket, target.path, Buffer.from("private-only"));

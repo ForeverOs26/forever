@@ -33,8 +33,9 @@ import {
   isStudioMaterialPurpose,
   type StudioJobFile,
   type StudioMaterialPurpose,
+  type StudioMaterialPurposeSource,
 } from "../studio-types";
-import type { StudioDeps, StudioJobRow } from "./contracts";
+import { StudioAccessError, type StudioDeps, type StudioJobRow } from "./contracts";
 import {
   createPublicDerivative,
   MAX_MEDIA_SANITIZE_BYTES,
@@ -84,20 +85,25 @@ export function mediaTypeForCategory(category: IntakeCategory): string | null {
 }
 
 /**
- * LEGACY / ARCHIVE-ENTRY FALLBACK ONLY.
+ * LEGACY / FULL-PROJECT-ARCHIVE-ENTRY FALLBACK ONLY.
  *
  * Guessing a file's purpose from its name is no longer how a direct Studio
  * upload is routed — the Owner states the purpose by choosing an upload
  * window, and `categoryForPurpose` maps that choice deterministically. This
- * classifier now runs in exactly two bounded places:
+ * classifier now runs in exactly two bounded places, BOTH of them read/
+ * processing paths and NEITHER of them reachable from job creation:
  *
  *   1. a job whose stored manifest predates the explicit-purpose contract and
- *      therefore carries no `materialPurpose` (resume / retry of an old job);
- *   2. an entry discovered INSIDE an archive, where the Owner supplied a
- *      purpose for the package but not for each entry within it.
+ *      therefore carries no `materialPurpose` (resume / retry of an old job)
+ *      — see `routingCategoryForFile`;
+ *   2. an entry discovered inside a FULL PROJECT ARCHIVE / OTHER PACKAGE,
+ *      which is precisely the window whose meaning is "unsorted — sort it for
+ *      me", so the Owner supplied no per-entry purpose to honour
+ *      — see `archiveEntryRouting`.
  *
  * It must never be used to route, re-route, or second-guess a directly
- * uploaded file whose window the Owner already chose.
+ * uploaded file whose window the Owner already chose, nor an entry inside an
+ * archive the Owner filed under some OTHER window.
  */
 export function classifyFileName(name: string): IntakeCategory {
   return classifyPath(name).category;
@@ -190,31 +196,36 @@ export function publicPathForDerivative(
 }
 
 /**
- * Declare every file into the PRIVATE staging bucket.
+ * Declare every NEW directly uploaded file into the PRIVATE staging bucket.
  *
- * ROUTING RULE: the upload window the Owner chose is authoritative. When a
- * file carries an explicit `materialPurpose`, its category comes from that
- * purpose alone and the filename is never consulted — so a price list called
- * `document.pdf` routes as a price list, and a document called
- * `price-list.pdf` uploaded under Documents stays a document. The filename
- * classifier runs ONLY for a file with no explicit purpose (see
- * `classifyFileName`).
+ * THE CREATION PATH. An explicit, allowlisted `materialPurpose` is REQUIRED on
+ * every file: this function cannot produce a manifest entry routed by
+ * filename, because a brand-new direct upload always came from a window the
+ * Owner chose. A missing, null, blank, unknown or otherwise unrecognized value
+ * is a hard refusal — never a silent downgrade to guessing, never a default,
+ * and never a stripped field. The refusal happens before the caller writes a
+ * job row or mints a signed upload target, so one bad file refuses the whole
+ * job atomically.
  *
- * Callers must have validated the purpose against the closed allowlist before
- * reaching here; an unrecognized value is treated as absent rather than
- * trusted, so a hostile browser string can never invent a routing category.
+ * ROUTING RULE: the window is authoritative and the filename is never
+ * consulted — a price list called `document.pdf` routes as a price list, and a
+ * document called `price-list.pdf` uploaded under Documents stays a document.
+ *
+ * The endpoint schema already rejects unknown values; this second, independent
+ * check keeps the guarantee for every other caller of this service, including
+ * internal ones that never touch the endpoint.
  */
-export function declareJobFiles(
+export function declareNewDirectJobFiles(
   jobId: string,
   files: Array<{
     name: string;
     size?: number;
     contentType?: string;
-    materialPurpose?: StudioMaterialPurpose;
+    materialPurpose?: StudioMaterialPurpose | null;
   }>,
 ): StudioJobFile[] {
   return files.map((file, index) => {
-    const purpose = isStudioMaterialPurpose(file.materialPurpose) ? file.materialPurpose : null;
+    const purpose = assertNewDirectMaterialPurpose(file.materialPurpose);
     return {
       name: file.name,
       stagingBucket: PRIVATE_SOURCE_BUCKET,
@@ -222,26 +233,96 @@ export function declareJobFiles(
       declaredSize: file.size ?? null,
       declaredType: file.contentType ?? null,
       materialPurpose: purpose,
-      purposeSource: purpose ? ("owner_selected" as const) : ("filename_fallback" as const),
-      category: purpose ? categoryForPurpose(purpose) : classifyFileName(file.name),
+      purposeSource: "owner_selected" as const,
+      category: categoryForPurpose(purpose),
       status: "declared" as const,
     };
   });
 }
 
 /**
- * The routing category of a stored manifest entry.
+ * The closed-allowlist gate every NEW directly uploaded material passes,
+ * whether it travels the ordinary signed lane or the resumable large-archive
+ * lane. Returns the validated purpose or throws; it never returns a default.
  *
- * The Owner's recorded purpose wins whenever one is present, so a retry of an
- * explicit job re-derives the SAME category it was declared with and can never
- * drift into a filename guess. An entry with no purpose is a manifest written
- * before this contract existed: it keeps whatever category the classifier gave
- * it at declaration time, exactly as it processed before.
+ * `undefined`, `null`, `""` and whitespace are reported as MISSING and every
+ * other unrecognized value as INVALID, because those are different mistakes:
+ * one is a caller that forgot the field, the other is a caller sending
+ * something Studio does not recognize. Neither is ever routed.
+ */
+export function assertNewDirectMaterialPurpose(value: unknown): StudioMaterialPurpose {
+  if (value === undefined || value === null || (typeof value === "string" && !value.trim())) {
+    throw new StudioAccessError(
+      "material_purpose_required",
+      "Choose the upload window that says what this file is.",
+    );
+  }
+  if (!isStudioMaterialPurpose(value)) {
+    throw new StudioAccessError(
+      "material_purpose_invalid",
+      "That upload window is not one Forever recognizes.",
+    );
+  }
+  return value;
+}
+
+/**
+ * The routing category of a STORED manifest entry. THE READ PATH — the only
+ * place a directly uploaded file may fall back to its filename, and only for a
+ * manifest that genuinely predates this contract.
+ *
+ * The Owner's recorded purpose wins whenever one is present, so a retry or a
+ * resume of an explicit job re-derives the SAME category it was declared with
+ * and can never drift into a filename guess — even if the stored `category`
+ * text was tampered with. An entry with no purpose is a manifest written
+ * before the explicit-purpose contract existed: it keeps whatever category the
+ * classifier gave it at declaration time, exactly as it processed before, and
+ * only a row that somehow also lost its category is re-classified now.
  */
 export function routingCategoryForFile(file: StudioJobFile): IntakeCategory {
-  return isStudioMaterialPurpose(file.materialPurpose)
-    ? categoryForPurpose(file.materialPurpose)
-    : (file.category as IntakeCategory);
+  if (isStudioMaterialPurpose(file.materialPurpose))
+    return categoryForPurpose(file.materialPurpose);
+  return file.category ? (file.category as IntakeCategory) : classifyFileName(file.name);
+}
+
+/** Truthful provenance of the category `routingCategoryForFile` just derived. */
+export function purposeSourceForStoredFile(file: StudioJobFile): StudioMaterialPurposeSource {
+  return isStudioMaterialPurpose(file.materialPurpose) ? "owner_selected" : "filename_fallback";
+}
+
+/**
+ * How ONE entry expanded from a directly uploaded archive is routed.
+ *
+ * Two explicit cases, and nothing in between:
+ *
+ *   A. the archive was filed under FULL PROJECT ARCHIVE / OTHER PACKAGE (or is
+ *      a pre-contract archive with no recorded window at all) — the Owner
+ *      deliberately did not sort it, so the bounded deterministic entry
+ *      classifier routes each entry. This is routing, never verification.
+ *
+ *   B. the archive was filed under ANY other window — Project Photos, Price
+ *      List, Documents / Legal, Floor Plans… — so every entry INHERITS that
+ *      window. Filename, folder name and extension may not override it.
+ *
+ * The inherited purpose is a semantic decision only. It never relaxes byte
+ * safety: an entry whose actual bytes are incompatible with the inherited
+ * category still fails `isPublishableMediaClass`, stays private with a truthful
+ * warning, and is NEVER re-filed under some other window that would accept it.
+ */
+export function archiveEntryRouting(
+  outerPurpose: StudioMaterialPurpose | null,
+  entryName: string,
+): { category: IntakeCategory; purposeSource: StudioMaterialPurposeSource } {
+  if (outerPurpose === null) {
+    return { category: classifyFileName(entryName), purposeSource: "filename_fallback" };
+  }
+  if (outerPurpose === "project_archive") {
+    return { category: classifyFileName(entryName), purposeSource: "archive_entry_classifier" };
+  }
+  return {
+    category: categoryForPurpose(outerPurpose),
+    purposeSource: "inherited_explicit_window",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -708,13 +789,28 @@ export async function gatherMaterials(
       derivedName = factFields.fields.name;
   };
 
-  /** Shared per-entry routing for expanded archive entries. */
+  /**
+   * Shared per-entry routing for entries expanded from an inline archive.
+   *
+   * The container's OWN Owner-selected window decides how its entries route:
+   * only a Full Project Archive (or a pre-contract manifest with no recorded
+   * window) reaches the filename classifier — an archive filed under any other
+   * window hands that window down to every entry inside it.
+   */
   const handleArchiveEntry = async (
-    containerName: string,
+    container: StudioJobFile,
     entry: { name: string; data: Buffer },
   ): Promise<void> => {
     await options.heartbeat?.();
-    const category = classifyFileName(entry.name);
+    const containerName = container.name;
+    const outerPurpose = isStudioMaterialPurpose(container.materialPurpose)
+      ? container.materialPurpose
+      : null;
+    const { category, purposeSource } = archiveEntryRouting(outerPurpose, entry.name);
+    // Only an INHERITED entry carries a purpose: an entry the classifier routed
+    // inside a Full Project Archive has none, and saying otherwise would claim
+    // the Owner filed it individually.
+    const entryPurpose = purposeSource === "inherited_explicit_window" ? outerPurpose : null;
     if (entry.name.toLowerCase().endsWith(".json")) {
       const parsed = parseJsonBuffer(entry.data);
       if (parsed && looksLikePriceList(parsed)) {
@@ -767,10 +863,13 @@ export async function gatherMaterials(
       await deps.storage.upload(PRIVATE_SOURCE_BUCKET, stagedPath, entry.data);
       mediaCandidates.push({
         category,
+        purpose: entryPurpose,
         name: entry.name,
         originalSha256: hash,
         originalSize: entry.data.length,
-        fileRecord: files.find((file) => file.name === containerName),
+        // The container itself, not a name lookup: two archives with the same
+        // filename must not fold each other's evidence together.
+        fileRecord: container,
         archiveEntryName: entry.name,
         contentType:
           canonicalPublicContentType(
@@ -853,7 +952,15 @@ export async function gatherMaterials(
     const lower = file.name.toLowerCase();
     const isJson = lower.endsWith(".json");
     const isPdf = lower.endsWith(".pdf");
-    const isArchive = category === "archive";
+    // A ZIP is expanded because it IS a ZIP — declared `.zip` AND observed as
+    // zip bytes — not because of which window it came from. That is what keeps
+    // the two transport lanes semantically identical: the resumable lane
+    // expands a large ZIP from any window, so the inline lane must expand a
+    // small one from any window too, and both hand the SAME outer purpose down
+    // to their entries (see archiveEntryRouting). A file whose name says `.jpg`
+    // but whose bytes are a ZIP is still a declared/observed mismatch, kept
+    // private exactly as before — never quietly expanded.
+    const isArchive = category === "archive" || (lower.endsWith(".zip") && observedClass === "zip");
     const isMedia = mediaTypeForCategory(category) !== null;
 
     // --- Structured JSON (bounded parse) -----------------------------------
@@ -962,7 +1069,7 @@ export async function gatherMaterials(
         continue;
       }
       const archive = await deps.extractArchive({ fileName: file.name, buffer }, (entry) =>
-        handleArchiveEntry(file.name, entry),
+        handleArchiveEntry(file, entry),
       );
       warnings.push(...archive.warnings);
       continue;

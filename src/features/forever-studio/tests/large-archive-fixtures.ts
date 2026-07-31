@@ -14,7 +14,7 @@ import { zipCrc32 } from "@/intake/zip";
 
 import { confirmJobArchiveUpload, planJobArchiveUpload, startUploadJob } from "../server/service";
 import type { StudioActor } from "../server/contracts";
-import { type StartJobInput } from "../studio-types";
+import { type StartJobInput, type StudioMaterialPurpose } from "../studio-types";
 import { PRIVATE_SOURCE_BUCKET } from "../server/extraction";
 import type { FakeWorld } from "./fakes";
 
@@ -283,6 +283,13 @@ export async function uploadArchiveParts(
     skipConfirm?: boolean;
     /** Override the content-derived per-part manifest (identity regressions). */
     partSha256?: string[];
+    /**
+     * The window the Owner filed this archive under. Defaults to the Full
+     * Project Archive package, which is what every pre-existing archive
+     * fixture means; a test that files a large ZIP under some OTHER window
+     * passes it explicitly.
+     */
+    materialPurpose?: StudioMaterialPurpose;
   } = {},
 ): Promise<UploadedArchive> {
   const manifest = options.partSha256 ?? manifestForParts(parts);
@@ -290,6 +297,7 @@ export async function uploadArchiveParts(
     jobId,
     fileName,
     declaredSize: totalSize,
+    materialPurpose: options.materialPurpose ?? "project_archive",
     partSha256: manifest,
   });
   for (const target of plan.parts) {

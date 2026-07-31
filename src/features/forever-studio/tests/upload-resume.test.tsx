@@ -108,7 +108,7 @@ describe("uploadLargeArchive offline pause and resume", () => {
     });
 
     const states: ArchiveUploadProgress["state"][] = [];
-    const uploadPromise = uploadLargeArchive("job-1", file, (progress) =>
+    const uploadPromise = uploadLargeArchive("job-1", file, "project_archive", (progress) =>
       states.push(progress.state),
     );
     await vi.waitFor(() => expect(states).toContain("paused"));
@@ -128,6 +128,12 @@ describe("uploadLargeArchive offline pause and resume", () => {
       (call) => call[0].data,
     );
     expect(secondPlan).toEqual(firstPlan);
+    // ...and the Owner's window crossed the wire on BOTH plans. The replan
+    // after an offline pause is where a large archive would silently lose its
+    // purpose (review finding F1), so it is asserted explicitly rather than
+    // only through the deep-equality above.
+    expect(firstPlan.materialPurpose).toBe("project_archive");
+    expect(secondPlan.materialPurpose).toBe("project_archive");
 
     // Part 0 uploaded exactly once (retained across the pause); parts 1 and 2
     // resumed through the fresh round-2 tokens only.
@@ -158,7 +164,7 @@ describe("uploadLargeArchive offline pause and resume", () => {
     storage.uploadToSignedUrl.mockResolvedValue({ error: new Error("HTTP 500") });
 
     let settled = false;
-    const outcome = uploadLargeArchive("job-1", file, () => undefined).then(
+    const outcome = uploadLargeArchive("job-1", file, "project_archive", () => undefined).then(
       () => null,
       (error: unknown) => error,
     );
@@ -177,6 +183,40 @@ describe("uploadLargeArchive offline pause and resume", () => {
     // Initial round + MAX_STALLED_RESUME_ROUNDS replans, then a hard stop —
     // no unbounded replan spin against a persistently broken path.
     expect(endpoints.planArchiveUpload).toHaveBeenCalledTimes(4);
+  });
+
+  it("sends the Owner's window on EVERY plan request, whatever the window is", async () => {
+    // The plan request is the only place a large archive's purpose can cross
+    // the wire — it never appears in the job's ordinary file manifest — so a
+    // dropped field here is exactly the F1 defect, silently reintroduced.
+    for (const purpose of ["document_legal", "price_list", "project_photo"] as const) {
+      endpoints.planArchiveUpload.mockReset().mockResolvedValue({
+        archiveId: "arch-1",
+        partSize: 8,
+        partCount: 1,
+        presentParts: [],
+        parts: [target(0, "token-0")],
+      });
+      endpoints.confirmArchiveUpload.mockReset().mockResolvedValue({
+        archiveId: "arch-1",
+        accepted: true,
+        missingParts: [],
+      });
+      storage.uploadToSignedUrl.mockReset().mockResolvedValue({ error: null });
+
+      await uploadLargeArchive(
+        "job-1",
+        new File([new Uint8Array(8)], "x.zip"),
+        purpose,
+        () => undefined,
+      );
+
+      const sent = endpoints.planArchiveUpload.mock.calls[0][0].data;
+      expect(sent.materialPurpose, purpose).toBe(purpose);
+      // The plan payload stays JSON-serializable: the purpose must survive the
+      // wire as a plain value, not as something the mock happened to hold.
+      expect(JSON.parse(JSON.stringify(sent)).materialPurpose, purpose).toBe(purpose);
+    }
   });
 });
 

@@ -275,7 +275,7 @@ describe("large-archive sliced processing", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Safe Manor" },
-      files: [{ name: "cover.jpg" }],
+      files: [{ name: "cover.jpg", materialPurpose: "project_photo" }],
     });
     uploadAll(world, started.uploads);
     const hostile = buildZipParts(

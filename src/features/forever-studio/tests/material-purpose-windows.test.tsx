@@ -33,6 +33,21 @@ const endpoints = vi.hoisted(() => ({
 
 const uploaded = vi.hoisted(() => ({ toSignedUrl: vi.fn() }));
 
+const archiveLane = vi.hoisted(() => ({ uploadLargeArchive: vi.fn() }));
+/** Flips the TRANSPORT test only, so a lane change can be isolated from size. */
+const largeArchiveLane = vi.hoisted(() => ({ value: true }));
+
+vi.mock("../components/archive-upload", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../components/archive-upload")>();
+  return {
+    ...actual,
+    // Tiny fixtures must still be able to take the large-archive lane.
+    isLargeArchive: (file: File) => largeArchiveLane.value && file.name.endsWith(".zip"),
+    archiveTooLarge: () => false,
+    uploadLargeArchive: archiveLane.uploadLargeArchive,
+  };
+});
+
 vi.mock("../studio.functions", () => ({
   studioGetOverview: endpoints.getOverview,
   studioStartJob: endpoints.startJob,
@@ -165,6 +180,8 @@ describe("Studio upload windows", () => {
       listingId: null,
     });
     uploaded.toSignedUrl.mockReset().mockResolvedValue({ error: null });
+    archiveLane.uploadLargeArchive.mockReset().mockResolvedValue({ archiveId: "arch-1" });
+    largeArchiveLane.value = true;
   });
 
   // -------------------------------------------------------------------------
@@ -183,8 +200,23 @@ describe("Studio upload windows", () => {
       expect(describedBy, label).toBeTruthy();
       expect(document.getElementById(describedBy!)?.textContent?.length ?? 0).toBeGreaterThan(0);
     }
-    // No generic catch-all picker survives alongside them.
-    expect(screen.queryByRole("button", { name: "Choose files" })).not.toBeInTheDocument();
+    // No generic catch-all picker survives alongside them: EVERY file input on
+    // the page is a window's own picker, named for its purpose. Asserted on the
+    // inputs themselves — an assertion about a "Choose files" button could
+    // never fail, because that text is rendered as a <label>.
+    const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'));
+    expect(inputs.length).toBe(
+      STUDIO_MATERIAL_WINDOWS.length + STUDIO_MATERIAL_WINDOWS.filter((w) => w.camera).length,
+    );
+    const allowed = new Set(
+      STUDIO_MATERIAL_WINDOWS.flatMap((window) => [
+        `studio-material-${window.purpose}`,
+        ...(window.camera ? [`studio-material-camera-${window.purpose}`] : []),
+      ]),
+    );
+    for (const input of inputs) {
+      expect(allowed.has(input.id), input.id || "(no id)").toBe(true);
+    }
   });
 
   it("keeps every required window reachable on every workflow", async () => {
@@ -474,6 +506,117 @@ describe("Studio upload windows", () => {
       expect(classes).toContain("grid");
       expect(classes.filter((token) => /^grid-cols-[2-9]$/.test(token))).toHaveLength(0);
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // PR130 correction — the transport lane never takes the purpose away (F1),
+  // and the narrow usability corrections (F4, F5, F6)
+  // -------------------------------------------------------------------------
+
+  it("keeps a LARGE archive's Owner-selected window and passes it to the archive lane", async () => {
+    renderUploader("new_development");
+    await screen.findByRole("button", { name: "Publish now" });
+    // Three ZIPs, three different windows. Under the old code all three left
+    // the request entirely and were planned with no purpose at all.
+    await addTo("Documents / Legal", file("legal.zip"));
+    await addTo("Price List", file("prices.zip"));
+    await addTo("Full Project Archive / Other Package", file("package.zip"));
+    await addTo("Project Photos / Renders", file("keep.jpg"));
+    await publish();
+
+    // The ordinary file still crosses the wire with its own window...
+    expect(sentFiles()).toEqual([
+      { name: "keep.jpg", size: 8, contentType: undefined, materialPurpose: "project_photo" },
+    ]);
+    // ...and every archive reached the resumable lane carrying ITS window.
+    expect(
+      archiveLane.uploadLargeArchive.mock.calls.map((call) => [call[1].name, call[2]]),
+    ).toEqual([
+      ["legal.zip", "document_legal"],
+      ["prices.zip", "price_list"],
+      ["package.zip", "project_archive"],
+    ]);
+  });
+
+  it("keeps the same ZIP's window whichever transport lane its size sends it down", async () => {
+    // A controlled comparison: byte-identical file, same window, only the size
+    // test differs. The purpose reaching the server must be the same value.
+    const seen: string[] = [];
+    for (const large of [true, false]) {
+      largeArchiveLane.value = large;
+      const view = renderUploader("new_development");
+      await screen.findByRole("button", { name: "Publish now" });
+      await addTo("Documents / Legal", file("legal.zip"));
+      await publish();
+      seen.push(
+        large
+          ? String(archiveLane.uploadLargeArchive.mock.calls.at(-1)?.[2])
+          : String(sentFiles().at(-1)?.materialPurpose),
+      );
+      view.unmount();
+      endpoints.startJob.mockClear();
+    }
+    largeArchiveLane.value = true;
+    expect(seen).toEqual(["document_legal", "document_legal"]);
+  });
+
+  it("F4 — states how many files are inside the collapsed group, and opens it", async () => {
+    // price_availability_update leads with the commercial windows, so Project
+    // Photos moves into "More material types".
+    renderUploader("price_availability_update");
+    await screen.findByRole("button", { name: "Publish now" });
+    const disclosure = document.querySelector("details");
+    expect(disclosure).not.toBeNull();
+    expect(disclosure!.open).toBe(false);
+    expect(disclosure!.textContent).not.toMatch(/file(s)? selected/);
+
+    await addTo("Project Photos / Renders", file("render.jpg"), file("render-2.jpg"));
+
+    // The count is on the SUMMARY, so it is readable without opening anything,
+    // and the group opens itself so the files can be reviewed or removed.
+    const summary = disclosure!.querySelector("summary")!;
+    expect(summary.textContent).toContain("2 files selected");
+    expect(disclosure!.open).toBe(true);
+
+    // It is an indicator, not a gate: publication is unaffected.
+    await publish();
+    expect(await screen.findByRole("heading", { name: "Published" })).toBeVisible();
+  });
+
+  it("F4 — says 'file' not 'files' for a single selection", async () => {
+    renderUploader("construction_media_update");
+    await screen.findByRole("button", { name: "Publish now" });
+    await addTo("Price List", file("q3.pdf"));
+    expect(document.querySelector("details summary")!.textContent).toContain("1 file selected");
+  });
+
+  it("F5 — the per-file Remove control is a comfortable phone touch target", async () => {
+    renderUploader("new_development");
+    await screen.findByRole("button", { name: "Publish now" });
+    await addTo("Brochure", file("b.pdf"));
+    const remove = screen.getByRole("button", { name: "Remove b.pdf from Brochure" });
+    // jsdom has no layout engine, so the intended size is proven from the
+    // classes that produce it: at least 44x44 CSS px (11 x 0.25rem), centred,
+    // with the visible label unchanged.
+    const classes = remove.className.split(/\s+/);
+    expect(classes).toContain("min-h-11");
+    expect(classes).toContain("min-w-11");
+    expect(classes).toContain("inline-flex");
+    expect(classes).toContain("items-center");
+    expect(remove).toHaveTextContent("Remove");
+  });
+
+  it("F6 — the Developer / Company Profile window promises no public developer page", async () => {
+    renderUploader("new_development");
+    await screen.findByRole("button", { name: "Publish now" });
+    const input = windowInput("Developer / Company Profile");
+    const hint = document.getElementById(input.getAttribute("aria-describedby")!)!;
+    // Truthful: private retention, and no promise of a section that does not
+    // exist. (The Owner is never told a new public Developer entity appears.)
+    expect(hint.textContent).toMatch(/private/i);
+    expect(hint.textContent).not.toMatch(/developer page will|published as a developer/i);
+    // ...and it is still a plain hint, not a gate.
+    expect(hint.textContent).not.toMatch(/review|approve|verify/i);
   });
 
   it("labels each picker with its window so assistive tech states the purpose", async () => {

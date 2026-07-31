@@ -165,7 +165,7 @@ describe("Studio object authorization", () => {
       startUploadJob(world.deps, PUBLISHER, {
         workflow: "construction_media_update",
         projectSlug: project.result.projectSlug!,
-        files: [{ name: "guessed-target.jpg" }],
+        files: [{ name: "guessed-target.jpg", materialPurpose: "project_photo" }],
       }),
     ).rejects.toMatchObject({ code: "studio_access_denied" });
     await expect(

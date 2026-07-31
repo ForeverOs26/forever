@@ -53,7 +53,11 @@ describe("Studio resale listings", () => {
         contactPhone: "+66 76 000 000",
         contactName: "Seller Somchai",
       },
-      files: [{ name: "living-room.jpg" }, { name: "bedroom.jpg" }, { name: "view.jpg" }],
+      files: [
+        { name: "living-room.jpg", materialPurpose: "project_photo" },
+        { name: "bedroom.jpg", materialPurpose: "project_photo" },
+        { name: "view.jpg", materialPurpose: "project_photo" },
+      ],
     });
 
     expect(result.status).toBe("published");
@@ -117,7 +121,7 @@ describe("Studio resale listings", () => {
     const { result } = await runResale(world, OWNER, {
       workflow: "resale_listing",
       resaleFacts: { bedrooms: 3, locationText: "Rawai" },
-      files: [{ name: "house.jpg" }],
+      files: [{ name: "house.jpg", materialPurpose: "project_photo" }],
     });
     expect(result.status).toBe("published");
     const listing = world.data.listings[0];

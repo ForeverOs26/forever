@@ -36,6 +36,7 @@ import {
   type StudioMaterialWindow,
   type StudioProjectFacts,
   type StudioResaleFacts,
+  type StudioUploadTarget,
   type StudioWorkflow,
 } from "../studio-types";
 import {
@@ -93,6 +94,43 @@ function isJobResult(value: unknown): value is StudioJobResult {
     value !== null &&
     typeof (value as { status?: unknown }).status === "string"
   );
+}
+
+/**
+ * Pair every signed target with the exact File it was issued for.
+ *
+ * The pairing key is the server's `fileIndex`, which is that file's position in
+ * the manifest the browser just sent and the index embedded in its private
+ * staging path. Never the filename (two windows may legitimately hold the same
+ * name) and never array order (a reordered response must stay correct).
+ *
+ * All-or-nothing on purpose: a response that is not a clean one-to-one mapping
+ * means the browser cannot know whose bytes belong where, and uploading
+ * anything at that point risks publishing one file under another file's
+ * Owner-selected purpose. The refusal names no path and no token.
+ */
+function resolveUploadPairs(
+  targets: StudioUploadTarget[],
+  ordinary: MaterialSelection[],
+): Array<{ target: StudioUploadTarget; file: File }> {
+  const claimed = new Set<number>();
+  const pairs: Array<{ target: StudioUploadTarget; file: File }> = [];
+  for (const target of targets) {
+    const fileIndex = target?.fileIndex;
+    if (
+      !Number.isInteger(fileIndex) ||
+      fileIndex < 0 ||
+      fileIndex >= ordinary.length ||
+      claimed.has(fileIndex)
+    ) {
+      throw new Error(
+        "Forever could not match an upload slot to the file you chose, so nothing was uploaded. Please try again.",
+      );
+    }
+    claimed.add(fileIndex);
+    pairs.push({ target, file: ordinary[fileIndex].file });
+  }
+  return pairs;
 }
 
 type Phase =
@@ -179,13 +217,13 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
     try {
       const failedUploads: string[] = [];
       // Which transport lane a file takes is a SIZE decision, never a purpose
-      // decision: a big ZIP is uploaded in resumable parts whichever window it
-      // came from, and its Owner-selected purpose is unaffected.
-      const largeArchives = selections
-        .filter((selection) => isLargeArchive(selection.file))
-        .map((selection) => selection.file);
+      // decision. Both lanes therefore keep the WHOLE selection — file plus the
+      // window the Owner chose — and a large archive is never reduced to a bare
+      // File on its way to the resumable lane. Its purpose crosses the wire on
+      // the plan request exactly as an ordinary file's crosses on start-job.
+      const largeArchives = selections.filter((selection) => isLargeArchive(selection.file));
       const ordinary = selections.filter((selection) => !isLargeArchive(selection.file));
-      const oversized = largeArchives.find(archiveTooLarge);
+      const oversized = largeArchives.map((selection) => selection.file).find(archiveTooLarge);
       if (!id && oversized) {
         setPhase({
           step: "error",
@@ -212,18 +250,25 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
           },
         });
         id = started.jobId;
-        setPhase({ step: "uploading", done: 0, total: started.uploads.length });
-        for (let index = 0; index < started.uploads.length; index += 1) {
-          const target = started.uploads[index];
-          const file = ordinary[index]?.file;
-          if (!file) continue;
+        // Resolve the WHOLE mapping before a single byte is sent. Bytes are
+        // paired to signed targets by the SERVER-ASSIGNED fileIndex, never by
+        // position in this array and never by filename, so response order is
+        // free, duplicate filenames stay distinct, and the same File selected
+        // under two windows keeps two separate targets. Anything that is not a
+        // sound one-to-one mapping — a missing, non-integer, out-of-range or
+        // repeated identity — aborts the upload with nothing uploaded, rather
+        // than sending one file's bytes to another file's staging path.
+        const pairs = resolveUploadPairs(started.uploads, ordinary);
+        setPhase({ step: "uploading", done: 0, total: pairs.length });
+        for (let index = 0; index < pairs.length; index += 1) {
+          const { target, file } = pairs[index];
           const { error } = await supabase.storage
             .from(target.bucket)
             .uploadToSignedUrl(target.path, target.token, file, {
               contentType: file.type || undefined,
             });
           if (error) failedUploads.push(target.name);
-          setPhase({ step: "uploading", done: index + 1, total: started.uploads.length });
+          setPhase({ step: "uploading", done: index + 1, total: pairs.length });
         }
       }
       // Large archives: resumable chunked upload, one archive at a time.
@@ -232,9 +277,9 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
       // missing parts. Processing is never requested past this loop until
       // every archive reached storage acceptance.
       for (let index = 0; index < largeArchives.length; index += 1) {
-        const file = largeArchives[index];
+        const { file, purpose } = largeArchives[index];
         try {
-          await uploadLargeArchive(id, file, (progress) => {
+          await uploadLargeArchive(id, file, purpose, (progress) => {
             if (!alive.current) return;
             setPhase({
               step: "uploadingArchive",
@@ -453,6 +498,11 @@ function MaterialWindows(props: {
   const groups = STUDIO_MATERIAL_GROUPS.filter((group) =>
     primary.some((window) => window.group === group),
   );
+  // How many already-chosen files currently sit inside the collapsed group.
+  const additionalPurposes = new Set(additional.map((window) => window.purpose));
+  const hiddenSelected = props.selections.filter((selection) =>
+    additionalPurposes.has(selection.purpose),
+  ).length;
   return (
     <section className="space-y-4" aria-labelledby="studio-materials-heading">
       <div className="space-y-1">
@@ -477,8 +527,24 @@ function MaterialWindows(props: {
       ))}
 
       {additional.length ? (
-        <details className="rounded-lg border border-border/40 p-3">
-          <summary className="cursor-pointer text-sm font-medium">More material types</summary>
+        <details className="rounded-lg border border-border/40 p-3" open={hiddenSelected > 0}>
+          {/*
+            Files can end up in here without ever being hidden from the Owner:
+            changing workflow keeps every selection (nothing is lost or
+            relabelled) but moves the less usual windows into this disclosure.
+            The count states, on the closed summary, that material is inside —
+            and the group opens itself when it holds any — so "everything can be
+            reviewed before Publish now" needs no hunting. It is an INDICATOR,
+            never a step: it asks for nothing and blocks nothing.
+          */}
+          <summary className="cursor-pointer text-sm font-medium">
+            More material types
+            {hiddenSelected > 0 ? (
+              <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                {hiddenSelected} file{hiddenSelected === 1 ? "" : "s"} selected
+              </span>
+            ) : null}
+          </summary>
           <p className="mt-1 text-xs text-muted-foreground">
             Less usual for this workflow, but always available.
           </p>
@@ -615,15 +681,20 @@ function MaterialWindowCard(props: {
           {props.selections.map((selection) => (
             <li
               key={selection.key}
-              className="flex min-w-0 items-center gap-2 rounded-md border border-border/40 px-2 py-1.5"
+              className="flex min-w-0 items-center gap-2 rounded-md border border-border/40 py-0.5 pl-2 pr-1"
             >
               <span className="min-w-0 flex-1 truncate">{selection.file.name}</span>
               <span className="shrink-0 text-xs text-muted-foreground">
                 {(selection.file.size / (1024 * 1024)).toFixed(1)} MB
               </span>
+              {/*
+                Comfortable 44x44 CSS-pixel touch target for a phone-first flow,
+                built from padding rather than from a bigger-looking control: the
+                visible text stays the same small underlined "Remove".
+              */}
               <button
                 type="button"
-                className="shrink-0 rounded text-xs text-muted-foreground underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded px-2 text-xs text-muted-foreground underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 onClick={() => props.onRemove(selection.key)}
               >
                 <span aria-hidden="true">Remove</span>

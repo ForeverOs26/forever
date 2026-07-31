@@ -142,19 +142,35 @@ export function isStudioMaterialPurpose(value: unknown): value is StudioMaterial
 }
 
 /**
- * How a stored manifest entry got its routing category.
+ * How a routing category was decided. Four values, each truthful about a
+ * DIFFERENT thing, so no routing decision can be described as something
+ * stronger than it was:
  *
- *   owner_selected     the Owner chose the upload window; authoritative
- *   filename_fallback  no explicit purpose was supplied (a job created before
- *                      this contract existed, or an entry discovered inside an
- *                      archive), so the deterministic filename classifier
- *                      routed it
+ *   owner_selected              the Owner chose the upload window for THIS
+ *                               exact file; authoritative
+ *   inherited_explicit_window   an entry expanded from a directly uploaded
+ *                               archive that the Owner filed under a specific
+ *                               (non-archive) window; the entry inherits that
+ *                               window — it was never individually selected
+ *   archive_entry_classifier    an entry inside a Full Project Archive / Other
+ *                               Package, where the Owner deliberately supplied
+ *                               NO per-entry purpose, so the bounded
+ *                               deterministic entry classifier routed it
+ *   filename_fallback           no explicit purpose exists at all — a manifest
+ *                               written before this contract — so the legacy
+ *                               filename classifier routed it
  *
- * Recorded so the fallback's reach stays provable rather than assumed. It is
+ * Recorded so each classifier's reach stays provable rather than assumed. It is
  * routing provenance only — never a review state, a readiness signal, or a
- * verification claim, and it never gates publication.
+ * verification claim, and it never gates publication. In particular
+ * `inherited_explicit_window` and `archive_entry_classifier` must never be
+ * reported as `owner_selected`: the Owner chose the package, not the entry.
  */
-export type StudioMaterialPurposeSource = "owner_selected" | "filename_fallback";
+export type StudioMaterialPurposeSource =
+  | "owner_selected"
+  | "inherited_explicit_window"
+  | "archive_entry_classifier"
+  | "filename_fallback";
 
 /** One upload window in the Studio UI. */
 export interface StudioMaterialWindow {
@@ -226,7 +242,11 @@ export const STUDIO_MATERIAL_WINDOWS: readonly StudioMaterialWindow[] = [
   {
     purpose: "developer_profile",
     label: "Developer / Company Profile",
-    hint: "Developer background or company profile material.",
+    // Truthful about the outcome (FOREVER-PR130 review F6): this material may
+    // inform the developer details shown on the project page, but the file
+    // itself is kept privately and uploading it does not create a public
+    // developer section. No public Developer entity exists to promise.
+    hint: "Developer background. Kept private; it may inform the project's developer details, not a separate page.",
     accept: `${DOCUMENT_ACCEPT},image/*`,
     camera: false,
     group: "Project materials",
@@ -457,6 +477,19 @@ export interface StudioJobFile {
 
 export interface StudioUploadTarget {
   name: string;
+  /**
+   * SERVER-ASSIGNED identity of the declared file this target belongs to: its
+   * position in the request's `files` array, which is also the index embedded
+   * in the private staging path.
+   *
+   * This — not array order and never the filename — is how the browser decides
+   * which File's bytes go to which signed target. Order is therefore free to
+   * change, duplicate filenames stay safe, and the same File selected under two
+   * different windows keeps two independent targets. Unique within one job;
+   * the browser refuses a response whose identities are missing, out of range,
+   * or duplicated rather than uploading to a guessed target.
+   */
+  fileIndex: number;
   /** Always the private staging bucket. */
   bucket: string;
   path: string;
@@ -504,16 +537,21 @@ export interface StartJobInput {
   projectFacts?: StudioProjectFacts;
   resaleFacts?: StudioResaleFacts;
   /**
-   * Directly selected files. Studio always sends `materialPurpose` — the
-   * window the Owner uploaded into. It is optional in the type ONLY so a job
-   * declared by an older client (or a legacy programmatic caller) still
-   * processes through the filename-classifier fallback instead of failing.
+   * Directly selected files. `materialPurpose` — the window the Owner uploaded
+   * into — is MANDATORY on every one of them.
+   *
+   * A new direct upload has no legitimate way to omit it: the browser stamps
+   * the window onto the selection at pick time, and there is no Studio surface
+   * that produces a file without one. Creation therefore never reaches the
+   * filename classifier, which now runs only where a purpose genuinely cannot
+   * exist: reading a manifest written before this contract, or an entry inside
+   * a Full Project Archive (see StudioMaterialPurposeSource).
    */
   files: Array<{
     name: string;
     size?: number;
     contentType?: string;
-    materialPurpose?: StudioMaterialPurpose;
+    materialPurpose: StudioMaterialPurpose;
   }>;
 }
 
@@ -828,6 +866,19 @@ export interface StudioArchivePlanInput {
   jobId: string;
   fileName: string;
   declaredSize: number;
+  /**
+   * The upload window the Owner filed this archive under. MANDATORY, and
+   * validated against the same closed allowlist as an ordinary direct file.
+   *
+   * Transport and purpose are separate dimensions: size and format decide
+   * whether an archive travels the ordinary signed lane or this resumable
+   * chunked lane, and NEITHER may decide what the material is. The purpose is
+   * stored durably on the archive at plan time, so retry and resume never
+   * depend on the browser still remembering it, and every entry expanded from
+   * an archive filed under a specific window inherits that window instead of
+   * being re-guessed from its name.
+   */
+  materialPurpose: StudioMaterialPurpose;
   /**
    * The exact ordered per-part SHA-256 manifest (one lowercase hex digest per
    * fixed-size upload part, computed sequentially over EVERY byte of the

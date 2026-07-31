@@ -57,9 +57,9 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
           projectType: "Residential",
         },
         files: [
-          { name: "price-list.json" },
-          { name: "render-front.jpg" },
-          { name: "coralina-brochure.pdf" },
+          { name: "price-list.json", materialPurpose: "price_list" },
+          { name: "render-front.jpg", materialPurpose: "project_photo" },
+          { name: "coralina-brochure.pdf", materialPurpose: "brochure" },
         ],
       },
       { "price-list.json": CORALINA_PRICE_LIST },
@@ -104,7 +104,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       {
         workflow: "new_development",
         projectFacts: { name: "Rainpalm Villas", locationText: "Bang Tao, Phuket" },
-        files: [{ name: "price-list.json" }],
+        files: [{ name: "price-list.json", materialPurpose: "price_list" }],
       },
       { "price-list.json": RAINPALM_PRICE_LIST },
     );
@@ -130,14 +130,14 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       {
         workflow: "new_development",
         projectFacts: { name: "Rainpalm Villas" },
-        files: [{ name: "price-list.json" }],
+        files: [{ name: "price-list.json", materialPurpose: "price_list" }],
       },
       { "price-list.json": RAINPALM_PRICE_LIST },
     );
     const { result } = await runJob(world, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Rainpalm Villas", developerName: "Tonsai Company" },
-      files: [{ name: "pool-view.jpg" }],
+      files: [{ name: "pool-view.jpg", materialPurpose: "project_photo" }],
     });
 
     expect(result.status).toBe("published");
@@ -155,7 +155,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       {
         workflow: "new_development",
         projectFacts: { name: "Rainpalm Villas" },
-        files: [{ name: "price-list.json" }],
+        files: [{ name: "price-list.json", materialPurpose: "price_list" }],
       },
       { "price-list.json": RAINPALM_PRICE_LIST },
     );
@@ -170,7 +170,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       {
         workflow: "price_availability_update",
         projectSlug: "rainpalm-villas",
-        files: [{ name: "price-list.json" }],
+        files: [{ name: "price-list.json", materialPurpose: "price_list" }],
       },
       { "price-list.json": JSON.stringify(updated) },
     );
@@ -190,7 +190,12 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     const { result } = await runJob(world, OWNER, {
       workflow: "construction_media_update",
       projectSlug: "rainpalm-villas",
-      files: [{ name: "IMG_2201.jpg" }, { name: "IMG_2202.jpg" }],
+      // The Owner of a construction update files straight into the
+      // Construction Photos window; the camera filename says nothing.
+      files: [
+        { name: "IMG_2201.jpg", materialPurpose: "construction_photo" },
+        { name: "IMG_2202.jpg", materialPurpose: "construction_photo" },
+      ],
     });
 
     expect(result.status).toBe("published");
@@ -207,7 +212,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       {
         workflow: "new_development",
         projectFacts: { name: "Rainpalm Villas" },
-        files: [{ name: "price-list.json" }],
+        files: [{ name: "price-list.json", materialPurpose: "price_list" }],
       },
       { "price-list.json": RAINPALM_PRICE_LIST },
     );
@@ -233,7 +238,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       {
         workflow: "price_availability_update",
         projectSlug: "rainpalm-villas",
-        files: [{ name: "price-list.json" }],
+        files: [{ name: "price-list.json", materialPurpose: "price_list" }],
       },
       { "price-list.json": JSON.stringify(updated) },
     );
@@ -246,7 +251,10 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       {
         workflow: "construction_media_update",
         projectSlug: "rainpalm-villas",
-        files: [{ name: "owner-update-1.jpg" }, { name: "owner-update-2.jpg" }],
+        files: [
+          { name: "owner-update-1.jpg", materialPurpose: "project_photo" },
+          { name: "owner-update-2.jpg", materialPurpose: "project_photo" },
+        ],
       },
       {
         "owner-update-1.jpg": tinyJpeg(),
@@ -283,9 +291,9 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       workflow: "new_development",
       projectFacts: { name: "Partial Project" },
       files: [
-        { name: "broken-price-list.json" },
-        { name: "render.jpg" },
-        { name: "never-arrives.pdf" },
+        { name: "broken-price-list.json", materialPurpose: "price_list" },
+        { name: "render.jpg", materialPurpose: "project_photo" },
+        { name: "never-arrives.pdf", materialPurpose: "document_legal" },
       ],
     });
     // Only two of three declared files arrive; one is corrupt JSON.
@@ -316,7 +324,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Rollback Project" },
-      files: [{ name: "price-list.json" }],
+      files: [{ name: "price-list.json", materialPurpose: "price_list" }],
     });
     uploadAll(world, started.uploads, { "price-list.json": list });
 
@@ -361,7 +369,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Retry Project" },
-      files: [{ name: "price-list.json" }],
+      files: [{ name: "price-list.json", materialPurpose: "price_list" }],
     });
     uploadAll(world, started.uploads, { "price-list.json": list });
 
@@ -409,7 +417,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       {
         workflow: "new_development",
         projectFacts: { name: "Project Alpha" },
-        files: [{ name: "price-list.json" }],
+        files: [{ name: "price-list.json", materialPurpose: "price_list" }],
       },
       { "price-list.json": RAINPALM_PRICE_LIST },
     );
@@ -419,7 +427,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     await runJob(world, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Project Beta" },
-      files: [{ name: "beta-photo.jpg" }],
+      files: [{ name: "beta-photo.jpg", materialPurpose: "project_photo" }],
     });
 
     const beta = world.executor.store.projects.find((row) => row.slug === "project-beta")!;
@@ -457,7 +465,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     const world = makeWorld();
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
-      files: [{ name: "photo.jpg" }],
+      files: [{ name: "photo.jpg", materialPurpose: "project_photo" }],
     });
     uploadAll(world, started.uploads);
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
@@ -480,7 +488,10 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     const { result } = await runJob(
       world,
       OWNER,
-      { workflow: "new_development", files: [{ name: "project-facts.json" }] },
+      {
+        workflow: "new_development",
+        files: [{ name: "project-facts.json", materialPurpose: "document_legal" }],
+      },
       { "project-facts.json": facts },
     );
     expect(result.status).toBe("published");
@@ -492,7 +503,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     const { result } = await runJob(world, OWNER, {
       workflow: "project_update",
       projectSlug: "brand-new-slug",
-      files: [{ name: "photo.jpg" }],
+      files: [{ name: "photo.jpg", materialPurpose: "project_photo" }],
     });
     expect(result.status).toBe("published");
     expect(result.warnings.some((w) => w.code === "project_missing_created")).toBe(true);
@@ -519,7 +530,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       {
         workflow: "new_development",
         projectFacts: { name: "Zip Project" },
-        files: [{ name: "dossier.zip" }],
+        files: [{ name: "dossier.zip", materialPurpose: "project_archive" }],
       },
       { "dossier.zip": Buffer.from("PK zip placeholder") },
     );
@@ -537,7 +548,10 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       {
         workflow: "new_development",
         projectFacts: { name: "Bomb Survivor" },
-        files: [{ name: "bomb.zip" }, { name: "hero.jpg" }],
+        files: [
+          { name: "bomb.zip", materialPurpose: "project_archive" },
+          { name: "hero.jpg", materialPurpose: "project_photo" },
+        ],
       },
       { "bomb.zip": Buffer.from("PK\x03\x04 pretend bomb") },
     );
@@ -554,10 +568,10 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       workflow: "new_development",
       projectFacts: { name: "Bucket Project" },
       files: [
-        { name: "photo.jpg" },
-        { name: "Master Plan 2026.pdf" },
-        { name: "Price List July.pdf" },
-        { name: "dossier.zip" },
+        { name: "photo.jpg", materialPurpose: "project_photo" },
+        { name: "Master Plan 2026.pdf", materialPurpose: "master_plan" },
+        { name: "Price List July.pdf", materialPurpose: "price_list" },
+        { name: "dossier.zip", materialPurpose: "project_archive" },
       ],
     });
     for (const upload of started.uploads) {
