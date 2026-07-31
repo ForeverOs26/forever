@@ -1056,7 +1056,12 @@ try {
   if (!files.includes(NEW_MIGRATION)) {
     throw new Error(`${NEW_MIGRATION} is missing from ${MIGRATIONS_DIR}`);
   }
-  const priorFiles = files.filter((file) => file !== NEW_MIGRATION);
+  // The migrations production had applied BEFORE this one, which is what path B
+  // reconstructs. Selected by sort order rather than by "everything except this
+  // file", so a migration added LATER in the chain — 20260731100000 is the first —
+  // does not silently join path B's baseline and inflate the count below. Path A
+  // still applies the whole chain, including anything newer.
+  const priorFiles = files.filter((file) => file < NEW_MIGRATION);
 
   port = await reserveFreePort();
   work = mkdtempSync(join(tmpdir(), "forever-lbwr-pg-"));
