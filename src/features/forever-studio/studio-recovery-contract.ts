@@ -1,0 +1,200 @@
+/**
+ * Forever Studio password recovery — the pure contract.
+ *
+ * Studio is invitation-only and deliberately has no sign-up path. Recovery
+ * exists so an ALREADY INVITED account can replace a forgotten password; it
+ * never creates an account and never grants Studio membership. Membership is
+ * still resolved server-side on the next normal sign-in.
+ *
+ * Everything in this module is pure and free of Supabase, DOM and router
+ * imports so the security-critical decisions — where the recovery link may
+ * point, what counts as a recovery URL, and what makes a password acceptable
+ * locally — can be tested directly and reused by both screens.
+ *
+ * Nothing here reads, stores, logs or returns a recovery token, a session, an
+ * email address or a password value.
+ */
+
+/** The normal Studio sign-in surface. Recovery always ends back here. */
+export const STUDIO_LOGIN_PATH = "/studio";
+
+/** Public recovery-request screen. Outside the membership-protected boundary. */
+export const STUDIO_FORGOT_PASSWORD_PATH = "/studio/forgot-password";
+
+/**
+ * The ONLY path a Supabase recovery link may return to.
+ *
+ * A fixed application constant on purpose: an attacker-supplied `redirectTo`
+ * would turn the recovery mail into an open redirect that leaks the recovery
+ * fragment to a foreign origin. This value is never derived from a query
+ * parameter, form field, storage entry or remote content.
+ */
+export const STUDIO_RESET_PASSWORD_PATH = "/studio/reset-password";
+
+/**
+ * Minimum password length.
+ *
+ * This is the repository's existing Studio policy, already enforced when an
+ * Owner invites a publisher (`inviteMember` in server/service.ts rejects
+ * shorter than 10, and the invite field sets minLength={10}). Recovery reuses
+ * it rather than inventing a second, inconsistent rule.
+ *
+ * Local validation is a courtesy that avoids a pointless round trip. The
+ * Supabase server remains authoritative for final password acceptance.
+ */
+export const STUDIO_PASSWORD_MIN_LENGTH = 10;
+
+/**
+ * The single response the request screen is allowed to give.
+ *
+ * Identical for a known address, an unknown address, an unconfirmed account,
+ * a disabled account and a non-member, so the form cannot be used to discover
+ * whether an account exists or whether it can reach Studio.
+ */
+export const STUDIO_RECOVERY_GENERIC_NOTICE =
+  "If an account exists for that email, a password reset link has been sent. Check the inbox and the spam folder.";
+
+/** Shown after a successful password change, on the normal sign-in screen. */
+export const STUDIO_PASSWORD_UPDATED_NOTICE = "Password updated. Sign in with the new password.";
+
+/**
+ * Grace period after the auth client reports that it has finished starting up.
+ *
+ * Once start-up is done, a link that has not produced a recovery is not going
+ * to produce one, so the verdict can be fast. The small grace only covers the
+ * ordering of the initialisation events themselves.
+ */
+export const STUDIO_RECOVERY_SETTLED_GRACE_MS = 1200;
+
+/**
+ * Backstop for the case where the auth client never reports start-up at all
+ * (offline, blocked, misconfigured). Deliberately generous: declaring a link
+ * expired while it is still being parsed sends the publisher to request
+ * another one for no reason, and the screen says "Checking the reset link…"
+ * throughout, so waiting is honest rather than silent.
+ */
+export const STUDIO_RECOVERY_SETTLE_MS = 12000;
+
+/**
+ * Builds the recovery redirect from an origin and NOTHING else.
+ *
+ * The caller passes `window.location.origin`. Any query string, fragment,
+ * path or credential in the supplied value is discarded by `new URL(path,
+ * origin)`, so a hostile `?redirectTo=` on the request page cannot influence
+ * the result. The assertions below are defence in depth: if the constructed
+ * URL is ever not the exact fixed same-origin reset path, this throws instead
+ * of mailing a link somewhere unintended.
+ */
+export function studioResetPasswordRedirectUrl(origin: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    throw new Error("studio_recovery_redirect_origin_invalid");
+  }
+  if (
+    parsed.protocol !== "https:" &&
+    parsed.hostname !== "localhost" &&
+    parsed.hostname !== "127.0.0.1"
+  ) {
+    throw new Error("studio_recovery_redirect_insecure_origin");
+  }
+  const url = new URL(STUDIO_RESET_PASSWORD_PATH, parsed.origin);
+  if (url.origin !== parsed.origin || url.pathname !== STUDIO_RESET_PASSWORD_PATH) {
+    throw new Error("studio_recovery_redirect_not_fixed_path");
+  }
+  if (url.search !== "" || url.hash !== "") {
+    throw new Error("studio_recovery_redirect_carries_state");
+  }
+  return url.toString();
+}
+
+/**
+ * Whether a URL declares itself a Supabase recovery link.
+ *
+ * Reads ONLY the `type` parameter. The access token, refresh token and any
+ * other fragment value are never read, never returned and never stored — this
+ * function exists so the reset screen can know a recovery is in progress even
+ * if it mounts after the auth event has already been emitted.
+ */
+export function urlDeclaresPasswordRecovery(hash: string, search: string): boolean {
+  const readType = (raw: string): string | null => {
+    if (!raw) return null;
+    const cleaned = raw.startsWith("#") || raw.startsWith("?") ? raw.slice(1) : raw;
+    if (!cleaned) return null;
+    try {
+      return new URLSearchParams(cleaned).get("type");
+    } catch {
+      return null;
+    }
+  };
+  return readType(hash) === "recovery" || readType(search) === "recovery";
+}
+
+export type StudioPasswordProblem = "empty" | "too_short" | "mismatch";
+
+/**
+ * Local password validation. Returns a PROBLEM CODE, never the password.
+ *
+ * `null` means "worth sending to the server", not "accepted" — Supabase may
+ * still reject it under the project's own policy, and that rejection is
+ * surfaced verbatim-free through `studioPasswordProblemMessage`.
+ */
+export function validateStudioPassword(
+  password: string,
+  confirmation: string,
+): StudioPasswordProblem | null {
+  if (password.length === 0) return "empty";
+  if (password.length < STUDIO_PASSWORD_MIN_LENGTH) return "too_short";
+  if (password !== confirmation) return "mismatch";
+  return null;
+}
+
+/** Safe, non-echoing message for a local validation problem. */
+export function studioPasswordProblemMessage(problem: StudioPasswordProblem): string {
+  switch (problem) {
+    case "empty":
+      return "Enter a new password.";
+    case "too_short":
+      return `Use at least ${STUDIO_PASSWORD_MIN_LENGTH} characters.`;
+    case "mismatch":
+      return "The two passwords do not match.";
+  }
+}
+
+/**
+ * Maps a Supabase failure to a safe user message.
+ *
+ * Never returns the raw error: provider messages can carry the project
+ * reference, a database detail or an enumeration hint. The password is never
+ * part of any branch.
+ */
+export function studioRecoveryErrorMessage(raw: unknown): string {
+  const text = raw instanceof Error ? raw.message : typeof raw === "string" ? raw : "";
+  const lowered = text.toLowerCase();
+  if (lowered.includes("rate") || lowered.includes("too many") || lowered.includes("429")) {
+    return "Too many attempts. Wait a few minutes and try again.";
+  }
+  if (
+    lowered.includes("expired") ||
+    lowered.includes("invalid") ||
+    lowered.includes("not found") ||
+    lowered.includes("jwt")
+  ) {
+    return "This reset link is no longer valid. Request a new one.";
+  }
+  if (lowered.includes("weak") || lowered.includes("password")) {
+    return "That password was rejected. Choose a longer, less predictable one.";
+  }
+  if (lowered.includes("network") || lowered.includes("fetch") || lowered.includes("timeout")) {
+    return "Could not reach the server. Check the connection and try again.";
+  }
+  return "Something went wrong. Try again.";
+}
+
+/** True when a request failure should be shown as rate limiting. */
+export function isStudioRecoveryRateLimited(raw: unknown): boolean {
+  const text = raw instanceof Error ? raw.message : typeof raw === "string" ? raw : "";
+  const lowered = text.toLowerCase();
+  return lowered.includes("rate") || lowered.includes("too many") || lowered.includes("429");
+}
