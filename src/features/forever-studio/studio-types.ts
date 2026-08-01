@@ -80,6 +80,345 @@ export const STUDIO_WORKFLOW_LABELS: Record<StudioWorkflow, string> = {
   resale_listing: "Resale Listing",
 };
 
+// ---------------------------------------------------------------------------
+// Explicit material purpose (FOREVER-STUDIO-EXPLICIT-MATERIAL-SLOTS-001)
+// ---------------------------------------------------------------------------
+
+/**
+ * What the Owner said a directly uploaded file IS.
+ *
+ * Studio shows one upload window per purpose; uploading into a window IS the
+ * routing instruction. This value — not the filename — decides how a directly
+ * uploaded file is routed, so `document.pdf` dropped into Price List is a
+ * price list and `price-list.pdf` dropped into Documents is a document.
+ *
+ * Closed vocabulary on purpose. The browser may only send one of these, and
+ * the server re-checks the value against this same list before it is trusted
+ * (see `isStudioMaterialPurpose` and the server-side validator): an arbitrary
+ * string from a browser is never accepted as a routing instruction.
+ *
+ * Client-safe: a plain string union. The mapping from a purpose into the
+ * server's ingestion/media vocabulary lives on the server and never ships to
+ * the browser.
+ */
+export type StudioMaterialPurpose =
+  | "brochure"
+  | "price_list"
+  | "payment_plan"
+  | "project_photo"
+  | "video"
+  | "master_plan"
+  | "floor_plan"
+  | "unit_plan"
+  | "construction_photo"
+  | "construction_video"
+  | "document_legal"
+  | "developer_profile"
+  | "map_location"
+  | "project_archive";
+
+export const STUDIO_MATERIAL_PURPOSES: readonly StudioMaterialPurpose[] = [
+  "brochure",
+  "price_list",
+  "payment_plan",
+  "project_photo",
+  "video",
+  "master_plan",
+  "floor_plan",
+  "unit_plan",
+  "construction_photo",
+  "construction_video",
+  "document_legal",
+  "developer_profile",
+  "map_location",
+  "project_archive",
+];
+
+/** Whether a string is a purpose Studio recognizes. The server's allowlist. */
+export function isStudioMaterialPurpose(value: unknown): value is StudioMaterialPurpose {
+  return (
+    typeof value === "string" && (STUDIO_MATERIAL_PURPOSES as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * How a routing category was decided. Four values, each truthful about a
+ * DIFFERENT thing, so no routing decision can be described as something
+ * stronger than it was:
+ *
+ *   owner_selected              the Owner chose the upload window for THIS
+ *                               exact file; authoritative
+ *   inherited_explicit_window   an entry expanded from a directly uploaded
+ *                               archive that the Owner filed under a specific
+ *                               (non-archive) window; the entry inherits that
+ *                               window — it was never individually selected
+ *   archive_entry_classifier    an entry inside a Full Project Archive / Other
+ *                               Package, where the Owner deliberately supplied
+ *                               NO per-entry purpose, so the bounded
+ *                               deterministic entry classifier routed it
+ *   filename_fallback           no explicit purpose exists at all — a manifest
+ *                               written before this contract — so the legacy
+ *                               filename classifier routed it
+ *
+ * Recorded so each classifier's reach stays provable rather than assumed. It is
+ * routing provenance only — never a review state, a readiness signal, or a
+ * verification claim, and it never gates publication. In particular
+ * `inherited_explicit_window` and `archive_entry_classifier` must never be
+ * reported as `owner_selected`: the Owner chose the package, not the entry.
+ */
+export type StudioMaterialPurposeSource =
+  | "owner_selected"
+  | "inherited_explicit_window"
+  | "archive_entry_classifier"
+  | "filename_fallback";
+
+/** One upload window in the Studio UI. */
+export interface StudioMaterialWindow {
+  purpose: StudioMaterialPurpose;
+  /** Window heading; also the accessible name of its file input. */
+  label: string;
+  /** One short sentence describing what belongs here. */
+  hint: string;
+  /** `accept` for this window's picker — a hint to the OS, never a gate. */
+  accept: string;
+  /** Whether this window also offers direct camera capture. */
+  camera: boolean;
+  /** Grouping heading used to keep the form compact. */
+  group: StudioMaterialGroup;
+}
+
+export type StudioMaterialGroup =
+  | "Project materials"
+  | "Commercial"
+  | "Plans"
+  | "Construction"
+  | "Documents & package";
+
+export const STUDIO_MATERIAL_GROUPS: readonly StudioMaterialGroup[] = [
+  "Project materials",
+  "Commercial",
+  "Plans",
+  "Construction",
+  "Documents & package",
+];
+
+const IMAGE_ACCEPT = "image/*,.heic,.webp";
+const VIDEO_ACCEPT = "video/*";
+const DOCUMENT_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.json";
+const PLAN_ACCEPT = `${DOCUMENT_ACCEPT},image/*`;
+
+/**
+ * Every upload window Studio offers, in display order.
+ *
+ * All are OPTIONAL. Nothing here requires the Owner to prepare folders, rename
+ * files, or fill every window — an empty window is simply a material Forever
+ * does not have yet, and material can be added at any time later.
+ */
+export const STUDIO_MATERIAL_WINDOWS: readonly StudioMaterialWindow[] = [
+  {
+    purpose: "brochure",
+    label: "Brochure",
+    hint: "The project brochure or e-brochure.",
+    accept: DOCUMENT_ACCEPT,
+    camera: false,
+    group: "Project materials",
+  },
+  {
+    purpose: "project_photo",
+    label: "Project Photos / Renders",
+    hint: "Photographs and renders of the project.",
+    accept: IMAGE_ACCEPT,
+    camera: true,
+    group: "Project materials",
+  },
+  {
+    purpose: "video",
+    label: "Video",
+    hint: "Project or promotional video files.",
+    accept: VIDEO_ACCEPT,
+    camera: false,
+    group: "Project materials",
+  },
+  {
+    purpose: "developer_profile",
+    label: "Developer / Company Profile",
+    // Truthful about the outcome (FOREVER-PR130 review F6): this material may
+    // inform the developer details shown on the project page, but the file
+    // itself is kept privately and uploading it does not create a public
+    // developer section. No public Developer entity exists to promise.
+    hint: "Developer background. Kept private; it may inform the project's developer details, not a separate page.",
+    accept: `${DOCUMENT_ACCEPT},image/*`,
+    camera: false,
+    group: "Project materials",
+  },
+  {
+    purpose: "price_list",
+    label: "Price List",
+    hint: "Prices or availability, whatever the file is called.",
+    accept: DOCUMENT_ACCEPT,
+    camera: false,
+    group: "Commercial",
+  },
+  {
+    purpose: "payment_plan",
+    label: "Payment Plan",
+    hint: "Payment terms, instalment or deposit schedules.",
+    accept: DOCUMENT_ACCEPT,
+    camera: false,
+    group: "Commercial",
+  },
+  {
+    purpose: "master_plan",
+    label: "Master Plan",
+    hint: "The site or master plan of the whole development.",
+    accept: PLAN_ACCEPT,
+    camera: false,
+    group: "Plans",
+  },
+  {
+    purpose: "floor_plan",
+    label: "Floor Plans",
+    hint: "Building or storey floor plans.",
+    accept: PLAN_ACCEPT,
+    camera: false,
+    group: "Plans",
+  },
+  {
+    purpose: "unit_plan",
+    label: "Unit Plans",
+    hint: "Layouts of individual units, villas or houses.",
+    accept: PLAN_ACCEPT,
+    camera: false,
+    group: "Plans",
+  },
+  {
+    purpose: "map_location",
+    label: "Map / Location",
+    hint: "Location maps and surrounding-area material.",
+    accept: PLAN_ACCEPT,
+    camera: false,
+    group: "Plans",
+  },
+  {
+    purpose: "construction_photo",
+    label: "Construction Photos",
+    hint: "Site progress photos — any filename, including straight from the camera.",
+    accept: IMAGE_ACCEPT,
+    camera: true,
+    group: "Construction",
+  },
+  {
+    purpose: "construction_video",
+    label: "Construction Videos",
+    hint: "Site progress video, including drone footage.",
+    accept: VIDEO_ACCEPT,
+    camera: false,
+    group: "Construction",
+  },
+  {
+    purpose: "document_legal",
+    label: "Documents / Legal",
+    hint: "Contracts, title documents and other paperwork.",
+    accept: DOCUMENT_ACCEPT,
+    camera: false,
+    group: "Documents & package",
+  },
+  {
+    purpose: "project_archive",
+    label: "Full Project Archive / Other Package",
+    hint: "A complete ZIP package — no need to sort it first.",
+    accept: ".zip",
+    camera: false,
+    group: "Documents & package",
+  },
+];
+
+export const STUDIO_MATERIAL_WINDOW_BY_PURPOSE: Record<
+  StudioMaterialPurpose,
+  StudioMaterialWindow
+> = Object.fromEntries(STUDIO_MATERIAL_WINDOWS.map((window) => [window.purpose, window])) as Record<
+  StudioMaterialPurpose,
+  StudioMaterialWindow
+>;
+
+/**
+ * Which windows a workflow shows FIRST.
+ *
+ * Presentation only. Every other window stays reachable in the same form under
+ * "More material types" — a workflow narrows the common case, it never removes
+ * access to a material the Owner actually has.
+ */
+export const STUDIO_WORKFLOW_PRIMARY_PURPOSES: Record<
+  StudioWorkflow,
+  readonly StudioMaterialPurpose[]
+> = {
+  new_development: [
+    "brochure",
+    "project_photo",
+    "video",
+    "developer_profile",
+    "price_list",
+    "payment_plan",
+    "master_plan",
+    "floor_plan",
+    "unit_plan",
+    "map_location",
+    "construction_photo",
+    "construction_video",
+    "document_legal",
+    "project_archive",
+  ],
+  project_update: [
+    "brochure",
+    "project_photo",
+    "video",
+    "developer_profile",
+    "price_list",
+    "payment_plan",
+    "master_plan",
+    "floor_plan",
+    "unit_plan",
+    "map_location",
+    "construction_photo",
+    "construction_video",
+    "document_legal",
+    "project_archive",
+  ],
+  price_availability_update: [
+    "price_list",
+    "payment_plan",
+    "document_legal",
+    "brochure",
+    "project_archive",
+  ],
+  construction_media_update: [
+    "construction_photo",
+    "construction_video",
+    "document_legal",
+    "project_archive",
+  ],
+  resale_listing: [
+    "project_photo",
+    "video",
+    "floor_plan",
+    "unit_plan",
+    "document_legal",
+    "project_archive",
+  ],
+};
+
+/** Primary windows for a workflow, in canonical display order. */
+export function primaryMaterialWindows(workflow: StudioWorkflow): StudioMaterialWindow[] {
+  const primary = new Set(STUDIO_WORKFLOW_PRIMARY_PURPOSES[workflow]);
+  return STUDIO_MATERIAL_WINDOWS.filter((window) => primary.has(window.purpose));
+}
+
+/** Every remaining window, still reachable, in canonical display order. */
+export function additionalMaterialWindows(workflow: StudioWorkflow): StudioMaterialWindow[] {
+  const primary = new Set(STUDIO_WORKFLOW_PRIMARY_PURPOSES[workflow]);
+  return STUDIO_MATERIAL_WINDOWS.filter((window) => !primary.has(window.purpose));
+}
+
 export type StudioJobStatus = "received" | "processing" | "published" | "failed";
 
 export type StudioJobFileStatus =
@@ -104,7 +443,19 @@ export interface StudioJobFile {
   /** Browser-declared size/type — recorded but never trusted. */
   declaredSize: number | null;
   declaredType: string | null;
-  /** Deterministic routing category (Fast Intake classifier vocabulary). */
+  /**
+   * The upload window the Owner chose for this file. Authoritative for
+   * routing and never re-derived from the filename. Absent only on manifests
+   * written before this contract existed.
+   */
+  materialPurpose?: StudioMaterialPurpose | null;
+  /** Whether `category` came from the Owner's window or the legacy fallback. */
+  purposeSource?: StudioMaterialPurposeSource;
+  /**
+   * Routing category in the server's ingestion/media vocabulary. Derived
+   * deterministically from `materialPurpose` when the Owner selected a window,
+   * and only otherwise from the filename classifier.
+   */
   category: string;
   status: StudioJobFileStatus;
   /** Actual server-observed byte size (streamed count, not the declaration). */
@@ -126,6 +477,19 @@ export interface StudioJobFile {
 
 export interface StudioUploadTarget {
   name: string;
+  /**
+   * SERVER-ASSIGNED identity of the declared file this target belongs to: its
+   * position in the request's `files` array, which is also the index embedded
+   * in the private staging path.
+   *
+   * This — not array order and never the filename — is how the browser decides
+   * which File's bytes go to which signed target. Order is therefore free to
+   * change, duplicate filenames stay safe, and the same File selected under two
+   * different windows keeps two independent targets. Unique within one job;
+   * the browser refuses a response whose identities are missing, out of range,
+   * or duplicated rather than uploading to a guessed target.
+   */
+  fileIndex: number;
   /** Always the private staging bucket. */
   bucket: string;
   path: string;
@@ -172,7 +536,23 @@ export interface StartJobInput {
   projectSlug?: string;
   projectFacts?: StudioProjectFacts;
   resaleFacts?: StudioResaleFacts;
-  files: Array<{ name: string; size?: number; contentType?: string }>;
+  /**
+   * Directly selected files. `materialPurpose` — the window the Owner uploaded
+   * into — is MANDATORY on every one of them.
+   *
+   * A new direct upload has no legitimate way to omit it: the browser stamps
+   * the window onto the selection at pick time, and there is no Studio surface
+   * that produces a file without one. Creation therefore never reaches the
+   * filename classifier, which now runs only where a purpose genuinely cannot
+   * exist: reading a manifest written before this contract, or an entry inside
+   * a Full Project Archive (see StudioMaterialPurposeSource).
+   */
+  files: Array<{
+    name: string;
+    size?: number;
+    contentType?: string;
+    materialPurpose: StudioMaterialPurpose;
+  }>;
 }
 
 export interface StartJobResult {
@@ -486,6 +866,19 @@ export interface StudioArchivePlanInput {
   jobId: string;
   fileName: string;
   declaredSize: number;
+  /**
+   * The upload window the Owner filed this archive under. MANDATORY, and
+   * validated against the same closed allowlist as an ordinary direct file.
+   *
+   * Transport and purpose are separate dimensions: size and format decide
+   * whether an archive travels the ordinary signed lane or this resumable
+   * chunked lane, and NEITHER may decide what the material is. The purpose is
+   * stored durably on the archive at plan time, so retry and resume never
+   * depend on the browser still remembering it, and every entry expanded from
+   * an archive filed under a specific window inherits that window instead of
+   * being re-guessed from its name.
+   */
+  materialPurpose: StudioMaterialPurpose;
   /**
    * The exact ordered per-part SHA-256 manifest (one lowercase hex digest per
    * fixed-size upload part, computed sequentially over EVERY byte of the

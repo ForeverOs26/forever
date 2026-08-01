@@ -288,6 +288,7 @@ describe.runIf(process.env.FOREVER_MEMORY_BENCHMARK === "1")(
             jobId,
             fileName: "benchmark.zip",
             declaredSize: totalSize,
+            materialPurpose: "project_archive",
             partSha256,
           });
           expect(plan.partCount).toBe(partCount);

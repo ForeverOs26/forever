@@ -6,6 +6,103 @@ Branch: `claude/forever-studio-upload-dfev75`
 Durable-resume corrective starting head: `6c14e979f6cbda0d91297560d342a06d58eba1ba`
 Date: 2026-07-23 (durable-resume correction and final staging acceptance)
 
+## Corrective note — explicit material windows supersede filename routing (2026-07-31)
+
+This report describes a Studio upload form with a single generic **Materials**
+picker, whose per-file routing category was derived by
+`classifyFileName(file.name)` from folder keywords, filename keywords and
+extension. **That is no longer the product model and those statements no
+longer describe current behaviour for direct uploads.**
+
+FOREVER-STUDIO-EXPLICIT-MATERIAL-SLOTS-001 replaces it: Studio presents a
+separate, clearly labelled upload window per material purpose, and the window
+the Owner uploads into IS the routing instruction. The selected
+`materialPurpose` crosses the wire with every directly uploaded file, is
+validated server-side against a closed allowlist, is stored on the private job
+manifest, and maps deterministically into the ingestion/media vocabulary. A
+filename keyword can no longer override it.
+
+Filename classification survives in exactly two bounded places, both
+documented at `classifyFileName` in `server/extraction.ts`: a job whose stored
+manifest predates this contract and therefore carries no explicit purpose, and
+an entry discovered inside an archive where no per-entry purpose was supplied.
+
+### Correction after independent review (2026-07-31)
+
+An independent review of PR #130 (`FOREVER-PR130-INDEPENDENT-STUDIO-MATERIAL-SLOTS-REVIEW-001`)
+found three defects in the first pass. All three are corrected on the same
+branch; the statements above hold only with these amendments.
+
+**Large archives keep their window (F1, P1).** A ZIP above the 16 MiB inline
+cap takes the resumable chunked transport lane. That lane previously received
+no purpose at all: the archive was excluded from the start-job manifest, the
+plan contract had no `materialPurpose` field, and every entry inside was
+classified by its own filename — so the same bytes routed differently
+depending only on how much they weighed. `StudioArchivePlanInput` now REQUIRES
+an allowlisted `materialPurpose`, refused before any archive row, signed part
+target or private Storage path exists; it is stored durably on the archive at
+plan time (in the archive's existing `extracted` JSONB, so no migration), and
+re-read from there by retry, resume and every background slice. Entry routing
+is now two explicit cases, shared by both lanes in `archiveEntryRouting`:
+a **Full Project Archive / Other Package** (or a pre-contract archive with no
+recorded window) classifies its own entries, and an archive filed under **any
+other** window hands that window down to every entry. Filename, folder name
+and extension may not override an inherited window. Re-planning the same
+archive under a different window is refused (`archive_purpose_conflict`)
+rather than silently resolved. Byte safety is unchanged: an entry whose actual
+bytes contradict the inherited window stays private with a truthful warning
+and is never re-filed under a window that would accept it.
+
+**A purpose is mandatory for every new direct upload (F2, P2).** A malformed
+purpose was already refused, but an OMITTED one still reached the
+creation-time filename fallback. The creation path and the stored-manifest
+read path are now separate functions: `declareNewDirectJobFiles` requires an
+explicit allowlisted purpose and cannot produce a filename-routed entry, while
+`routingCategoryForFile` keeps the legacy fallback for a manifest written
+before this contract. The endpoint enum is no longer `.optional()`, and the
+service re-checks independently so an internal caller cannot bypass it. A
+missing, null, blank, unknown or arbitrary value refuses the WHOLE job before
+any row, audit entry or signed target exists.
+
+**Bytes reach their own signed target (F3, P2).** The browser paired
+`uploads[i]` with `ordinary[i]`, which was correct only because the server
+happened to return matching order — and no test covered it, so a deliberate
+reversal passed every test. `StudioUploadTarget` now carries a
+server-assigned `fileIndex` (the file's position in the declared manifest,
+which is also the index in its private staging path), and the browser resolves
+the complete mapping through that identity BEFORE uploading anything.
+Filenames are never the key, and a response with a missing, non-integer,
+out-of-range or duplicated identity aborts the upload with nothing uploaded
+and no path or token in the message.
+
+Three narrow usability corrections accompany them: the collapsed **More
+material types** group states how many files are inside it and opens itself
+when it holds any (an indicator, never a step); the per-file Remove control is
+a 44×44 CSS-pixel touch target built from padding, with its visible design
+unchanged; and the **Developer / Company Profile** window now states truthfully
+that its material is kept privately and may inform the project's developer
+details rather than creating a public developer page.
+
+`purposeSource` gained two values so no routing decision is described as
+stronger than it was: `inherited_explicit_window` (an entry that inherited its
+archive's window) and `archive_entry_classifier` (an entry inside a Full
+Project Archive). Neither is ever reported as `owner_selected`.
+
+No database migration was required for any of this, and none was added: the
+job file manifest and the archive's `extracted` field are both schemaless
+`JSONB`. No readiness, completeness, approval or verification gate was
+introduced, and the final action is still **Publish now**.
+
+Unchanged by that work: the direct-authorization contract (an Owner or Trusted
+Publisher upload is publication authorization, producing `owner_provided` /
+`trusted_publisher_provided` and never `owner_verified` or
+`forever_verified`), the technical byte-safety contract (streamed byte count,
+SHA-256, magic-byte class, declared-vs-observed mismatch, sanitization,
+private staging, verified public derivatives), and the rule that missing data
+never blocks publication. No review, readiness, completeness, provenance or
+approval gate was added. No database migration was required — the job file
+manifest is schemaless `JSONB`.
+
 ## Post-merge canonical reconciliation (2026-07-23)
 
 PR #95 is merged and the seven Studio migrations are contiguous on staging through `20260722140000`. A separate production preflight used the exact canonical production project, official CA, verified TLS, and explicit read-only transactions. Production remains at the 13 pre-Studio migrations through `20260718113000`; the official dry run proposes exactly the seven committed Studio migrations, in order, and no partial Studio schema, bucket, function, policy, or migration-history state exists. Before/after deterministic production fingerprints are identical.

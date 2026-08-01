@@ -18,6 +18,7 @@ import {
   detectMediaClass,
 } from "../server/extraction";
 import { processUploadJob, startUploadJob } from "../server/service";
+import type { StudioMaterialPurpose } from "../studio-types";
 import { makeWorld, tinyFtyp, tinyJpeg, tinyPdf, uploadAll, OWNER } from "./fakes";
 
 /** A media file well past the former in-memory hashing threshold (25 MiB). */
@@ -31,7 +32,7 @@ describe("private staging and byte verification", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Verified Project" },
-      files: [{ name: "photo.jpg", size: 999_999 }],
+      files: [{ name: "photo.jpg", materialPurpose: "project_photo", size: 999_999 }],
     });
     // Declared size (999999) differs from the actual stored bytes.
     uploadAll(world, started.uploads);
@@ -52,7 +53,11 @@ describe("private staging and byte verification", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Selective Project" },
-      files: [{ name: "photo.jpg" }, { name: "secret-legal.pdf" }, { name: "notes.txt" }],
+      files: [
+        { name: "photo.jpg", materialPurpose: "project_photo" },
+        { name: "secret-legal.pdf", materialPurpose: "document_legal" },
+        { name: "notes.txt", materialPurpose: "document_legal" },
+      ],
     });
     uploadAll(world, started.uploads, { "secret-legal.pdf": tinyPdf() });
     await processUploadJob(world.deps, OWNER, started.jobId);
@@ -70,7 +75,7 @@ describe("private staging and byte verification", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Forged Project" },
-      files: [{ name: "malware.jpg" }],
+      files: [{ name: "malware.jpg", materialPurpose: "project_photo" }],
     });
     // A file named .jpg whose bytes are not an image.
     uploadAll(world, started.uploads, { "malware.jpg": Buffer.from("MZ this is not an image") });
@@ -88,7 +93,7 @@ describe("private staging and byte verification", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Big Pdf Project" },
-      files: [{ name: "Price List.pdf" }],
+      files: [{ name: "Price List.pdf", materialPurpose: "price_list" }],
     });
     // Oversized (> parse cap) so it is never pulled into memory.
     const big = Buffer.concat([tinyPdf(), Buffer.alloc(MAX_PARSE_BYTES + 1024, 0x20)]);
@@ -106,7 +111,10 @@ describe("private staging and byte verification", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Dup Project" },
-      files: [{ name: "a.jpg" }, { name: "b.jpg" }],
+      files: [
+        { name: "a.jpg", materialPurpose: "project_photo" },
+        { name: "b.jpg", materialPurpose: "project_photo" },
+      ],
     });
     uploadAll(world, started.uploads, { "a.jpg": identical, "b.jpg": identical });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
@@ -121,7 +129,7 @@ describe("private staging and byte verification", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Exposed None" },
-      files: [{ name: "hero.jpg" }],
+      files: [{ name: "hero.jpg", materialPurpose: "project_photo" }],
     });
     uploadAll(world, started.uploads);
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
@@ -172,7 +180,15 @@ describe("private staging and byte verification", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Canonical MIME Project" },
-      files: Object.keys(bytes).map((name) => ({ name, contentType: "text/html" })),
+      files: Object.keys(bytes).map((name) => ({
+        name,
+        contentType: "text/html",
+        // The window the Owner would have used for each: stills into Project
+        // Photos, moving footage into Video.
+        materialPurpose: (name.endsWith(".mp4") || name.endsWith(".mov")
+          ? "video"
+          : "project_photo") as StudioMaterialPurpose,
+      })),
     });
     for (const upload of started.uploads) {
       world.storage.put(upload.bucket, upload.path, bytes[upload.name], "text/html");
@@ -196,7 +212,7 @@ describe("private staging and byte verification", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Large Photo Project" },
-      files: [{ name: "hero.jpg", size: big.length }],
+      files: [{ name: "hero.jpg", materialPurpose: "project_photo", size: big.length }],
     });
     uploadAll(world, started.uploads, { "hero.jpg": big });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
@@ -223,7 +239,10 @@ describe("private staging and byte verification", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Disguise Project" },
-      files: [{ name: "big-fake.jpg" }, { name: "big-fake.mp4" }],
+      files: [
+        { name: "big-fake.jpg", materialPurpose: "project_photo" },
+        { name: "big-fake.mp4", materialPurpose: "video" },
+      ],
     });
     uploadAll(world, started.uploads, { "big-fake.jpg": fakeJpg, "big-fake.mp4": fakeMp4 });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
@@ -241,7 +260,7 @@ describe("private staging and byte verification", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Forged Size Project" },
-      files: [{ name: "photo.jpg", size: 123_456_789 }],
+      files: [{ name: "photo.jpg", materialPurpose: "project_photo", size: 123_456_789 }],
     });
     uploadAll(world, started.uploads); // actual bytes are tiny
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
@@ -258,7 +277,11 @@ describe("private staging and byte verification", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Phone Formats Project" },
-      files: [{ name: "IMG_1.heic" }, { name: "IMG_2.heif" }, { name: "clip.mov" }],
+      files: [
+        { name: "IMG_1.heic", materialPurpose: "project_photo" },
+        { name: "IMG_2.heif", materialPurpose: "project_photo" },
+        { name: "clip.mov", materialPurpose: "video" },
+      ],
     });
     uploadAll(world, started.uploads, {
       "IMG_1.heic": Buffer.concat([tinyFtyp("heic"), Buffer.from("::1")]),
@@ -281,7 +304,10 @@ describe("private staging and byte verification", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Unknown Container Project" },
-      files: [{ name: "mystery.mp4" }, { name: "real.jpg" }],
+      files: [
+        { name: "mystery.mp4", materialPurpose: "video" },
+        { name: "real.jpg", materialPurpose: "project_photo" },
+      ],
     });
     uploadAll(world, started.uploads, { "mystery.mp4": unknown });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
@@ -303,7 +329,10 @@ describe("private staging and byte verification", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Large Dup Project" },
-      files: [{ name: "a.jpg" }, { name: "b.jpg" }],
+      files: [
+        { name: "a.jpg", materialPurpose: "project_photo" },
+        { name: "b.jpg", materialPurpose: "project_photo" },
+      ],
     });
     uploadAll(world, started.uploads, { "a.jpg": big, "b.jpg": Buffer.from(big) });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);

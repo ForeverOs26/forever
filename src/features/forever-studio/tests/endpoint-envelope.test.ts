@@ -100,7 +100,7 @@ describe("Studio endpoint safe error envelope", () => {
         runStudioEndpoint("upload_start", () =>
           startUploadJob(world.deps, OWNER, {
             workflow: "new_development",
-            files: [{ name: "a.jpg" }],
+            files: [{ name: "a.jpg", materialPurpose: "project_photo" }],
           }),
         ),
       () =>

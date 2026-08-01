@@ -96,9 +96,12 @@ function renderUploader() {
 }
 
 async function submitZip() {
-  const { view } = renderUploader();
+  renderUploader();
   const publish = await screen.findByRole("button", { name: "Publish now" });
-  const input = view.container.querySelector('input[type="file"][multiple]');
+  // The archive goes into the window the Owner would use for a full package.
+  const input = screen.getByLabelText("Full Project Archive / Other Package", {
+    selector: 'input[type="file"]',
+  });
   if (!(input instanceof HTMLInputElement)) throw new Error("file input not rendered");
   const zip = new File([new Uint8Array(16)], "big.zip");
   await act(async () => {

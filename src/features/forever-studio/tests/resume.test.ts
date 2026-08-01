@@ -17,7 +17,7 @@ describe("automatic durable resume", () => {
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Closed Browser Project" },
-      files: [{ name: "photo.jpg" }],
+      files: [{ name: "photo.jpg", materialPurpose: "project_photo" }],
     });
     uploadAll(world, started.uploads);
     // Uploaded bytes alone are not proof that the browser finished the full

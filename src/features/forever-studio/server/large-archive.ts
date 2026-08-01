@@ -62,10 +62,12 @@ import type { ExtractedPriceList } from "@/import/types";
 import {
   ARCHIVE_PART_BYTES,
   archivePartCountForSize,
+  isStudioMaterialPurpose,
   JOB_SOURCE_BUDGET_BYTES,
   LARGE_ARCHIVE_MAX_BYTES,
   MAX_ARCHIVES_PER_JOB,
   UPLOAD_MANIFEST_DOMAIN,
+  type StudioMaterialPurpose,
   type StudioArchiveConfirmInput,
   type StudioArchiveConfirmResult,
   type StudioArchivePartTarget,
@@ -88,8 +90,10 @@ import type {
 import { StudioAccessError } from "./contracts";
 import { safeMessageFor, StudioError } from "./errors";
 import {
+  admittedStructuredArtifacts,
+  archiveEntryRouting,
+  assertNewDirectMaterialPurpose,
   canonicalPublicContentType,
-  classifyFileName,
   detectMediaClass,
   HEAD_SNIFF_BYTES,
   isPublishableMediaClass,
@@ -104,6 +108,8 @@ import {
   publicBucketForCategory,
   publicPathForDerivative,
   attemptPrefixFromToken,
+  STRUCTURED_PURPOSE_MISMATCH_CODE,
+  structuredPurposeScopeForArchiveEntry,
   type ExtractedFactFields,
 } from "./extraction";
 import {
@@ -221,6 +227,20 @@ export async function deriveManifestSha256(
   hash.update(geometry);
   for (const digest of partSha256) hash.update(Buffer.from(digest, "hex"));
   return hash.digest("hex");
+}
+
+/**
+ * The upload window the Owner filed this archive under, read back from durable
+ * state rather than from any live request.
+ *
+ * Null means the archive was planned before the explicit-purpose contract
+ * existed (or its recorded value is not one Studio recognizes, which is treated
+ * as absent rather than trusted). A null archive keeps the documented Full
+ * Project Archive behaviour: its entries are routed by the bounded classifier.
+ */
+export function archiveMaterialPurpose(archive: StudioArchiveRow): StudioMaterialPurpose | null {
+  const stored = archive.extracted?.materialPurpose;
+  return isStudioMaterialPurpose(stored) ? stored : null;
 }
 
 /** True when the archive's recorded manifest equals the submitted one exactly. */
@@ -350,6 +370,11 @@ export async function planArchiveUpload(
   job: StudioJobRow,
   input: StudioArchivePlanInput,
 ): Promise<StudioArchivePlanResult> {
+  // The Owner's window is validated FIRST, ahead of every allocation: before
+  // the published check, before the archive row, before signed part targets,
+  // and before any private Storage path exists. Taking the chunked lane is a
+  // size decision and must never be able to cost an archive its purpose.
+  const materialPurpose = assertNewDirectMaterialPurpose(input.materialPurpose);
   if (job.status === "published") {
     throw new StudioAccessError(
       "job_already_published",
@@ -395,6 +420,20 @@ export async function planArchiveUpload(
       manifestMatchesArchive(archive, partSha256),
   );
   if (existing) {
+    // Resume and retry re-read the purpose from the archive row, never from
+    // this request: whatever the browser now says, the archive keeps the window
+    // it was planned under. A caller presenting the SAME bytes under a
+    // DIFFERENT window is refused by name rather than silently resolved — one
+    // of the two intentions would otherwise be discarded without anyone being
+    // told which. A pre-contract archive has no recorded window to conflict
+    // with and resumes exactly as it did before.
+    const storedPurpose = archiveMaterialPurpose(existing);
+    if (storedPurpose !== null && storedPurpose !== materialPurpose) {
+      throw new StudioAccessError(
+        "archive_purpose_conflict",
+        "This archive is already part of this upload under a different material window. Finish or start a new upload to file it differently.",
+      );
+    }
     const sizes = await storedPartSizes(deps, job.id, existing.id);
     const present: number[] = [];
     const missing: number[] = [];
@@ -453,7 +492,11 @@ export async function planArchiveUpload(
     status: "planned",
     entry_count: null,
     total_uncompressed: null,
-    extracted: null,
+    // The Owner's window, written into durable state at PLAN time — the one
+    // moment it is known — so nothing downstream has to ask the browser again.
+    // It survives browser close, process restart, retry and resume, and it is
+    // what every entry of this archive is routed from.
+    extracted: { materialPurpose, purposeSource: "owner_selected" },
     error_code: null,
     created_at: deps.now(),
   };
@@ -727,10 +770,16 @@ async function indexArchive(
 
   const rows: StudioArchiveEntryRow[] = [];
   let totalUncompressed = 0;
+  // The window the OWNER filed this archive under, read from durable state.
+  // Full Project Archive (and a pre-contract archive with none recorded) means
+  // "unsorted — sort it for me", so the bounded classifier routes each entry;
+  // any other window is handed down to every entry unchanged, and the entry's
+  // own filename, folder name and extension may not override it.
+  const outerPurpose = archiveMaterialPurpose(archive);
   directory.entries.forEach((entry, index) => {
     if (entry.isDirectory) return;
     totalUncompressed += entry.uncompressedSize;
-    const category = classifyFileName(entry.name);
+    const { category } = archiveEntryRouting(outerPurpose, entry.name);
     rows.push({
       id: crypto.randomUUID(),
       archive_id: archive.id,
@@ -1179,11 +1228,31 @@ async function routeEntry(
 
   const lowerName = row.entry_name.toLowerCase();
   const category = row.category as IntakeCategory;
+  // The window the OWNER filed this ARCHIVE under, read back from durable
+  // state and handed down to this entry — the identical decision the inline
+  // small-ZIP lane makes, so a ZIP that crosses the 16 MiB threshold and
+  // switches transport lanes cannot change what its entries are allowed to be.
+  const structuredScope = structuredPurposeScopeForArchiveEntry(
+    archiveMaterialPurpose(archive),
+    row.entry_name,
+  );
 
   // --- Structured JSON artifacts -------------------------------------------
   if (lowerName.endsWith(".json") && data.length <= MAX_PARSE_BYTES) {
+    // PURPOSE FIRST, SHAPE SECOND: a window admitting no structured artifact
+    // settles the entry (privately, with independently addressable evidence)
+    // before the bytes are ever parsed. Siblings are unaffected.
+    const admitted = admittedStructuredArtifacts(structuredScope);
+    if (admitted.size === 0) {
+      await settleRetained(STRUCTURED_PURPOSE_MISMATCH_CODE);
+      return;
+    }
     const parsed = parseJsonBuffer(data);
     if (parsed && looksLikePriceList(parsed)) {
+      if (!admitted.has("price_list")) {
+        await settleRetained(STRUCTURED_PURPOSE_MISMATCH_CODE);
+        return;
+      }
       if (archive.extracted?.priceList) {
         await settleRetained("price_list_duplicate_ignored");
         return;
@@ -1201,6 +1270,10 @@ async function routeEntry(
       return;
     }
     if (parsed && looksLikeProjectFacts(parsed)) {
+      if (!admitted.has("project_facts")) {
+        await settleRetained(STRUCTURED_PURPOSE_MISMATCH_CODE);
+        return;
+      }
       if (!archive.extracted?.factFields) {
         const factFields = projectFieldsFromFacts(parsed as IntakeProjectFacts, row.display_label);
         const derivedName =
@@ -1478,6 +1551,8 @@ const OUTCOME_WARNING_TEXT: Record<string, string> = {
     "archive item(s) no longer matched the recorded inventory and were isolated.",
   structured_artifact_unrecognized:
     "JSON archive item(s) matched no supported structured artifact; retained for review.",
+  structured_purpose_mismatch:
+    "structured archive item(s) did not match the upload window this material was filed under, so nothing was updated from them; they were retained privately.",
   price_list_retained_for_extraction:
     "price-list document(s) were retained privately for later extraction.",
   price_list_duplicate_ignored:

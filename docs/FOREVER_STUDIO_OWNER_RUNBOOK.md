@@ -57,10 +57,69 @@ Then:
 
 1. Type what you know (a name is enough for a new project; everything else
    is optional).
-2. Tap **Choose files** (or **Take photo** for the camera) and add whatever
-   you have: PDFs, brochures, price lists, master plans, floor plans,
-   payment plans, ZIP archives, photos, videos.
+2. Put each file into the window that says what it is (see **Upload
+   windows** below), using **Choose files** — or **Take photo** in the photo
+   and construction windows.
 3. Tap **Publish now**.
+
+### Upload windows
+
+Instead of one general "materials" box, Studio shows a separate window for
+each kind of material:
+
+| Window                               | What goes in it                                  |
+| ------------------------------------ | ------------------------------------------------ |
+| Brochure                             | The project brochure or e-brochure               |
+| Project Photos / Renders             | Photographs and renders of the project           |
+| Video                                | Project or promotional video                     |
+| Developer / Company Profile          | Developer background — kept private (see below)  |
+| Price List                           | Prices or availability                           |
+| Payment Plan                         | Payment terms, instalments, deposit schedules    |
+| Master Plan                          | The site or master plan of the whole development |
+| Floor Plans                          | Building or storey floor plans                   |
+| Unit Plans                           | Layouts of individual units, villas or houses    |
+| Map / Location                       | Location maps and surrounding-area material      |
+| Construction Photos                  | Site progress photos                             |
+| Construction Videos                  | Site progress video, including drone footage     |
+| Documents / Legal                    | Contracts, title documents, other paperwork      |
+| Full Project Archive / Other Package | A complete ZIP package                           |
+
+**The window you choose is the instruction.** Forever does not read the
+filename to work out what a file is. A price list called `document.pdf`
+uploaded into **Price List** is a price list. A file called
+`price-list.pdf` uploaded into **Documents / Legal** stays a document.
+
+Because of that:
+
+- **You never need to rename a file.** Camera names like `IMG_4821.jpg`,
+  scanner names like `scan001.pdf`, and Thai or Japanese filenames all work.
+- **You never need to prepare folders** or sort anything before uploading.
+- **Every window is optional.** Fill the ones you have material for and
+  leave the rest empty — nothing is required, and nothing is chased.
+- **You can add more later.** Upload the brochure today and the price list
+  next week; the page updates rather than duplicating.
+
+The workflow you picked decides which windows appear first. Anything not
+shown up front is still there under **More material types** — no material is
+ever out of reach because of the workflow you chose.
+
+If you would rather not sort at all, put the whole package into **Full
+Project Archive / Other Package**. Forever opens it and routes what it finds
+by the names and folders inside the ZIP. That is a convenience for
+unsorted packages only; it never overrides a window you chose yourself.
+
+**A ZIP in any other window keeps that window.** Put a ZIP of photographs
+into **Project Photos / Renders** and every usable photo inside it is a
+project photo — the names and folders inside the ZIP do not get a vote.
+Put a ZIP into **Documents / Legal** and its contents are documents, so
+they are kept privately rather than published to the gallery. This is true
+whatever the ZIP weighs: a large archive uploads in resumable parts, which
+changes how the file travels and nothing about what it is.
+
+**Developer / Company Profile** is the one window with no public page of
+its own. What you upload there is kept privately and may be used to fill in
+the developer details shown on the project page; it does not create a
+separate developer section, and uploading it publishes nothing on its own.
 
 Forever uploads the files, extracts what it can, creates or updates the
 page, and publishes it. You then get four buttons: **Open page**, **Share**,
@@ -74,6 +133,11 @@ Things worth knowing:
   MP4/MOV videos are recognized by their actual content. A file whose bytes
   do not match its name (or an unrecognized format) is kept safely private
   and never published — the rest of the upload still goes through.
+- Safety checks still run on the actual bytes, and they never move a file to
+  a different window. If you put a PDF into **Project Photos** it is not
+  quietly re-filed as a document: it stays the photo you said it was, is
+  kept private because it cannot be shown as a photo, and you get a short
+  note. Everything else in the same upload still publishes.
 - A price-list PDF that cannot be read automatically is kept safely and the
   page still publishes; you can add a reviewed price list later.
 - A ZIP that fails the safety checks (damaged, suspicious, or too large) is

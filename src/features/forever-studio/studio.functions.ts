@@ -15,8 +15,10 @@ import { z } from "zod";
 
 import { requireStudioMember } from "./studio-auth";
 import {
+  STUDIO_MATERIAL_PURPOSES,
   STUDIO_MAX_AMENITY_SORT_ORDER,
   STUDIO_WORKFLOWS,
+  type StudioMaterialPurpose,
   type StudioWorkflow,
 } from "./studio-types";
 
@@ -67,6 +69,17 @@ const startJobSchema = z
           name: z.string(),
           size: z.number().optional(),
           contentType: z.string().optional(),
+          // The upload window the Owner chose. A CLOSED allowlist and NOT
+          // optional: a missing key, undefined, null, "", whitespace, an
+          // unknown value or an arbitrary string all fail validation and the
+          // WHOLE request is refused — never stripped, never defaulted, and
+          // never quietly replaced by a filename guess. One invalid entry
+          // refuses the entire job, before any row or signed target exists.
+          // Legacy tolerance lives in the READ path (routingCategoryForFile),
+          // which is where a pre-contract manifest is actually encountered.
+          materialPurpose: z.enum(
+            STUDIO_MATERIAL_PURPOSES as [StudioMaterialPurpose, ...StudioMaterialPurpose[]],
+          ),
         }),
       )
       .max(200),
@@ -108,6 +121,15 @@ const archivePlanSchema = z
     jobId: z.string().uuid(),
     fileName: z.string().min(1).max(300),
     declaredSize: z.number().int().positive(),
+    // The Owner's chosen window for THIS archive — the same closed allowlist an
+    // ordinary direct file is held to, and equally mandatory. Taking the
+    // chunked transport lane is a size decision; it must never cost the archive
+    // its semantic purpose, so the purpose crosses the wire here and is refused
+    // before an archive row, a signed part target, or any private Storage
+    // allocation exists.
+    materialPurpose: z.enum(
+      STUDIO_MATERIAL_PURPOSES as [StudioMaterialPurpose, ...StudioMaterialPurpose[]],
+    ),
     // The exact ordered per-part SHA-256 manifest (every byte of the file
     // hashed part-by-part): the resume identity, so different archives can
     // never attach to each other's stored parts no matter where they differ.

@@ -66,6 +66,7 @@ describe("planJobArchiveUpload", () => {
       jobId,
       fileName: "dossier.zip",
       declaredSize,
+      materialPurpose: "project_archive",
       partSha256: manifest,
     });
     expect(plan.partSize).toBe(PART);
@@ -94,6 +95,7 @@ describe("planJobArchiveUpload", () => {
         jobId,
         fileName: "movie.mp4",
         declaredSize: PART,
+        materialPurpose: "project_archive",
         partSha256: dummyManifest(PART),
       }),
     ).rejects.toMatchObject({ code: "archive_not_zip" });
@@ -103,6 +105,7 @@ describe("planJobArchiveUpload", () => {
         jobId,
         fileName: "bad-digest.zip",
         declaredSize: PART,
+        materialPurpose: "project_archive",
         partSha256: ["not-a-digest"],
       }),
     ).rejects.toMatchObject({ code: "archive_manifest_invalid" });
@@ -112,6 +115,7 @@ describe("planJobArchiveUpload", () => {
         jobId,
         fileName: "short-manifest.zip",
         declaredSize: PART * 2 + 1,
+        materialPurpose: "project_archive",
         partSha256: dummyManifest(PART),
       }),
     ).rejects.toMatchObject({ code: "archive_manifest_invalid" });
@@ -120,6 +124,7 @@ describe("planJobArchiveUpload", () => {
         jobId,
         fileName: "big.zip",
         declaredSize: LARGE_ARCHIVE_MAX_BYTES + 1,
+        materialPurpose: "project_archive",
         partSha256: dummyManifest(LARGE_ARCHIVE_MAX_BYTES + 1),
       }),
     ).rejects.toMatchObject({ code: "archive_too_large" });
@@ -129,6 +134,7 @@ describe("planJobArchiveUpload", () => {
         jobId,
         fileName: `part-${index}.zip`,
         declaredSize: LARGE_ARCHIVE_MAX_BYTES,
+        materialPurpose: "project_archive",
         partSha256: Array.from({ length: Math.ceil(LARGE_ARCHIVE_MAX_BYTES / PART) }, (_, i) =>
           sha256HexSync(Buffer.from(`budget-${index}-${i}`)),
         ),
@@ -139,6 +145,7 @@ describe("planJobArchiveUpload", () => {
         jobId,
         fileName: "over-budget.zip",
         declaredSize: LARGE_ARCHIVE_MAX_BYTES,
+        materialPurpose: "project_archive",
         partSha256: Array.from({ length: Math.ceil(LARGE_ARCHIVE_MAX_BYTES / PART) }, (_, i) =>
           sha256HexSync(Buffer.from(`overflow-${i}`)),
         ),
@@ -155,6 +162,7 @@ describe("planJobArchiveUpload", () => {
       jobId,
       fileName: "resume.zip",
       declaredSize: totalSize,
+      materialPurpose: "project_archive",
       partSha256: manifest,
     });
     // Interrupted upload: only part 0 arrives.
@@ -166,6 +174,7 @@ describe("planJobArchiveUpload", () => {
       // identical content still resumes the same archive.
       fileName: "renamed-on-device.zip",
       declaredSize: totalSize,
+      materialPurpose: "project_archive",
       partSha256: manifest,
     });
     expect(resumed.archiveId).toBe(first.archiveId);
@@ -190,6 +199,7 @@ describe("planJobArchiveUpload", () => {
       jobId,
       fileName: "dossier.zip",
       declaredSize: one.totalSize,
+      materialPurpose: "project_archive",
       partSha256: manifestOne,
     });
     world.storage.put(first.parts[0].bucket, first.parts[0].path, Buffer.from(one.parts[0]));
@@ -201,6 +211,7 @@ describe("planJobArchiveUpload", () => {
       jobId,
       fileName: "dossier.zip",
       declaredSize: two.totalSize,
+      materialPurpose: "project_archive",
       partSha256: manifestTwo,
     });
     expect(second.archiveId).not.toBe(first.archiveId);
@@ -243,6 +254,7 @@ describe("planJobArchiveUpload", () => {
       jobId,
       fileName: "dossier.zip",
       declaredSize: size,
+      materialPurpose: "project_archive",
       partSha256: manifestBase,
     });
     for (const index of [0, 1, 2]) {
@@ -260,6 +272,7 @@ describe("planJobArchiveUpload", () => {
       jobId,
       fileName: "dossier.zip",
       declaredSize: size,
+      materialPurpose: "project_archive",
       partSha256: manifestFlipped,
     });
     expect(second.archiveId).not.toBe(first.archiveId);
@@ -277,6 +290,7 @@ describe("planJobArchiveUpload", () => {
         jobId,
         fileName: "x.zip",
         declaredSize: PART,
+        materialPurpose: "project_archive",
         partSha256: dummyManifest(PART),
       }),
     ).rejects.toBeInstanceOf(StudioAccessError);
@@ -295,6 +309,7 @@ describe("planJobArchiveUpload", () => {
         jobId,
         fileName: "late.zip",
         declaredSize: PART,
+        materialPurpose: "project_archive",
         partSha256: dummyManifest(PART),
       }),
     ).rejects.toMatchObject({ code: "job_already_published" });
@@ -311,6 +326,7 @@ describe("confirmJobArchiveUpload", () => {
       jobId,
       fileName: "verify.zip",
       declaredSize: totalSize,
+      materialPurpose: "project_archive",
       partSha256: manifest,
     });
     // Nothing uploaded yet: not accepted, every part reported missing.
@@ -397,6 +413,7 @@ describe("confirmJobArchiveUpload", () => {
       jobId,
       fileName: "wrong-size.zip",
       declaredSize: totalSize,
+      materialPurpose: "project_archive",
       partSha256: manifest,
     });
     for (const target of plan.parts) {
@@ -428,6 +445,7 @@ describe("confirmJobArchiveUpload", () => {
       jobId,
       fileName: "manifest.zip",
       declaredSize: totalSize,
+      materialPurpose: "project_archive",
       partSha256: manifest,
     });
     await expect(

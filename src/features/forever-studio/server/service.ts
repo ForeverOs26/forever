@@ -31,6 +31,7 @@ import { slugify } from "@/import/persistence-projection";
 
 import {
   isStudioAmenityCategory,
+  isStudioMaterialPurpose,
   projectPagePath,
   resalePagePath,
   STUDIO_MAX_AMENITY_SORT_ORDER,
@@ -68,8 +69,9 @@ import {
 } from "./contracts";
 import { logStudioFailure, redact, safeMessageFor, StudioError, toSafeError } from "./errors";
 import {
+  assertNewDirectMaterialPurpose,
   attemptPrefixFromToken,
-  declareJobFiles,
+  declareNewDirectJobFiles,
   gatherMaterials,
   MAX_UPLOAD_BYTES,
   PUBLIC_DOCUMENT_BUCKET,
@@ -346,6 +348,16 @@ export async function startUploadJob(
     if (typeof file.size === "number" && file.size > MAX_UPLOAD_BYTES) {
       throw new StudioAccessError("file_too_large", `${file.name} exceeds the 1 GB limit.`);
     }
+    // The material purpose is a ROUTING INSTRUCTION from the browser, so it is
+    // re-checked here against the closed allowlist rather than taken on trust
+    // — the endpoint schema already rejects a missing or unknown value, and
+    // this second, INDEPENDENT check keeps the guarantee for every other
+    // caller of this service, including internal ones that never pass through
+    // the endpoint. A new direct upload always came from a window, so an
+    // omitted purpose is a refusal here too, never a fall-through to guessing.
+    // The whole job is refused before any row or signed target exists, so a
+    // request mixing one valid and one invalid file writes nothing at all.
+    assertNewDirectMaterialPurpose(file.materialPurpose);
   }
   const projectSlug = cleanText(input.projectSlug);
   if (projectSlug && !SLUG_PATTERN.test(projectSlug)) {
@@ -363,9 +375,10 @@ export async function startUploadJob(
     name: file.name,
     size: file.size,
     contentType: file.contentType,
+    materialPurpose: file.materialPurpose,
   }));
   const jobId = crypto.randomUUID();
-  const declared = declareJobFiles(jobId, declaredFilesInput);
+  const declared = declareNewDirectJobFiles(jobId, declaredFilesInput);
   const job: StudioJobRow = {
     id: jobId,
     created_by: actor.userId,
@@ -392,10 +405,21 @@ export async function startUploadJob(
   };
   await deps.data.createJob(job);
 
+  // Each signed target carries the SERVER's identity for the file it belongs
+  // to — its position in the declared manifest, which is also the index inside
+  // its private staging path. The browser pairs bytes to targets by that
+  // identity, so this response may be reordered without a single byte reaching
+  // another file's path, and two files with the same name stay distinct.
   const uploads: StudioUploadTarget[] = [];
-  for (const file of declared) {
+  for (const [fileIndex, file] of declared.entries()) {
     const { token } = await deps.storage.createSignedUpload(file.stagingBucket, file.stagingPath);
-    uploads.push({ name: file.name, bucket: file.stagingBucket, path: file.stagingPath, token });
+    uploads.push({
+      name: file.name,
+      fileIndex,
+      bucket: file.stagingBucket,
+      path: file.stagingPath,
+      token,
+    });
   }
   await recordAuditSafely(deps, {
     actor_id: actor.userId,
@@ -467,6 +491,12 @@ export async function planJobArchiveUpload(
   input: StudioArchivePlanInput,
 ): Promise<StudioArchivePlanResult> {
   assertNotPartnerDemo(deps);
+  // A large archive is a NEW direct upload that happens to need a different
+  // transport, so it is held to exactly the same closed allowlist as an
+  // ordinary direct file — re-checked here independently of the endpoint
+  // schema, and BEFORE the job is even looked up, so no archive row, no signed
+  // part target and no private Storage allocation can precede it.
+  assertNewDirectMaterialPurpose(input.materialPurpose);
   const job = await requireJobAccess(deps, actor, input.jobId);
   // Same pre-authorization as processing: a denied known target must not
   // allocate private staging parts or signed targets as a side channel.

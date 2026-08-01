@@ -25,6 +25,8 @@ import type {
   StudioArchiveStatus,
   StudioJobFile,
   StudioJobStatus,
+  StudioMaterialPurpose,
+  StudioMaterialPurposeSource,
   StudioRole,
   StudioWorkflow,
 } from "../studio-types";
@@ -232,11 +234,26 @@ export interface StudioArchivePartRecord {
 }
 
 /**
- * Durable artifacts adopted from an archive's structured entries (sanitized
- * price list, source-backed fact fields). Persisted so a later slice or a
- * different worker finalizes from durable state, never an in-memory loop.
+ * The archive's durable JSON state: the Owner's declaration recorded when the
+ * upload was PLANNED, plus the artifacts adopted from its structured entries
+ * (sanitized price list, source-backed fact fields). Persisted so a later
+ * slice, a retry, or a different worker finalizes from durable state rather
+ * than an in-memory loop or a browser that is still open.
  */
 export interface StudioArchiveExtracted {
+  /**
+   * The upload window the Owner filed this whole archive under, recorded at
+   * PLAN time and never rewritten.
+   *
+   * Durable on purpose: retry, resume, browser close and process restart all
+   * re-read it from here, so the semantic purpose can never depend on the
+   * browser still remembering which window the file came from. Absent only on
+   * archives planned before this contract existed, which keep the documented
+   * Full-Project-Archive entry-classifier behaviour.
+   */
+  materialPurpose?: StudioMaterialPurpose | null;
+  /** How that purpose was obtained. Always `owner_selected` when present. */
+  purposeSource?: StudioMaterialPurposeSource;
   priceList?: unknown;
   priceListSource?: string;
   factFields?: unknown;
