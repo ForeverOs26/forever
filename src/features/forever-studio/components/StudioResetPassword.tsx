@@ -7,20 +7,27 @@
  * run. It therefore loads no dashboard data and calls no Studio server
  * function.
  *
- * The bootstrap boundary is the point of this screen. A recovery session is a
- * real Supabase session, so anything that reached a Studio server function
- * with it would run `resolveStudioActor` → `maybeBootstrapOwner` and mint the
- * Owner membership from a half-finished password reset. Nothing here touches
- * that path, and the session is signed out before the visitor is returned to
- * the normal sign-in screen.
+ * Two properties matter more than anything else on this screen.
  *
- * The recovery token is never read, copied, stored or logged: recovery is
- * known only through the in-memory flag in `studio-recovery-mode`, and the
- * password is cleared from state the moment it has been submitted.
+ * AUTHORITY. The form becomes usable only when Supabase itself reported
+ * `PASSWORD_RECOVERY` and a live session exists. A URL that merely says
+ * `type=recovery` is user-controlled text: it can hold the screen in "checking"
+ * and it can withhold the dashboard, but it can never authorize `updateUser`.
+ *
+ * TERMINATION FAILS CLOSED. A recovery session is a real Supabase session, so
+ * one that survives the reset would become a working Studio session — and the
+ * dashboard runs `resolveStudioActor` → `maybeBootstrapOwner`. Sign-out is
+ * therefore not fire-and-forget: the returned error, any thrown exception, and
+ * a follow-up `getSession()` are all inspected, and recovery protection is
+ * dropped only once the session is positively confirmed absent. Until then the
+ * screen stays on a retry state that never resubmits the password.
+ *
+ * The recovery token is never read, copied, stored or logged, and the password
+ * is cleared from state the instant the update succeeds.
  */
 
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,15 +40,19 @@ import {
   STUDIO_PASSWORD_MIN_LENGTH,
   STUDIO_RECOVERY_SETTLE_MS,
   STUDIO_RECOVERY_SETTLED_GRACE_MS,
+  STUDIO_SESSION_CLOSE_FAILED_NOTICE,
   studioPasswordProblemMessage,
   studioRecoveryErrorMessage,
   validateStudioPassword,
 } from "../studio-recovery-contract";
 import {
+  clearStudioRecoveryIncompleteTermination,
   clearStudioRecoveryMode,
   installStudioRecoveryCapture,
   isStudioAuthSettled,
-  isStudioRecoveryMode,
+  isStudioRecoveryConfirmed,
+  isStudioRecoveryTerminationIncomplete,
+  markStudioRecoveryIncompleteTermination,
   setStudioPasswordUpdatedNotice,
   subscribeStudioAuthSettled,
   subscribeStudioRecoveryMode,
@@ -50,11 +61,31 @@ import {
 // The event may already have fired before this module's component mounts.
 installStudioRecoveryCapture();
 
-type Phase = "checking" | "ready" | "saving" | "invalid" | "saved";
+/**
+ * checking                       — waiting for authoritative recovery
+ * ready                          — confirmed recovery + live session
+ * updating_password              — updateUser in flight
+ * terminating_recovery_session   — sign-out in flight, password already changed
+ * password_updated_but_session_active — FAIL CLOSED: retry sign-out only
+ * completed                      — session proved gone
+ * invalid                        — no authoritative recovery
+ */
+type Phase =
+  | "checking"
+  | "ready"
+  | "updating_password"
+  | "terminating_recovery_session"
+  | "password_updated_but_session_active"
+  | "completed"
+  | "invalid";
 
 export function StudioResetPassword() {
   const navigate = useNavigate();
-  const [phase, setPhase] = useState<Phase>("checking");
+  const [phase, setPhase] = useState<Phase>(() =>
+    // A recovery that reached password-update but was never proved terminated
+    // stays fail-closed across rerender, route change and browser refresh.
+    isStudioRecoveryTerminationIncomplete() ? "password_updated_but_session_active" : "checking",
+  );
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [reveal, setReveal] = useState(false);
@@ -62,14 +93,18 @@ export function StudioResetPassword() {
   const settled = useRef(false);
 
   useEffect(() => {
+    if (isStudioRecoveryTerminationIncomplete()) {
+      settled.current = true;
+      return;
+    }
     let active = true;
 
     const settle = () => {
       if (!active || settled.current) return;
-      if (!isStudioRecoveryMode()) return;
+      // AUTHORITY: the confirmed PASSWORD_RECOVERY event, never a URL hint.
+      if (!isStudioRecoveryConfirmed()) return;
       void supabase.auth.getSession().then(({ data }) => {
         if (!active || settled.current) return;
-        // Recovery mode AND a live session: only then may a password be set.
         if (data.session) {
           settled.current = true;
           setPhase("ready");
@@ -86,9 +121,9 @@ export function StudioResetPassword() {
     settle();
     const unsubscribe = subscribeStudioRecoveryMode(() => settle());
 
-    // Supabase parses the link fragment asynchronously, so a verdict on first
-    // paint would be wrong. Wait for the client to finish starting up, then
-    // allow a short grace for event ordering, and only then be negative.
+    // Supabase parses the link asynchronously, so a verdict on first paint
+    // would be wrong. Wait for start-up, allow a short grace for event
+    // ordering, then be negative.
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
     const onSettled = () => {
       if (!active || settled.current) return;
@@ -98,7 +133,6 @@ export function StudioResetPassword() {
     const unsubscribeSettled = subscribeStudioAuthSettled(onSettled);
     if (isStudioAuthSettled()) onSettled();
 
-    // Backstop for a client that never reports start-up at all.
     const backstop = setTimeout(declareInvalid, STUDIO_RECOVERY_SETTLE_MS);
 
     return () => {
@@ -111,12 +145,66 @@ export function StudioResetPassword() {
   }, []);
 
   // Never leave a password value behind in component state.
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       setPassword("");
       setConfirmation("");
-    };
-  }, []);
+    },
+    [],
+  );
+
+  /**
+   * Closes the recovery session and proves it. Never resubmits the password —
+   * the password change has already happened by the time this runs, so a retry
+   * retries sign-out and nothing else.
+   */
+  const terminateRecoverySession = useCallback(async (): Promise<void> => {
+    setError(null);
+    setPhase("terminating_recovery_session");
+
+    // A global sign-out also revokes the refresh token server-side. If it fails
+    // for any reason, fall back to the supported local scope, which at least
+    // destroys the session in this browser.
+    let signedOutCleanly = false;
+    try {
+      const { error: signOutError } = await supabase.auth.signOut();
+      signedOutCleanly = !signOutError;
+    } catch {
+      signedOutCleanly = false;
+    }
+    if (!signedOutCleanly) {
+      try {
+        const { error: localError } = await supabase.auth.signOut({ scope: "local" });
+        signedOutCleanly = !localError;
+      } catch {
+        signedOutCleanly = false;
+      }
+    }
+
+    // The returned error is not the verdict — the surviving session is. Ask.
+    let sessionStillPresent = true;
+    try {
+      const { data } = await supabase.auth.getSession();
+      sessionStillPresent = Boolean(data.session);
+    } catch {
+      sessionStillPresent = true;
+    }
+
+    if (sessionStillPresent || !signedOutCleanly) {
+      // FAIL CLOSED. Protection stays on, the dashboard stays blocked, and the
+      // marker keeps it that way across a reload.
+      markStudioRecoveryIncompleteTermination();
+      setPhase("password_updated_but_session_active");
+      return;
+    }
+
+    // Only now, with absence positively confirmed, is it safe to release.
+    clearStudioRecoveryIncompleteTermination();
+    clearStudioRecoveryMode();
+    setStudioPasswordUpdatedNotice();
+    setPhase("completed");
+    void navigate({ to: STUDIO_LOGIN_PATH });
+  }, [navigate]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -129,7 +217,7 @@ export function StudioResetPassword() {
       return;
     }
 
-    setPhase("saving");
+    setPhase("updating_password");
     try {
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) {
@@ -143,20 +231,13 @@ export function StudioResetPassword() {
       return;
     }
 
-    // Discard the values first, then drop the recovery session. The recovery
-    // session must never become a working dashboard session.
+    // Password changed. Discard the values immediately, and record that a
+    // recovery is now mid-termination BEFORE attempting sign-out, so a crash,
+    // refresh or navigation between here and confirmation still fails closed.
     setPassword("");
     setConfirmation("");
-    clearStudioRecoveryMode();
-    try {
-      await supabase.auth.signOut();
-    } catch {
-      // Even if sign-out fails we still refuse to continue into Studio; the
-      // visitor is returned to sign-in and must authenticate afresh.
-    }
-    setStudioPasswordUpdatedNotice();
-    setPhase("saved");
-    void navigate({ to: STUDIO_LOGIN_PATH });
+    markStudioRecoveryIncompleteTermination();
+    await terminateRecoverySession();
   };
 
   if (phase === "checking") {
@@ -186,7 +267,40 @@ export function StudioResetPassword() {
     );
   }
 
-  if (phase === "saved") {
+  if (phase === "terminating_recovery_session") {
+    return (
+      <div className="mx-auto flex min-h-[70vh] w-full max-w-sm flex-col justify-center px-4">
+        <h1 className="text-2xl font-semibold">Finishing securely</h1>
+        <p role="status" className="mt-2 text-sm text-muted-foreground">
+          Password updated. Closing the recovery session…
+        </p>
+      </div>
+    );
+  }
+
+  if (phase === "password_updated_but_session_active") {
+    return (
+      <div className="mx-auto flex min-h-[70vh] w-full max-w-sm flex-col justify-center px-4">
+        <h1 className="text-2xl font-semibold">Finish signing out</h1>
+        <p role="alert" className="mt-2 text-sm text-muted-foreground">
+          {STUDIO_SESSION_CLOSE_FAILED_NOTICE}
+        </p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Stay on this page until it succeeds. Your new password is already saved — you will not be
+          asked for it again here.
+        </p>
+        <Button
+          type="button"
+          className="mt-8 h-12 w-full text-base"
+          onClick={() => void terminateRecoverySession()}
+        >
+          Retry secure sign-out
+        </Button>
+      </div>
+    );
+  }
+
+  if (phase === "completed") {
     return (
       <div className="mx-auto flex min-h-[70vh] w-full max-w-sm flex-col justify-center px-4">
         <h1 className="text-2xl font-semibold">Password updated</h1>
@@ -203,7 +317,7 @@ export function StudioResetPassword() {
     );
   }
 
-  const busy = phase === "saving";
+  const busy = phase === "updating_password";
 
   return (
     <div className="mx-auto flex min-h-[70vh] w-full max-w-sm flex-col justify-center px-4">

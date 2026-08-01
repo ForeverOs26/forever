@@ -60,13 +60,31 @@ exists replace a forgotten password.
 5. Enter the new password twice. Minimum **10 characters** — the same rule used
    for publisher invitations. The Supabase server may still reject a weak
    password; if it does, choose a longer, less predictable one.
-6. On success you are signed out of the recovery link automatically and returned
-   to the normal sign-in screen.
+6. On success Studio closes the recovery session and **proves it is closed**
+   before returning you to the normal sign-in screen.
 7. **Sign in again with the new password.** This fresh sign-in is required — the
    recovery link never opens the dashboard by itself.
 
+### If it says the recovery session could not be closed
+
+You may see: *"Your password was updated, but the recovery session could not be
+closed. Retry secure sign-out before continuing."*
+
+- **Your new password is already saved.** You will not be asked for it again on
+  that screen, and you should not re-enter it anywhere.
+- Press **Retry secure sign-out**. It only retries the sign-out; it never
+  resubmits your password.
+- **Stay on that page until it succeeds.** Do not close the browser and do not
+  try to open the dashboard — Studio deliberately keeps the dashboard blocked
+  until the old recovery session is confirmed gone, and it stays blocked even if
+  you refresh the page.
+
 Notes:
 
+- A reset link only works because Supabase itself confirms it. Adding
+  `type=recovery` to a Studio address by hand does nothing: it can never
+  authorize a password change, and on the reset page it will simply show the
+  expired-link message.
 - If the link says it has expired, request a new one and use the most recent
   email. Reset links are single-use and short-lived.
 - Recovery gives no Studio access on its own. If the account is not an active

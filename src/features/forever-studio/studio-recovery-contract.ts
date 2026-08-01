@@ -58,6 +58,29 @@ export const STUDIO_RECOVERY_GENERIC_NOTICE =
 export const STUDIO_PASSWORD_UPDATED_NOTICE = "Password updated. Sign in with the new password.";
 
 /**
+ * Shown when the password WAS changed but the recovery session could not be
+ * proved closed. The password must not be submitted again; only sign-out is
+ * retried. Until the session is confirmed gone the dashboard stays blocked,
+ * because a surviving recovery session is exactly what would otherwise become a
+ * working Studio session.
+ */
+export const STUDIO_SESSION_CLOSE_FAILED_NOTICE =
+  "Your password was updated, but the recovery session could not be closed. Retry secure sign-out before continuing.";
+
+/**
+ * Deny-only marker recording that a recovery reached password-update but has
+ * not been proved terminated. It survives a rerender, a route change and a
+ * browser refresh so the fail-closed state cannot be escaped by reloading.
+ *
+ * It holds the literal "1" and nothing else — no token, no session, no email,
+ * no user id, no password. It can only BLOCK access; it can never authorize a
+ * password update, which requires the authoritative PASSWORD_RECOVERY event.
+ * A forged marker therefore causes a harmless denial screen and nothing more.
+ */
+export const STUDIO_RECOVERY_INCOMPLETE_MARKER_KEY = "forever.studio.recovery.incomplete";
+export const STUDIO_RECOVERY_INCOMPLETE_MARKER_VALUE = "1";
+
+/**
  * Grace period after the auth client reports that it has finished starting up.
  *
  * Once start-up is done, a link that has not produced a recovery is not going
@@ -110,14 +133,30 @@ export function studioResetPasswordRedirectUrl(origin: string): string {
 }
 
 /**
- * Whether a URL declares itself a Supabase recovery link.
+ * Whether a URL LOOKS LIKE a recovery landing — a NON-AUTHORITATIVE HINT.
  *
- * Reads ONLY the `type` parameter. The access token, refresh token and any
- * other fragment value are never read, never returned and never stored — this
- * function exists so the reset screen can know a recovery is in progress even
- * if it mounts after the auth event has already been emitted.
+ * This is user-controlled text. Anyone can append `type=recovery` to a URL, so
+ * this value must never authorize anything. Its only permitted effects are
+ * defensive: hold the reset screen in "checking" so a slow auth start-up does
+ * not produce a false "expired", and apply a deny-only dashboard guard while
+ * authentication settles. Recovery AUTHORITY comes solely from the Supabase
+ * `PASSWORD_RECOVERY` event (see `isStudioRecoveryConfirmed`).
+ *
+ * The hint is accepted only on the exact reset path. `type=recovery` appended
+ * to `/studio`, `/studio/upload` or any other route means nothing at all.
+ *
+ * Reads ONLY the `type` parameter. The access token, refresh token and every
+ * other fragment value are never read, returned or stored.
  */
-export function urlDeclaresPasswordRecovery(hash: string, search: string): boolean {
+export function urlIsStudioRecoveryLanding(
+  pathname: string,
+  hash: string,
+  search: string,
+): boolean {
+  // Exact path only — trailing slash tolerated, nothing else.
+  const path = pathname.replace(/\/+$/, "") || "/";
+  if (path !== STUDIO_RESET_PASSWORD_PATH) return false;
+
   const readType = (raw: string): string | null => {
     if (!raw) return null;
     const cleaned = raw.startsWith("#") || raw.startsWith("?") ? raw.slice(1) : raw;

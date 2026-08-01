@@ -21,7 +21,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   clearStudioRecoveryMode,
   installStudioRecoveryCapture,
-  isStudioRecoveryMode,
+  isStudioRecoveryBlocked,
   subscribeStudioRecoveryMode,
 } from "./studio-recovery-mode";
 
@@ -38,9 +38,12 @@ export type StudioSessionState =
 type SessionLike = { user: { id: string; email?: string | null } } | null;
 
 function resolveState(session: SessionLike): StudioSessionState {
-  // Recovery wins over any session that exists: the only thing this visitor
-  // may do is finish setting a password.
-  if (isStudioRecoveryMode()) return { status: "recovery" };
+  // The DENY-ONLY guard wins over any session that exists. It is deliberately
+  // broader than recovery authority — a landing hint or an unterminated
+  // recovery is enough to withhold the dashboard, because withholding is
+  // always safe. Notably this also covers the fail-closed case where a
+  // password was updated but the recovery session could not be proved closed.
+  if (isStudioRecoveryBlocked()) return { status: "recovery" };
   return session
     ? { status: "signed_in", userId: session.user.id, email: session.user.email ?? null }
     : { status: "signed_out" };
@@ -81,7 +84,15 @@ export function useStudioSession(): StudioSessionState {
   return state;
 }
 
+/**
+ * Ordinary Studio sign-out, from the shell.
+ *
+ * Sign out FIRST, then drop recovery state — never the other way round, so a
+ * failed sign-out cannot leave a live session with the guard already lifted.
+ * The incomplete-termination marker is deliberately NOT cleared here: only the
+ * reset screen may clear it, and only after confirming the session is gone.
+ */
 export async function studioSignOut(): Promise<void> {
-  clearStudioRecoveryMode();
   await supabase.auth.signOut();
+  clearStudioRecoveryMode();
 }

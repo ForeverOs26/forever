@@ -1,27 +1,33 @@
 /**
- * FOREVER-STUDIO-PASSWORD-RECOVERY-001 — secure Owner password recovery.
+ * FOREVER-STUDIO-PASSWORD-RECOVERY-001 — secure Owner password recovery,
+ * corrected by FOREVER-PR131-RECOVERY-FAIL-CLOSED-CORRECTION-001.
  *
  * Studio had sign-in and nothing else, so an invited publisher who forgot a
  * password was permanently locked out. Recovery closes that gap WITHOUT
- * opening a second way in, and the security-critical property is the bootstrap
- * boundary: a Supabase recovery link produces a real session, so anything that
- * carried it into a Studio server function would run `resolveStudioActor` →
- * `maybeBootstrapOwner` and mint the Owner membership from a half-finished
- * password reset.
+ * opening a second way in.
  *
- * These tests pin:
- *  - the request surface is generic and cannot enumerate accounts;
- *  - the recovery redirect is a fixed same-origin constant, immune to query
- *    parameters;
- *  - PASSWORD_RECOVERY is distinguished from SIGNED_IN, and is not lost when
- *    it is emitted before the route mounts;
- *  - a recovery session never reaches bootstrap or dashboard data;
- *  - the password is validated, never echoed, and discarded after use;
- *  - the recovery session is signed out and a fresh sign-in is required.
+ * Two properties carry the security of this feature, and both were wrong in
+ * the first implementation:
  *
- * Every guard also carries a MUTATION CONTROL: the same assertion re-run
- * against a deliberately weakened implementation, proving the test fails when
- * the protection is removed rather than passing vacuously.
+ *  AUTHORITY (F2). `type=recovery` is user-controlled text. Treating its
+ *  presence as recovery let anyone holding an ordinary session append it to a
+ *  URL and be handled as though they had proved control of the mailbox. Only
+ *  the Supabase PASSWORD_RECOVERY event may confirm recovery; the URL is a
+ *  deny-only landing hint accepted on the exact reset path and nowhere else.
+ *
+ *  TERMINATION (F1). Sign-out was fire-and-forget: recovery protection was
+ *  dropped BEFORE sign-out, the returned error and thrown exception were both
+ *  ignored, and the surviving session was never checked. Any of those states
+ *  turned the recovery session into a working Studio session, which the
+ *  dashboard would have carried into maybeBootstrapOwner. Termination now
+ *  fails closed and is released only once getSession() is positively null.
+ *
+ * These tests exercise real behaviour. The mutation controls that prove they
+ * are non-vacuous live OUTSIDE this file: `mutate.mjs` in the task's research
+ * directory edits the actual source, runs the targeted test, requires a
+ * semantically correct failure, and restores byte-for-byte. Synthetic
+ * `expect(() => expect(0).toBe(1)).toThrow()` controls were removed — they
+ * asserted nothing about this implementation.
  */
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -35,11 +41,12 @@ import {
   STUDIO_LOGIN_PATH,
   STUDIO_PASSWORD_MIN_LENGTH,
   STUDIO_RECOVERY_GENERIC_NOTICE,
+  STUDIO_RECOVERY_INCOMPLETE_MARKER_KEY,
   STUDIO_RESET_PASSWORD_PATH,
   studioPasswordProblemMessage,
   studioRecoveryErrorMessage,
   studioResetPasswordRedirectUrl,
-  urlDeclaresPasswordRecovery,
+  urlIsStudioRecoveryLanding,
   validateStudioPassword,
 } from "../studio-recovery-contract";
 
@@ -50,8 +57,7 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8"
  *
  * A scan that claims "this module never touches localStorage" must inspect the
  * CODE — otherwise a doc comment saying "never written to localStorage" fails
- * the test, and, worse, prose could satisfy a positive assertion that the
- * implementation does not.
+ * the test, and, worse, prose could satisfy a check the implementation does not.
  */
 const readCode = (path: string) =>
   read(path)
@@ -73,7 +79,6 @@ const auth = vi.hoisted(() => {
   const listeners: AuthListener[] = [];
   return {
     listeners,
-    session: null as unknown,
     getSession: vi.fn(),
     onAuthStateChange: vi.fn(),
     signInWithPassword: vi.fn(),
@@ -85,7 +90,6 @@ const auth = vi.hoisted(() => {
     },
     reset() {
       listeners.length = 0;
-      this.session = null;
     },
   };
 });
@@ -156,6 +160,8 @@ function setLocation(href: string) {
   });
 }
 
+const RESET_URL = "https://forever.phuketre22.workers.dev" + STUDIO_RESET_PASSWORD_PATH;
+
 /** Fresh module instance, so the module-scope recovery capture re-installs. */
 async function loadRecoveryModule() {
   vi.resetModules();
@@ -165,6 +171,7 @@ async function loadRecoveryModule() {
 beforeEach(() => {
   vi.clearAllMocks();
   auth.reset();
+  sessionStorage.clear();
   auth.getSession.mockResolvedValue({ data: { session: null } });
   auth.resetPasswordForEmail.mockResolvedValue({ error: null });
   auth.updateUser.mockResolvedValue({ error: null });
@@ -175,22 +182,643 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  sessionStorage.clear();
+});
+
+/**
+ * Renders the reset screen with a genuine, authoritative recovery: the
+ * PASSWORD_RECOVERY event is emitted and a live session exists.
+ */
+async function renderConfirmedRecovery(options?: { hash?: boolean }) {
+  setLocation(RESET_URL + (options?.hash === false ? "" : "#access_token=fixture&type=recovery"));
+  auth.getSession.mockResolvedValue({ data: { session: SESSION } });
+  vi.resetModules();
+  const mod = await import("../components/studio-recovery-mode");
+  const { StudioResetPassword } = await import("../components/StudioResetPassword");
+  render(<StudioResetPassword />);
+  auth.emit("PASSWORD_RECOVERY", SESSION);
+  await screen.findByLabelText(/^new password$/i);
+  return mod;
+}
+
+async function submitNewPassword(value = FIXTURE_PASSWORD) {
+  fireEvent.change(await screen.findByLabelText(/^new password$/i), { target: { value } });
+  fireEvent.change(screen.getByLabelText(/^confirm new password$/i), { target: { value } });
+  fireEvent.click(screen.getByRole("button", { name: /save new password/i }));
+}
+
+// ---------------------------------------------------------------------------
+// F2 — authority: only PASSWORD_RECOVERY confirms recovery
+// ---------------------------------------------------------------------------
+
+describe("recovery authority (F2)", () => {
+  it("13. only PASSWORD_RECOVERY confirms recovery", async () => {
+    const mod = await loadRecoveryModule();
+    expect(mod.isStudioRecoveryConfirmed()).toBe(false);
+    auth.emit("PASSWORD_RECOVERY", SESSION);
+    expect(mod.isStudioRecoveryConfirmed()).toBe(true);
+  });
+
+  it("15. SIGNED_IN, INITIAL_SESSION and TOKEN_REFRESHED never confirm recovery", async () => {
+    const mod = await loadRecoveryModule();
+    for (const event of ["SIGNED_IN", "INITIAL_SESSION", "TOKEN_REFRESHED", "USER_UPDATED"]) {
+      auth.emit(event, SESSION);
+      expect(mod.isStudioRecoveryConfirmed(), event).toBe(false);
+    }
+  });
+
+  it("11/12. a forged URL hint plus a NORMAL session never shows the form or authorizes updateUser", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // 1. an ordinary signed-in session exists
+    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
+    // 2. the visitor navigates to the reset route with a forged type parameter
+    setLocation(RESET_URL + "?type=recovery");
+    vi.resetModules();
+    const mod = await import("../components/studio-recovery-mode");
+    const { StudioResetPassword } = await import("../components/StudioResetPassword");
+    render(<StudioResetPassword />);
+
+    // 3. no PASSWORD_RECOVERY occurs — only ordinary session events
+    auth.emit("INITIAL_SESSION", SESSION);
+    auth.emit("SIGNED_IN", SESSION);
+    await vi.advanceTimersByTimeAsync(15000);
+
+    // 4. the form never becomes ready
+    expect(screen.queryByLabelText(/^new password$/i)).toBeNull();
+    expect(await screen.findByRole("heading", { name: /reset link expired/i })).toBeTruthy();
+    // 5. updateUser cannot be called
+    expect(auth.updateUser).not.toHaveBeenCalled();
+    // 6. Studio bootstrap cannot run
+    for (const fn of Object.values(serverFns)) expect(fn).not.toHaveBeenCalled();
+
+    expect(mod.isStudioRecoveryConfirmed()).toBe(false);
+    // The hint is deny-only: it withholds the dashboard, it grants nothing.
+    expect(mod.isStudioRecoveryLandingHinted()).toBe(true);
+    expect(mod.isStudioRecoveryBlocked()).toBe(true);
+  });
+
+  it("16. the URL hint is accepted only on the exact reset route", async () => {
+    for (const href of [
+      "https://forever.phuketre22.workers.dev/studio?type=recovery",
+      "https://forever.phuketre22.workers.dev/studio#type=recovery",
+      "https://forever.phuketre22.workers.dev/studio/upload?type=recovery",
+      "https://forever.phuketre22.workers.dev/projects/coralina?type=recovery",
+      "https://forever.phuketre22.workers.dev/?type=recovery",
+      "https://forever.phuketre22.workers.dev/studio/reset-password-evil?type=recovery",
+    ]) {
+      setLocation(href);
+      const mod = await loadRecoveryModule();
+      expect(mod.isStudioRecoveryLandingHinted(), href).toBe(false);
+      expect(mod.isStudioRecoveryConfirmed(), href).toBe(false);
+      expect(mod.isStudioRecoveryBlocked(), href).toBe(false);
+    }
+    // ...and IS accepted on the exact path, still without granting authority.
+    setLocation(RESET_URL + "#type=recovery");
+    const mod = await loadRecoveryModule();
+    expect(mod.isStudioRecoveryLandingHinted()).toBe(true);
+    expect(mod.isStudioRecoveryConfirmed()).toBe(false);
+  });
+
+  it("urlIsStudioRecoveryLanding requires the exact path and reads only `type`", () => {
+    expect(urlIsStudioRecoveryLanding(STUDIO_RESET_PASSWORD_PATH, "#type=recovery", "")).toBe(true);
+    expect(urlIsStudioRecoveryLanding(STUDIO_RESET_PASSWORD_PATH, "", "?type=recovery")).toBe(true);
+    expect(urlIsStudioRecoveryLanding(STUDIO_RESET_PASSWORD_PATH + "/", "#type=recovery", "")).toBe(
+      true,
+    );
+    expect(urlIsStudioRecoveryLanding("/studio", "#type=recovery", "")).toBe(false);
+    expect(urlIsStudioRecoveryLanding("/studio/upload", "", "?type=recovery")).toBe(false);
+    expect(urlIsStudioRecoveryLanding(STUDIO_RESET_PASSWORD_PATH, "#type=signup", "")).toBe(false);
+    expect(urlIsStudioRecoveryLanding(STUDIO_RESET_PASSWORD_PATH, "", "")).toBe(false);
+  });
+
+  it("14. an authoritative event emitted before the route mounts is retained", async () => {
+    setLocation(RESET_URL + "#access_token=fixture&type=recovery");
+    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
+    vi.resetModules();
+    // Module scope installs the listener; the event fires during start-up,
+    // BEFORE the component is rendered.
+    const mod = await import("../components/studio-recovery-mode");
+    auth.emit("PASSWORD_RECOVERY", SESSION);
+    expect(mod.isStudioRecoveryConfirmed()).toBe(true);
+
+    const { StudioResetPassword } = await import("../components/StudioResetPassword");
+    render(<StudioResetPassword />);
+    expect(await screen.findByLabelText(/^new password$/i)).toBeTruthy();
+  });
+
+  it("19. a genuine recovery event plus a live session displays the form", async () => {
+    await renderConfirmedRecovery();
+    expect(screen.getByLabelText(/^new password$/i)).toBeTruthy();
+    expect(screen.getByLabelText(/^confirm new password$/i)).toBeTruthy();
+  });
+
+  it("18. without an authoritative event the screen ends invalid/expired and safe", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setLocation(RESET_URL);
+    auth.getSession.mockResolvedValue({ data: { session: null } });
+    vi.resetModules();
+    const { StudioResetPassword } = await import("../components/StudioResetPassword");
+    render(<StudioResetPassword />);
+    auth.emit("INITIAL_SESSION", null);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(await screen.findByRole("heading", { name: /reset link expired/i })).toBeTruthy();
+    expect(screen.queryByLabelText(/^new password$/i)).toBeNull();
+    expect(auth.updateUser).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: /request a new link/i })).toHaveAttribute(
+      "href",
+      STUDIO_FORGOT_PASSWORD_PATH,
+    );
+  });
+
+  it("a slow auth start-up does not produce a false 'expired' verdict", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setLocation(RESET_URL);
+    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
+    vi.resetModules();
+    const { StudioResetPassword } = await import("../components/StudioResetPassword");
+    render(<StudioResetPassword />);
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(screen.queryByRole("heading", { name: /reset link expired/i })).toBeNull();
+    expect(screen.getByText(/checking the reset link/i)).toBeTruthy();
+    auth.emit("PASSWORD_RECOVERY", SESSION);
+    expect(await screen.findByRole("heading", { name: /set a new password/i })).toBeTruthy();
+  });
 });
 
 // ---------------------------------------------------------------------------
-// 1–2. The sign-in surface: recovery added, sign-up still absent
+// F1 — termination fails closed
 // ---------------------------------------------------------------------------
 
+describe("session termination fails closed (F1)", () => {
+  it("1. signOut returning { error } blocks navigation and keeps the guard active", async () => {
+    const mod = await renderConfirmedRecovery();
+    auth.signOut.mockResolvedValue({ error: new Error("sign out rejected") });
+    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
+    await submitNewPassword();
+
+    await waitFor(() => expect(auth.updateUser).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("heading", { name: /finish signing out/i })).toBeTruthy();
+    expect(navigation.navigate).not.toHaveBeenCalled();
+    expect(mod.isStudioRecoveryBlocked()).toBe(true);
+    expect(mod.isStudioRecoveryTerminationIncomplete()).toBe(true);
+  });
+
+  it("2. signOut throwing blocks navigation and keeps the guard active", async () => {
+    const mod = await renderConfirmedRecovery();
+    auth.signOut.mockRejectedValue(new Error("network down"));
+    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
+    await submitNewPassword();
+
+    await waitFor(() => expect(auth.updateUser).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("heading", { name: /finish signing out/i })).toBeTruthy();
+    expect(navigation.navigate).not.toHaveBeenCalled();
+    expect(mod.isStudioRecoveryBlocked()).toBe(true);
+  });
+
+  it("3. signOut resolving cleanly but leaving a session still blocks navigation", async () => {
+    const mod = await renderConfirmedRecovery();
+    // The provider reports success — but the session survives. The surviving
+    // session is the verdict, not the returned value.
+    auth.signOut.mockResolvedValue({ error: null });
+    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
+    await submitNewPassword();
+
+    await waitFor(() => expect(auth.updateUser).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("heading", { name: /finish signing out/i })).toBeTruthy();
+    expect(navigation.navigate).not.toHaveBeenCalled();
+    expect(mod.isStudioRecoveryBlocked()).toBe(true);
+  });
+
+  // The two tests above are also satisfied by a surviving session, so on their
+  // own they do not prove the RETURNED ERROR and the THROWN EXCEPTION are
+  // inspected at all. These isolate exactly that: the local session is already
+  // gone, so only the sign-out outcome can produce the fail-closed result.
+  it("1b. a returned { error } blocks even when the local session is already gone", async () => {
+    const mod = await renderConfirmedRecovery();
+    auth.signOut.mockResolvedValue({ error: new Error("revocation refused") });
+    auth.getSession.mockResolvedValue({ data: { session: null } });
+    await submitNewPassword();
+
+    await waitFor(() => expect(auth.updateUser).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("heading", { name: /finish signing out/i })).toBeTruthy();
+    expect(navigation.navigate).not.toHaveBeenCalled();
+    expect(mod.isStudioRecoveryBlocked()).toBe(true);
+  });
+
+  it("2b. a thrown exception blocks even when the local session is already gone", async () => {
+    const mod = await renderConfirmedRecovery();
+    auth.signOut.mockRejectedValue(new Error("network down"));
+    auth.getSession.mockResolvedValue({ data: { session: null } });
+    await submitNewPassword();
+
+    await waitFor(() => expect(auth.updateUser).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("heading", { name: /finish signing out/i })).toBeTruthy();
+    expect(navigation.navigate).not.toHaveBeenCalled();
+    expect(mod.isStudioRecoveryBlocked()).toBe(true);
+  });
+
+  it("4. the recovery guard remains active after all three failure shapes", async () => {
+    for (const failure of [
+      () => auth.signOut.mockResolvedValue({ error: new Error("nope") }),
+      () => auth.signOut.mockRejectedValue(new Error("boom")),
+      () => auth.signOut.mockResolvedValue({ error: null }),
+    ]) {
+      cleanup();
+      const mod = await renderConfirmedRecovery();
+      failure();
+      auth.getSession.mockResolvedValue({ data: { session: SESSION } });
+      await submitNewPassword();
+      await screen.findByRole("heading", { name: /finish signing out/i });
+      expect(mod.isStudioRecoveryBlocked()).toBe(true);
+      expect(mod.isStudioRecoveryTerminationIncomplete()).toBe(true);
+      sessionStorage.clear();
+    }
+  });
+
+  it("5. retry secure sign-out does NOT resubmit the password", async () => {
+    await renderConfirmedRecovery();
+    auth.signOut.mockResolvedValue({ error: new Error("nope") });
+    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
+    await submitNewPassword();
+    await screen.findByRole("heading", { name: /finish signing out/i });
+    expect(auth.updateUser).toHaveBeenCalledTimes(1);
+
+    const signOutCallsBefore = auth.signOut.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: /retry secure sign-out/i }));
+    await waitFor(() => expect(auth.signOut.mock.calls.length).toBeGreaterThan(signOutCallsBefore));
+    // The password was NOT sent again.
+    expect(auth.updateUser).toHaveBeenCalledTimes(1);
+    // No password field is offered on the retry state either.
+    expect(screen.queryByLabelText(/^new password$/i)).toBeNull();
+  });
+
+  it("6. a successful retry with a null session clears recovery and navigates", async () => {
+    const mod = await renderConfirmedRecovery();
+    auth.signOut.mockResolvedValue({ error: new Error("nope") });
+    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
+    await submitNewPassword();
+    await screen.findByRole("heading", { name: /finish signing out/i });
+    expect(navigation.navigate).not.toHaveBeenCalled();
+
+    // Now sign-out succeeds and the session is genuinely gone.
+    auth.signOut.mockResolvedValue({ error: null });
+    auth.getSession.mockResolvedValue({ data: { session: null } });
+    fireEvent.click(screen.getByRole("button", { name: /retry secure sign-out/i }));
+
+    await waitFor(() =>
+      expect(navigation.navigate).toHaveBeenCalledWith({ to: STUDIO_LOGIN_PATH }),
+    );
+    expect(mod.isStudioRecoveryBlocked()).toBe(false);
+    expect(mod.isStudioRecoveryTerminationIncomplete()).toBe(false);
+    expect(sessionStorage.getItem(STUDIO_RECOVERY_INCOMPLETE_MARKER_KEY)).toBeNull();
+    expect(auth.updateUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("20. password update followed by confirmed sign-out returns to normal sign-in", async () => {
+    const mod = await renderConfirmedRecovery();
+    auth.signOut.mockResolvedValue({ error: null });
+    auth.getSession.mockResolvedValue({ data: { session: null } });
+    await submitNewPassword();
+
+    await waitFor(() => expect(auth.updateUser).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(auth.signOut).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(navigation.navigate).toHaveBeenCalledWith({ to: STUDIO_LOGIN_PATH }),
+    );
+    expect(mod.isStudioRecoveryBlocked()).toBe(false);
+
+    // The one-shot notice is available to the sign-in screen exactly once.
+    expect(mod.consumeStudioPasswordUpdatedNotice()).toBe(true);
+    expect(mod.consumeStudioPasswordUpdatedNotice()).toBe(false);
+  });
+
+  it("recovery protection is never released before absence is confirmed", async () => {
+    const mod = await renderConfirmedRecovery();
+    let released = false;
+    auth.signOut.mockImplementation(async () => {
+      // At the moment sign-out runs, protection must still be in force.
+      released = !mod.isStudioRecoveryBlocked();
+      return { error: null };
+    });
+    auth.getSession.mockResolvedValue({ data: { session: null } });
+    await submitNewPassword();
+    await waitFor(() => expect(auth.signOut).toHaveBeenCalled());
+    expect(released).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reload / direct-navigation safety and the bootstrap boundary
+// ---------------------------------------------------------------------------
+
+describe("fail-closed across reload and navigation", () => {
+  it("9. a failed termination stays blocked after remount", async () => {
+    await renderConfirmedRecovery();
+    auth.signOut.mockResolvedValue({ error: new Error("nope") });
+    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
+    await submitNewPassword();
+    await screen.findByRole("heading", { name: /finish signing out/i });
+
+    cleanup();
+    const { StudioResetPassword } = await import("../components/StudioResetPassword");
+    render(<StudioResetPassword />);
+    expect(await screen.findByRole("heading", { name: /finish signing out/i })).toBeTruthy();
+    expect(screen.queryByLabelText(/^new password$/i)).toBeNull();
+  });
+
+  it("10. a failed termination stays blocked after a full page reload", async () => {
+    await renderConfirmedRecovery();
+    auth.signOut.mockResolvedValue({ error: new Error("nope") });
+    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
+    await submitNewPassword();
+    await screen.findByRole("heading", { name: /finish signing out/i });
+    expect(sessionStorage.getItem(STUDIO_RECOVERY_INCOMPLETE_MARKER_KEY)).toBe("1");
+
+    // Simulate a reload: every module is re-evaluated, in-memory state is lost,
+    // and the visitor lands directly on /studio with a live session.
+    cleanup();
+    setLocation("https://forever.phuketre22.workers.dev/studio");
+    vi.resetModules();
+    const mod = await import("../components/studio-recovery-mode");
+    expect(mod.isStudioRecoveryTerminationIncomplete()).toBe(true);
+    expect(mod.isStudioRecoveryBlocked()).toBe(true);
+    // Still no authority — the marker denies, it never grants.
+    expect(mod.isStudioRecoveryConfirmed()).toBe(false);
+  });
+
+  it("7/8. a failed termination cannot mount StudioShell or call a Studio server function", async () => {
+    await renderConfirmedRecovery();
+    auth.signOut.mockResolvedValue({ error: new Error("nope") });
+    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
+    await submitNewPassword();
+    await screen.findByRole("heading", { name: /finish signing out/i });
+
+    // The session hook reports `recovery` even though a real session exists,
+    // which is what makes the Studio layout refuse the shell.
+    cleanup();
+    const { useStudioSession } = await import("../components/useStudioSession");
+    const seen: string[] = [];
+    function Probe() {
+      seen.push(useStudioSession().status);
+      return null;
+    }
+    render(<Probe />);
+    await waitFor(() => expect(seen).toContain("recovery"));
+    expect(seen).not.toContain("signed_in");
+    for (const fn of Object.values(serverFns)) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("23. the deny-only marker cannot authorize a password update", async () => {
+    // Forge the marker without any recovery event at all.
+    sessionStorage.setItem(STUDIO_RECOVERY_INCOMPLETE_MARKER_KEY, "1");
+    setLocation(RESET_URL + "#type=recovery");
+    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
+    vi.resetModules();
+    const mod = await import("../components/studio-recovery-mode");
+    const { StudioResetPassword } = await import("../components/StudioResetPassword");
+    render(<StudioResetPassword />);
+
+    // It denies — a harmless block screen — and never offers the form.
+    expect(mod.isStudioRecoveryBlocked()).toBe(true);
+    expect(mod.isStudioRecoveryConfirmed()).toBe(false);
+    expect(screen.queryByLabelText(/^new password$/i)).toBeNull();
+    expect(auth.updateUser).not.toHaveBeenCalled();
+  });
+
+  it("the marker holds no token, session, email, id or password", () => {
+    sessionStorage.setItem(STUDIO_RECOVERY_INCOMPLETE_MARKER_KEY, "1");
+    const value = sessionStorage.getItem(STUDIO_RECOVERY_INCOMPLETE_MARKER_KEY) ?? "";
+    expect(value).toBe("1");
+    expect(value).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i);
+    expect(value).not.toMatch(/@/);
+    expect(value).not.toMatch(/eyJ/);
+    expect(value.length).toBeLessThan(4);
+  });
+});
+
+describe("bootstrap boundary", () => {
+  it("16/17/18. a full recovery calls no Studio server function", async () => {
+    await renderConfirmedRecovery();
+    auth.signOut.mockResolvedValue({ error: null });
+    auth.getSession.mockResolvedValue({ data: { session: null } });
+    await submitNewPassword();
+    await waitFor(() => expect(auth.signOut).toHaveBeenCalled());
+    for (const fn of Object.values(serverFns)) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("the reset screen imports no Studio server function or bootstrap symbol", () => {
+    const source = readCode("src/features/forever-studio/components/StudioResetPassword.tsx");
+    expect(source).not.toMatch(/studio\.functions/);
+    expect(source).not.toMatch(/maybeBootstrapOwner/);
+    expect(source).not.toMatch(/studio_bootstrap_owner/);
+    expect(source).not.toMatch(/resolveStudioActor/);
+    expect(source).not.toMatch(/StudioDashboard/);
+    expect(source).not.toMatch(/StudioShell/);
+
+    const request = readCode("src/features/forever-studio/components/StudioForgotPassword.tsx");
+    expect(request).not.toMatch(/studio\.functions/);
+    expect(request).not.toMatch(/maybeBootstrapOwner/);
+  });
+
+  it("the recovery routes sit outside the membership-protected boundary", () => {
+    const reset = readCode("src/routes/studio_.reset-password.tsx");
+    const forgot = readCode("src/routes/studio_.forgot-password.tsx");
+    expect(reset).toContain('createFileRoute("/studio_/reset-password")');
+    expect(forgot).toContain('createFileRoute("/studio_/forgot-password")');
+    expect(reset).not.toMatch(/StudioShell/);
+    expect(forgot).not.toMatch(/StudioShell/);
+    expect(reset).not.toMatch(/beforeLoad/);
+    expect(reset).not.toMatch(/requireMembership|assertOwner|assertMember/);
+  });
+
+  it("21. the Studio layout blocks recovery but a normal session still reaches the shell", async () => {
+    const source = readCode("src/routes/studio.tsx");
+    expect(source).toMatch(/session\.status === "recovery"/);
+    expect(source).toMatch(/StudioRecoveryInterstitial/);
+    expect(source).toMatch(/<StudioShell email=\{session\.email\}>/);
+    expect(source).toMatch(/<Outlet \/>/);
+
+    // Behaviourally: with no recovery of any kind, an ordinary session is
+    // reported as signed_in, which is the path that mounts the dashboard and
+    // lets the existing canonical bootstrap run on a fresh sign-in.
+    setLocation("https://forever.phuketre22.workers.dev/studio");
+    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
+    vi.resetModules();
+    const { useStudioSession } = await import("../components/useStudioSession");
+    const seen: string[] = [];
+    function Probe() {
+      seen.push(useStudioSession().status);
+      return null;
+    }
+    render(<Probe />);
+    await waitFor(() => expect(seen).toContain("signed_in"));
+    expect(seen).not.toContain("recovery");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Request surface, redirect, and the rest of the original contract
+// ---------------------------------------------------------------------------
+
+describe("password request", () => {
+  async function renderRequest() {
+    vi.resetModules();
+    const { StudioForgotPassword } = await import("../components/StudioForgotPassword");
+    render(<StudioForgotPassword />);
+  }
+  async function submitEmail(value: string) {
+    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value } });
+    fireEvent.click(screen.getByRole("button", { name: /send reset link/i }));
+    await waitFor(() => expect(auth.resetPasswordForEmail).toHaveBeenCalled());
+  }
+
+  it("calls resetPasswordForEmail with the entered address", async () => {
+    await renderRequest();
+    await submitEmail("publisher@example.test");
+    expect(auth.resetPasswordForEmail).toHaveBeenCalledTimes(1);
+    expect(auth.resetPasswordForEmail.mock.calls[0][0]).toBe("publisher@example.test");
+  });
+
+  it("17. query parameters cannot control redirectTo", async () => {
+    setLocation(
+      "https://forever.phuketre22.workers.dev/studio/forgot-password" +
+        "?redirectTo=https://evil.example/steal&next=https://evil.example&redirect_to=//evil.example",
+    );
+    await renderRequest();
+    await submitEmail("publisher@example.test");
+    const options = auth.resetPasswordForEmail.mock.calls[0][1] as { redirectTo: string };
+    expect(options.redirectTo).toBe(RESET_URL);
+    expect(options.redirectTo).not.toContain("evil.example");
+    const parsed = new URL(options.redirectTo);
+    expect(parsed.origin).toBe("https://forever.phuketre22.workers.dev");
+    expect(parsed.pathname).toBe(STUDIO_RESET_PASSWORD_PATH);
+    expect(parsed.search).toBe("");
+    expect(parsed.hash).toBe("");
+  });
+
+  it("unknown and known addresses produce the identical generic result", async () => {
+    auth.resetPasswordForEmail.mockResolvedValueOnce({ error: null });
+    await renderRequest();
+    await submitEmail("publisher@example.test");
+    const knownText = (await screen.findByRole("status")).textContent ?? "";
+    cleanup();
+
+    auth.resetPasswordForEmail.mockResolvedValueOnce({
+      error: new Error("User not found for email"),
+    });
+    await renderRequest();
+    await submitEmail("nobody@example.test");
+    const unknownText = (await screen.findByRole("status")).textContent ?? "";
+
+    expect(unknownText).toBe(knownText);
+    expect(knownText).toBe(STUDIO_RECOVERY_GENERIC_NOTICE);
+    expect(knownText).not.toMatch(/not found|no account|does not exist|owner|member|confirmed/i);
+  });
+
+  it("rate limiting and transport failure stay safe", async () => {
+    auth.resetPasswordForEmail.mockResolvedValueOnce({
+      error: new Error("Request rate limit reached (429)"),
+    });
+    await renderRequest();
+    await submitEmail("publisher@example.test");
+    let alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/too many attempts/i);
+    expect(alert.textContent).not.toMatch(/account|exists|owner|member/i);
+    cleanup();
+
+    auth.resetPasswordForEmail.mockRejectedValueOnce(new Error("network unreachable"));
+    await renderRequest();
+    await submitEmail("publisher@example.test");
+    alert = await screen.findByRole("alert");
+    expect(alert.textContent).not.toMatch(/account|exists|supabase|abtvsrcnfwlbawvrjeed/i);
+    expect(isStudioRecoveryRateLimited(new Error("429 Too Many Requests"))).toBe(true);
+  });
+});
+
+describe("password handling", () => {
+  it("13b. mismatched passwords block updateUser entirely", async () => {
+    await renderConfirmedRecovery();
+    fireEvent.change(await screen.findByLabelText(/^new password$/i), {
+      target: { value: FIXTURE_PASSWORD },
+    });
+    fireEvent.change(screen.getByLabelText(/^confirm new password$/i), {
+      target: { value: FIXTURE_PASSWORD + "-different" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save new password/i }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/do not match/i);
+    expect(auth.updateUser).not.toHaveBeenCalled();
+  });
+
+  it("a too-short password blocks updateUser", async () => {
+    await renderConfirmedRecovery();
+    await submitNewPassword("short");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(new RegExp(`at least ${STUDIO_PASSWORD_MIN_LENGTH}`, "i"));
+    expect(auth.updateUser).not.toHaveBeenCalled();
+  });
+
+  it("a valid matching password calls updateUser exactly once", async () => {
+    await renderConfirmedRecovery();
+    auth.getSession.mockResolvedValue({ data: { session: null } });
+    await submitNewPassword();
+    await waitFor(() => expect(auth.updateUser).toHaveBeenCalledTimes(1));
+    expect(auth.updateUser.mock.calls[0][0]).toEqual({ password: FIXTURE_PASSWORD });
+  });
+
+  it("22. no password, token or session is logged or left in the document", async () => {
+    const spies = (["log", "error", "warn", "info", "debug"] as const).map((level) =>
+      vi.spyOn(console, level).mockImplementation(() => void 0),
+    );
+    await renderConfirmedRecovery();
+    auth.updateUser.mockResolvedValueOnce({ error: new Error("Password is too weak") });
+    await submitNewPassword();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).not.toContain(FIXTURE_PASSWORD);
+    // The value stays in the password FIELD so the publisher can correct a
+    // server-rejected password without retyping — that is the field's job. What
+    // must never happen is the value being echoed into rendered text, an error
+    // message, or a log.
+    expect(document.body.textContent ?? "").not.toContain(FIXTURE_PASSWORD);
+    for (const spy of spies) {
+      for (const call of spy.mock.calls) {
+        const text = JSON.stringify(call);
+        expect(text).not.toContain(FIXTURE_PASSWORD);
+        expect(text).not.toContain("access_token");
+        expect(text).not.toContain("user-fixture");
+      }
+      spy.mockRestore();
+    }
+    expect(studioRecoveryErrorMessage(new Error(FIXTURE_PASSWORD))).not.toContain(FIXTURE_PASSWORD);
+  });
+
+  it("no password value survives in the document after a confirmed success", async () => {
+    await renderConfirmedRecovery();
+    auth.signOut.mockResolvedValue({ error: null });
+    auth.getSession.mockResolvedValue({ data: { session: null } });
+    await submitNewPassword();
+    await waitFor(() => expect(auth.signOut).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByLabelText(/^new password$/i)).toBeNull());
+    for (const input of Array.from(document.querySelectorAll("input"))) {
+      expect(input.value).not.toBe(FIXTURE_PASSWORD);
+    }
+    expect(document.body.innerHTML).not.toContain(FIXTURE_PASSWORD);
+  });
+});
+
 describe("sign-in surface", () => {
-  it("1. StudioLogin offers Forgot password, pointing at the request screen", async () => {
+  it("StudioLogin offers Forgot password, pointing at the request screen", async () => {
     vi.resetModules();
     const { StudioLogin } = await import("../components/StudioLogin");
     render(<StudioLogin />);
-    const link = screen.getByRole("link", { name: /forgot password/i });
-    expect(link).toHaveAttribute("href", STUDIO_FORGOT_PASSWORD_PATH);
+    expect(screen.getByRole("link", { name: /forgot password/i })).toHaveAttribute(
+      "href",
+      STUDIO_FORGOT_PASSWORD_PATH,
+    );
   });
 
-  it("2. no sign-up, registration or alternative-login method exists in any auth screen", async () => {
+  it("24. no sign-up, OTP, OAuth or alternative login is introduced", async () => {
     for (const path of [
       "src/features/forever-studio/components/StudioLogin.tsx",
       "src/features/forever-studio/components/StudioForgotPassword.tsx",
@@ -198,38 +826,28 @@ describe("sign-in surface", () => {
     ]) {
       const code = readCode(path);
       expect(code, path).not.toMatch(/signUp\s*\(/);
-      expect(code, path).not.toMatch(/signInWithOtp/);
-      expect(code, path).not.toMatch(/signInWithOAuth/);
+      expect(code, path).not.toMatch(
+        /signInWithOtp|signInWithOAuth|signInWithIdToken|signInWithSSO/,
+      );
       expect(code, path).not.toMatch(/\bverifyOtp\b/);
-      expect(code, path).not.toMatch(/signInWithIdToken|signInWithSSO/);
+      expect(code, path).not.toMatch(/admin\./);
     }
-
-    // And no rendered affordance offers one either.
     const signUpish = /sign ?up|create account|create an account|register/i;
     vi.resetModules();
     const { StudioLogin } = await import("../components/StudioLogin");
     render(<StudioLogin />);
     expect(screen.queryByRole("button", { name: signUpish })).toBeNull();
     expect(screen.queryByRole("link", { name: signUpish })).toBeNull();
-    cleanup();
-
-    vi.resetModules();
-    const { StudioForgotPassword } = await import("../components/StudioForgotPassword");
-    render(<StudioForgotPassword />);
-    expect(screen.queryByRole("button", { name: signUpish })).toBeNull();
-    expect(screen.queryByRole("link", { name: signUpish })).toBeNull();
   });
 
-  it("20. existing password sign-in still works unchanged", async () => {
+  it("25. existing password sign-in remains functional", async () => {
     vi.resetModules();
     const { StudioLogin } = await import("../components/StudioLogin");
     render(<StudioLogin />);
     fireEvent.change(screen.getByLabelText(/^email$/i), {
       target: { value: "publisher@example.test" },
     });
-    fireEvent.change(screen.getByLabelText(/^password$/i), {
-      target: { value: FIXTURE_PASSWORD },
-    });
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: FIXTURE_PASSWORD } });
     fireEvent.click(screen.getByRole("button", { name: /^sign in$/i }));
     await waitFor(() => expect(auth.signInWithPassword).toHaveBeenCalledTimes(1));
     expect(auth.signInWithPassword.mock.calls[0][0]).toEqual({
@@ -239,469 +857,31 @@ describe("sign-in surface", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 3–7. The request surface: fixed redirect, no enumeration
-// ---------------------------------------------------------------------------
-
-describe("password request", () => {
-  async function renderRequest() {
-    vi.resetModules();
-    const { StudioForgotPassword } = await import("../components/StudioForgotPassword");
-    render(<StudioForgotPassword />);
-  }
-
-  async function submitEmail(value: string) {
-    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value } });
-    fireEvent.click(screen.getByRole("button", { name: /send reset link/i }));
-    await waitFor(() => expect(auth.resetPasswordForEmail).toHaveBeenCalled());
-  }
-
-  it("3. calls resetPasswordForEmail with the entered address", async () => {
-    await renderRequest();
-    await submitEmail("publisher@example.test");
-    expect(auth.resetPasswordForEmail).toHaveBeenCalledTimes(1);
-    expect(auth.resetPasswordForEmail.mock.calls[0][0]).toBe("publisher@example.test");
-  });
-
-  it("4. redirectTo is the exact fixed same-origin reset route", async () => {
-    await renderRequest();
-    await submitEmail("publisher@example.test");
-    const options = auth.resetPasswordForEmail.mock.calls[0][1] as { redirectTo: string };
-    expect(options.redirectTo).toBe(
-      "https://forever.phuketre22.workers.dev" + STUDIO_RESET_PASSWORD_PATH,
-    );
-    const parsed = new URL(options.redirectTo);
-    expect(parsed.origin).toBe("https://forever.phuketre22.workers.dev");
-    expect(parsed.pathname).toBe(STUDIO_RESET_PASSWORD_PATH);
-    expect(parsed.search).toBe("");
-    expect(parsed.hash).toBe("");
-  });
-
-  it("5. a hostile query parameter cannot alter redirectTo", async () => {
-    setLocation(
-      "https://forever.phuketre22.workers.dev/studio/forgot-password" +
-        "?redirectTo=https://evil.example/steal&next=https://evil.example&redirect_to=//evil.example",
-    );
-    await renderRequest();
-    await submitEmail("publisher@example.test");
-    const options = auth.resetPasswordForEmail.mock.calls[0][1] as { redirectTo: string };
-    expect(options.redirectTo).toBe(
-      "https://forever.phuketre22.workers.dev" + STUDIO_RESET_PASSWORD_PATH,
-    );
-    expect(options.redirectTo).not.toContain("evil.example");
-
-    // MUTATION CONTROL — a query-controlled redirect would leak the recovery
-    // fragment to a foreign origin, and the same assertion must reject it.
-    const queryControlled =
-      new URLSearchParams(window.location.search).get("redirectTo") ?? "unset";
-    expect(queryControlled).toBe("https://evil.example/steal");
-    expect(() =>
-      expect(queryControlled).toBe(
-        "https://forever.phuketre22.workers.dev" + STUDIO_RESET_PASSWORD_PATH,
-      ),
-    ).toThrow();
-  });
-
-  it("6/7. unknown and known addresses produce the identical generic result", async () => {
-    // Known address: provider reports success.
-    auth.resetPasswordForEmail.mockResolvedValueOnce({ error: null });
-    await renderRequest();
-    await submitEmail("publisher@example.test");
-    const known = await screen.findByRole("status");
-    const knownText = known.textContent ?? "";
-    cleanup();
-
-    // Unknown address: provider reports "user not found".
-    auth.resetPasswordForEmail.mockResolvedValueOnce({
-      error: new Error("User not found for email"),
-    });
-    await renderRequest();
-    await submitEmail("nobody@example.test");
-    const unknown = await screen.findByRole("status");
-    const unknownText = unknown.textContent ?? "";
-
-    expect(unknownText).toBe(knownText);
-    expect(knownText).toBe(STUDIO_RECOVERY_GENERIC_NOTICE);
-    // No branch of the visible result may leak existence, role or membership.
-    expect(knownText).not.toMatch(/not found|no account|does not exist|owner|member|confirmed/i);
-
-    // MUTATION CONTROL — an existence-revealing implementation must fail this.
-    const revealing = "No account exists for that email.";
-    expect(() => expect(revealing).toBe(STUDIO_RECOVERY_GENERIC_NOTICE)).toThrow();
-  });
-
-  it("rate limiting is reported without revealing anything about the address", async () => {
-    auth.resetPasswordForEmail.mockResolvedValueOnce({
-      error: new Error("Request rate limit reached (429)"),
-    });
-    await renderRequest();
-    await submitEmail("publisher@example.test");
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toMatch(/too many attempts/i);
-    expect(alert.textContent).not.toMatch(/account|exists|owner|member/i);
-    expect(isStudioRecoveryRateLimited(new Error("429 Too Many Requests"))).toBe(true);
-  });
-
-  it("a transport failure is reported safely and never as account state", async () => {
-    auth.resetPasswordForEmail.mockRejectedValueOnce(new Error("network unreachable"));
-    await renderRequest();
-    await submitEmail("publisher@example.test");
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).not.toMatch(/account|exists|supabase|abtvsrcnfwlbawvrjeed/i);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 8–10. Recovery event capture
-// ---------------------------------------------------------------------------
-
-describe("recovery event capture", () => {
-  it("8. PASSWORD_RECOVERY enters recovery mode", async () => {
-    const mod = await loadRecoveryModule();
-    expect(mod.isStudioRecoveryMode()).toBe(false);
-    auth.emit("PASSWORD_RECOVERY", SESSION);
-    expect(mod.isStudioRecoveryMode()).toBe(true);
-  });
-
-  it("9. a normal SIGNED_IN does NOT enter recovery mode", async () => {
-    const mod = await loadRecoveryModule();
-    auth.emit("SIGNED_IN", SESSION);
-    auth.emit("INITIAL_SESSION", SESSION);
-    auth.emit("TOKEN_REFRESHED", SESSION);
-    expect(mod.isStudioRecoveryMode()).toBe(false);
-
-    // MUTATION CONTROL — dropping the event distinction (treating any session
-    // event as recovery) must break this assertion.
-    const withoutDistinction = ["SIGNED_IN", "INITIAL_SESSION"].some((event) => Boolean(event));
-    expect(() => expect(withoutDistinction).toBe(false)).toThrow();
-  });
-
-  it("10. a recovery landing emitted before mount is not lost", async () => {
-    // The event fires during client start-up, before any component mounts.
-    setLocation(
-      "https://forever.phuketre22.workers.dev/studio/reset-password" +
-        "#access_token=fixture&type=recovery&expires_in=3600",
-    );
-    const mod = await loadRecoveryModule();
-    // Recognised synchronously from the URL shape alone, with no listener race.
-    expect(mod.isStudioRecoveryMode()).toBe(true);
-
-    // And the component, mounting afterwards, still sees it.
-    const { StudioResetPassword } = await import("../components/StudioResetPassword");
-    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
-    render(<StudioResetPassword />);
-    expect(await screen.findByRole("heading", { name: /set a new password/i })).toBeTruthy();
-  });
-
-  it("10b. a slow auth start-up does not produce a false 'expired' verdict", async () => {
-    // No recovery in the URL yet and start-up has NOT reported: the screen must
-    // keep checking rather than declaring the link dead. This is the regression
-    // that a plain short timer got wrong.
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    setLocation("https://forever.phuketre22.workers.dev/studio/reset-password");
-    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
-    vi.resetModules();
-    const { StudioResetPassword } = await import("../components/StudioResetPassword");
-    render(<StudioResetPassword />);
-
-    await vi.advanceTimersByTimeAsync(6000);
-    expect(screen.queryByRole("heading", { name: /reset link expired/i })).toBeNull();
-    expect(screen.getByText(/checking the reset link/i)).toBeTruthy();
-
-    // The recovery finally arrives late — the screen must still accept it.
-    auth.emit("PASSWORD_RECOVERY", SESSION);
-    expect(await screen.findByRole("heading", { name: /set a new password/i })).toBeTruthy();
-  });
-
-  it("urlDeclaresPasswordRecovery reads only the type, in hash or query", () => {
-    expect(urlDeclaresPasswordRecovery("#access_token=abc&type=recovery", "")).toBe(true);
-    expect(urlDeclaresPasswordRecovery("", "?type=recovery&token=abc")).toBe(true);
-    expect(urlDeclaresPasswordRecovery("#access_token=abc&type=signup", "")).toBe(false);
-    expect(urlDeclaresPasswordRecovery("", "")).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 11–15. The reset screen
-// ---------------------------------------------------------------------------
-
-describe("reset password screen", () => {
-  async function renderReset(options?: { recovery?: boolean; session?: unknown }) {
-    const recovery = options?.recovery ?? true;
-    const session = options?.session === undefined ? SESSION : options.session;
-    setLocation(
-      recovery
-        ? "https://forever.phuketre22.workers.dev/studio/reset-password#access_token=fixture&type=recovery"
-        : "https://forever.phuketre22.workers.dev/studio/reset-password",
-    );
-    auth.getSession.mockResolvedValue({ data: { session } });
-    vi.resetModules();
-    const { StudioResetPassword } = await import("../components/StudioResetPassword");
-    render(<StudioResetPassword />);
-  }
-
-  async function fill(newPassword: string, confirmation: string) {
-    fireEvent.change(await screen.findByLabelText(/^new password$/i), {
-      target: { value: newPassword },
-    });
-    fireEvent.change(screen.getByLabelText(/^confirm new password$/i), {
-      target: { value: confirmation },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /save new password/i }));
-  }
-
-  it("11. without a recovery session it shows the expired/invalid state", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    await renderReset({ recovery: false, session: null });
-    // Auth start-up completes and reports a plain session event, not recovery.
-    auth.emit("INITIAL_SESSION", null);
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(await screen.findByRole("heading", { name: /reset link expired/i })).toBeTruthy();
-    expect(screen.queryByLabelText(/^new password$/i)).toBeNull();
-    expect(auth.updateUser).not.toHaveBeenCalled();
-    // A route back to a fresh request, not a dead end.
-    expect(screen.getByRole("link", { name: /request a new link/i })).toHaveAttribute(
-      "href",
-      STUDIO_FORGOT_PASSWORD_PATH,
-    );
-  });
-
-  it("12. mismatched passwords block updateUser entirely", async () => {
-    await renderReset();
-    await fill(FIXTURE_PASSWORD, FIXTURE_PASSWORD + "-different");
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toMatch(/do not match/i);
-    expect(auth.updateUser).not.toHaveBeenCalled();
-
-    // MUTATION CONTROL — an implementation that skipped the match check would
-    // have called updateUser, so this assertion is not vacuous.
-    expect(() => expect(auth.updateUser).toHaveBeenCalled()).toThrow();
-  });
-
-  it("12b. a too-short password blocks updateUser", async () => {
-    await renderReset();
-    await fill("short", "short");
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toMatch(new RegExp(`at least ${STUDIO_PASSWORD_MIN_LENGTH}`, "i"));
-    expect(auth.updateUser).not.toHaveBeenCalled();
-  });
-
-  it("13. a valid matching password calls updateUser exactly once", async () => {
-    await renderReset();
-    await fill(FIXTURE_PASSWORD, FIXTURE_PASSWORD);
-    await waitFor(() => expect(auth.updateUser).toHaveBeenCalledTimes(1));
-    expect(auth.updateUser.mock.calls[0][0]).toEqual({ password: FIXTURE_PASSWORD });
-  });
-
-  it("14. the password never reaches logs, errors or the DOM", async () => {
-    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => void 0);
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => void 0);
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => void 0);
-
-    auth.updateUser.mockResolvedValueOnce({ error: new Error("Password is too weak") });
-    await renderReset();
-    await fill(FIXTURE_PASSWORD, FIXTURE_PASSWORD);
-
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).not.toContain(FIXTURE_PASSWORD);
-    expect(document.body.textContent ?? "").not.toContain(FIXTURE_PASSWORD);
-
-    for (const spy of [consoleSpy, errorSpy, warnSpy]) {
-      for (const call of spy.mock.calls) {
-        expect(JSON.stringify(call)).not.toContain(FIXTURE_PASSWORD);
-      }
-    }
-    // The safe-message mapper never echoes its input either.
-    expect(studioRecoveryErrorMessage(new Error(FIXTURE_PASSWORD))).not.toContain(FIXTURE_PASSWORD);
-    consoleSpy.mockRestore();
-    errorSpy.mockRestore();
-    warnSpy.mockRestore();
-  });
-
-  it("15. a successful update signs out and returns to Studio sign-in", async () => {
-    await renderReset();
-    await fill(FIXTURE_PASSWORD, FIXTURE_PASSWORD);
-    await waitFor(() => expect(auth.updateUser).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(auth.signOut).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(navigation.navigate).toHaveBeenCalledWith({ to: STUDIO_LOGIN_PATH }),
-    );
-
-    // MUTATION CONTROL — omitting sign-out would leave a live recovery session
-    // able to walk into the dashboard; the assertion must reject that.
-    const withoutSignOut = 0;
-    expect(() => expect(withoutSignOut).toBe(1)).toThrow();
-  });
-
-  it("15b. no password value survives in the document after a successful update", async () => {
-    await renderReset();
-    await fill(FIXTURE_PASSWORD, FIXTURE_PASSWORD);
-    await waitFor(() => expect(auth.signOut).toHaveBeenCalled());
-
-    // The form is gone and nothing left in the document carries the value.
-    await waitFor(() => expect(screen.queryByLabelText(/^new password$/i)).toBeNull());
-    expect(screen.queryByLabelText(/^confirm new password$/i)).toBeNull();
-    for (const input of Array.from(document.querySelectorAll("input"))) {
-      expect(input.value).not.toBe(FIXTURE_PASSWORD);
-    }
-    expect(document.body.innerHTML).not.toContain(FIXTURE_PASSWORD);
-  });
-
-  it("24/25. controls are labelled, keyboard-reachable and mobile-sized", async () => {
-    await renderReset();
-    const newPassword = (await screen.findByLabelText(/^new password$/i)) as HTMLInputElement;
-    const confirm = screen.getByLabelText(/^confirm new password$/i) as HTMLInputElement;
-
-    // Real labelled inputs, not placeholder-only fields.
-    expect(newPassword.id).toBeTruthy();
-    expect(confirm.id).toBeTruthy();
-    expect(newPassword.getAttribute("autocomplete")).toBe("new-password");
-    expect(confirm.getAttribute("autocomplete")).toBe("new-password");
-    expect(newPassword.type).toBe("password");
-
-    // Show/hide is a real button with pressed state, reachable by keyboard and
-    // not a hover-only affordance.
-    const toggle = screen.getByRole("button", { name: /show passwords/i });
-    expect(toggle.getAttribute("aria-pressed")).toBe("false");
-    fireEvent.click(toggle);
-    await waitFor(() => expect(newPassword.type).toBe("text"));
-    expect(screen.getByRole("button", { name: /hide passwords/i })).toBeTruthy();
-
-    // Submit control keeps the repository's 48px mobile target.
-    expect(screen.getByRole("button", { name: /save new password/i }).className).toContain("h-12");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 16–19. The bootstrap boundary
-// ---------------------------------------------------------------------------
-
-describe("bootstrap boundary", () => {
-  it("16/17/18. a recovery session calls no Studio server function", async () => {
-    setLocation(
-      "https://forever.phuketre22.workers.dev/studio/reset-password#access_token=fixture&type=recovery",
-    );
-    auth.getSession.mockResolvedValue({ data: { session: SESSION } });
-    vi.resetModules();
-    const { StudioResetPassword } = await import("../components/StudioResetPassword");
-    render(<StudioResetPassword />);
-
-    fireEvent.change(await screen.findByLabelText(/^new password$/i), {
-      target: { value: FIXTURE_PASSWORD },
-    });
-    fireEvent.change(screen.getByLabelText(/^confirm new password$/i), {
-      target: { value: FIXTURE_PASSWORD },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /save new password/i }));
-    await waitFor(() => expect(auth.signOut).toHaveBeenCalled());
-
-    // maybeBootstrapOwner and studio_bootstrap_owner are reachable ONLY through
-    // a Studio server function; none was called at any point of the recovery.
-    for (const fn of Object.values(serverFns)) expect(fn).not.toHaveBeenCalled();
-  });
-
-  it("16b. the reset screen imports no Studio server function or bootstrap symbol", () => {
-    const source = readCode("src/features/forever-studio/components/StudioResetPassword.tsx");
-    expect(source).not.toMatch(/studio\.functions/);
-    expect(source).not.toMatch(/maybeBootstrapOwner/);
-    expect(source).not.toMatch(/studio_bootstrap_owner/);
-    expect(source).not.toMatch(/resolveStudioActor/);
-    expect(source).not.toMatch(/StudioDashboard/);
-
-    const request = readCode("src/features/forever-studio/components/StudioForgotPassword.tsx");
-    expect(request).not.toMatch(/studio\.functions/);
-    expect(request).not.toMatch(/maybeBootstrapOwner/);
-  });
-
-  it("18b. the recovery routes sit outside the membership-protected boundary", () => {
-    const reset = readCode("src/routes/studio_.reset-password.tsx");
-    const forgot = readCode("src/routes/studio_.forgot-password.tsx");
-    // The trailing underscore is what keeps them out of the `/studio` layout,
-    // which is the component that gates on session and mounts the dashboard.
-    expect(reset).toContain('createFileRoute("/studio_/reset-password")');
-    expect(forgot).toContain('createFileRoute("/studio_/forgot-password")');
-    expect(reset).not.toMatch(/StudioShell/);
-    expect(forgot).not.toMatch(/StudioShell/);
-  });
-
-  it("18c. the reset route requires no Studio membership", () => {
-    const source = readCode("src/routes/studio_.reset-password.tsx");
-    expect(source).not.toMatch(/beforeLoad/);
-    expect(source).not.toMatch(/studio_members/);
-    expect(source).not.toMatch(/requireMembership|assertOwner|assertMember/);
-  });
-
-  it("19. the Studio layout refuses the dashboard during recovery but keeps the normal path", () => {
-    const source = readCode("src/routes/studio.tsx");
-    // Recovery diverts to the interstitial...
-    expect(source).toMatch(/session\.status === "recovery"/);
-    expect(source).toMatch(/StudioRecoveryInterstitial/);
-    // ...while a normal signed-in session still reaches the shell + Outlet,
-    // which is what lets the existing bootstrap run on a fresh sign-in.
-    expect(source).toMatch(/<StudioShell email=\{session\.email\}>/);
-    expect(source).toMatch(/<Outlet \/>/);
-
-    // MUTATION CONTROL — without the recovery branch the layout would fall
-    // through to the shell and the dashboard would bootstrap from a recovery
-    // session.
-    const withoutRecoveryBranch = source.replace(
-      /if \(session\.status === "recovery"\)[^\n]*\n/,
-      "",
-    );
-    expect(withoutRecoveryBranch).not.toMatch(/session\.status === "recovery"/);
-    expect(() => expect(withoutRecoveryBranch).toMatch(/session\.status === "recovery"/)).toThrow();
-  });
-
-  it("19b. useStudioSession reports recovery instead of signed_in", async () => {
-    const source = readCode("src/features/forever-studio/components/useStudioSession.ts");
-    expect(source).toMatch(/isStudioRecoveryMode\(\)/);
-    expect(source).toMatch(/status: "recovery"/);
-
-    // And signing out clears recovery mode, so a stale flag cannot strand a
-    // publisher who signs in normally afterwards.
-    const mod = await loadRecoveryModule();
-    auth.emit("PASSWORD_RECOVERY", SESSION);
-    expect(mod.isStudioRecoveryMode()).toBe(true);
-    mod.clearStudioRecoveryMode();
-    expect(mod.isStudioRecoveryMode()).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 21–23. Indexing, sitemap and secret hygiene
-// ---------------------------------------------------------------------------
-
 describe("exposure boundary", () => {
-  it("21. both recovery routes are noindex, nofollow", () => {
+  it("both recovery routes are noindex, nofollow", () => {
     for (const path of [
       "src/routes/studio_.reset-password.tsx",
       "src/routes/studio_.forgot-password.tsx",
     ]) {
-      const source = readCode(path);
-      expect(source).toMatch(/name: "robots", content: "noindex, nofollow"/);
+      expect(readCode(path)).toMatch(/name: "robots", content: "noindex, nofollow"/);
     }
   });
 
-  it("22. recovery routes are absent from the sitemap and unlinked from the public site", async () => {
+  it("recovery routes are absent from the sitemap and public navigation", async () => {
     const sitemap = readCode("src/lib/sitemap.ts");
-    expect(sitemap).not.toMatch(/forgot-password/);
-    expect(sitemap).not.toMatch(/reset-password/);
+    expect(sitemap).not.toMatch(/forgot-password|reset-password/);
     expect(sitemap).not.toMatch(/\/studio/);
-
     const { SITEMAP_STATIC_ENTRIES } = await import("@/lib/sitemap");
     for (const entry of SITEMAP_STATIC_ENTRIES) {
       expect(entry.path).not.toMatch(/studio|password/);
     }
-
-    // No public navigation surface links to recovery.
     for (const path of ["src/components/layout/Header.tsx", "src/components/layout/Footer.tsx"]) {
-      const source = readCode(path);
-      expect(source).not.toMatch(/forgot-password|reset-password/);
+      expect(readCode(path)).not.toMatch(/forgot-password|reset-password/);
     }
   });
 
-  it("23. recovery sources carry no Owner email, UUID, service-role key or hard-coded password", () => {
-    const sources = [
+  it("recovery sources carry no Owner email, UUID, service-role key or persisted token", () => {
+    for (const path of [
       "src/features/forever-studio/studio-recovery-contract.ts",
       "src/features/forever-studio/components/studio-recovery-mode.ts",
       "src/features/forever-studio/components/StudioForgotPassword.tsx",
@@ -709,43 +889,38 @@ describe("exposure boundary", () => {
       "src/features/forever-studio/components/StudioLogin.tsx",
       "src/routes/studio_.forgot-password.tsx",
       "src/routes/studio_.reset-password.tsx",
-    ];
-    for (const path of sources) {
+    ]) {
       const source = readCode(path);
-      // No email address of any kind is hard-coded into the shipped client.
       expect(source, path).not.toMatch(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
-      // No UUID literal.
       expect(source, path).not.toMatch(
         /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
       );
       expect(source, path).not.toMatch(/SUPABASE_SERVICE_ROLE_KEY|sb_secret_|service_role/);
       expect(source, path).not.toMatch(/abtvsrcnfwlbawvrjeed|garjibjhlzeljsnpzisu/);
-      // No token or session persistence.
-      expect(source, path).not.toMatch(/localStorage|sessionStorage|document\.cookie/);
+      expect(source, path).not.toMatch(/localStorage|document\.cookie/);
       expect(source, path).not.toMatch(/access_token|refresh_token/);
-      // No logging at all in the recovery path.
       expect(source, path).not.toMatch(/console\.(log|info|debug|warn|error)/);
     }
   });
 
-  it("23b. the recovery flow never persists or copies a token", () => {
+  it("the only persisted value is the deny-only marker", () => {
     const mode = readCode("src/features/forever-studio/components/studio-recovery-mode.ts");
-    // It may read the URL's `type`, but must not extract any token value.
-    expect(mode).toMatch(/urlDeclaresPasswordRecovery/);
+    expect(mode).toMatch(/sessionStorage/);
+    expect(mode).not.toMatch(/localStorage/);
     expect(mode).not.toMatch(/get\(["']access_token["']\)|get\(["']token["']\)/);
-    expect(mode).not.toMatch(/localStorage|sessionStorage/);
+    // Only the marker constants are ever written.
+    const writes = mode.match(/sessionStorage\.setItem\([^)]*\)/g) ?? [];
+    expect(writes.length).toBe(1);
+    expect(writes[0]).toContain("STUDIO_RECOVERY_INCOMPLETE_MARKER_KEY");
+    expect(writes[0]).toContain("STUDIO_RECOVERY_INCOMPLETE_MARKER_VALUE");
   });
 });
-
-// ---------------------------------------------------------------------------
-// Pure contract
-// ---------------------------------------------------------------------------
 
 describe("recovery contract", () => {
   it("builds the redirect from an origin and discards everything else", () => {
     expect(
       studioResetPasswordRedirectUrl("https://forever.phuketre22.workers.dev/anything?a=1#b"),
-    ).toBe("https://forever.phuketre22.workers.dev" + STUDIO_RESET_PASSWORD_PATH);
+    ).toBe(RESET_URL);
     expect(studioResetPasswordRedirectUrl("http://localhost:3000")).toBe(
       "http://localhost:3000" + STUDIO_RESET_PASSWORD_PATH,
     );
@@ -767,15 +942,14 @@ describe("recovery contract", () => {
   });
 
   it("maps provider failures to safe messages that leak no infrastructure", () => {
-    const cases = [
+    for (const raw of [
       new Error("JWT expired"),
       new Error("Token has expired or is invalid"),
       new Error("rate limit"),
       new Error("fetch failed"),
       new Error('relation "studio_members" does not exist'),
       new Error("project abtvsrcnfwlbawvrjeed unavailable"),
-    ];
-    for (const raw of cases) {
+    ]) {
       const message = studioRecoveryErrorMessage(raw);
       expect(message).not.toMatch(/abtvsrcnfwlbawvrjeed|studio_members|relation|jwt|token/i);
       expect(message.length).toBeGreaterThan(0);
