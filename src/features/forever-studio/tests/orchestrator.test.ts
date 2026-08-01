@@ -490,7 +490,12 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       OWNER,
       {
         workflow: "new_development",
-        files: [{ name: "project-facts.json", materialPurpose: "document_legal" }],
+        // Filed under the ONE new-upload window that means "unsorted — sort it
+        // for me", which is the only window a directly uploaded project-facts
+        // artifact may be adopted from. Under Documents / Legal (or any other
+        // explicit window) the same bytes update nothing — see
+        // structured-purpose-boundary.test.ts.
+        files: [{ name: "project-facts.json", materialPurpose: "project_archive" }],
       },
       { "project-facts.json": facts },
     );

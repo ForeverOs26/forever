@@ -90,6 +90,7 @@ import type {
 import { StudioAccessError } from "./contracts";
 import { safeMessageFor, StudioError } from "./errors";
 import {
+  admittedStructuredArtifacts,
   archiveEntryRouting,
   assertNewDirectMaterialPurpose,
   canonicalPublicContentType,
@@ -107,6 +108,8 @@ import {
   publicBucketForCategory,
   publicPathForDerivative,
   attemptPrefixFromToken,
+  STRUCTURED_PURPOSE_MISMATCH_CODE,
+  structuredPurposeScopeForArchiveEntry,
   type ExtractedFactFields,
 } from "./extraction";
 import {
@@ -1225,11 +1228,31 @@ async function routeEntry(
 
   const lowerName = row.entry_name.toLowerCase();
   const category = row.category as IntakeCategory;
+  // The window the OWNER filed this ARCHIVE under, read back from durable
+  // state and handed down to this entry — the identical decision the inline
+  // small-ZIP lane makes, so a ZIP that crosses the 16 MiB threshold and
+  // switches transport lanes cannot change what its entries are allowed to be.
+  const structuredScope = structuredPurposeScopeForArchiveEntry(
+    archiveMaterialPurpose(archive),
+    row.entry_name,
+  );
 
   // --- Structured JSON artifacts -------------------------------------------
   if (lowerName.endsWith(".json") && data.length <= MAX_PARSE_BYTES) {
+    // PURPOSE FIRST, SHAPE SECOND: a window admitting no structured artifact
+    // settles the entry (privately, with independently addressable evidence)
+    // before the bytes are ever parsed. Siblings are unaffected.
+    const admitted = admittedStructuredArtifacts(structuredScope);
+    if (admitted.size === 0) {
+      await settleRetained(STRUCTURED_PURPOSE_MISMATCH_CODE);
+      return;
+    }
     const parsed = parseJsonBuffer(data);
     if (parsed && looksLikePriceList(parsed)) {
+      if (!admitted.has("price_list")) {
+        await settleRetained(STRUCTURED_PURPOSE_MISMATCH_CODE);
+        return;
+      }
       if (archive.extracted?.priceList) {
         await settleRetained("price_list_duplicate_ignored");
         return;
@@ -1247,6 +1270,10 @@ async function routeEntry(
       return;
     }
     if (parsed && looksLikeProjectFacts(parsed)) {
+      if (!admitted.has("project_facts")) {
+        await settleRetained(STRUCTURED_PURPOSE_MISMATCH_CODE);
+        return;
+      }
       if (!archive.extracted?.factFields) {
         const factFields = projectFieldsFromFacts(parsed as IntakeProjectFacts, row.display_label);
         const derivedName =
@@ -1524,6 +1551,8 @@ const OUTCOME_WARNING_TEXT: Record<string, string> = {
     "archive item(s) no longer matched the recorded inventory and were isolated.",
   structured_artifact_unrecognized:
     "JSON archive item(s) matched no supported structured artifact; retained for review.",
+  structured_purpose_mismatch:
+    "structured archive item(s) did not match the upload window this material was filed under, so nothing was updated from them; they were retained privately.",
   price_list_retained_for_extraction:
     "price-list document(s) were retained privately for later extraction.",
   price_list_duplicate_ignored:

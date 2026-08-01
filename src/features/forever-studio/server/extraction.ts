@@ -326,6 +326,119 @@ export function archiveEntryRouting(
 }
 
 // ---------------------------------------------------------------------------
+// Structured-artifact purpose boundary
+// ---------------------------------------------------------------------------
+
+/**
+ * What a structured artifact BECOMES when it is adopted.
+ *
+ * Adoption is not publication of one file: it replaces project-wide state — the
+ * project's price list, the project's facts. That is a far stronger act than
+ * putting a photo in the gallery, and it is exactly the act the Owner's chosen
+ * window has to authorize.
+ */
+export type StructuredArtifactKind = "price_list" | "project_facts";
+
+/** The routing decision a structured artifact is being considered under. */
+export interface StructuredPurposeScope {
+  /** The window governing this material, when one does. */
+  purpose: StudioMaterialPurpose | null;
+  /** How that window — or its absence — was arrived at. */
+  purposeSource: StudioMaterialPurposeSource;
+}
+
+/** Safe warning/outcome code for an artifact refused by its own window. */
+export const STRUCTURED_PURPOSE_MISMATCH_CODE = "structured_purpose_mismatch";
+
+const EVERY_STRUCTURED_ARTIFACT: ReadonlySet<StructuredArtifactKind> =
+  new Set<StructuredArtifactKind>(["price_list", "project_facts"]);
+const PRICE_LIST_ONLY: ReadonlySet<StructuredArtifactKind> = new Set<StructuredArtifactKind>([
+  "price_list",
+]);
+const NO_STRUCTURED_ARTIFACT: ReadonlySet<StructuredArtifactKind> =
+  new Set<StructuredArtifactKind>();
+
+/**
+ * WHICH structured artifacts a window may adopt — the complete matrix, as one
+ * total function, consulted BEFORE any JSON is parsed.
+ *
+ * Content shape may VALIDATE a file inside the window the Owner chose. It may
+ * never REPLACE that window. `prices.json` filed under Project Photos is a
+ * private photo-window file that happens to contain JSON; it is not a price
+ * list, and neither its `.json` extension nor its `unit_inventory` array is
+ * permission to overwrite the project's prices.
+ *
+ * Three cases admit structured adoption, for three different reasons:
+ *
+ *   price_list          the Owner said "this IS the price list", so a
+ *                       price-list artifact is precisely what was promised. A
+ *                       PROJECT-FACTS artifact still is not, and does not get
+ *                       to rewrite the project's facts from this window.
+ *   project_archive     Full Project Archive / Other Package means "unsorted —
+ *                       sort it for me": the Owner deliberately supplied no
+ *                       per-item purpose, so supported artifacts inside it are
+ *                       detected exactly as before.
+ *   no explicit window  a stored manifest that predates the explicit-purpose
+ *                       contract (or an entry inside such an archive). Its
+ *                       historical filename/content behaviour is preserved so
+ *                       old jobs still resume. A NEW direct upload can never
+ *                       reach this case: creation refuses a file with no window
+ *                       (see `assertNewDirectMaterialPurpose`).
+ *
+ * Every OTHER window — Project Photos, Documents / Legal, Construction, Master
+ * Plan, Floor Plan, Unit Plan, Payment Plan, Brochure, Video, Developer
+ * Profile, Map — admits NOTHING. Material filed there stays private with a safe
+ * warning, and is never silently moved into a category that would accept it.
+ */
+export function admittedStructuredArtifacts(
+  scope: StructuredPurposeScope,
+): ReadonlySet<StructuredArtifactKind> {
+  // Routed with no explicit window at all — legacy stored data only.
+  if (scope.purposeSource === "filename_fallback") return EVERY_STRUCTURED_ARTIFACT;
+  // Inside a Full Project Archive, the window whose meaning is "sort this".
+  if (scope.purposeSource === "archive_entry_classifier") return EVERY_STRUCTURED_ARTIFACT;
+  // An explicit source with no recorded purpose is a contradiction: fail closed.
+  if (scope.purpose === null) return NO_STRUCTURED_ARTIFACT;
+  if (scope.purpose === "project_archive") return EVERY_STRUCTURED_ARTIFACT;
+  if (scope.purpose === "price_list") return PRICE_LIST_ONLY;
+  return NO_STRUCTURED_ARTIFACT;
+}
+
+/** Whether ONE structured artifact kind may be adopted under `scope`. */
+export function structuredArtifactAllowed(
+  scope: StructuredPurposeScope,
+  kind: StructuredArtifactKind,
+): boolean {
+  return admittedStructuredArtifacts(scope).has(kind);
+}
+
+/** The scope a STORED direct manifest entry is considered under. */
+export function structuredPurposeScopeForFile(file: StudioJobFile): StructuredPurposeScope {
+  return {
+    purpose: isStudioMaterialPurpose(file.materialPurpose) ? file.materialPurpose : null,
+    purposeSource: purposeSourceForStoredFile(file),
+  };
+}
+
+/**
+ * The scope ONE entry expanded from a directly uploaded archive is considered
+ * under — derived from the SAME routing decision that gave the entry its
+ * category, so the two can never disagree. Only an inherited entry carries a
+ * purpose: an entry the classifier routed inside a Full Project Archive has
+ * none, because the Owner never filed it individually.
+ */
+export function structuredPurposeScopeForArchiveEntry(
+  outerPurpose: StudioMaterialPurpose | null,
+  entryName: string,
+): StructuredPurposeScope {
+  const { purposeSource } = archiveEntryRouting(outerPurpose, entryName);
+  return {
+    purpose: purposeSource === "inherited_explicit_window" ? outerPurpose : null,
+    purposeSource,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Byte-level media class detection (magic bytes)
 // ---------------------------------------------------------------------------
 
@@ -650,6 +763,23 @@ function fileWarning(code: string, name: string, message: string): ProgressiveWa
   };
 }
 
+/**
+ * A structured artifact refused because it did not match the window the Owner
+ * filed it under.
+ *
+ * Public-safe by construction: `fileWarning` replaces every occurrence of the
+ * original filename with a neutral label, and the message names no Storage
+ * bucket, no object path, no database table and no column. It says what the
+ * Owner needs to know — this one file changed nothing, and it is still here.
+ */
+function structuredPurposeMismatchWarning(name: string): ProgressiveWarning {
+  return fileWarning(
+    STRUCTURED_PURPOSE_MISMATCH_CODE,
+    name,
+    `${name} does not match the upload window it was filed under, so nothing was updated from it; it was retained privately.`,
+  );
+}
+
 export const NEUTRAL_MEDIA_TITLE: Partial<Record<IntakeCategory, string>> = {
   photo: "Project photo",
   video: "Project video",
@@ -806,18 +936,38 @@ export async function gatherMaterials(
     const outerPurpose = isStudioMaterialPurpose(container.materialPurpose)
       ? container.materialPurpose
       : null;
-    const { category, purposeSource } = archiveEntryRouting(outerPurpose, entry.name);
+    const { category } = archiveEntryRouting(outerPurpose, entry.name);
     // Only an INHERITED entry carries a purpose: an entry the classifier routed
     // inside a Full Project Archive has none, and saying otherwise would claim
     // the Owner filed it individually.
-    const entryPurpose = purposeSource === "inherited_explicit_window" ? outerPurpose : null;
+    const scope = structuredPurposeScopeForArchiveEntry(outerPurpose, entry.name);
+    const entryPurpose = scope.purpose;
     if (entry.name.toLowerCase().endsWith(".json")) {
+      // PURPOSE FIRST, SHAPE SECOND. An entry inherits its container's window,
+      // so `prices.json` inside a Project Photos ZIP is a photo-window file
+      // that happens to hold JSON — it never becomes the project's price list.
+      // A window that admits nothing is settled without the bytes ever being
+      // parsed, so no shape test can even be consulted, and its siblings in the
+      // same archive continue untouched.
+      const admitted = admittedStructuredArtifacts(scope);
+      if (admitted.size === 0) {
+        warnings.push(structuredPurposeMismatchWarning(entry.name));
+        return;
+      }
       const parsed = parseJsonBuffer(entry.data);
       if (parsed && looksLikePriceList(parsed)) {
+        if (!admitted.has("price_list")) {
+          warnings.push(structuredPurposeMismatchWarning(entry.name));
+          return;
+        }
         adoptPriceList(parsed, entry.name);
         return;
       }
       if (parsed && looksLikeProjectFacts(parsed)) {
+        if (!admitted.has("project_facts")) {
+          warnings.push(structuredPurposeMismatchWarning(entry.name));
+          return;
+        }
         adoptFacts(parsed, entry.name);
         return;
       }
@@ -949,6 +1099,10 @@ export async function gatherMaterials(
     // hint about HOW to read the bytes (JSON/PDF parsing), never about WHAT
     // the material is.
     const category = routingCategoryForFile(file);
+    // The SAME stored window, in the vocabulary the structured-artifact
+    // boundary reasons in — derived from the manifest, never from this file's
+    // name, extension or declared type.
+    const structuredScope = structuredPurposeScopeForFile(file);
     const lower = file.name.toLowerCase();
     const isJson = lower.endsWith(".json");
     const isPdf = lower.endsWith(".pdf");
@@ -965,6 +1119,16 @@ export async function gatherMaterials(
 
     // --- Structured JSON (bounded parse) -----------------------------------
     if (isJson) {
+      // PURPOSE FIRST, SHAPE SECOND. The Owner's window decides whether this
+      // file may become a price list or the project's facts AT ALL; only then
+      // does its content get to say WHICH of the admitted artifacts it is.
+      // A window that admits nothing never reaches the parser, so neither the
+      // `.json` extension nor a price-list-shaped body can authorize adoption.
+      const admitted = admittedStructuredArtifacts(structuredScope);
+      if (admitted.size === 0) {
+        warnings.push(structuredPurposeMismatchWarning(file.name));
+        continue;
+      }
       if (digest.size > MAX_PARSE_BYTES) {
         warnings.push(
           fileWarning(
@@ -993,10 +1157,18 @@ export async function gatherMaterials(
         continue;
       }
       if (looksLikePriceList(parsed)) {
+        if (!admitted.has("price_list")) {
+          warnings.push(structuredPurposeMismatchWarning(file.name));
+          continue;
+        }
         adoptPriceList(parsed, file.name);
         continue;
       }
       if (looksLikeProjectFacts(parsed)) {
+        if (!admitted.has("project_facts")) {
+          warnings.push(structuredPurposeMismatchWarning(file.name));
+          continue;
+        }
         adoptFacts(parsed, file.name);
         continue;
       }
@@ -1234,9 +1406,14 @@ export async function gatherMaterials(
           job_id: job.id,
           original_name: candidate.name,
           category: candidate.category,
-          // The Owner's chosen window, carried through to publication so the
-          // routing decision stays inspectable. Null for archive entries and
-          // legacy manifests, which have no explicit per-file purpose.
+          // The window this material was routed from, carried through to
+          // publication so the routing decision stays inspectable. It is the
+          // Owner's own selection for a direct file, and the INHERITED outer
+          // window for an entry expanded from an archive the Owner filed under
+          // a specific (non-Full-Project-Archive) window. It is null in exactly
+          // the two cases where no window governs the item: an entry the
+          // bounded classifier routed inside a Full Project Archive, and a
+          // legacy manifest written before the explicit-purpose contract.
           material_purpose: candidate.purpose ?? null,
           // Public-safe projection only: the extracted `claims` (GPS, device
           // make/model, capture time, software) stay on the private job record
