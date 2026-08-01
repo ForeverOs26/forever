@@ -94,6 +94,50 @@ const auth = vi.hoisted(() => {
   };
 });
 
+/**
+ * The DEDICATED recovery client's auth double.
+ *
+ * Its `onAuthStateChange` bucket is SEPARATE from the ordinary client's — that
+ * separation is the whole security property under test. Session, update and
+ * sign-out deliberately delegate to the same underlying mocks, so a test can
+ * still say "sign-out fails" once and mean it for both clients.
+ */
+const recoveryAuth = vi.hoisted(() => {
+  const listeners: ((event: string, session: unknown) => void)[] = [];
+  return {
+    listeners,
+    present: { value: true },
+    emit(event: string, session: unknown) {
+      for (const listener of [...listeners]) listener(event, session);
+    },
+    reset() {
+      listeners.length = 0;
+      this.present.value = true;
+    },
+  };
+});
+
+vi.mock("../components/studio-recovery-client", () => ({
+  getStudioRecoveryClient: () =>
+    recoveryAuth.present.value
+      ? {
+          auth: {
+            getSession: (...args: unknown[]) => auth.getSession(...args),
+            onAuthStateChange: (listener: AuthListener) => {
+              recoveryAuth.listeners.push(listener);
+              return { data: { subscription: { unsubscribe: () => void 0 } } };
+            },
+            updateUser: (...args: unknown[]) => auth.updateUser(...args),
+            signOut: (...args: unknown[]) => auth.signOut(...args),
+          },
+        }
+      : null,
+  studioRecoveryClientExists: () => recoveryAuth.present.value,
+  discardStudioRecoveryClient: () => {
+    recoveryAuth.present.value = false;
+  },
+}));
+
 const navigation = vi.hoisted(() => ({ navigate: vi.fn() }));
 
 /** Every Studio server function, so "was any of them called?" is answerable. */
@@ -162,15 +206,23 @@ function setLocation(href: string) {
 
 const RESET_URL = "https://forever.phuketre22.workers.dev" + STUDIO_RESET_PASSWORD_PATH;
 
-/** Fresh module instance, so the module-scope recovery capture re-installs. */
+/**
+ * Fresh module instance, so the module-scope recovery capture re-installs.
+ *
+ * Also installs the dedicated-client listener, exactly as the reset screen does
+ * on render — otherwise no test could reach authority at all.
+ */
 async function loadRecoveryModule() {
   vi.resetModules();
-  return import("../components/studio-recovery-mode");
+  const mod = await import("../components/studio-recovery-mode");
+  mod.installStudioRecoveryAuthority();
+  return mod;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   auth.reset();
+  recoveryAuth.reset();
   sessionStorage.clear();
   // The origin-wide deny marker lives in localStorage and, unlike everything
   // else here, is NOT tab-scoped. Leaving it behind would silently block the
@@ -202,7 +254,9 @@ async function renderConfirmedRecovery(options?: { hash?: boolean }) {
   const mod = await import("../components/studio-recovery-mode");
   const { StudioResetPassword } = await import("../components/StudioResetPassword");
   render(<StudioResetPassword />);
-  auth.emit("PASSWORD_RECOVERY", SESSION);
+  // Authority comes from the DEDICATED client, whose listener the screen
+  // installed during render. The ordinary client's event would only deny.
+  recoveryAuth.emit("PASSWORD_RECOVERY", SESSION);
   await screen.findByLabelText(/^new password$/i);
   return mod;
 }
@@ -218,18 +272,32 @@ async function submitNewPassword(value = FIXTURE_PASSWORD) {
 // ---------------------------------------------------------------------------
 
 describe("recovery authority (F2)", () => {
-  it("13. only PASSWORD_RECOVERY confirms recovery", async () => {
+  it("13. only the DEDICATED client's PASSWORD_RECOVERY confirms recovery", async () => {
     const mod = await loadRecoveryModule();
-    expect(mod.isStudioRecoveryConfirmed()).toBe(false);
+    expect(mod.isStudioLocalRecoveryAuthority()).toBe(false);
+
+    // The ordinary, session-persisting client may have received this event over
+    // the auth-js BroadcastChannel from a different tab. It denies, never grants.
     auth.emit("PASSWORD_RECOVERY", SESSION);
-    expect(mod.isStudioRecoveryConfirmed()).toBe(true);
+    expect(mod.isStudioLocalRecoveryAuthority()).toBe(false);
+    expect(mod.isStudioRecoveryDenyObserved()).toBe(true);
+    expect(mod.isStudioRecoveryBlocked()).toBe(true);
+
+    // The dedicated non-persistent client has no BroadcastChannel at all, so
+    // its event can only have come from its own URL parse in this tab.
+    recoveryAuth.emit("PASSWORD_RECOVERY", SESSION);
+    expect(mod.isStudioLocalRecoveryAuthority()).toBe(true);
   });
 
   it("15. SIGNED_IN, INITIAL_SESSION and TOKEN_REFRESHED never confirm recovery", async () => {
     const mod = await loadRecoveryModule();
     for (const event of ["SIGNED_IN", "INITIAL_SESSION", "TOKEN_REFRESHED", "USER_UPDATED"]) {
       auth.emit(event, SESSION);
-      expect(mod.isStudioRecoveryConfirmed(), event).toBe(false);
+      expect(mod.isStudioLocalRecoveryAuthority(), event).toBe(false);
+      // Not even on the dedicated client: the event NAME is checked, so a
+      // non-recovery event there grants nothing either.
+      recoveryAuth.emit(event, SESSION);
+      expect(mod.isStudioLocalRecoveryAuthority(), event).toBe(false);
     }
   });
 
@@ -257,7 +325,7 @@ describe("recovery authority (F2)", () => {
     // 6. Studio bootstrap cannot run
     for (const fn of Object.values(serverFns)) expect(fn).not.toHaveBeenCalled();
 
-    expect(mod.isStudioRecoveryConfirmed()).toBe(false);
+    expect(mod.isStudioLocalRecoveryAuthority()).toBe(false);
     // The hint is deny-only: it withholds the dashboard, it grants nothing.
     expect(mod.isStudioRecoveryLandingHinted()).toBe(true);
     expect(mod.isStudioRecoveryBlocked()).toBe(true);
@@ -275,14 +343,14 @@ describe("recovery authority (F2)", () => {
       setLocation(href);
       const mod = await loadRecoveryModule();
       expect(mod.isStudioRecoveryLandingHinted(), href).toBe(false);
-      expect(mod.isStudioRecoveryConfirmed(), href).toBe(false);
+      expect(mod.isStudioLocalRecoveryAuthority(), href).toBe(false);
       expect(mod.isStudioRecoveryBlocked(), href).toBe(false);
     }
     // ...and IS accepted on the exact path, still without granting authority.
     setLocation(RESET_URL + "#type=recovery");
     const mod = await loadRecoveryModule();
     expect(mod.isStudioRecoveryLandingHinted()).toBe(true);
-    expect(mod.isStudioRecoveryConfirmed()).toBe(false);
+    expect(mod.isStudioLocalRecoveryAuthority()).toBe(false);
   });
 
   it("urlIsStudioRecoveryLanding requires the exact path and reads only `type`", () => {
@@ -301,11 +369,13 @@ describe("recovery authority (F2)", () => {
     setLocation(RESET_URL + "#access_token=fixture&type=recovery");
     auth.getSession.mockResolvedValue({ data: { session: SESSION } });
     vi.resetModules();
-    // Module scope installs the listener; the event fires during start-up,
-    // BEFORE the component is rendered.
+    // The dedicated client is constructed and its listener installed at module
+    // level; the event fires during ITS start-up, which can complete BEFORE the
+    // component's own effect subscribes. The module-level latch retains it.
     const mod = await import("../components/studio-recovery-mode");
-    auth.emit("PASSWORD_RECOVERY", SESSION);
-    expect(mod.isStudioRecoveryConfirmed()).toBe(true);
+    mod.installStudioRecoveryAuthority();
+    recoveryAuth.emit("PASSWORD_RECOVERY", SESSION);
+    expect(mod.isStudioLocalRecoveryAuthority()).toBe(true);
 
     const { StudioResetPassword } = await import("../components/StudioResetPassword");
     render(<StudioResetPassword />);
@@ -346,7 +416,7 @@ describe("recovery authority (F2)", () => {
     await vi.advanceTimersByTimeAsync(6000);
     expect(screen.queryByRole("heading", { name: /reset link expired/i })).toBeNull();
     expect(screen.getByText(/checking the reset link/i)).toBeTruthy();
-    auth.emit("PASSWORD_RECOVERY", SESSION);
+    recoveryAuth.emit("PASSWORD_RECOVERY", SESSION);
     expect(await screen.findByRole("heading", { name: /set a new password/i })).toBeTruthy();
   });
 });
@@ -549,7 +619,7 @@ describe("fail-closed across reload and navigation", () => {
     expect(mod.isStudioRecoveryTerminationIncomplete()).toBe(true);
     expect(mod.isStudioRecoveryBlocked()).toBe(true);
     // Still no authority — the marker denies, it never grants.
-    expect(mod.isStudioRecoveryConfirmed()).toBe(false);
+    expect(mod.isStudioLocalRecoveryAuthority()).toBe(false);
   });
 
   it("7/8. a failed termination cannot mount StudioShell or call a Studio server function", async () => {
@@ -586,7 +656,7 @@ describe("fail-closed across reload and navigation", () => {
 
     // It denies — a harmless block screen — and never offers the form.
     expect(mod.isStudioRecoveryBlocked()).toBe(true);
-    expect(mod.isStudioRecoveryConfirmed()).toBe(false);
+    expect(mod.isStudioLocalRecoveryAuthority()).toBe(false);
     expect(screen.queryByLabelText(/^new password$/i)).toBeNull();
     expect(auth.updateUser).not.toHaveBeenCalled();
   });
@@ -721,22 +791,36 @@ describe("password request", () => {
     expect(knownText).not.toMatch(/not found|no account|does not exist|owner|member|confirmed/i);
   });
 
-  it("rate limiting and transport failure stay safe", async () => {
+  it("rate limiting is indistinguishable from an ordinary request", async () => {
+    // Supabase answers a recovery request for an UNKNOWN address with a success
+    // status and sends no mail, while a KNOWN address actually sends one and
+    // draws down the project's email quota. A visible "too many attempts" is
+    // therefore reachable mainly for addresses that exist, which turns two
+    // individually harmless messages into an account-existence oracle. Both a
+    // returned and a thrown rate limit resolve to the generic notice.
     auth.resetPasswordForEmail.mockResolvedValueOnce({
       error: new Error("Request rate limit reached (429)"),
     });
     await renderRequest();
     await submitEmail("publisher@example.test");
-    let alert = await screen.findByRole("alert");
-    expect(alert.textContent).toMatch(/too many attempts/i);
-    expect(alert.textContent).not.toMatch(/account|exists|owner|member/i);
+    expect(await screen.findByText(STUDIO_RECOVERY_GENERIC_NOTICE)).toBeTruthy();
+    expect(screen.queryByText(/too many attempts/i)).toBeNull();
     cleanup();
 
+    auth.resetPasswordForEmail.mockRejectedValueOnce(new Error("429 Too Many Requests"));
+    await renderRequest();
+    await submitEmail("publisher@example.test");
+    expect(await screen.findByText(STUDIO_RECOVERY_GENERIC_NOTICE)).toBeTruthy();
+    expect(screen.queryByText(/too many attempts/i)).toBeNull();
+    cleanup();
+
+    // A THROWN transport fault is identity-independent, so it may be reported
+    // — but still without naming infrastructure or hinting at an account.
     auth.resetPasswordForEmail.mockRejectedValueOnce(new Error("network unreachable"));
     await renderRequest();
     await submitEmail("publisher@example.test");
-    alert = await screen.findByRole("alert");
-    expect(alert.textContent).not.toMatch(/account|exists|supabase|abtvsrcnfwlbawvrjeed/i);
+    const transportAlert = await screen.findByRole("alert");
+    expect(transportAlert.textContent).not.toMatch(/account|exists|owner|member|supabase/i);
     expect(isStudioRecoveryRateLimited(new Error("429 Too Many Requests"))).toBe(true);
   });
 });

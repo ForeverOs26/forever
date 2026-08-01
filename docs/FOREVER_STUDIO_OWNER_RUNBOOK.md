@@ -51,8 +51,8 @@ exists replace a forgotten password.
 
 1. Open **`/studio`** and choose **Forgot password?**
 2. Enter the email address of your Studio account and submit.
-3. The screen always says the same thing — *"If an account exists for that email,
-   a password reset link has been sent."* It says this whether or not the address
+3. The screen always says the same thing — _"If an account exists for that email,
+   a password reset link has been sent."_ It says this whether or not the address
    has an account. That is deliberate: it stops anyone using the form to discover
    who has Studio access.
 4. Open the email and follow the link. It goes to exactly
@@ -67,8 +67,8 @@ exists replace a forgotten password.
 
 ### If it says the recovery session could not be closed
 
-You may see: *"Your password was updated, but the recovery session could not be
-closed. Retry secure sign-out before continuing."*
+You may see: _"Your password was updated, but the recovery session could not be
+closed. Retry secure sign-out before continuing."_
 
 - **Your new password is already saved.** You will not be asked for it again on
   that screen, and you should not re-enter it anywhere.
@@ -81,23 +81,32 @@ closed. Retry secure sign-out before continuing."*
 
 ### While a reset is in progress, Studio is closed in EVERY tab
 
-A reset link signs the browser in behind the scenes, and that sign-in is shared
-by every tab of the site — not just the one you clicked the link in. So from the
-moment the link is opened until the reset is finished and confirmed:
+A reset link signs the browser in behind the scenes. That sign-in is held **only
+inside the tab you opened the link in**, and it is discarded the moment the reset
+finishes — it is never written to the browser's shared storage, so no other tab
+can read it or use it. What the other tabs do learn is a single fact: _a reset is
+in progress, so Studio is closed for now._
+
+So from the moment the link is opened until the reset is finished and confirmed:
 
 - **every** Studio tab refuses the dashboard, including tabs that were already
   open, tabs you open afterwards, and any tab you refresh;
 - typing `/studio`, `/studio/upload` or any other Studio address directly is
   refused the same way;
-- each of those tabs shows *"Finish resetting your password"* with a link back
+- each of those tabs shows _"Finish resetting your password"_ with a link back
   to the reset screen.
 
 Practical guidance:
 
-- **Do not try to work in another Studio tab during a reset.** It will not let
-  you in, and that is deliberate.
+- **Leave your other Studio tabs alone until the reset is finished.** They will
+  not let you in, and that is deliberate. Do not try to work around it by
+  refreshing them, opening new ones, or typing the reset address into them.
 - **Finish the reset in the tab you opened the link in.** Only that tab can set
-  the new password.
+  the new password — this is not a convention, it is enforced. Another tab that
+  navigates to the reset address does **not** get a password form; it shows the
+  expired-link message, because it never opened the link itself. Being blocked
+  and being allowed to change the password are two different things, and no tab
+  is ever given the second one just because it noticed the first.
 - If you abandon a reset half-way, request a new link and complete it. Studio
   stays closed while a reset session may still be alive.
 - Normal access returns only after Studio has confirmed the recovery session is
@@ -105,7 +114,7 @@ Practical guidance:
   to sign in again with the new password.** No tab is ever let straight in.
 - What Studio remembers across tabs is a single on/off flag and nothing else. It
   holds no password, no login token, no email address and no account number, and
-  it can only *refuse* access — it can never grant it or change a password. If
+  it can only _refuse_ access — it can never grant it or change a password. If
   someone sets that flag by hand, all they achieve is locking themselves out of a
   screen they could not open anyway.
 - If the browser is closed or crashes mid-reset, Studio checks on the next visit
@@ -122,6 +131,11 @@ Notes:
   email. Reset links are single-use and short-lived.
 - Recovery gives no Studio access on its own. If the account is not an active
   Studio member, signing in afterwards will still be refused.
+- **Never share the reset link itself.** Anyone who opens it can set the
+  password, because opening it is exactly what proves control of the mailbox.
+  Treat the link like the password: never forward it, paste it into a chat or a
+  ticket, or include it in a screenshot or report. The same goes for anything
+  copied out of the address bar while you are on the reset page.
 - **Never share a password in chat, a terminal, a screenshot, a log or a report** —
   including with whoever is helping you operate Forever. Type it only into the
   browser.

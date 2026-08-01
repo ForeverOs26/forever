@@ -42,6 +42,7 @@ const CLIENT_REACHABLE = [
   "src/routes/studio_.reset-password.tsx",
   "src/features/forever-studio/studio-recovery-contract.ts",
   "src/features/forever-studio/components/studio-recovery-mode.ts",
+  "src/features/forever-studio/components/studio-recovery-client.ts",
   "src/features/forever-studio/components/studio-recovery-shared-deny.ts",
   "src/features/forever-studio/components/StudioForgotPassword.tsx",
   "src/features/forever-studio/components/StudioResetPassword.tsx",

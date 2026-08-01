@@ -108,6 +108,28 @@ export const STUDIO_RECOVERY_SHARED_DENY_KEY = "forever.studio.recovery.deny";
 export const STUDIO_RECOVERY_SHARED_DENY_VALUE = "1";
 
 /**
+ * Storage key of the DEDICATED recovery Auth client.
+ *
+ * It must never equal the ordinary Studio client's key (`sb-<ref>-auth-token`),
+ * for two independent reasons verified against the pinned
+ * `@supabase/auth-js` 2.110.0:
+ *
+ *   - the auth-js `BroadcastChannel` is NAMED after the storage key
+ *     (`new globalThis.BroadcastChannel(this.storageKey)`), so a shared key
+ *     would put the recovery client back on the very channel that leaks
+ *     `PASSWORD_RECOVERY` between tabs;
+ *   - the persisted session slot is that key, so a shared key would put a
+ *     recovery session into the ordinary shared session slot.
+ *
+ * In practice the recovery client also runs with `persistSession: false`, and
+ * auth-js then ignores any supplied `storage` and installs its own memory
+ * adapter AND skips channel construction entirely (both gated on
+ * `this.persistSession`). This key is therefore belt-and-braces: nothing is
+ * ever written under it.
+ */
+export const STUDIO_RECOVERY_CLIENT_STORAGE_KEY = "forever.studio.recovery.ephemeral";
+
+/**
  * Same-lifetime companion signal to the storage key.
  *
  * `storage` events reach other tabs only when the write itself succeeded, so a
@@ -118,6 +140,33 @@ export const STUDIO_RECOVERY_SHARED_DENY_VALUE = "1";
 export const STUDIO_RECOVERY_SHARED_DENY_CHANNEL = "forever.studio.recovery.deny";
 export const STUDIO_RECOVERY_SHARED_DENY_SIGNAL = "deny";
 export const STUDIO_RECOVERY_SHARED_RELEASE_SIGNAL = "release";
+
+/**
+ * Third verb: "is anyone actually mid-recovery?".
+ *
+ * Needed because the recovery session now lives in the dedicated client's
+ * MEMORY and never in shared localStorage. That isolation is the point of this
+ * correction, but it also means every other tab's ordinary `getSession()`
+ * truthfully resolves `null` during a live recovery — which is exactly the
+ * condition the stale-marker self-heal treats as "nothing to protect". Without
+ * a liveness question, the second tab would helpfully delete the origin-wide
+ * denial the moment it was raised.
+ *
+ * A tab that holds live recovery answers by re-asserting `deny`. Silence means
+ * no tab is recovering, so the marker really is stale. Both verbs are constant,
+ * non-sensitive text; nothing identifying is ever asked or answered.
+ */
+export const STUDIO_RECOVERY_SHARED_PROBE_SIGNAL = "probe";
+
+/**
+ * How long to wait for an answer before treating the marker as abandoned.
+ *
+ * A same-origin BroadcastChannel round trip is sub-millisecond; this is
+ * generous so a busy main thread cannot cause a live recovery to be unblocked.
+ * The waiting tab shows the recovery interstitial throughout, so the delay is
+ * never a window of access.
+ */
+export const STUDIO_RECOVERY_CLAIM_PROBE_MS = 400;
 
 /**
  * Grace period after the auth client reports that it has finished starting up.

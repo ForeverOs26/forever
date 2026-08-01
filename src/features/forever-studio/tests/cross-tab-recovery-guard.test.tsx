@@ -85,6 +85,50 @@ const auth = vi.hoisted(() => {
   };
 });
 
+/**
+ * The DEDICATED recovery client, with its OWN per-tab listener bucket.
+ *
+ * Two buckets is the entire point. auth-js re-dispatches a broadcast
+ * `PASSWORD_RECOVERY` into the ORDINARY client's listeners of every other tab;
+ * it cannot reach the dedicated client's listeners at all, because a client
+ * created with `persistSession: false` never constructs a BroadcastChannel.
+ */
+const recoveryAuth = vi.hoisted(() => {
+  let current: ((event: string, session: unknown) => void)[] = [];
+  return {
+    present: { value: true },
+    openBucket() {
+      current = [];
+      return current;
+    },
+    register(listener: (event: string, session: unknown) => void) {
+      current.push(listener);
+    },
+    emitTo(bucket: ((event: string, session: unknown) => void)[], event: string, session: unknown) {
+      for (const listener of [...bucket]) listener(event, session);
+    },
+  };
+});
+
+vi.mock("../components/studio-recovery-client", () => ({
+  getStudioRecoveryClient: () =>
+    recoveryAuth.present.value
+      ? {
+          auth: {
+            getSession: (...args: unknown[]) => auth.getSession(...args),
+            onAuthStateChange: (listener: AuthListener) => {
+              recoveryAuth.register(listener);
+              return { data: { subscription: { unsubscribe: () => void 0 } } };
+            },
+            updateUser: (...args: unknown[]) => auth.updateUser(...args),
+            signOut: (...args: unknown[]) => auth.signOut(...args),
+          },
+        }
+      : null,
+  studioRecoveryClientExists: () => recoveryAuth.present.value,
+  discardStudioRecoveryClient: () => void 0,
+}));
+
 const navigation = vi.hoisted(() => ({ navigate: vi.fn() }));
 
 /** Every Studio server function, so "did any of them run?" is answerable. */
@@ -202,7 +246,10 @@ function sharedMarker(): string | null {
 // ---------------------------------------------------------------------------
 
 type Tab = {
+  /** The ORDINARY, session-persisting client's listeners — broadcast-reachable. */
   events: AuthListener[];
+  /** The DEDICATED recovery client's listeners — reachable only from this tab. */
+  recoveryEvents: AuthListener[];
   mode: typeof import("../components/studio-recovery-mode");
   session: typeof import("../components/useStudioSession");
 };
@@ -215,10 +262,15 @@ type Tab = {
 async function openTab(href = ORIGIN + "/studio"): Promise<Tab> {
   setLocation(href);
   const events = auth.openBucket();
+  const recoveryEvents = recoveryAuth.openBucket();
   vi.resetModules();
   const mode = await import("../components/studio-recovery-mode");
   const session = await import("../components/useStudioSession");
-  return { events, mode, session };
+  // Every tab is given a dedicated-client listener, which makes the tests
+  // STRICTER: tab B has the same machinery available as tab A and still never
+  // reaches authority, because the broadcast lands on the ordinary client.
+  mode.installStudioRecoveryAuthority();
+  return { events, recoveryEvents, mode, session };
 }
 
 /** Reads a tab's reported session status through the real hook. */
@@ -233,9 +285,14 @@ function probe(tab: Tab): string[] {
 }
 
 /** The genuine, authoritative recovery: the Supabase event plus a live session. */
+/**
+ * This tab genuinely consumed the recovery link: its DEDICATED client parsed
+ * the URL and emitted PASSWORD_RECOVERY locally. That is the only route to
+ * authority, and it also raises the origin-wide denial for every other tab.
+ */
 async function enterRecovery(tab: Tab) {
   auth.getSession.mockResolvedValue({ data: { session: SESSION } });
-  auth.emitTo(tab.events, "PASSWORD_RECOVERY", SESSION);
+  recoveryAuth.emitTo(tab.recoveryEvents, "PASSWORD_RECOVERY", SESSION);
 }
 
 beforeEach(() => {
@@ -271,12 +328,27 @@ describe("marker establishment", () => {
     const tabA = await openTab(RESET_URL);
     expect(sharedMarker()).toBeNull();
 
+    // Even on the ORDINARY client — where the event may have been broadcast in
+    // from another tab — denial is raised. No await between the event and the
+    // marker: the shared session is already live at this instant, so every
+    // other tab is refused from this instant.
     auth.emitTo(tabA.events, "PASSWORD_RECOVERY", SESSION);
-
-    // No await between the event and the marker: the shared session is already
-    // live at this instant, so every other tab is refused from this instant.
     expect(sharedMarker()).toBe(STUDIO_RECOVERY_SHARED_DENY_VALUE);
-    expect(tabA.mode.isStudioRecoveryConfirmed()).toBe(true);
+    expect(tabA.mode.isStudioRecoveryBlocked()).toBe(true);
+
+    // ...but denial is ALL it does. Authority still requires this tab's own
+    // dedicated client to have parsed the link.
+    expect(tabA.mode.isStudioLocalRecoveryAuthority()).toBe(false);
+  });
+
+  it("1b. the DEDICATED client's PASSWORD_RECOVERY writes the marker AND grants authority", async () => {
+    const tabA = await openTab(RESET_URL);
+    expect(sharedMarker()).toBeNull();
+
+    recoveryAuth.emitTo(tabA.recoveryEvents, "PASSWORD_RECOVERY", SESSION);
+
+    expect(sharedMarker()).toBe(STUDIO_RECOVERY_SHARED_DENY_VALUE);
+    expect(tabA.mode.isStudioLocalRecoveryAuthority()).toBe(true);
   });
 
   it("2/3/4. SIGNED_IN, INITIAL_SESSION and TOKEN_REFRESHED never write it", async () => {
@@ -286,7 +358,7 @@ describe("marker establishment", () => {
       auth.emitTo(tab.events, event, SESSION);
       expect(sharedMarker(), event).toBeNull();
       expect(tab.mode.isStudioRecoveryBlocked(), event).toBe(false);
-      expect(tab.mode.isStudioRecoveryConfirmed(), event).toBe(false);
+      expect(tab.mode.isStudioLocalRecoveryAuthority(), event).toBe(false);
     }
   });
 
@@ -296,7 +368,7 @@ describe("marker establishment", () => {
     const tab = await openTab(RESET_URL + "#type=recovery");
     expect(tab.mode.isStudioRecoveryLandingHinted()).toBe(true);
     expect(tab.mode.isStudioRecoveryBlocked()).toBe(true);
-    expect(tab.mode.isStudioRecoveryConfirmed()).toBe(false);
+    expect(tab.mode.isStudioLocalRecoveryAuthority()).toBe(false);
     expect(sharedMarker()).toBeNull();
   });
 
@@ -318,7 +390,12 @@ describe("marker establishment", () => {
     const source = readCode("src/features/forever-studio/components/studio-recovery-mode.ts");
     // The call sits inside the function the PASSWORD_RECOVERY event drives.
     expect(source).toMatch(
-      /function confirmStudioRecovery\(\): void \{\s*setStudioRecoverySharedDeny\(\);/,
+      /function grantLocalRecoveryAuthority\(\): void \{\s*holdStudioRecoveryClaim\(\);\s*setStudioRecoverySharedDeny\(\);/,
+    );
+    // ...and the deny-only path raises it too, so an event observed on the
+    // ordinary client still refuses every tab.
+    expect(source).toMatch(
+      /function noteStudioRecoveryDenyObserved\(\): void \{\s*setStudioRecoverySharedDeny\(\);/,
     );
     const reset = readCode("src/features/forever-studio/components/StudioResetPassword.tsx");
     expect(reset).not.toMatch(/setStudioRecoverySharedDeny/);
@@ -336,7 +413,7 @@ describe("deny-only: the shared marker is not authority", () => {
     expect(tab.mode.isStudioRecoverySharedBlocked()).toBe(true);
     expect(tab.mode.isStudioRecoveryBlocked()).toBe(true);
     // The only thing that may grant is the event, which never happened here.
-    expect(tab.mode.isStudioRecoveryConfirmed()).toBe(false);
+    expect(tab.mode.isStudioLocalRecoveryAuthority()).toBe(false);
   });
 
   it("6. a FORGED marker cannot show the reset form or authorize updateUser", async () => {
@@ -356,14 +433,14 @@ describe("deny-only: the shared marker is not authority", () => {
     expect(screen.queryByLabelText(/^new password$/i)).toBeNull();
     expect(await screen.findByRole("heading", { name: /reset link expired/i })).toBeTruthy();
     expect(auth.updateUser).not.toHaveBeenCalled();
-    expect(tab.mode.isStudioRecoveryConfirmed()).toBe(false);
+    expect(tab.mode.isStudioLocalRecoveryAuthority()).toBe(false);
     for (const fn of Object.values(serverFns)) expect(fn).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
 
   it("the reset form is gated on recoveryConfirmed + live session, never on the marker", () => {
     const source = readCode("src/features/forever-studio/components/StudioResetPassword.tsx");
-    expect(source).toMatch(/if \(!isStudioRecoveryConfirmed\(\)\) return;/);
+    expect(source).toMatch(/if \(!isStudioLocalRecoveryAuthority\(\)\) return;/);
     // The screen must not consult the deny-only guard to decide readiness.
     expect(source).not.toMatch(/isStudioRecoveryBlocked/);
     expect(source).not.toMatch(/isStudioRecoverySharedBlocked/);
@@ -383,7 +460,7 @@ describe("new tab opened after recovery began", () => {
     // delivers INITIAL_SESSION to the new subscriber only — and it has none of
     // tab A's in-memory state and none of its sessionStorage.
     const tabB = await openTab(ORIGIN + "/studio");
-    expect(tabB.mode.isStudioRecoveryConfirmed()).toBe(false);
+    expect(tabB.mode.isStudioLocalRecoveryAuthority()).toBe(false);
     expect(tabB.mode.isStudioRecoveryTerminationIncomplete()).toBe(false);
     return { tabA, tabB };
   }
@@ -398,7 +475,7 @@ describe("new tab opened after recovery began", () => {
     expect(tabB.mode.isStudioRecoveryBlocked()).toBe(true);
     // Blocked WITHOUT gaining authority — deny-only, in the tab that never
     // proved control of the mailbox.
-    expect(tabB.mode.isStudioRecoveryConfirmed()).toBe(false);
+    expect(tabB.mode.isStudioLocalRecoveryAuthority()).toBe(false);
   });
 
   it("10. the Studio layout refuses StudioShell and shows the interstitial", async () => {
@@ -456,7 +533,7 @@ describe("new tab opened after recovery began", () => {
     // origin-wide marker survives — which is the point of putting it there.
     const reloaded = await openTab(ORIGIN + "/studio");
     expect(reloaded.mode.isStudioRecoveryBlocked()).toBe(true);
-    expect(reloaded.mode.isStudioRecoveryConfirmed()).toBe(false);
+    expect(reloaded.mode.isStudioLocalRecoveryAuthority()).toBe(false);
   });
 
   it("direct navigation to a protected Studio route is refused", async () => {
@@ -514,7 +591,7 @@ describe("tab already open when recovery begins", () => {
 
     await waitFor(() => expect(seen[seen.length - 1]).toBe("recovery"));
     expect(seen).not.toContain("signed_in");
-    expect(tabB.mode.isStudioRecoveryConfirmed()).toBe(false);
+    expect(tabB.mode.isStudioLocalRecoveryAuthority()).toBe(false);
   });
 
   it("9. denial survives a channel signal even when localStorage is unwritable", async () => {
@@ -557,7 +634,9 @@ describe("failed termination", () => {
     auth.getSession.mockResolvedValue({ data: { session: SESSION } });
     const { StudioResetPassword } = await import("../components/StudioResetPassword");
     render(<StudioResetPassword />);
-    auth.emitTo(tabA.events, "PASSWORD_RECOVERY", SESSION);
+    // The reset screen installed the DEDICATED client's listener during render;
+    // this is that client's own event, i.e. genuine local link consumption.
+    recoveryAuth.emitTo(tabA.recoveryEvents, "PASSWORD_RECOVERY", SESSION);
     await screen.findByLabelText(/^new password$/i);
 
     // Sign-out fails and the session survives.
@@ -616,7 +695,7 @@ describe("release", () => {
     auth.getSession.mockResolvedValue({ data: { session: SESSION } });
     const { StudioResetPassword } = await import("../components/StudioResetPassword");
     render(<StudioResetPassword />);
-    auth.emitTo(tabA.events, "PASSWORD_RECOVERY", SESSION);
+    recoveryAuth.emitTo(tabA.recoveryEvents, "PASSWORD_RECOVERY", SESSION);
     await screen.findByLabelText(/^new password$/i);
     expect(sharedMarker()).toBe(STUDIO_RECOVERY_SHARED_DENY_VALUE);
 
@@ -713,7 +792,7 @@ describe("release", () => {
     auth.getSession.mockResolvedValue({ data: { session: null } });
     tabA.mode.noteStudioSessionPositivelyAbsent();
     expect(sharedMarker()).toBe(STUDIO_RECOVERY_SHARED_DENY_VALUE);
-    expect(tabA.mode.isStudioRecoveryConfirmed()).toBe(true);
+    expect(tabA.mode.isStudioLocalRecoveryAuthority()).toBe(true);
   });
 
   it("20. with no marker at all, an ordinary session still reaches signed_in", async () => {

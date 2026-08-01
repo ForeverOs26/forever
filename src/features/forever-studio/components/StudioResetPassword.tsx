@@ -45,13 +45,15 @@ import {
   studioRecoveryErrorMessage,
   validateStudioPassword,
 } from "../studio-recovery-contract";
+import { discardStudioRecoveryClient, getStudioRecoveryClient } from "./studio-recovery-client";
 import {
   clearStudioRecoveryIncompleteTermination,
   clearStudioRecoveryMode,
   clearStudioRecoverySharedBlock,
+  installStudioRecoveryAuthority,
   installStudioRecoveryCapture,
   isStudioAuthSettled,
-  isStudioRecoveryConfirmed,
+  isStudioLocalRecoveryAuthority,
   isStudioRecoveryTerminationIncomplete,
   markStudioRecoveryIncompleteTermination,
   setStudioPasswordUpdatedNotice,
@@ -61,6 +63,51 @@ import {
 
 // The event may already have fired before this module's component mounts.
 installStudioRecoveryCapture();
+
+type AuthCapableClient = {
+  auth: {
+    getSession: () => Promise<{ data: { session: unknown } }>;
+    signOut: (options?: { scope: "local" }) => Promise<{ error: unknown }>;
+  };
+};
+
+/**
+ * Global sign-out, falling back to the supported local scope.
+ *
+ * Global also revokes the refresh token server-side, which is what stops a
+ * surviving token elsewhere. Returns whether a scope reported success; the
+ * caller still treats a SURVIVING SESSION, not this flag, as the real verdict.
+ */
+async function attemptSignOut(client: AuthCapableClient): Promise<boolean> {
+  try {
+    const { error } = await client.auth.signOut();
+    if (!error) return true;
+  } catch {
+    // Fall through to the local scope.
+  }
+  try {
+    const { error } = await client.auth.signOut({ scope: "local" });
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * POSITIVE absence only — a `getSession()` that RESOLVED with no session.
+ *
+ * A rejection, a timeout or an offline network is NOT absence and must answer
+ * `false`, because treating it as absence is what would release the guard while
+ * a live session survived.
+ */
+async function sessionPositivelyAbsent(client: AuthCapableClient): Promise<boolean> {
+  try {
+    const { data } = await client.auth.getSession();
+    return !data.session;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * checking                       — waiting for authoritative recovery
@@ -81,6 +128,13 @@ type Phase =
   | "invalid";
 
 export function StudioResetPassword() {
+  // Constructing the DEDICATED recovery client is what parses the recovery
+  // fragment, so it happens on this screen and nowhere else in the app. It is
+  // called during render rather than in an effect because the parse must start
+  // before the first paint, and it is idempotent — the module installs once,
+  // however often React re-renders this component.
+  installStudioRecoveryAuthority();
+
   const navigate = useNavigate();
   const [phase, setPhase] = useState<Phase>(() =>
     // A recovery that reached password-update but was never proved terminated
@@ -102,9 +156,17 @@ export function StudioResetPassword() {
 
     const settle = () => {
       if (!active || settled.current) return;
-      // AUTHORITY: the confirmed PASSWORD_RECOVERY event, never a URL hint.
-      if (!isStudioRecoveryConfirmed()) return;
-      void supabase.auth.getSession().then(({ data }) => {
+      // AUTHORITY: a PASSWORD_RECOVERY produced by THIS TAB's dedicated,
+      // non-persistent recovery client. Never a URL hint, never the shared
+      // deny marker, and never the ordinary client's event — that one may have
+      // been broadcast here from a different tab.
+      if (!isStudioLocalRecoveryAuthority()) return;
+      const recoveryClient = getStudioRecoveryClient();
+      if (!recoveryClient) return;
+      // The live session must be the RECOVERY client's own. The ordinary shared
+      // session is deliberately not consulted: it is exactly what a second tab
+      // would also be able to see.
+      void recoveryClient.auth.getSession().then(({ data }) => {
         if (!active || settled.current) return;
         if (data.session) {
           settled.current = true;
@@ -163,49 +225,44 @@ export function StudioResetPassword() {
     setError(null);
     setPhase("terminating_recovery_session");
 
-    // A global sign-out also revokes the refresh token server-side. If it fails
-    // for any reason, fall back to the supported local scope, which at least
-    // destroys the session in this browser.
-    let signedOutCleanly = false;
-    try {
-      const { error: signOutError } = await supabase.auth.signOut();
-      signedOutCleanly = !signOutError;
-    } catch {
-      signedOutCleanly = false;
-    }
-    if (!signedOutCleanly) {
-      try {
-        const { error: localError } = await supabase.auth.signOut({ scope: "local" });
-        signedOutCleanly = !localError;
-      } catch {
-        signedOutCleanly = false;
-      }
-    }
+    const recoveryClient = getStudioRecoveryClient() as AuthCapableClient | null;
 
-    // The returned error is not the verdict — the surviving session is. Ask.
-    let sessionStillPresent = true;
-    try {
-      const { data } = await supabase.auth.getSession();
-      sessionStillPresent = Boolean(data.session);
-    } catch {
-      sessionStillPresent = true;
-    }
+    // TWO sessions have to end, not one.
+    //
+    //   the DEDICATED recovery session — memory-only, this tab's own;
+    //   any ORDINARY shared session — in localStorage, readable by every tab.
+    //
+    // The ordinary one matters even though recovery never created it: the
+    // publisher may already have been signed in elsewhere when the reset began,
+    // and releasing the origin-wide denial while that session survived would
+    // hand a live dashboard straight back to the other tab.
+    const recoverySignedOutCleanly = recoveryClient ? await attemptSignOut(recoveryClient) : true;
+    // The ordinary client's own error is NOT the verdict here — it reports a
+    // missing session as a failure, and "there was never a session" is a
+    // perfectly good outcome. Only positive absence below decides.
+    await attemptSignOut(supabase as unknown as AuthCapableClient);
 
-    if (sessionStillPresent || !signedOutCleanly) {
-      // FAIL CLOSED. Protection stays on, the dashboard stays blocked, and the
-      // marker keeps it that way across a reload.
+    const recoveryAbsent = recoveryClient ? await sessionPositivelyAbsent(recoveryClient) : true;
+    const ordinaryAbsent = await sessionPositivelyAbsent(supabase as unknown as AuthCapableClient);
+
+    if (!recoverySignedOutCleanly || !recoveryAbsent || !ordinaryAbsent) {
+      // FAIL CLOSED. Protection stays on, the dashboard stays blocked in every
+      // tab, and the marker keeps it that way across a reload.
       markStudioRecoveryIncompleteTermination();
       setPhase("password_updated_but_session_active");
       return;
     }
 
-    // Only now, with absence positively confirmed, is it safe to release —
-    // local authority first, then this tab's marker, then the origin-wide one,
-    // which also notifies the other tabs. They settle to `signed_out` and must
-    // sign in again normally; nothing here signs anyone in.
+    // Only now, with BOTH sessions positively confirmed absent, is it safe to
+    // release — local authority first, then this tab's marker, then the
+    // origin-wide one, which also notifies the other tabs. They settle to
+    // `signed_out` and must sign in again normally; nothing here signs anyone
+    // in. Dropping the dedicated client discards the last reference to the
+    // memory-held recovery session.
     clearStudioRecoveryMode();
     clearStudioRecoveryIncompleteTermination();
     clearStudioRecoverySharedBlock();
+    discardStudioRecoveryClient();
     setStudioPasswordUpdatedNotice();
     setPhase("completed");
     void navigate({ to: STUDIO_LOGIN_PATH });
@@ -222,9 +279,19 @@ export function StudioResetPassword() {
       return;
     }
 
+    // Re-checked at the moment of use, not merely at the moment the form was
+    // revealed. `updateUser` is reachable ONLY through the dedicated client
+    // that proved local link consumption; the ordinary shared client is never
+    // asked to change a password.
+    const recoveryClient = getStudioRecoveryClient();
+    if (!isStudioLocalRecoveryAuthority() || !recoveryClient) {
+      setPhase("invalid");
+      return;
+    }
+
     setPhase("updating_password");
     try {
-      const { error: updateError } = await supabase.auth.updateUser({ password });
+      const { error: updateError } = await recoveryClient.auth.updateUser({ password });
       if (updateError) {
         setPhase("ready");
         setError(studioRecoveryErrorMessage(updateError));

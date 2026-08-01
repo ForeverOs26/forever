@@ -30,7 +30,7 @@ import {
   studioResetPasswordRedirectUrl,
 } from "../studio-recovery-contract";
 
-type RequestState = "idle" | "sending" | "sent" | "rate_limited" | "unavailable";
+type RequestState = "idle" | "sending" | "sent" | "unavailable";
 
 export function StudioForgotPassword() {
   const [email, setEmail] = useState("");
@@ -50,13 +50,32 @@ export function StudioForgotPassword() {
     }
 
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
-      // Rate limiting is the ONLY failure worth distinguishing, and it says
-      // nothing about the address. Every other outcome — including "user not
-      // found" — reports the identical generic result.
-      setState(error && isStudioRecoveryRateLimited(error) ? "rate_limited" : "sent");
+      await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+      // EVERY returned outcome reports the identical generic result: success,
+      // "user not found", an unconfirmed or disabled account, a non-member —
+      // and rate limiting.
+      //
+      // Rate limiting used to be shown separately, on the reasoning that a
+      // limit says nothing about an address. That does not hold for this
+      // provider and could not be disproved without querying a live backend.
+      // Supabase answers a recovery request for an UNKNOWN address with a
+      // success status and sends no mail — that is its own anti-enumeration
+      // measure — while a KNOWN address actually sends one and draws down the
+      // project's email quota. Repeating a request therefore tends to produce
+      // "too many attempts" for an address that exists and the generic notice
+      // for one that does not, which is an account-existence oracle assembled
+      // out of two individually harmless messages.
+      //
+      // The cost of folding it in is that a genuinely rate-limited publisher is
+      // told to check the inbox instead of to wait. The generic notice already
+      // says to check spam, and a second attempt costs nothing.
+      setState("sent");
     } catch (caught) {
-      setState(isStudioRecoveryRateLimited(caught) ? "rate_limited" : "unavailable");
+      // A THROWN failure is a transport fault — offline, DNS, TLS, timeout —
+      // and is identity-independent, so reporting it is safe. A thrown rate
+      // limit is still folded into the generic result, so that the choice
+      // between "unavailable" and the notice cannot become the same oracle.
+      setState(isStudioRecoveryRateLimited(caught) ? "sent" : "unavailable");
     }
   };
 
@@ -95,11 +114,12 @@ export function StudioForgotPassword() {
             />
           </div>
 
-          {state === "rate_limited" ? (
-            <p role="alert" className="text-sm text-destructive">
-              Too many attempts. Wait a few minutes and try again.
-            </p>
-          ) : null}
+          {/*
+            There is deliberately no rate-limited branch. A distinct
+            "too many attempts" message is only reachable for an address the
+            provider actually mails, so rendering it would tell a prober which
+            addresses exist. Rate limiting resolves to the generic notice above.
+          */}
           {state === "unavailable" ? (
             <p role="alert" className="text-sm text-destructive">
               {studioRecoveryErrorMessage("network")}
