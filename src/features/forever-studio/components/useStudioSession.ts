@@ -22,6 +22,7 @@ import {
   clearStudioRecoveryMode,
   installStudioRecoveryCapture,
   isStudioRecoveryBlocked,
+  noteStudioSessionPositivelyAbsent,
   subscribeStudioRecoveryMode,
 } from "./studio-recovery-mode";
 
@@ -38,11 +39,15 @@ export type StudioSessionState =
 type SessionLike = { user: { id: string; email?: string | null } } | null;
 
 function resolveState(session: SessionLike): StudioSessionState {
-  // The DENY-ONLY guard wins over any session that exists. It is deliberately
-  // broader than recovery authority — a landing hint or an unterminated
-  // recovery is enough to withhold the dashboard, because withholding is
-  // always safe. Notably this also covers the fail-closed case where a
-  // password was updated but the recovery session could not be proved closed.
+  // The DENY-ONLY guard wins over any session that exists, and is re-read here
+  // on EVERY resolution — every auth event, every getSession settle, every
+  // route change, every cross-tab notification. It is deliberately broader than
+  // recovery authority: a landing hint, an unterminated recovery, or a recovery
+  // running in another tab of this origin is each enough to withhold the
+  // dashboard, because withholding is always safe. That last term is what stops
+  // a tab opened after the recovery link — which auth-js hands an
+  // `INITIAL_SESSION` carrying the live shared recovery session, never a
+  // `PASSWORD_RECOVERY` — from reporting `signed_in`.
   if (isStudioRecoveryBlocked()) return { status: "recovery" };
   return session
     ? { status: "signed_in", userId: session.user.id, email: session.user.email ?? null }
@@ -56,10 +61,38 @@ export function useStudioSession(): StudioSessionState {
     let mounted = true;
 
     const refresh = () => {
-      void supabase.auth.getSession().then(({ data }) => {
-        if (!mounted) return;
-        setState(resolveState(data.session as SessionLike));
-      });
+      // `getSession()` can also throw SYNCHRONOUSLY — a misconfigured client
+      // constructed lazily on this very access, for one. Letting that escape
+      // would tear down the effect and leave the hook stuck on `loading`, which
+      // renders nothing and so proves nothing about the guard.
+      let pending: ReturnType<typeof supabase.auth.getSession>;
+      try {
+        pending = supabase.auth.getSession();
+      } catch {
+        // Not absence. Nothing is healed and nothing is unblocked.
+        if (mounted) setState(resolveState(null));
+        return;
+      }
+      void pending.then(
+        ({ data }) => {
+          if (!mounted) return;
+          const session = data.session as SessionLike;
+          // POSITIVE ABSENCE — the call resolved and there is no session. Only
+          // here may a marker left behind by a crashed or closed recovery tab
+          // be healed, so the Owner is not locked out of an origin where no
+          // Auth session exists at all.
+          if (!session) noteStudioSessionPositivelyAbsent();
+          setState(resolveState(session));
+        },
+        () => {
+          // REJECTED — a thrown error, a timeout, an offline network. This is
+          // not absence and proves nothing, so it heals nothing and unblocks
+          // nothing; `resolveState` still consults the live guard, which
+          // answers `recovery` whenever a marker stands.
+          if (!mounted) return;
+          setState(resolveState(null));
+        },
+      );
     };
 
     refresh();

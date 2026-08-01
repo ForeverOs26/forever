@@ -33,6 +33,13 @@ import {
   STUDIO_RECOVERY_INCOMPLETE_MARKER_VALUE,
   urlIsStudioRecoveryLanding,
 } from "../studio-recovery-contract";
+import {
+  clearStudioRecoverySharedDeny,
+  installStudioRecoverySharedDeny,
+  isStudioRecoverySharedDenyActive,
+  setStudioRecoverySharedDeny,
+  subscribeStudioRecoverySharedDeny,
+} from "./studio-recovery-shared-deny";
 
 type RecoveryListener = () => void;
 
@@ -67,6 +74,12 @@ export function isStudioRecoveryConfirmed(): boolean {
 }
 
 function confirmStudioRecovery(): void {
+  // The origin-wide denial is established FIRST and unconditionally, before the
+  // early return and before anything else can await. The shared Supabase
+  // session already exists at this instant, so every other tab of this origin
+  // must be refused from this instant — not after the password is updated, and
+  // not when sign-out begins.
+  setStudioRecoverySharedDeny();
   if (recoveryConfirmed) return;
   recoveryConfirmed = true;
   emit();
@@ -78,12 +91,24 @@ function confirmStudioRecovery(): void {
 
 /**
  * True when Studio must refuse the dashboard. Deliberately broader than
- * `isStudioRecoveryConfirmed`: a mere landing hint, or an unterminated
- * recovery, is enough to withhold access, because withholding access is always
- * safe. Granting anything requires the confirmed event instead.
+ * `isStudioRecoveryConfirmed`: a mere landing hint, an unterminated recovery, or
+ * a recovery running in ANOTHER TAB of this origin is each enough to withhold
+ * access, because withholding access is always safe. Granting anything requires
+ * the confirmed event instead.
+ *
+ * The shared term is re-read from storage on every call. Caching it would leave
+ * an already-open tab reporting `signed_in` for the rest of its life after
+ * another tab entered recovery.
  */
 export function isStudioRecoveryBlocked(): boolean {
-  return recoveryConfirmed || landingHint || incompleteTermination;
+  return (
+    recoveryConfirmed || landingHint || incompleteTermination || isStudioRecoverySharedDenyActive()
+  );
+}
+
+/** True when the denial comes from the origin-wide marker. Deny-only. */
+export function isStudioRecoverySharedBlocked(): boolean {
+  return isStudioRecoverySharedDenyActive();
 }
 
 export function noteStudioRecoveryLandingHint(): void {
@@ -114,6 +139,10 @@ function readMarker(): boolean {
 
 export function markStudioRecoveryIncompleteTermination(): void {
   incompleteTermination = true;
+  // An unterminated recovery is exactly as dangerous in a second tab as in this
+  // one — the session that would not close is the shared one. Re-assert the
+  // origin-wide denial rather than relying on it still being set.
+  setStudioRecoverySharedDeny();
   try {
     sessionStorage.setItem(
       STUDIO_RECOVERY_INCOMPLETE_MARKER_KEY,
@@ -142,6 +171,37 @@ export function clearStudioRecoveryIncompleteTermination(): void {
 
 export function isStudioRecoveryTerminationIncomplete(): boolean {
   return incompleteTermination;
+}
+
+/**
+ * Releases the origin-wide denial and tells the other tabs.
+ *
+ * Separate from the two clears above so the ORDER stays explicit at the call
+ * site: local authority, then the tab-local marker, then the shared one, and
+ * only ever after `getSession()` has RESOLVED with `null`.
+ */
+export function clearStudioRecoverySharedBlock(): void {
+  clearStudioRecoverySharedDeny();
+  emit();
+}
+
+/**
+ * Self-heal for a marker left behind by a crash, a closed tab or a killed
+ * browser.
+ *
+ * MAY ONLY BE CALLED with positive session absence — a `getSession()` that
+ * resolved with a null session. A rejection, a timeout, a network failure or an
+ * unreadable storage is not absence and must never reach here, because clearing
+ * on those would hand the dashboard to whatever session actually survived.
+ *
+ * Refuses while this tab holds any local recovery state of its own: that tab is
+ * the recovery, and its own screens release the guard when they finish.
+ */
+export function noteStudioSessionPositivelyAbsent(): void {
+  if (recoveryConfirmed || landingHint || incompleteTermination) return;
+  if (!isStudioRecoverySharedDenyActive()) return;
+  clearStudioRecoverySharedDeny();
+  emit();
 }
 
 /**
@@ -204,6 +264,12 @@ export function consumeStudioPasswordUpdatedNotice(): boolean {
 export function installStudioRecoveryCapture(): void {
   if (installed) return;
   installed = true;
+
+  // Cross-tab notification, wired before anything reads state: an already-open
+  // tab has to react when ANOTHER tab enters recovery, and React rerender
+  // timing is not a notification mechanism.
+  installStudioRecoverySharedDeny();
+  subscribeStudioRecoverySharedDeny(() => emit());
 
   // Deny-only: an unterminated recovery from before a reload still blocks.
   if (readMarker()) incompleteTermination = true;

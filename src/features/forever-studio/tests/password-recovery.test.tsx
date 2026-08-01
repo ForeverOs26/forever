@@ -172,6 +172,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   auth.reset();
   sessionStorage.clear();
+  // The origin-wide deny marker lives in localStorage and, unlike everything
+  // else here, is NOT tab-scoped. Leaving it behind would silently block the
+  // next test's dashboard and make an unrelated assertion pass for the wrong
+  // reason. See cross-tab-recovery-guard.test.tsx.
+  localStorage.clear();
   auth.getSession.mockResolvedValue({ data: { session: null } });
   auth.resetPasswordForEmail.mockResolvedValue({ error: null });
   auth.updateUser.mockResolvedValue({ error: null });
@@ -183,6 +188,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   sessionStorage.clear();
+  localStorage.clear();
 });
 
 /**

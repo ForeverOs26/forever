@@ -81,6 +81,45 @@ export const STUDIO_RECOVERY_INCOMPLETE_MARKER_KEY = "forever.studio.recovery.in
 export const STUDIO_RECOVERY_INCOMPLETE_MARKER_VALUE = "1";
 
 /**
+ * ORIGIN-WIDE deny-only marker — the cross-tab half of the guard.
+ *
+ * The Supabase session lives in localStorage under `sb-<ref>-auth-token`
+ * (`persistSession: true`, `storage: localStorage` in the generated client), so
+ * it is shared by every same-origin tab. A tab opened AFTER a recovery link was
+ * consumed loads that session from storage and receives `INITIAL_SESSION` — not
+ * `PASSWORD_RECOVERY`, which auth-js delivers only to tabs that already had a
+ * client when the link was parsed. Without an origin-wide signal that second tab
+ * sees an ordinary live session, reports `signed_in`, mounts the dashboard and
+ * reaches `maybeBootstrapOwner` while the reset is still unfinished.
+ *
+ * `localStorage` is therefore correct HERE and nowhere else in recovery: this
+ * key's only power is to REFUSE. It holds the literal "1" — no token, no
+ * session, no email, no user id, no project reference, no timestamp, no
+ * password, no recovery URL. A forged value produces a denial screen and
+ * nothing more; it can never set `recoveryConfirmed`, show the password form or
+ * authorize `updateUser`, all of which require the authoritative
+ * `PASSWORD_RECOVERY` event in the tab that received it.
+ *
+ * Deliberately NOT written for a URL landing hint. `type=recovery` is
+ * user-controlled text, and letting it write an origin-wide marker would turn
+ * any link sent to the Owner into an origin-wide denial of Studio.
+ */
+export const STUDIO_RECOVERY_SHARED_DENY_KEY = "forever.studio.recovery.deny";
+export const STUDIO_RECOVERY_SHARED_DENY_VALUE = "1";
+
+/**
+ * Same-lifetime companion signal to the storage key.
+ *
+ * `storage` events reach other tabs only when the write itself succeeded, so a
+ * browser with localStorage disabled or full would silently lose cross-tab
+ * denial. The channel carries the same two constant, non-sensitive verbs and
+ * never a token, session, address or identifier.
+ */
+export const STUDIO_RECOVERY_SHARED_DENY_CHANNEL = "forever.studio.recovery.deny";
+export const STUDIO_RECOVERY_SHARED_DENY_SIGNAL = "deny";
+export const STUDIO_RECOVERY_SHARED_RELEASE_SIGNAL = "release";
+
+/**
  * Grace period after the auth client reports that it has finished starting up.
  *
  * Once start-up is done, a link that has not produced a recovery is not going

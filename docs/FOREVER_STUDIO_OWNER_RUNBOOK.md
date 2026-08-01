@@ -79,6 +79,39 @@ closed. Retry secure sign-out before continuing."*
   until the old recovery session is confirmed gone, and it stays blocked even if
   you refresh the page.
 
+### While a reset is in progress, Studio is closed in EVERY tab
+
+A reset link signs the browser in behind the scenes, and that sign-in is shared
+by every tab of the site — not just the one you clicked the link in. So from the
+moment the link is opened until the reset is finished and confirmed:
+
+- **every** Studio tab refuses the dashboard, including tabs that were already
+  open, tabs you open afterwards, and any tab you refresh;
+- typing `/studio`, `/studio/upload` or any other Studio address directly is
+  refused the same way;
+- each of those tabs shows *"Finish resetting your password"* with a link back
+  to the reset screen.
+
+Practical guidance:
+
+- **Do not try to work in another Studio tab during a reset.** It will not let
+  you in, and that is deliberate.
+- **Finish the reset in the tab you opened the link in.** Only that tab can set
+  the new password.
+- If you abandon a reset half-way, request a new link and complete it. Studio
+  stays closed while a reset session may still be alive.
+- Normal access returns only after Studio has confirmed the recovery session is
+  gone. Then every tab settles on the ordinary sign-in screen — **you still have
+  to sign in again with the new password.** No tab is ever let straight in.
+- What Studio remembers across tabs is a single on/off flag and nothing else. It
+  holds no password, no login token, no email address and no account number, and
+  it can only *refuse* access — it can never grant it or change a password. If
+  someone sets that flag by hand, all they achieve is locking themselves out of a
+  screen they could not open anyway.
+- If the browser is closed or crashes mid-reset, Studio checks on the next visit
+  whether any login session actually survived. If none did, it reopens the normal
+  sign-in screen by itself, so you are never permanently locked out.
+
 Notes:
 
 - A reset link only works because Supabase itself confirms it. Adding

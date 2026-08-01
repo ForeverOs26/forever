@@ -48,6 +48,7 @@ import {
 import {
   clearStudioRecoveryIncompleteTermination,
   clearStudioRecoveryMode,
+  clearStudioRecoverySharedBlock,
   installStudioRecoveryCapture,
   isStudioAuthSettled,
   isStudioRecoveryConfirmed,
@@ -198,9 +199,13 @@ export function StudioResetPassword() {
       return;
     }
 
-    // Only now, with absence positively confirmed, is it safe to release.
-    clearStudioRecoveryIncompleteTermination();
+    // Only now, with absence positively confirmed, is it safe to release —
+    // local authority first, then this tab's marker, then the origin-wide one,
+    // which also notifies the other tabs. They settle to `signed_out` and must
+    // sign in again normally; nothing here signs anyone in.
     clearStudioRecoveryMode();
+    clearStudioRecoveryIncompleteTermination();
+    clearStudioRecoverySharedBlock();
     setStudioPasswordUpdatedNotice();
     setPhase("completed");
     void navigate({ to: STUDIO_LOGIN_PATH });
