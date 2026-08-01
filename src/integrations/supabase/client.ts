@@ -51,6 +51,21 @@ function createSupabaseClient() {
       storage: typeof window !== 'undefined' ? localStorage : undefined,
       persistSession: true,
       autoRefreshToken: true,
+      // SECURITY (FOREVER-PR131-RECOVERY-BROADCAST-AUTHORITY-ISOLATION-001).
+      // This client persists its session in localStorage and therefore owns an
+      // auth-js BroadcastChannel named after its storage key. If it were also
+      // allowed to parse an auth callback URL, consuming a password-recovery
+      // link would (a) write the recovery session into the shared, cross-tab
+      // session slot and (b) broadcast PASSWORD_RECOVERY to every other
+      // same-origin tab, which cannot tell a broadcast event from one it
+      // produced itself. Recovery links are consumed exclusively by the
+      // dedicated, non-persistent client in
+      // src/features/forever-studio/components/studio-recovery-client.ts.
+      //
+      // Nothing is lost: password recovery is the ONLY URL-callback auth flow
+      // in this app (the sole other entry point is signInWithPassword; there is
+      // no OAuth, magic link, OTP or PKCE exchange anywhere in src/).
+      detectSessionInUrl: false,
     }
   });
 }

@@ -5,20 +5,38 @@
  * Accounts exist only through an Owner invitation, and even a validly
  * signed-in account without an active membership is rejected by the server
  * boundary.
+ *
+ * The one addition is password recovery, which is not a second way in: it lets
+ * an ALREADY INVITED account replace a forgotten password. It creates no
+ * account and grants no membership.
  */
 
-import { useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 
+import {
+  STUDIO_FORGOT_PASSWORD_PATH,
+  STUDIO_PASSWORD_UPDATED_NOTICE,
+} from "../studio-recovery-contract";
+import { consumeStudioPasswordUpdatedNotice } from "./studio-recovery-mode";
+
 export function StudioLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // One-shot, in memory only: set when a recovery just completed. Nothing
+  // about it appears in the URL.
+  useEffect(() => {
+    if (consumeStudioPasswordUpdatedNotice()) setNotice(STUDIO_PASSWORD_UPDATED_NOTICE);
+  }, []);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -35,6 +53,11 @@ export function StudioLogin() {
       <p className="mt-2 text-sm text-muted-foreground">
         Publisher sign-in. Access is by Owner invitation only.
       </p>
+      {notice ? (
+        <p role="status" className="mt-4 text-sm">
+          {notice}
+        </p>
+      ) : null}
       <form onSubmit={submit} className="mt-8 space-y-4">
         <div className="space-y-2">
           <Label htmlFor="studio-email">Email</Label>
@@ -62,6 +85,12 @@ export function StudioLogin() {
         <Button type="submit" className="h-12 w-full text-base" disabled={pending}>
           {pending ? "Signing in…" : "Sign in"}
         </Button>
+        <Link
+          to={STUDIO_FORGOT_PASSWORD_PATH}
+          className="inline-block text-sm font-medium underline underline-offset-4"
+        >
+          Forgot password?
+        </Link>
       </form>
     </div>
   );

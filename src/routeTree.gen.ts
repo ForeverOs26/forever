@@ -24,6 +24,8 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as StudioIndexRouteImport } from './routes/studio.index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
+import { Route as StudioResetPasswordRouteImport } from './routes/studio_.reset-password'
+import { Route as StudioForgotPasswordRouteImport } from './routes/studio_.forgot-password'
 import { Route as StudioUploadRouteImport } from './routes/studio.upload'
 import { Route as StudioMembersRouteImport } from './routes/studio.members'
 import { Route as ResaleSlugRouteImport } from './routes/resale.$slug'
@@ -109,6 +111,16 @@ const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
   path: '/projects/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StudioResetPasswordRoute = StudioResetPasswordRouteImport.update({
+  id: '/studio_/reset-password',
+  path: '/studio/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StudioForgotPasswordRoute = StudioForgotPasswordRouteImport.update({
+  id: '/studio_/forgot-password',
+  path: '/studio/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const StudioUploadRoute = StudioUploadRouteImport.update({
   id: '/upload',
   path: '/upload',
@@ -175,6 +187,8 @@ export interface FileRoutesByFullPath {
   '/resale/$slug': typeof ResaleSlugRoute
   '/studio/members': typeof StudioMembersRoute
   '/studio/upload': typeof StudioUploadRoute
+  '/studio/forgot-password': typeof StudioForgotPasswordRoute
+  '/studio/reset-password': typeof StudioResetPasswordRoute
   '/projects/': typeof ProjectsIndexRoute
   '/studio/': typeof StudioIndexRoute
   '/internal/projects/$slug': typeof InternalProjectsSlugRoute
@@ -200,6 +214,8 @@ export interface FileRoutesByTo {
   '/resale/$slug': typeof ResaleSlugRoute
   '/studio/members': typeof StudioMembersRoute
   '/studio/upload': typeof StudioUploadRoute
+  '/studio/forgot-password': typeof StudioForgotPasswordRoute
+  '/studio/reset-password': typeof StudioResetPasswordRoute
   '/projects': typeof ProjectsIndexRoute
   '/studio': typeof StudioIndexRoute
   '/internal/projects/$slug': typeof InternalProjectsSlugRoute
@@ -227,6 +243,8 @@ export interface FileRoutesById {
   '/resale/$slug': typeof ResaleSlugRoute
   '/studio/members': typeof StudioMembersRoute
   '/studio/upload': typeof StudioUploadRoute
+  '/studio_/forgot-password': typeof StudioForgotPasswordRoute
+  '/studio_/reset-password': typeof StudioResetPasswordRoute
   '/projects/': typeof ProjectsIndexRoute
   '/studio/': typeof StudioIndexRoute
   '/internal/projects/$slug': typeof InternalProjectsSlugRoute
@@ -255,6 +273,8 @@ export interface FileRouteTypes {
     | '/resale/$slug'
     | '/studio/members'
     | '/studio/upload'
+    | '/studio/forgot-password'
+    | '/studio/reset-password'
     | '/projects/'
     | '/studio/'
     | '/internal/projects/$slug'
@@ -280,6 +300,8 @@ export interface FileRouteTypes {
     | '/resale/$slug'
     | '/studio/members'
     | '/studio/upload'
+    | '/studio/forgot-password'
+    | '/studio/reset-password'
     | '/projects'
     | '/studio'
     | '/internal/projects/$slug'
@@ -306,6 +328,8 @@ export interface FileRouteTypes {
     | '/resale/$slug'
     | '/studio/members'
     | '/studio/upload'
+    | '/studio_/forgot-password'
+    | '/studio_/reset-password'
     | '/projects/'
     | '/studio/'
     | '/internal/projects/$slug'
@@ -331,6 +355,8 @@ export interface RootRouteChildren {
   InternalCoralinaRoute: typeof InternalCoralinaRoute
   ProjectsSlugRoute: typeof ProjectsSlugRoute
   ResaleSlugRoute: typeof ResaleSlugRoute
+  StudioForgotPasswordRoute: typeof StudioForgotPasswordRoute
+  StudioResetPasswordRoute: typeof StudioResetPasswordRoute
   ProjectsIndexRoute: typeof ProjectsIndexRoute
   InternalProjectsSlugRoute: typeof InternalProjectsSlugRoute
 }
@@ -442,6 +468,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/studio_/reset-password': {
+      id: '/studio_/reset-password'
+      path: '/studio/reset-password'
+      fullPath: '/studio/reset-password'
+      preLoaderRoute: typeof StudioResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/studio_/forgot-password': {
+      id: '/studio_/forgot-password'
+      path: '/studio/forgot-password'
+      fullPath: '/studio/forgot-password'
+      preLoaderRoute: typeof StudioForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/studio/upload': {
       id: '/studio/upload'
       path: '/upload'
@@ -545,6 +585,8 @@ const rootRouteChildren: RootRouteChildren = {
   InternalCoralinaRoute: InternalCoralinaRoute,
   ProjectsSlugRoute: ProjectsSlugRoute,
   ResaleSlugRoute: ResaleSlugRoute,
+  StudioForgotPasswordRoute: StudioForgotPasswordRoute,
+  StudioResetPasswordRoute: StudioResetPasswordRoute,
   ProjectsIndexRoute: ProjectsIndexRoute,
   InternalProjectsSlugRoute: InternalProjectsSlugRoute,
 }
