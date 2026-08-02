@@ -32,6 +32,8 @@
  * every job created before this policy existed.
  */
 
+import type { StudioAutomaticRetryState } from "../studio-types";
+
 /** Consecutive failed AUTOMATIC attempts before a job stops being auto-selected. */
 export const STUDIO_AUTOMATIC_RETRY_LIMIT = 5;
 
@@ -48,35 +50,96 @@ export const JOB_RETRY_FACTS_KEY = "retry";
  */
 export type StudioAttemptKind = "automatic" | "controlled";
 
+/**
+ * The persisted automatic-lane state — the whole point of this module.
+ *
+ * The vocabulary itself lives in `studio-types.ts` because three readers share
+ * it and must never disagree: this module, the DATABASE
+ * (`studio_job_automatic_retry_exhausted` reads this exact literal out of the
+ * job's `facts` JSONB, so `studio_list_due_jobs` and `studio_count_active_jobs`
+ * never return or count a job the scheduler would skip), and the dashboard.
+ *
+ * It is deliberately a STATE and not a threshold comparison. If the database
+ * had to re-derive "failures >= limit" it would carry a second copy of the
+ * limit, and the two copies would drift the first time anyone tuned it. The
+ * DECISION is made once, here, by the code that records the failure; the
+ * database only reads the answer.
+ */
+export type { StudioAutomaticRetryState } from "../studio-types";
+
+/** Key inside `facts.retry` the SQL predicate reads. Changing it needs a migration. */
+export const JOB_RETRY_AUTOMATIC_KEY = "automatic";
+
 export interface StudioRetryFacts {
   /** Consecutive failed automatic attempts. Never negative, never fractional. */
   automaticFailures: number;
+  /** The closed state the database reads. Always written with the count. */
+  automatic: StudioAutomaticRetryState;
 }
 
 interface JobWithFacts {
   facts?: Record<string, unknown> | null;
 }
 
+function retryFacts(job: JobWithFacts): Record<string, unknown> {
+  const facts = (job.facts ?? {}) as Record<string, unknown>;
+  const stored = facts[JOB_RETRY_FACTS_KEY];
+  return typeof stored === "object" && stored !== null ? (stored as Record<string, unknown>) : {};
+}
+
 /** Consecutive failed automatic attempts recorded on this job. Absent ⇒ 0. */
 export function automaticFailureCount(job: JobWithFacts): number {
-  const facts = (job.facts ?? {}) as Record<string, unknown>;
-  const stored = (facts[JOB_RETRY_FACTS_KEY] as { automaticFailures?: unknown } | undefined)
-    ?.automaticFailures;
+  const stored = retryFacts(job).automaticFailures;
   if (typeof stored !== "number" || !Number.isFinite(stored)) return 0;
   return Math.max(0, Math.trunc(stored));
+}
+
+/**
+ * The job's automatic-lane state, read EXACTLY as the SQL predicate reads it.
+ *
+ * Anything that is not the literal `"exhausted"` — absent, malformed, a value
+ * from some future version — is `eligible`, because that is what
+ * `studio_job_automatic_retry_exhausted` returns for the same input. There is
+ * deliberately NO fallback to the numeric streak: a fallback the database does
+ * not share is drift by construction, and the count and the state are only ever
+ * written together by `retryFactsPatch`.
+ */
+export function automaticRetryState(job: JobWithFacts): StudioAutomaticRetryState {
+  return retryFacts(job)[JOB_RETRY_AUTOMATIC_KEY] === "exhausted" ? "exhausted" : "eligible";
 }
 
 /**
  * True when the automatic lane has spent its budget on this job.
  *
  * Checked BEFORE claiming, so an exhausted job is never claimed, never has its
- * `attempt_count` incremented, and never touches storage.
+ * `attempt_count` incremented, and never touches storage — belt and braces
+ * behind the database predicate, which has already declined to return it.
  */
-export function automaticRetryBudgetExhausted(
-  job: JobWithFacts,
-  limit: number = STUDIO_AUTOMATIC_RETRY_LIMIT,
-): boolean {
-  return automaticFailureCount(job) >= limit;
+export function automaticRetryBudgetExhausted(job: JobWithFacts): boolean {
+  return automaticRetryState(job) === "exhausted";
+}
+
+/**
+ * Where one job stands with BOTH lanes — the canonical three-way answer.
+ *
+ * `automatically_exhausted` and `terminally_nonretryable` are deliberately not
+ * one boolean. The first means "the automatic lane has given up; a person still
+ * can". The second means "nobody can, until the underlying state is repaired".
+ * Collapsing them is what made `retryable = false` do two jobs at once and
+ * silently close the Owner's lane.
+ */
+export type StudioJobRetryDisposition =
+  | "automatically_eligible"
+  | "automatically_exhausted"
+  | "terminally_nonretryable";
+
+export function jobRetryDisposition(
+  job: JobWithFacts & { retryable: boolean },
+): StudioJobRetryDisposition {
+  if (!job.retryable) return "terminally_nonretryable";
+  return automaticRetryState(job) === "exhausted"
+    ? "automatically_exhausted"
+    : "automatically_eligible";
 }
 
 /**
@@ -91,12 +154,24 @@ export function nextAutomaticFailureCount(job: JobWithFacts, kind: StudioAttempt
   return kind === "controlled" ? 0 : automaticFailureCount(job) + 1;
 }
 
-/** The facts patch recording the budget. Merged, never replacing other facts. */
-export function retryFactsPatch(automaticFailures: number): {
-  [JOB_RETRY_FACTS_KEY]: StudioRetryFacts;
-} {
+/**
+ * The facts patch recording the budget. Merged, never replacing other facts.
+ *
+ * The count and the state are derived from ONE number and written together, so
+ * there is no way to persist a pair that disagrees with itself — and therefore
+ * no way for the row the database reads to disagree with the code that wrote
+ * it.
+ */
+export function retryFactsPatch(
+  automaticFailures: number,
+  limit: number = STUDIO_AUTOMATIC_RETRY_LIMIT,
+): { [JOB_RETRY_FACTS_KEY]: StudioRetryFacts } {
+  const failures = Math.max(0, Math.trunc(automaticFailures));
   return {
-    [JOB_RETRY_FACTS_KEY]: { automaticFailures: Math.max(0, Math.trunc(automaticFailures)) },
+    [JOB_RETRY_FACTS_KEY]: {
+      automaticFailures: failures,
+      [JOB_RETRY_AUTOMATIC_KEY]: failures >= limit ? "exhausted" : "eligible",
+    },
   };
 }
 

@@ -13,6 +13,26 @@
 
 import type { StudioArchiveUploadCapability } from "./archive-capability";
 
+/**
+ * Whether the AUTOMATIC lane will still pick a failed job up on its own.
+ *
+ * A closed two-value vocabulary shared by three readers that must never
+ * disagree: the application (retry-policy.ts), the database
+ * (`studio_job_automatic_retry_exhausted`, which reads this exact literal out
+ * of the job's `facts` JSONB), and the dashboard, which uses it to decide
+ * whether it may honestly say a job is still continuing in the background.
+ *
+ * It is separate from `retryable`. `retryable` is the database's admission gate
+ * for BOTH lanes; this says only whether the automatic one has given up. A job
+ * can be `exhausted` and still perfectly claimable by a person.
+ */
+export type StudioAutomaticRetryState = "eligible" | "exhausted";
+
+export const STUDIO_AUTOMATIC_RETRY_STATES: readonly StudioAutomaticRetryState[] = [
+  "eligible",
+  "exhausted",
+];
+
 export interface MediaDimensions {
   width: number;
   height: number;
@@ -730,7 +750,24 @@ export interface StudioJobListItem {
   createdAt: string;
   errorCode: string | null;
   error: string | null;
+  /**
+   * Whether ANY lane may still claim this job — the database's own admission
+   * predicate. False is terminal for the Owner too, until the row is repaired.
+   *
+   * Deliberately not "will it retry itself": a job can be retryable and still
+   * have exhausted its automatic budget, in which case only an explicit Owner
+   * retry moves it. That is what `automaticRetry` says.
+   */
   retryable: boolean;
+  /**
+   * Whether the AUTOMATIC lane will still pick this job up on its own.
+   *
+   * `exhausted` is why the dashboard must not claim this job is continuing in
+   * the background: nothing is going to pick it up until a person asks.
+   */
+  automaticRetry: StudioAutomaticRetryState;
+  /** True attempts made. Never reset, so history stays honest. */
+  attemptCount: number;
 }
 
 export interface StudioMemberListItem {
