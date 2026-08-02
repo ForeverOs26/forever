@@ -9,6 +9,13 @@
   // This name determines the workers.dev origin the site is served from, so it
   // must stay stable: changing it moves the public site to a different URL.
   "name": "forever",
+  // Production Worker runtime contract. Without this, Nitro's default
+  // compatibilityDate ("latest") resolves to `new Date()` at BUILD time, so the
+  // same commit builds a different compatibility date every day — which makes
+  // Release A, Release B and any rebuild-based rollback non-reproducible. This
+  // is the date the current production Worker already runs on; changing it
+  // changes Worker runtime semantics and is a deliberate, separate decision.
+  "compatibility_date": "2026-07-30",
   "triggers": {
     // Studio scheduled runner: every 5 minutes the platform invokes the
     // Worker's scheduled() export (no browser session, no HTTP endpoint, no
