@@ -54,6 +54,7 @@ import type {
   StudioProjectRow,
   StudioStorage,
 } from "./contracts";
+import { createStudioStorageProviders } from "./storage/registry.server";
 
 // The generated Database types predate the Studio/progressive tables, so the
 // data layer talks to PostgREST through an untyped client and narrows rows
@@ -867,9 +868,14 @@ async function extractPriceListPdf(input: {
 
 export function createStudioDeps(): StudioDeps {
   const data = createStudioData();
+  const storage = createStudioStorage();
   return {
     data,
-    storage: createStudioStorage(),
+    storage,
+    // Both providers, and the one a NEW job is created with. The R2 provider is
+    // built lazily from server-only secrets: a deployment still running on
+    // Supabase needs no R2 credentials and must not fail to boot without them.
+    storageProviders: createStudioStorageProviders(storage),
     ingest: {
       async ingest(batch: ProgressiveBatch): Promise<ProgressiveBatchSummary> {
         assertProgressiveBatchStructure(batch);

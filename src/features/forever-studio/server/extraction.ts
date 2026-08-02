@@ -34,8 +34,11 @@ import {
   type StudioJobFile,
   type StudioMaterialPurpose,
   type StudioMaterialPurposeSource,
+  type StudioStorageProviderId,
 } from "../studio-types";
 import { StudioAccessError, type StudioDeps, type StudioJobRow } from "./contracts";
+import type { StudioStorageProvider } from "./storage/provider";
+import { r2InlineEntryPath, r2StagingPathForJobFile } from "./storage/r2-layout";
 import {
   createPublicDerivative,
   MAX_MEDIA_SANITIZE_BYTES,
@@ -156,6 +159,28 @@ export function stagingPathForJobFile(jobId: string, index: number, name: string
 }
 
 /**
+ * The private staging path for one declared file, on the provider that will
+ * actually hold it.
+ *
+ * The Supabase lane keeps the historical path (sanitized filename included):
+ * those objects are already written, and rewriting the scheme would orphan
+ * them. A brand-new R2 key carries no filename at all — filenames routinely
+ * contain personal names, addresses and deal references, and a storage key has
+ * no need of them. Identity is the job id plus the file's server-assigned index,
+ * which is exactly what pairs bytes to targets.
+ */
+export function stagingPathForProvider(
+  provider: StudioStorageProviderId,
+  jobId: string,
+  index: number,
+  name: string,
+): string {
+  return provider === "r2"
+    ? r2StagingPathForJobFile(jobId, index)
+    : stagingPathForJobFile(jobId, index, name);
+}
+
+/**
  * Attempt discriminator derived from the processing-claim token. Public and
  * re-staged paths embed it so concurrent attempts never share object paths:
  * a stale worker writes/deletes only under its OWN prefix.
@@ -223,13 +248,22 @@ export function declareNewDirectJobFiles(
     contentType?: string;
     materialPurpose?: StudioMaterialPurpose | null;
   }>,
+  /**
+   * The storage system this job is being created on. Recorded on EVERY file so
+   * the manifest states where its bytes live rather than leaving a later reader
+   * to consult a global setting that may since have changed. Defaults to the
+   * legacy provider so existing callers (and every stored manifest) keep their
+   * exact previous meaning.
+   */
+  storageProvider: StudioStorageProviderId = "supabase",
 ): StudioJobFile[] {
   return files.map((file, index) => {
     const purpose = assertNewDirectMaterialPurpose(file.materialPurpose);
     return {
       name: file.name,
+      storageProvider,
       stagingBucket: PRIVATE_SOURCE_BUCKET,
-      stagingPath: stagingPathForJobFile(jobId, index, file.name),
+      stagingPath: stagingPathForProvider(storageProvider, jobId, index, file.name),
       declaredSize: file.size ?? null,
       declaredType: file.contentType ?? null,
       materialPurpose: purpose,
@@ -737,6 +771,13 @@ export interface GatheredMaterials {
 
 /** Options for one processing attempt. */
 export interface GatherOptions {
+  /**
+   * The storage provider THIS JOB was created with, resolved from the job's own
+   * persisted record. Every read, every re-stage and every public derivative in
+   * this function goes through it — there is no path back to `deps.storage`, so
+   * an R2 job cannot touch Supabase Storage and a Supabase job cannot touch R2.
+   */
+  provider: StudioStorageProvider;
   /** The processing-claim token; scopes every side-effect path. */
   token: string;
   /** Lease heartbeat, awaited between files/entries; throws to abort. */
@@ -883,6 +924,9 @@ export async function gatherMaterials(
   job: StudioJobRow,
   options: GatherOptions,
 ): Promise<GatheredMaterials> {
+  // The job's OWN provider — never `deps.storage`, never the current global
+  // write-provider setting.
+  const storage = options.provider.objects;
   const warnings: ProgressiveWarning[] = [];
   const files: StudioJobFile[] = job.files.map((file) => ({ ...file }));
   const mediaCandidates: MediaCandidate[] = [];
@@ -1008,9 +1052,15 @@ export async function gatherMaterials(
       }
       seenHashes.set(hash, entry.name);
       // Re-stage the entry privately (attempt-scoped), then treat it as media.
-      const stagedPath = `jobs/${job.id}/zip/${attempt}/${String(zipStageIndex).padStart(2, "0")}-${sanitizeFileName(entry.name)}`;
+      // On R2 the key carries no entry name for the same reason a staging key
+      // carries no filename: a path inside someone's ZIP is not storage
+      // identity, and it can hold personal data.
+      const stagedPath =
+        options.provider.id === "r2"
+          ? r2InlineEntryPath(job.id, attempt, zipStageIndex)
+          : `jobs/${job.id}/zip/${attempt}/${String(zipStageIndex).padStart(2, "0")}-${sanitizeFileName(entry.name)}`;
       zipStageIndex += 1;
-      await deps.storage.upload(PRIVATE_SOURCE_BUCKET, stagedPath, entry.data);
+      await storage.upload(PRIVATE_SOURCE_BUCKET, stagedPath, entry.data);
       mediaCandidates.push({
         category,
         purpose: entryPurpose,
@@ -1034,7 +1084,7 @@ export async function gatherMaterials(
 
   for (const file of files) {
     await options.heartbeat?.();
-    const stat = await deps.storage.statObject(file.stagingBucket, file.stagingPath);
+    const stat = await storage.statObject(file.stagingBucket, file.stagingPath);
     if (!stat) {
       file.status = "missing";
       warnings.push(
@@ -1064,11 +1114,7 @@ export async function gatherMaterials(
 
     // EVERY stored object is streamed once: full SHA-256, exact byte count,
     // and magic-byte class from the ACTUAL bytes — for large media too.
-    const digest = await deps.storage.hashObject(
-      file.stagingBucket,
-      file.stagingPath,
-      HEAD_SNIFF_BYTES,
-    );
+    const digest = await storage.hashObject(file.stagingBucket, file.stagingPath, HEAD_SNIFF_BYTES);
     if (!digest) {
       file.status = "unreadable";
       warnings.push(
@@ -1139,7 +1185,7 @@ export async function gatherMaterials(
         );
         continue;
       }
-      const buffer = await deps.storage.downloadWithin(
+      const buffer = await storage.downloadWithin(
         file.stagingBucket,
         file.stagingPath,
         MAX_PARSE_BYTES,
@@ -1194,7 +1240,7 @@ export async function gatherMaterials(
         );
         continue;
       }
-      const buffer = await deps.storage.downloadWithin(
+      const buffer = await storage.downloadWithin(
         file.stagingBucket,
         file.stagingPath,
         MAX_PARSE_BYTES,
@@ -1228,7 +1274,7 @@ export async function gatherMaterials(
         );
         continue;
       }
-      const buffer = await deps.storage.downloadWithin(
+      const buffer = await storage.downloadWithin(
         file.stagingBucket,
         file.stagingPath,
         MAX_ARCHIVE_BYTES,
@@ -1315,7 +1361,7 @@ export async function gatherMaterials(
       candidate.originalSize <= MAX_MEDIA_SANITIZE_BYTES &&
       ["image/jpeg", "image/png", "image/webp"].includes(candidate.contentType)
     ) {
-      const downloaded = await deps.storage.downloadWithin(
+      const downloaded = await storage.downloadWithin(
         candidate.from.bucket,
         candidate.from.path,
         MAX_MEDIA_SANITIZE_BYTES,
@@ -1352,8 +1398,8 @@ export async function gatherMaterials(
       derivative.format,
     );
     try {
-      await deps.storage.upload(toBucket, toPath, derivative.bytes, derivative.contentType);
-      const publicDigest = await deps.storage.hashObject(toBucket, toPath, HEAD_SNIFF_BYTES);
+      await storage.upload(toBucket, toPath, derivative.bytes, derivative.contentType);
+      const publicDigest = await storage.hashObject(toBucket, toPath, HEAD_SNIFF_BYTES);
       if (
         !publicDigest ||
         publicDigest.sha256 !== derivative.record.derivative!.sha256 ||
@@ -1361,12 +1407,12 @@ export async function gatherMaterials(
         detectMediaClass(publicDigest.head) !== "image" ||
         canonicalPublicContentType(toPath, publicDigest.head, "image") !== derivative.contentType
       ) {
-        await deps.storage.remove(toBucket, [toPath]).catch(() => undefined);
+        await storage.remove(toBucket, [toPath]).catch(() => undefined);
         warnings.push(retentionWarning(candidate, "verification_failed"));
         continue;
       }
     } catch {
-      await deps.storage.remove(toBucket, [toPath]).catch(() => undefined);
+      await storage.remove(toBucket, [toPath]).catch(() => undefined);
       warnings.push(
         fileWarning(
           "media_publish_deferred",
@@ -1383,7 +1429,7 @@ export async function gatherMaterials(
       record.publicPath = toPath;
       record.status = "published_public";
     }
-    const url = deps.storage.publicUrl(toBucket, toPath);
+    const url = options.provider.buildPublicUrl(toBucket, toPath);
     if (candidate.category === "photo") {
       photoUrls.push(url);
       if (!firstPhotoUrl) firstPhotoUrl = url;

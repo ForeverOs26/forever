@@ -88,6 +88,14 @@ import type {
   StudioJobRow,
 } from "./contracts";
 import { StudioAccessError } from "./contracts";
+import { archiveStorageState } from "./storage/job-provider";
+import {
+  StudioArchiveUploadLostError,
+  type StudioArchiveByteReader,
+  type StudioArchiveGeometry,
+  type StudioArchiveStorageState,
+  type StudioStorageProvider,
+} from "./storage/provider";
 import { safeMessageFor, StudioError } from "./errors";
 import {
   admittedStructuredArtifacts,
@@ -161,13 +169,9 @@ const VIRTUAL_DEST = "/forever-studio-large-archive-virtual";
 // Small helpers
 // ---------------------------------------------------------------------------
 
-export function archivePartPath(jobId: string, archiveId: string, index: number): string {
-  return `jobs/${jobId}/parts/${archiveId}/${String(index).padStart(5, "0")}`;
-}
-
-function archivePartFolder(jobId: string, archiveId: string): string {
-  return `jobs/${jobId}/parts/${archiveId}`;
-}
+// The LEGACY Supabase part paths now live with the provider that addresses
+// them; re-exported here so existing callers and tests keep their import.
+export { archivePartFolder, archivePartPath } from "./storage/archive-paths";
 
 /**
  * Private evidence folder for ONE entry. Deterministic (no attempt token):
@@ -253,63 +257,45 @@ function manifestMatchesArchive(archive: StudioArchiveRow, partSha256: string[])
 }
 
 // ---------------------------------------------------------------------------
-// Random-access source over the verified part objects
+// Random-access source over the accepted archive bytes
 // ---------------------------------------------------------------------------
 
 /**
- * Maps bounded range reads onto the stored 8 MiB part objects. At most one
- * part is cached, so sequential small-entry reads within a part hit storage
- * once while peak memory stays ≈ one part per open read span.
+ * The archive's geometry, as every provider capability needs it.
+ *
+ * Derived from the durable row, so a resumed or scheduled continuation computes
+ * the identical part boundaries the plan did.
  */
-export class PartedArchiveSource implements ZipByteSource {
-  private cache: { index: number; data: Buffer } | null = null;
+function geometryOf(job: StudioJobRow, archive: StudioArchiveRow): StudioArchiveGeometry {
+  return {
+    jobId: job.id,
+    archiveId: archive.id,
+    declaredSize: archive.declared_size,
+    partSize: archive.part_size,
+    partCount: archive.part_count,
+  };
+}
 
-  constructor(
-    private readonly deps: StudioDeps,
-    private readonly jobId: string,
-    private readonly archive: StudioArchiveRow,
-    private readonly totalSize: number,
-  ) {}
-
-  size(): number {
-    return this.totalSize;
-  }
-
-  private async part(index: number): Promise<Buffer> {
-    if (this.cache?.index === index) return this.cache.data;
-    const path = archivePartPath(this.jobId, this.archive.id, index);
-    const data = await this.deps.storage.downloadWithin(
-      PRIVATE_SOURCE_BUCKET,
-      path,
-      this.archive.part_size,
-    );
-    if (!data || data.length !== expectedPartSize(this.archive, index)) {
-      throw new StudioError("storage_unavailable", safeMessageFor("storage_unavailable"), true);
-    }
-    this.cache = { index, data };
-    return data;
-  }
-
-  async read(start: number, endExclusive: number): Promise<Buffer> {
-    if (start < 0 || endExclusive > this.totalSize || endExclusive < start) {
-      throw new StudioError("processing_failed", safeMessageFor("processing_failed"), true);
-    }
-    const firstPart = Math.floor(start / this.archive.part_size);
-    const lastPart = Math.floor((endExclusive - 1) / this.archive.part_size);
-    const chunks: Buffer[] = [];
-    for (let index = firstPart; index <= lastPart; index += 1) {
-      const data = await this.part(index);
-      const partStart = index * this.archive.part_size;
-      const from = Math.max(0, start - partStart);
-      const to = Math.min(data.length, endExclusive - partStart);
-      chunks.push(data.subarray(from, to));
-    }
-    // Single-part reads return a READ-ONLY view of the cached part instead of
-    // an up-to-8-MiB copy per read: every consumer treats source bytes as
-    // immutable, and a retained view pins at most one part-sized buffer —
-    // the same bound as the cache itself. Cross-part reads still concatenate.
-    return chunks.length === 1 ? chunks[0] : Buffer.concat(chunks);
-  }
+/**
+ * Bounded reader over one archive's accepted bytes.
+ *
+ * The LAYOUT is the provider's business — many fixed-size part objects on
+ * Supabase, one multipart-assembled object read through byte ranges on R2 —
+ * and it is invisible above this line. `StudioArchiveByteReader` is
+ * structurally a `ZipByteSource`, so the ranged ZIP reader consumes it
+ * unchanged and the whole safety contract runs identically on both providers.
+ */
+function archiveReaderFor(
+  provider: StudioStorageProvider,
+  job: StudioJobRow,
+  archive: StudioArchiveRow,
+  totalSize: number,
+): StudioArchiveByteReader & ZipByteSource {
+  return provider.archiveReader({
+    geometry: geometryOf(job, archive),
+    state: archiveStorageState(archive),
+    totalSize,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -322,37 +308,62 @@ function jobDeclaredSourceBytes(job: StudioJobRow, archives: StudioArchiveRow[])
   return files + archived;
 }
 
+/** Fresh short-lived upload targets for exactly these part indexes. */
 async function partTargets(
-  deps: StudioDeps,
-  jobId: string,
-  archiveId: string,
+  provider: StudioStorageProvider,
+  job: StudioJobRow,
+  archive: StudioArchiveRow,
   indexes: number[],
 ): Promise<StudioArchivePartTarget[]> {
-  const targets: StudioArchivePartTarget[] = [];
-  for (const index of indexes) {
-    const path = archivePartPath(jobId, archiveId, index);
-    const { token } = await deps.storage.createSignedUpload(PRIVATE_SOURCE_BUCKET, path);
-    targets.push({ index, bucket: PRIVATE_SOURCE_BUCKET, path, token });
-  }
-  return targets;
+  return provider.archivePartTargets({
+    geometry: geometryOf(job, archive),
+    state: archiveStorageState(archive),
+    indexes,
+  });
 }
 
-/** Stored part sizes keyed by index, from one bounded folder listing. */
+/**
+ * What the storage system durably holds for this archive, keyed by part index.
+ *
+ * The provider decides HOW it knows (a bounded folder listing on Supabase,
+ * ListParts on R2); either way this is the authority, and the browser's claim
+ * about what it uploaded is only ever checked against it.
+ */
 async function storedPartSizes(
+  provider: StudioStorageProvider,
+  job: StudioJobRow,
+  archive: StudioArchiveRow,
+): Promise<Map<number, { size: number; etag?: string }>> {
+  return provider.listAcceptedArchiveParts({
+    geometry: geometryOf(job, archive),
+    state: archiveStorageState(archive),
+  });
+}
+
+/**
+ * A multipart upload that no longer exists must not restart the whole job.
+ *
+ * The affected archive is rejected in place — its row keeps its manifest
+ * identity and its truthful terminal reason — so every OTHER archive and every
+ * ordinary file in the same job continues untouched. Re-presenting the same
+ * bytes then plans a FRESH archive (a rejected row is never a resume
+ * candidate), which means a fresh id and a fresh immutable object key: an
+ * abandoned upload can never be resumed into or overwritten.
+ */
+async function rejectArchiveForLostUpload(
   deps: StudioDeps,
-  jobId: string,
-  archiveId: string,
-): Promise<Map<number, number>> {
-  const listed = await deps.storage.listObjects(
-    PRIVATE_SOURCE_BUCKET,
-    archivePartFolder(jobId, archiveId),
+  archive: StudioArchiveRow,
+): Promise<never> {
+  await deps.data
+    .updateArchivePreProcessing(archive.id, ["planned", "uploaded_unverified"], {
+      status: "rejected",
+      error_code: "archive_upload_expired",
+    })
+    .catch(() => false);
+  throw new StudioAccessError(
+    "archive_upload_expired",
+    "This archive's upload session expired before it finished. Re-add the same file to upload it again — the rest of this upload is unaffected.",
   );
-  const sizes = new Map<number, number>();
-  for (const object of listed) {
-    if (!/^\d{5}$/.test(object.name)) continue;
-    sizes.set(Number(object.name), object.size);
-  }
-  return sizes;
 }
 
 /**
@@ -367,6 +378,7 @@ async function storedPartSizes(
  */
 export async function planArchiveUpload(
   deps: StudioDeps,
+  provider: StudioStorageProvider,
   job: StudioJobRow,
   input: StudioArchivePlanInput,
 ): Promise<StudioArchivePlanResult> {
@@ -434,20 +446,42 @@ export async function planArchiveUpload(
         "This archive is already part of this upload under a different material window. Finish or start a new upload to file it differently.",
       );
     }
-    const sizes = await storedPartSizes(deps, job.id, existing.id);
+    // A provider whose durable upload identity has gone (an expired or aborted
+    // R2 multipart upload) cannot be resumed into. That is a per-archive
+    // outcome, never a job-level one.
+    let sizes: Map<number, { size: number; etag?: string }>;
+    try {
+      sizes = await storedPartSizes(provider, job, existing);
+    } catch (error) {
+      if (error instanceof StudioArchiveUploadLostError) {
+        await rejectArchiveForLostUpload(deps, existing);
+      }
+      throw error;
+    }
     const present: number[] = [];
     const missing: number[] = [];
     for (let index = 0; index < existing.part_count; index += 1) {
-      if (sizes.get(index) === expectedPartSize(existing, index)) present.push(index);
+      if (sizes.get(index)?.size === expectedPartSize(existing, index)) present.push(index);
       else missing.push(index);
     }
     const alreadyAccepted = existing.status !== "planned";
+    let parts: StudioArchivePartTarget[] = [];
+    if (!alreadyAccepted) {
+      try {
+        parts = await partTargets(provider, job, existing, missing);
+      } catch (error) {
+        if (error instanceof StudioArchiveUploadLostError) {
+          await rejectArchiveForLostUpload(deps, existing);
+        }
+        throw error;
+      }
+    }
     return {
       archiveId: existing.id,
       partSize: existing.part_size,
       partCount: existing.part_count,
       presentParts: present,
-      parts: alreadyAccepted ? [] : await partTargets(deps, job.id, existing.id, missing),
+      parts,
     };
   }
 
@@ -465,8 +499,20 @@ export async function planArchiveUpload(
   }
 
   const partCount = partSha256.length;
+  const archiveId = crypto.randomUUID();
+  // The durable upload identity is created BEFORE the row so it can be stored
+  // WITH it: on R2 that is the multipart upload id plus the immutable object
+  // key this archive will assemble into. Nothing later has to ask a browser
+  // where the bytes were going.
+  const storageState: StudioArchiveStorageState = await provider.beginArchiveUpload({
+    jobId: job.id,
+    archiveId,
+    declaredSize: input.declaredSize,
+    partSize: ARCHIVE_PART_BYTES,
+    partCount,
+  });
   const row: StudioArchiveRow = {
-    id: crypto.randomUUID(),
+    id: archiveId,
     job_id: job.id,
     // Plan order is the deterministic processing order: facts and price
     // artifacts adopt first-archive-wins, independent of clock resolution.
@@ -496,20 +542,33 @@ export async function planArchiveUpload(
     // moment it is known — so nothing downstream has to ask the browser again.
     // It survives browser close, process restart, retry and resume, and it is
     // what every entry of this archive is routed from.
-    extracted: { materialPurpose, purposeSource: "owner_selected" },
+    // `storage` records WHICH system holds this archive and, on R2, the
+    // multipart identity resume needs. It is durable server-private metadata:
+    // no endpoint, no signed URL, no credential.
+    extracted: { materialPurpose, purposeSource: "owner_selected", storage: storageState },
     error_code: null,
     created_at: deps.now(),
   };
-  await deps.data.createArchive(row);
+  try {
+    await deps.data.createArchive(row);
+  } catch (error) {
+    // The row is the only durable record of the upload identity. Without it
+    // nothing could ever resume or abort the multipart upload, so release it
+    // now rather than leaving it to the platform's expiry.
+    await provider
+      .abortArchiveUpload({ geometry: geometryOf(job, row), state: storageState })
+      .catch(() => undefined);
+    throw error;
+  }
   return {
     archiveId: row.id,
     partSize: row.part_size,
     partCount,
     presentParts: [],
     parts: await partTargets(
-      deps,
-      job.id,
-      row.id,
+      provider,
+      job,
+      row,
       Array.from({ length: partCount }, (_, index) => index),
     ),
   };
@@ -530,6 +589,7 @@ export async function planArchiveUpload(
  */
 export async function confirmArchiveUpload(
   deps: StudioDeps,
+  provider: StudioStorageProvider,
   job: StudioJobRow,
   input: StudioArchiveConfirmInput,
 ): Promise<StudioArchiveConfirmResult> {
@@ -554,33 +614,78 @@ export async function confirmArchiveUpload(
     return { archiveId: archive.id, accepted: true, missingParts: [] };
   }
 
-  const sizes = await storedPartSizes(deps, job.id, archive.id);
+  let sizes: Map<number, { size: number; etag?: string }>;
+  try {
+    sizes = await storedPartSizes(provider, job, archive);
+  } catch (error) {
+    if (error instanceof StudioArchiveUploadLostError) {
+      await rejectArchiveForLostUpload(deps, archive);
+    }
+    throw error;
+  }
+
+  // The browser may also report the receipt the storage system gave it for
+  // each part. It is never the authority — the listing above is — but a
+  // DISAGREEMENT is a real signal: this client is not holding the same part
+  // the storage system is. Such a part is treated as missing and re-uploaded
+  // rather than silently accepted.
+  const claimedEtags = new Map<number, string>();
+  for (const receipt of input.partEtags ?? []) {
+    if (Number.isInteger(receipt.index) && typeof receipt.etag === "string") {
+      claimedEtags.set(receipt.index, receipt.etag.trim().replace(/^"|"$/g, ""));
+    }
+  }
+
   const badIndexes: number[] = [];
   for (let index = 0; index < archive.part_count; index += 1) {
-    if (sizes.get(index) !== expectedPartSize(archive, index)) badIndexes.push(index);
+    const stored = sizes.get(index);
+    if (!stored || stored.size !== expectedPartSize(archive, index)) {
+      badIndexes.push(index);
+      continue;
+    }
+    const claimed = claimedEtags.get(index);
+    if (claimed && stored.etag && claimed !== stored.etag) badIndexes.push(index);
   }
   if (badIndexes.length > 0) {
-    // Wrong-sized objects are removed so a fresh signed target can rewrite
-    // them; the archive stays unaccepted until every part verifies.
-    const wrongSized = badIndexes.filter((index) => sizes.has(index));
-    if (wrongSized.length) {
-      await deps.storage.remove(
-        PRIVATE_SOURCE_BUCKET,
-        wrongSized.map((index) => archivePartPath(job.id, archive.id, index)),
-      );
-    }
+    // Absent or wrong-sized pieces are discarded where the provider needs it
+    // (a Supabase part object is deleted so a fresh signed target can rewrite
+    // it; an R2 multipart part is simply replaced by re-uploading its number).
+    // The archive stays unaccepted until every part is right.
+    await provider.discardArchiveParts({
+      geometry: geometryOf(job, archive),
+      state: archiveStorageState(archive),
+      indexes: badIndexes.filter((index) => sizes.has(index)),
+    });
     return {
       archiveId: archive.id,
       accepted: false,
-      missingParts: await partTargets(deps, job.id, archive.id, badIndexes),
+      missingParts: await partTargets(provider, job, archive, badIndexes),
     };
+  }
+
+  // Every required part is represented exactly once, at exactly its planned
+  // size. Only now is the archive assembled into ONE readable object (a no-op
+  // on the Supabase lane, CompleteMultipartUpload on R2). Completion is
+  // idempotent, so a retried confirm after a lost response succeeds.
+  let storageState = archiveStorageState(archive);
+  try {
+    storageState = await provider.completeArchiveUpload({
+      geometry: geometryOf(job, archive),
+      state: storageState,
+      parts: sizes,
+    });
+  } catch (error) {
+    if (error instanceof StudioArchiveUploadLostError) {
+      await rejectArchiveForLostUpload(deps, archive);
+    }
+    throw error;
   }
 
   // Record server-observed sizes; the declared per-part manifest was bound at
   // plan time and is preserved verbatim (confirm can never rewrite claims).
   const parts: StudioArchivePartRecord[] = archive.parts.map((part, i) => ({
     index: i,
-    size: sizes.get(i) ?? null,
+    size: sizes.get(i)?.size ?? null,
     declaredSha256: part.declaredSha256,
     sha256: null,
     verified: false,
@@ -590,6 +695,7 @@ export async function confirmArchiveUpload(
     parts,
     observed_size: observed,
     status: "uploaded_unverified",
+    extracted: { ...(archive.extracted ?? {}), storage: storageState },
   });
   if (!accepted) {
     const current = await deps.data.getArchive(archive.id);
@@ -646,6 +752,7 @@ async function updateArchiveClaimedOrThrow(
  */
 async function verifyArchiveParts(
   deps: StudioDeps,
+  reader: StudioArchiveByteReader,
   job: StudioJobRow,
   token: string,
   archive: StudioArchiveRow,
@@ -663,8 +770,10 @@ async function verifyArchiveParts(
     if (part.verified) continue;
     if (budget.verifiedParts >= SLICE_MAX_VERIFY_PARTS) return false;
     await heartbeat();
-    const path = archivePartPath(job.id, archive.id, part.index);
-    const digest = await deps.storage.hashObject(PRIVATE_SOURCE_BUCKET, path, HEAD_SNIFF_BYTES);
+    // ONE logical part, streamed through SHA-256 from whatever holds it: a
+    // whole part object on Supabase, a byte range of the assembled object on
+    // R2. Identical evidence, identical rejection rules.
+    const digest = await reader.hashPart(part.index, HEAD_SNIFF_BYTES);
     budget.verifiedParts += 1;
     const expectedSize = expectedPartSize(archive, part.index);
     const zipMagicOk =
@@ -694,7 +803,7 @@ async function verifyArchiveParts(
   // parts BEFORE the archive may durably become byte_verified: the database
   // lifecycle guard requires complete part evidence AND the exact archive
   // hash to enter that state, so the transition is one atomic patch.
-  const exact = await computeExactArchiveSha(deps, job, archive, heartbeat);
+  const exact = await computeExactArchiveSha(reader, archive, heartbeat);
   await updateArchiveClaimedOrThrow(deps, job.id, token, archive.id, {
     parts,
     composite_sha256: composite,
@@ -718,8 +827,7 @@ async function verifyArchiveParts(
  * is never labelled as the file hash.
  */
 async function computeExactArchiveSha(
-  deps: StudioDeps,
-  job: StudioJobRow,
+  reader: StudioArchiveByteReader,
   archive: StudioArchiveRow,
   heartbeat: () => Promise<void>,
 ): Promise<string> {
@@ -727,13 +835,9 @@ async function computeExactArchiveSha(
   const hash = createHash("sha256");
   for (let index = 0; index < archive.part_count; index += 1) {
     await heartbeat();
-    const size = await deps.storage.readObjectStream(
-      PRIVATE_SOURCE_BUCKET,
-      archivePartPath(job.id, archive.id, index),
-      (chunk) => {
-        hash.update(chunk);
-      },
-    );
+    const size = await reader.streamPart(index, (chunk) => {
+      hash.update(chunk);
+    });
     if (size !== expectedPartSize(archive, index)) {
       throw new StudioError("storage_unavailable", safeMessageFor("storage_unavailable"), true);
     }
@@ -752,7 +856,7 @@ async function indexArchive(
   job: StudioJobRow,
   token: string,
   archive: StudioArchiveRow,
-  source: PartedArchiveSource,
+  source: ZipByteSource,
 ): Promise<RangedZipDirectory | null> {
   let directory: RangedZipDirectory;
   try {
@@ -887,19 +991,19 @@ class EvidenceWriter {
   totalBytes = 0;
 
   private constructor(
-    private readonly deps: StudioDeps,
+    private readonly provider: StudioStorageProvider,
     private readonly prefix: string,
     private readonly heartbeat: () => Promise<void>,
     private readonly hash: import("node:crypto").Hash,
   ) {}
 
   static async open(
-    deps: StudioDeps,
+    provider: StudioStorageProvider,
     prefix: string,
     heartbeat: () => Promise<void>,
   ): Promise<EvidenceWriter> {
     const { createHash } = await import("node:crypto");
-    return new EvidenceWriter(deps, prefix, heartbeat, createHash("sha256"));
+    return new EvidenceWriter(provider, prefix, heartbeat, createHash("sha256"));
   }
 
   async push(chunk: Buffer): Promise<void> {
@@ -930,10 +1034,15 @@ class EvidenceWriter {
     // `data` may be a view of a larger pending buffer; the storage boundary
     // serializes it (production: network write; fakes copy defensively), so
     // no extra part-sized copy is made here.
-    await this.deps.storage.upload(PRIVATE_SOURCE_BUCKET, path, data, "application/octet-stream");
+    await this.provider.objects.upload(
+      PRIVATE_SOURCE_BUCKET,
+      path,
+      data,
+      "application/octet-stream",
+    );
     // The manifest records only server-observed stored bytes: re-hash the
     // object we just wrote (bounded read) before trusting it.
-    const check = await this.deps.storage.hashObject(PRIVATE_SOURCE_BUCKET, path, 4);
+    const check = await this.provider.objects.hashObject(PRIVATE_SOURCE_BUCKET, path, 4);
     if (!check || check.size !== data.length || check.sha256 !== expectedSha) {
       throw new StudioError("storage_unavailable", safeMessageFor("storage_unavailable"), true);
     }
@@ -970,14 +1079,17 @@ class EvidenceWriter {
   async abort(): Promise<void> {
     const paths = this.parts.map((part) => entryEvidencePartPath(this.prefix, part.index));
     if (paths.length) {
-      await this.deps.storage.remove(PRIVATE_SOURCE_BUCKET, paths).catch(() => undefined);
+      await this.provider.objects.remove(PRIVATE_SOURCE_BUCKET, paths).catch(() => undefined);
     }
   }
 }
 
-async function removeEvidenceParts(deps: StudioDeps, evidence: StudioEntryEvidence): Promise<void> {
+async function removeEvidenceParts(
+  provider: StudioStorageProvider,
+  evidence: StudioEntryEvidence,
+): Promise<void> {
   const paths = evidence.parts.map((part) => entryEvidencePartPath(evidence.prefix, part.index));
-  if (paths.length) await deps.storage.remove(evidence.bucket, paths).catch(() => undefined);
+  if (paths.length) await provider.objects.remove(evidence.bucket, paths).catch(() => undefined);
 }
 
 /**
@@ -985,7 +1097,7 @@ async function removeEvidenceParts(deps: StudioDeps, evidence: StudioEntryEviden
  * already in memory: chunked into the same fixed-size part objects.
  */
 async function writeBufferedEvidence(
-  deps: StudioDeps,
+  provider: StudioStorageProvider,
   jobId: string,
   archiveId: string,
   entryIndex: number,
@@ -993,7 +1105,7 @@ async function writeBufferedEvidence(
   heartbeat: () => Promise<void>,
 ): Promise<StudioEntryEvidence> {
   const writer = await EvidenceWriter.open(
-    deps,
+    provider,
     entryEvidenceFolder(jobId, archiveId, entryIndex),
     heartbeat,
   );
@@ -1025,17 +1137,17 @@ interface StreamedEvidence {
  * buffer ever approaches the entry size.
  */
 async function streamEntryEvidence(
-  deps: StudioDeps,
+  provider: StudioStorageProvider,
   job: StudioJobRow,
   archive: StudioArchiveRow,
-  source: PartedArchiveSource,
+  source: ZipByteSource,
   directory: RangedZipDirectory,
   zipEntry: RangedZipDirectory["entries"][number],
   entryIndex: number,
   heartbeat: () => Promise<void>,
 ): Promise<StreamedEvidence> {
   const writer = await EvidenceWriter.open(
-    deps,
+    provider,
     entryEvidenceFolder(job.id, archive.id, entryIndex),
     heartbeat,
   );
@@ -1062,10 +1174,11 @@ async function streamEntryEvidence(
  */
 async function routeEntry(
   deps: StudioDeps,
+  provider: StudioStorageProvider,
   job: StudioJobRow,
   token: string,
   archive: StudioArchiveRow,
-  source: PartedArchiveSource,
+  source: ZipByteSource,
   directory: RangedZipDirectory,
   row: StudioArchiveEntryRow,
   ctx: EntryContext,
@@ -1083,7 +1196,9 @@ async function routeEntry(
       // Claim lost or already settled elsewhere: our uploaded object (if any)
       // is an orphan of THIS attempt — remove it and stop the slice.
       if (publicObject) {
-        await deps.storage.remove(publicObject.bucket, [publicObject.path]).catch(() => undefined);
+        await provider.objects
+          .remove(publicObject.bucket, [publicObject.path])
+          .catch(() => undefined);
       }
       throw new ClaimLostError();
     }
@@ -1115,7 +1230,7 @@ async function routeEntry(
     let streamed: StreamedEvidence;
     try {
       streamed = await streamEntryEvidence(
-        deps,
+        provider,
         job,
         archive,
         source,
@@ -1143,7 +1258,7 @@ async function routeEntry(
     if (streamedDuplicate || ctx.existingProjectHashes.has(streamed.sha256)) {
       // The identical bytes are already durably retained elsewhere; the
       // fresh evidence copy is redundant and removed.
-      await removeEvidenceParts(deps, streamed.evidence);
+      await removeEvidenceParts(provider, streamed.evidence);
       ctx.seenHashes.set(streamed.sha256, row.display_label);
       await settle(
         settledOutcome(
@@ -1207,7 +1322,7 @@ async function routeEntry(
   let bufferedEvidence: StudioEntryEvidence | null = null;
   const retainedEvidence = async (): Promise<StudioEntryEvidence> => {
     bufferedEvidence ??= await writeBufferedEvidence(
-      deps,
+      provider,
       job.id,
       archive.id,
       row.entry_index,
@@ -1345,20 +1460,20 @@ async function routeEntry(
       derivative.format,
     );
     try {
-      await deps.storage.upload(toBucket, toPath, derivative.bytes, derivative.contentType);
-      const check = await deps.storage.hashObject(toBucket, toPath, HEAD_SNIFF_BYTES);
+      await provider.objects.upload(toBucket, toPath, derivative.bytes, derivative.contentType);
+      const check = await provider.objects.hashObject(toBucket, toPath, HEAD_SNIFF_BYTES);
       if (
         !check ||
         check.sha256 !== derivative.record.derivative!.sha256 ||
         check.size !== derivative.record.derivative!.size ||
         detectMediaClass(check.head) !== "image"
       ) {
-        await deps.storage.remove(toBucket, [toPath]).catch(() => undefined);
+        await provider.objects.remove(toBucket, [toPath]).catch(() => undefined);
         await settleRetained("media_verification_failed", { mediaTruth: derivative.record });
         return;
       }
     } catch {
-      await deps.storage.remove(toBucket, [toPath]).catch(() => undefined);
+      await provider.objects.remove(toBucket, [toPath]).catch(() => undefined);
       await settleRetained("media_publish_deferred", { mediaTruth: derivative.record });
       return;
     }
@@ -1368,7 +1483,7 @@ async function routeEntry(
         ...base,
         publicBucket: toBucket,
         publicPath: toPath,
-        publicUrl: deps.storage.publicUrl(toBucket, toPath),
+        publicUrl: provider.buildPublicUrl(toBucket, toPath),
         mediaType,
         mediaTruth: derivative.record,
       }),
@@ -1393,6 +1508,7 @@ async function routeEntry(
  */
 export async function runArchiveSlice(
   deps: StudioDeps,
+  provider: StudioStorageProvider,
   job: StudioJobRow,
   token: string,
   heartbeat: () => Promise<void>,
@@ -1442,17 +1558,29 @@ export async function runArchiveSlice(
       continue;
     }
 
+    const size = archive.observed_size ?? archive.declared_size;
+    // Layout-agnostic: parted objects on Supabase, ranged reads of the
+    // assembled object on R2. The ZIP contract above it is identical, and so
+    // is the per-part byte verification below.
+    const reader = archiveReaderFor(provider, job, archive, size);
+    const source: ZipByteSource = reader;
+
     if (archive.status === "uploaded_unverified" || archive.status === "byte_verifying") {
-      const verified = await verifyArchiveParts(deps, job, token, archive, budget, heartbeat);
+      const verified = await verifyArchiveParts(
+        deps,
+        reader,
+        job,
+        token,
+        archive,
+        budget,
+        heartbeat,
+      );
       if (!verified) {
         const current = await deps.data.getArchive(archive.id);
         if (current?.status === "rejected") continue;
         return { pendingWork: true, archiveCount: archives.length };
       }
     }
-
-    const size = archive.observed_size ?? archive.declared_size;
-    const source = new PartedArchiveSource(deps, job.id, archive, size);
 
     let directory: RangedZipDirectory | null = null;
     if (archive.status === "byte_verified") {
@@ -1485,6 +1613,7 @@ export async function runArchiveSlice(
         await heartbeat();
         await routeEntry(
           deps,
+          provider,
           job,
           token,
           archive,

@@ -88,6 +88,8 @@ import {
   type ComposedArchiveMaterials,
 } from "./large-archive";
 import { assertNotPartnerDemo, assertOwner } from "./membership";
+import { jobStorageFacts, jobStorageProvider } from "./storage/job-provider";
+import type { StudioStorageProvider } from "./storage/provider";
 
 export const MAX_JOB_FILES = 60;
 export { MAX_UPLOAD_BYTES };
@@ -377,8 +379,15 @@ export async function startUploadJob(
     contentType: file.contentType,
     materialPurpose: file.materialPurpose,
   }));
+  // The write provider is decided ONCE, here, and then persisted. Every later
+  // read of this job — processing, retry, resume, the scheduled runner,
+  // cleanup — uses the persisted value, so changing the deployment setting can
+  // never relocate a job that is already in flight. An unrecognized configured
+  // value refuses the job before any row, object or upload target exists.
+  const storageProvider = deps.storageProviders.writeProviderId;
+  const provider = deps.storageProviders.get(storageProvider);
   const jobId = crypto.randomUUID();
-  const declared = declareNewDirectJobFiles(jobId, declaredFilesInput);
+  const declared = declareNewDirectJobFiles(jobId, declaredFilesInput, storageProvider);
   const job: StudioJobRow = {
     id: jobId,
     created_by: actor.userId,
@@ -394,6 +403,9 @@ export async function startUploadJob(
     facts: {
       ...(input.projectFacts ? { projectFacts: input.projectFacts } : {}),
       ...(input.resaleFacts ? { resaleFacts: input.resaleFacts } : {}),
+      // Server-private storage decision, in the job's existing facts JSONB —
+      // no migration, no new column, and never a browser-visible value.
+      ...jobStorageFacts(storageProvider),
     },
     files: declared,
     result_summary: null,
@@ -412,13 +424,26 @@ export async function startUploadJob(
   // another file's path, and two files with the same name stay distinct.
   const uploads: StudioUploadTarget[] = [];
   for (const [fileIndex, file] of declared.entries()) {
-    const { token } = await deps.storage.createSignedUpload(file.stagingBucket, file.stagingPath);
-    uploads.push({
-      name: file.name,
+    // The transport is a short-lived, single-object credential. It is returned
+    // to the caller and nowhere else: not persisted, not audited, not logged.
+    const allocation = await provider.allocateOrdinaryUpload({
+      jobId,
       fileIndex,
       bucket: file.stagingBucket,
       path: file.stagingPath,
-      token,
+      contentType: file.declaredType,
+    });
+    uploads.push({
+      name: file.name,
+      fileIndex,
+      bucket: allocation.bucket,
+      path: allocation.path,
+      // Legacy top-level token stays populated on the Supabase lane so an older
+      // browser build keeps working; the R2 lane has no token at all.
+      ...(allocation.transport.kind === "supabase_signed"
+        ? { token: allocation.transport.token }
+        : {}),
+      transport: allocation.transport,
     });
   }
   await recordAuditSafely(deps, {
@@ -431,6 +456,9 @@ export async function startUploadJob(
       workflow: input.workflow,
       files: declared.length,
       project_slug: projectSlug ?? null,
+      // WHICH system this job's bytes go to. Provider identity only — never an
+      // endpoint, a bucket name, an object key or a signed URL.
+      storage_provider: storageProvider,
     },
   });
   return { jobId, uploads };
@@ -506,7 +534,11 @@ export async function planJobArchiveUpload(
     job.project_slug,
     job.facts.projectFacts as StudioProjectFacts | undefined,
   );
-  const plan = await planArchiveUpload(deps, job, input);
+  // The archive travels on the job's OWN provider, never the current global
+  // write-provider setting: an archive added to an in-flight job goes exactly
+  // where the rest of that job went.
+  const provider = deps.storageProviders.get(jobStorageProvider(job));
+  const plan = await planArchiveUpload(deps, provider, job, input);
   await recordAuditSafely(deps, {
     actor_id: actor.userId,
     actor_email: actor.email,
@@ -525,7 +557,8 @@ export async function confirmJobArchiveUpload(
 ): Promise<StudioArchiveConfirmResult> {
   assertNotPartnerDemo(deps);
   const job = await requireJobAccess(deps, actor, input.jobId);
-  const result = await confirmArchiveUpload(deps, job, input);
+  const provider = deps.storageProviders.get(jobStorageProvider(job));
+  const result = await confirmArchiveUpload(deps, provider, job, input);
   if (result.accepted) {
     await recordAuditSafely(deps, {
       actor_id: actor.userId,
@@ -754,7 +787,7 @@ async function recordAuditSafely(deps: StudioDeps, entry: StudioAuditEntry): Pro
 
 /** Remove objects grouped by their OWN bucket (never one bucket for all). */
 async function removeGroupedByBucket(
-  deps: StudioDeps,
+  provider: StudioStorageProvider,
   objects: Array<{ bucket: string; path: string }>,
 ): Promise<void> {
   const byBucket = new Map<string, string[]>();
@@ -764,7 +797,7 @@ async function removeGroupedByBucket(
     byBucket.set(object.bucket, paths);
   }
   for (const [bucket, paths] of byBucket) {
-    await deps.storage.remove(bucket, paths).catch(() => undefined);
+    await provider.objects.remove(bucket, paths).catch(() => undefined);
   }
 }
 
@@ -777,21 +810,21 @@ async function removeGroupedByBucket(
  * are logged and never affect the committed publication.
  */
 async function cleanupUnreferencedJobObjects(
-  deps: StudioDeps,
+  provider: StudioStorageProvider,
   jobId: string,
   referenced: ReadonlySet<string>,
 ): Promise<void> {
   const prefix = publicJobPrefix(jobId);
   for (const bucket of PUBLIC_MEDIA_BUCKETS) {
     try {
-      const children = await deps.storage.listNames(bucket, prefix);
+      const children = await provider.objects.listNames(bucket, prefix);
       for (const child of children) {
-        const inner = await deps.storage.listNames(bucket, `${prefix}/${child}`);
+        const inner = await provider.objects.listNames(bucket, `${prefix}/${child}`);
         const paths = inner.size
           ? [...inner].map((name) => `${prefix}/${child}/${name}`)
           : [`${prefix}/${child}`];
         const orphans = paths.filter((path) => !referenced.has(`${bucket}/${path}`));
-        if (orphans.length) await deps.storage.remove(bucket, orphans);
+        if (orphans.length) await provider.objects.remove(bucket, orphans);
       }
     } catch (error) {
       logStudioFailure("orphan_cleanup_deferred", error);
@@ -883,6 +916,12 @@ export async function processClaimedJob(
   // membership authorization as the normal claim path, before storage reads or
   // copies. Normal callers pass the already-resolved pre-claim principals.
   const principals = resolvedPrincipals ?? (await resolveJobPrincipals(deps, actor, claimed));
+  // THE no-fallback point. The provider comes from the job's own persisted
+  // record — not from the current deployment setting, and never re-chosen on a
+  // retry, a resume, or a scheduled continuation. If that provider is
+  // unavailable the attempt fails closed; there is no path that quietly
+  // processes an R2 job against Supabase Storage or the reverse.
+  const provider = deps.storageProviders.get(jobStorageProvider(claimed));
   let materials: GatheredMaterials | undefined;
   // Set the moment the atomic publication transaction commits. From then on
   // this attempt's public objects belong to the published page and must
@@ -899,7 +938,7 @@ export async function processClaimedJob(
     // end the slice with work remaining, release the claim so the very next
     // poll — from this browser, any signed-in Studio session, or a scheduled
     // caller — claims and continues from the durable entry checkpoints.
-    const slice = await runArchiveSlice(deps, claimed, token, heartbeat);
+    const slice = await runArchiveSlice(deps, provider, claimed, token, heartbeat);
     if (slice.pendingWork) {
       await deps.data.releaseJobIfClaimed(claimed.id, token);
       return {
@@ -926,6 +965,7 @@ export async function processClaimedJob(
       archiveObjects = composed.referencedPublicObjects;
     }
     materials = await gatherMaterials(deps, claimed, {
+      provider,
       token,
       heartbeat,
       seedHashes: composed?.settledHashes,
@@ -947,6 +987,7 @@ export async function processClaimedJob(
       claimed.workflow === "resale_listing"
         ? await finalizeResale(
             deps,
+            provider,
             principals,
             claimed,
             materials,
@@ -956,6 +997,7 @@ export async function processClaimedJob(
           )
         : await finalizeProject(
             deps,
+            provider,
             principals,
             claimed,
             materials,
@@ -1000,12 +1042,12 @@ export async function processClaimedJob(
     if (currentState?.status === "published") {
       const winner = (currentState.result_summary as { attempt?: string } | null)?.attempt;
       if (winner && winner !== attemptPrefixFromToken(token) && materials?.publicObjects.length) {
-        await removeGroupedByBucket(deps, materials.publicObjects);
+        await removeGroupedByBucket(provider, materials.publicObjects);
       }
       return jobResultFromRow(currentState);
     }
     if (currentState !== undefined && materials?.publicObjects.length) {
-      await removeGroupedByBucket(deps, materials.publicObjects);
+      await removeGroupedByBucket(provider, materials.publicObjects);
     }
 
     await deps.data
@@ -1057,6 +1099,7 @@ function deriveProjectSlug(
 
 async function finalizeProject(
   deps: StudioDeps,
+  provider: StudioStorageProvider,
   principals: StudioJobPrincipals,
   job: StudioJobRow,
   materials: GatheredMaterials,
@@ -1175,13 +1218,13 @@ async function finalizeProject(
     // are orphans (the page references the winner's paths). Remove only ours
     // — never the durably settled archive-entry objects, which the winner's
     // publication references.
-    await removeGroupedByBucket(deps, materials.publicObjects);
+    await removeGroupedByBucket(provider, materials.publicObjects);
   } else {
     // We won: sweep every job object the publication does not reference
     // (foreign attempts' orphans), then audit. Both are post-commit hygiene —
     // non-destructive to the publication and non-fatal on failure.
     await cleanupUnreferencedJobObjects(
-      deps,
+      provider,
       job.id,
       referencedObjectKeys(materials, archiveObjects),
     );
@@ -1238,6 +1281,7 @@ function manualListingProvenance(
 
 async function finalizeResale(
   deps: StudioDeps,
+  provider: StudioStorageProvider,
   principals: StudioJobPrincipals,
   job: StudioJobRow,
   materials: GatheredMaterials,
@@ -1351,10 +1395,10 @@ async function finalizeResale(
   commitState.committed = true;
 
   if (published.replayed) {
-    await removeGroupedByBucket(deps, materials.publicObjects);
+    await removeGroupedByBucket(provider, materials.publicObjects);
   } else {
     await cleanupUnreferencedJobObjects(
-      deps,
+      provider,
       job.id,
       referencedObjectKeys(materials, archiveObjects),
     );

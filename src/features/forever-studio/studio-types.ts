@@ -57,6 +57,58 @@ export interface MediaTruthRecord {
 
 export type StudioRole = "owner" | "trusted_publisher";
 
+// ---------------------------------------------------------------------------
+// Storage provider (FOREVER-R2-MEDIA-STORAGE-CUTOVER-001)
+// ---------------------------------------------------------------------------
+
+/**
+ * WHICH storage system holds the heavy bytes of one Studio job.
+ *
+ * `supabase` is the historical lane (Supabase Storage buckets). `r2` is the
+ * Cloudflare R2 lane: the browser uploads bytes straight to R2 through
+ * short-lived presigned requests, private sources stay in a private R2 bucket,
+ * and verified public derivatives are delivered through Forever's own
+ * `/media/…` route.
+ *
+ * Client-safe: an identifier only. No endpoint, bucket name, account id or
+ * credential is ever part of this union or of anything derived from it in the
+ * browser.
+ */
+export type StudioStorageProviderId = "supabase" | "r2";
+
+export const STUDIO_STORAGE_PROVIDERS: readonly StudioStorageProviderId[] = ["supabase", "r2"];
+
+export function isStudioStorageProvider(value: unknown): value is StudioStorageProviderId {
+  return (
+    typeof value === "string" && (STUDIO_STORAGE_PROVIDERS as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * The ROLE a bucket plays, independent of the provider that implements it.
+ *
+ * Studio reasons in kinds, never in provider bucket names: `private_source`
+ * and `project_archives` are never publicly readable, and `public_media` is the
+ * ONLY kind the public delivery route may read. Real bucket names live in
+ * server-only configuration.
+ */
+export type StudioBucketKind = "private_source" | "public_media" | "project_archives";
+
+/**
+ * How the browser must deliver bytes for ONE allocated upload target.
+ *
+ * A discriminated union so the browser can never "guess" a transport: it does
+ * exactly what the server told it to, and a target it does not understand is a
+ * refusal rather than an improvised request.
+ *
+ * `r2_presigned_put` carries a complete, already-signed URL. It is a BEARER
+ * CREDENTIAL with a short lifetime: it is used once, never logged, never
+ * persisted, and never rendered.
+ */
+export type StudioUploadTransport =
+  | { kind: "supabase_signed"; bucket: string; path: string; token: string }
+  | { kind: "r2_presigned_put"; url: string; headers: Record<string, string> };
+
 export type StudioWorkflow =
   | "new_development"
   | "project_update"
@@ -437,6 +489,17 @@ export type StudioJobFileStatus =
  */
 export interface StudioJobFile {
   name: string;
+  /**
+   * Which storage system holds this file's bytes.
+   *
+   * Written when the job is created and never rewritten: a retry, a resume and
+   * a scheduled continuation all read THIS value, never the current global
+   * write-provider setting, so flipping the deployment setting can never move
+   * an in-flight job's objects to another system. Absent only on manifests
+   * written before the provider contract existed, which resolve through the
+   * documented Supabase read path.
+   */
+  storageProvider?: StudioStorageProviderId;
   /** Always the private staging bucket. */
   stagingBucket: string;
   stagingPath: string;
@@ -490,11 +553,23 @@ export interface StudioUploadTarget {
    * or duplicated rather than uploading to a guessed target.
    */
   fileIndex: number;
-  /** Always the private staging bucket. */
+  /** Always the private staging bucket (logical name, never an R2 bucket). */
   bucket: string;
   path: string;
-  /** Signed upload token for supabase.storage.uploadToSignedUrl. */
-  token: string;
+  /**
+   * LEGACY Supabase signed-upload token.
+   *
+   * Present only for the Supabase transport, and kept as a top-level field so a
+   * browser build that predates `transport` still uploads correctly. The R2
+   * transport has no token: it carries a complete presigned request instead.
+   */
+  token?: string;
+  /**
+   * How to deliver the bytes. Absent only on a legacy response, which the
+   * browser interprets as the Supabase signed lane (and refuses if no token
+   * accompanies it) rather than improvising a request of its own.
+   */
+  transport?: StudioUploadTransport;
 }
 
 /** Manually entered facts. All optional: missing data never blocks. */
@@ -854,12 +929,29 @@ export type StudioArchiveEntryState =
   | "skipped_duplicate"
   | "failed";
 
-/** One signed part-upload target (private staging bucket, server-chosen path). */
+/** One part-upload target (private/archive storage, server-chosen location). */
 export interface StudioArchivePartTarget {
   index: number;
   bucket: string;
   path: string;
-  token: string;
+  /** LEGACY Supabase signed-upload token; absent on the R2 multipart lane. */
+  token?: string;
+  /**
+   * How to deliver this part's bytes. Absent only on a legacy response, read as
+   * the Supabase signed lane exactly as `StudioUploadTarget.transport` is.
+   */
+  transport?: StudioUploadTransport;
+}
+
+/**
+ * One R2 multipart part receipt: the entity tag R2 returned when it accepted
+ * the part. Reported by the browser so the server can prove the confirming
+ * client uploaded the SAME parts the storage system is holding; the server's
+ * own ListParts remains authoritative and a disagreeing claim is refused.
+ */
+export interface StudioArchivePartReceipt {
+  index: number;
+  etag: string;
 }
 
 export interface StudioArchivePlanInput {
@@ -930,6 +1022,12 @@ export interface StudioArchiveConfirmInput {
   archiveId: string;
   /** Client-computed per-part SHA-256 claims (recorded, then server-verified). */
   partSha256: string[];
+  /**
+   * R2 multipart only: the ETag R2 returned for each accepted part. Never
+   * trusted on its own — the server lists the parts the storage system
+   * actually holds and refuses any part whose claimed ETag disagrees.
+   */
+  partEtags?: StudioArchivePartReceipt[];
 }
 
 export interface StudioArchiveConfirmResult {

@@ -30,6 +30,7 @@ import type {
   StudioRole,
   StudioWorkflow,
 } from "../studio-types";
+import type { StudioArchiveStorageState, StudioStorageProviderSet } from "./storage/provider";
 
 // ---------------------------------------------------------------------------
 // Actor and access errors
@@ -254,6 +255,19 @@ export interface StudioArchiveExtracted {
   materialPurpose?: StudioMaterialPurpose | null;
   /** How that purpose was obtained. Always `owner_selected` when present. */
   purposeSource?: StudioMaterialPurposeSource;
+  /**
+   * WHICH storage system holds this archive, plus the durable upload identity
+   * resume needs (FOREVER-R2-MEDIA-STORAGE-CUTOVER-001).
+   *
+   * Written at PLAN time into the archive's existing `extracted` JSONB — no
+   * migration, and no new column. Absent on a pre-contract archive, which is a
+   * Supabase parted archive addressed deterministically from (job, archive,
+   * index) and needs no stored identity at all.
+   *
+   * SERVER-PRIVATE and deliberately inert: an object key and a multipart upload
+   * id, never an endpoint, a signed URL, or a credential.
+   */
+  storage?: StudioArchiveStorageState;
   priceList?: unknown;
   priceListSource?: string;
   factFields?: unknown;
@@ -643,7 +657,21 @@ export interface PriceListPdfExtraction {
 
 export interface StudioDeps {
   data: StudioData;
+  /**
+   * LEGACY object plane: Supabase Storage.
+   *
+   * Kept because it IS the Supabase provider's implementation and because every
+   * pre-cutover manifest resolves through it. Processing code no longer reaches
+   * for it directly — it resolves the provider the JOB recorded (see
+   * `storageProviders`) and uses that provider's object plane, so a job can
+   * never be processed against a system other than the one it was created on.
+   */
   storage: StudioStorage;
+  /**
+   * The storage providers this deployment offers, and which one a NEW job is
+   * created with (FOREVER-R2-MEDIA-STORAGE-CUTOVER-001).
+   */
+  storageProviders: StudioStorageProviderSet;
   ingest: StudioIngest;
   authAdmin: StudioAuthAdmin;
   reader: DependencyReader;
