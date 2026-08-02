@@ -547,17 +547,17 @@ describe("sanitized stage telemetry", () => {
 // 12, 13, 14 — bounded automatic retries
 // ---------------------------------------------------------------------------
 
-/** Drive automatic attempts against a job that fails deterministically. */
+/**
+ * Drive automatic attempts against a job that fails deterministically.
+ *
+ * Nothing is hand-fixed between attempts. The loop runs exactly as the cron and
+ * the dashboard resume would, so whatever stops it is the policy under test and
+ * not the harness.
+ */
 async function failAutomatically(world: FakeWorld, jobId: string, times: number): Promise<void> {
   const restore = world.workerR2.failBinding("private_source", "head");
   try {
     for (let attempt = 0; attempt < times; attempt += 1) {
-      const stored = world.data.jobs.get(jobId)!;
-      // Re-open the DATABASE gate between attempts, so the loop is never
-      // stopped by `retryable = false` — the application cap is what this test
-      // is about, and it has to hold on its own.
-      stored.retryable = true;
-      stored.status = "failed";
       await withWorkerRuntime(world.workerR2.env, () => resumeDueJobs(world.deps, OWNER));
     }
   } finally {
@@ -566,7 +566,7 @@ async function failAutomatically(world: FakeWorld, jobId: string, times: number)
 }
 
 describe("bounded automatic retries", () => {
-  it("(12) stops automatic attempts at the cap and marks the job non-retryable", async () => {
+  it("(12) stops automatic attempts at the cap WITHOUT closing the Owner's lane", async () => {
     const world = workerWorld();
     const started = await startCoralinaEquivalent(world);
     await uploadAllViaTransport(world, started.uploads);
@@ -577,14 +577,54 @@ describe("bounded automatic retries", () => {
 
     const job = await world.deps.data.getJob(started.jobId);
     expect(automaticFailureCount(job!)).toBe(STUDIO_AUTOMATIC_RETRY_LIMIT);
-    expect(job?.retryable).toBe(false);
     expect(job?.status).toBe("failed");
+    // `retryable` is the DATABASE's admission predicate for BOTH lanes, and
+    // nothing in the application ever writes it back to true. A cap that
+    // cleared it would leave direct SQL as the only way to revive the job —
+    // the manual intervention this policy exists to remove. So the failure's
+    // own retryability is passed through untouched, and the automatic lane is
+    // stopped where its budget actually lives: in the application.
+    expect(job?.retryable).toBe(true);
     // The failure stays fully visible and fully truthful.
     expect(job?.error_code).toBe("object_stat_failed");
     expect(job?.attempt_count).toBeGreaterThanOrEqual(STUDIO_AUTOMATIC_RETRY_LIMIT);
     // The private originals are untouched: nothing was deleted to "clean up".
     expect(privateSourceKeys(world)).toHaveLength(6);
     expect(world.executor.store.projects).toHaveLength(0);
+  });
+
+  it("(14) the Owner's own Retry reaches a capped job with no hand-editing at all", async () => {
+    // The regression this pins: the cap used to write `retryable = false`,
+    // which `studio_claim_job` reads as "never claim this again" for the
+    // CONTROLLED lane too. The Owner's button then returned the same stale
+    // failure forever and only direct SQL could revive the job.
+    const world = workerWorld();
+    const started = await startCoralinaEquivalent(world);
+    await uploadAllViaTransport(world, started.uploads);
+    world.data.jobs.get(started.jobId)!.processing_requested_at = world.flags.nowValue;
+    await failAutomatically(world, started.jobId, STUDIO_AUTOMATIC_RETRY_LIMIT);
+    const capped = world.data.jobs.get(started.jobId)!;
+    const attemptsBefore = capped.attempt_count;
+    const objectsBefore = privateSourceKeys(world).slice().sort();
+
+    // No `capped.retryable = true`. No status edit. Exactly what the Studio
+    // "Retry processing" button does, once the underlying fault is gone.
+    const result = await withWorkerRuntime(world.workerR2.env, () =>
+      processUploadJob(world.deps, OWNER, started.jobId),
+    );
+
+    expect(result.status).toBe("published");
+    const job = await world.deps.data.getJob(started.jobId);
+    // History preserved: the attempt count only ever went UP, and the spent
+    // automatic budget is left standing as the record of what happened. It has
+    // nothing left to gate — a published job is terminal and is never selected
+    // again by either lane.
+    expect(job!.status).toBe("published");
+    expect(job!.attempt_count).toBeGreaterThan(attemptsBefore);
+    expect(automaticFailureCount(job!)).toBe(STUDIO_AUTOMATIC_RETRY_LIMIT);
+    // Recovered from the bytes already in R2 — nothing re-uploaded.
+    expect(privateSourceKeys(world).slice().sort()).toEqual(objectsBefore);
+    expect(world.executor.store.projects).toHaveLength(1);
   });
 
   it("(13) the scheduler stops selecting a capped job, without touching it", async () => {

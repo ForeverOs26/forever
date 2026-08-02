@@ -101,22 +101,33 @@ export function retryFactsPatch(automaticFailures: number): {
 }
 
 /**
- * Whether this failure should also make the job non-retryable.
+ * What `retryable` a capped failure should record.
  *
- * Reaching the cap stops the automatic lane at BOTH ends: the application skips
- * the job before claiming it, and `retryable = false` makes the database's
- * due-job predicate stop returning it at all. The failure itself stays fully
- * visible on the row — status, error code, stage telemetry and the true
- * attempt count — because a job nobody is retrying still has to be explicable.
+ * THE CAP MUST NOT TOUCH THIS, AND HERE IS WHY.
  *
- * An already-terminal failure (a refusal, a validation error) is unaffected:
- * it was never retryable and the cap has no opinion about it.
+ * `retryable` is not the automatic lane's flag. It is the DATABASE's admission
+ * predicate for BOTH lanes: `studio_claim_job` accepts a failed row only while
+ * `retryable IS TRUE`, and `studio_request_job_processing` — the Owner pressing
+ * "Retry processing" — simply delegates to it. Nothing in the application ever
+ * writes `retryable` back to true. So a cap that set it to false would close the
+ * Owner's lane permanently and leave direct SQL as the only way back: precisely
+ * the manual intervention this module exists to remove, reintroduced from the
+ * other direction.
+ *
+ * Stopping the automatic lane does not need it. `automaticRetryBudgetExhausted`
+ * already skips a capped job before it is claimed, in the scheduled runner and
+ * in the dashboard's background resume alike, so the loop stops at the
+ * application boundary where the budget actually lives. The database keeps
+ * offering the row; nobody automatic takes it; a person still can.
+ *
+ * A failure's own retryability is therefore passed through untouched. An
+ * already-terminal failure (a refusal, a validation error) stays terminal
+ * because it was never retryable, and the cap has no opinion about it.
  */
 export function retryableAfterFailure(input: {
   failureRetryable: boolean;
   nextAutomaticFailures: number;
   limit?: number;
 }): boolean {
-  if (!input.failureRetryable) return false;
-  return input.nextAutomaticFailures < (input.limit ?? STUDIO_AUTOMATIC_RETRY_LIMIT);
+  return input.failureRetryable;
 }
