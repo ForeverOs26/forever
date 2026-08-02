@@ -469,37 +469,58 @@ describe("a mixed submission on a deployment without the resumable lane", () => 
   });
 
   it("(12) creates nothing at all, and keeps the Owner's whole selection", async () => {
-    // The archive picker is disabled, so this models the residual route: a
-    // capability that changed after the file was already chosen.
-    endpoints.getOverview.mockReset().mockResolvedValue(overviewWith("available"));
-    const view = renderUploader();
+    // THE RESIDUAL ROUTE, exercised for real.
+    //
+    // A never-settling overview is exactly the window in which the picker is
+    // still enabled — the display question deliberately answers "not
+    // unavailable" until the server has said so — while the submit question
+    // already answers "closed". It is the one state in which an Owner can build
+    // a mixed selection with the lane shut, and it is the only way to reach the
+    // client's pre-submit refusal, so it is what this test drives.
+    endpoints.getOverview.mockReset().mockReturnValue(new Promise(() => {}));
+    renderUploader();
     await settle();
-    await addTo("Brochure", new File(["b"], "brochure.pdf", { type: "application/pdf" }));
-    await addTo(ARCHIVE_LABEL, new File(["z"], "package.zip", { type: "application/zip" }));
+    expect(windowInput(ARCHIVE_LABEL).disabled).toBe(false);
 
-    // The lane closes underneath the form.
-    endpoints.getOverview.mockResolvedValue(overviewWith("temporarily_unavailable"));
-    await act(async () => {
-      view.rerender(<div />);
-    });
-    endpoints.getOverview.mockReset().mockResolvedValue(overviewWith("temporarily_unavailable"));
-    const fresh = renderUploader();
-    await settle();
     await addTo("Brochure", new File(["b"], "brochure.pdf", { type: "application/pdf" }));
-    // The archive picker refuses, so the Owner cannot even build the mixed
-    // selection — which is the point. Publishing the ordinary half works.
     await addTo(ARCHIVE_LABEL, new File(["z"], "package.zip", { type: "application/zip" }));
-    expect(screen.queryByText("package.zip")).toBeNull();
+    expect(screen.getByText("package.zip")).toBeTruthy();
+    expect(screen.getByText("brochure.pdf")).toBeTruthy();
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
     });
 
-    // Exactly one ordinary job, no archive lane call at all.
-    expect(endpoints.startJob).toHaveBeenCalledTimes(1);
-    expect(endpoints.startJob.mock.calls[0][0].data.archives ?? []).toEqual([]);
+    // Nothing was created: no job, no ordinary upload, no archive call.
+    expect(endpoints.startJob).not.toHaveBeenCalled();
     expect(archiveLane.uploadLargeArchive).not.toHaveBeenCalled();
-    fresh.unmount();
+    // Only the archive capability is named — not the brochure, not the form.
+    expect(screen.getByText(ARCHIVE_UPLOAD_UNAVAILABLE_MESSAGE)).toBeTruthy();
+
+    // And the Owner's whole selection survived. Going back to the form shows
+    // both files still where they were put, so removing the archive is one
+    // click and re-picking nothing.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Back to the form" }));
+    });
+    expect(screen.getByText("package.zip")).toBeTruthy();
+    expect(screen.getByText("brochure.pdf")).toBeTruthy();
+
+    // Removing only the archive lets the ordinary half publish immediately.
+    endpoints.getOverview.mockReset().mockResolvedValue(overviewWith("temporarily_unavailable"));
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: `Remove package.zip from ${ARCHIVE_LABEL}` }),
+      );
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+    });
+
+    expect(endpoints.startJob).toHaveBeenCalledTimes(1);
+    const sent = endpoints.startJob.mock.calls[0][0].data;
+    expect(sent.files.map((file: { name: string }) => file.name)).toEqual(["brochure.pdf"]);
+    expect(sent.archives ?? []).toEqual([]);
   });
 
   it("(12) refuses the whole request server-side before any job row exists", async () => {
@@ -666,10 +687,15 @@ describe("the server refuses the archive lane before any allocation", () => {
     expect(world.r2.keys(TEST_R2_BUCKETS.privateSources)).toEqual([]);
   });
 
-  it("still admits an ordinary SMALL package.zip filed under the archive window", async () => {
-    // The gate is on the resumable multipart LANE, not on the window. A ZIP
-    // small enough for the ordinary signed lane never needs a part listing, so
-    // refusing it would remove working functionality for no safety gain.
+  it("the SERVER gate is lane-scoped: a small package.zip is still accepted", async () => {
+    // The server refuses the resumable LANE, not the window: a ZIP small enough
+    // for the ordinary signed lane never needs a part listing.
+    //
+    // The WINDOW is coarser — its picker is disabled outright — so this path is
+    // not reachable from the Studio UI while the lane is closed. That gap is
+    // deliberate and is recorded in
+    // docs/FOREVER_R2_WORKER_BINDING_OBJECT_PLANE.md §3.3; this test pins the
+    // server half so re-opening the window later needs no server change.
     const world = workerR2World();
 
     const started = await withWorkerRuntime(world.workerR2.env, () =>

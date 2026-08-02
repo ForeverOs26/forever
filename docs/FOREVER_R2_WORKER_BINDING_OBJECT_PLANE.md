@@ -202,11 +202,26 @@ are exactly as they were, and no completeness or approval gate is added.
 The client is told, never asked. A forged capability, a stale cached overview
 or a raw HTTP call all meet the same server refusal.
 
-**One deliberate non-restriction.** The gate is on the resumable multipart
-_lane_, not on the archive _window_. A ZIP small enough for the ordinary signed
-lane never needs a part listing, so it still uploads and still expands inline
-under `project_archive`. Refusing it would remove working functionality for no
-safety gain.
+**Where the server and the window deliberately differ.** The SERVER gate is on
+the resumable multipart _lane_: a ZIP small enough for the ordinary signed lane
+never needs a part listing, so `startUploadJob` still accepts one filed under
+`project_archive` and still expands it inline. The WINDOW gate is coarser — the
+picker is disabled outright — because `project_archive` is the only window whose
+`accept` admits `.zip`, and a picker that took a file only to refuse it above an
+invisible size threshold would be a worse answer than a clearly closed one.
+
+The cost is real and worth stating plainly: **while the lane is closed, an Owner
+cannot upload a small project ZIP through the UI either**, even though the
+server would accept it. The material is not lost — the same files upload through
+their own windows, which is what the window note recommends — but a working path
+is closed for the duration.
+
+The alternative, a size-aware picker that accepts a small ZIP and rejects a
+large one at pick time, is deliberately NOT taken here: it puts a second,
+independently-drifting copy of the lane threshold in the browser, and this
+correction's whole point is that the client is told the answer rather than
+computing it. If the gate outlives its expected life, that is the change to
+make.
 
 ### 3.4 The exact additional architecture needed
 
