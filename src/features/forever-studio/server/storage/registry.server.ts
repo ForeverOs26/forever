@@ -14,7 +14,12 @@ import { StudioAccessError } from "../contracts";
 import type { StudioStorage } from "../contracts";
 import type { StudioStorageProviderId } from "../../studio-types";
 import { R2Client } from "./r2-client.server";
-import { createR2StorageProvider, type R2ProviderConfig } from "./r2-provider.server";
+import { isWorkerRuntime, requireStudioR2Bindings } from "./r2-bindings.server";
+import {
+  createR2StorageProvider,
+  type R2ProviderConfig,
+  type StudioR2Runtime,
+} from "./r2-provider.server";
 import type { StudioStorageProvider, StudioStorageProviderSet } from "./provider";
 import { createSupabaseStorageProvider } from "./supabase-provider";
 import {
@@ -107,6 +112,22 @@ export function resolveWriteProviderFromEnv(
 }
 
 /**
+ * Which transport this process performs SERVER-SIDE R2 object operations over.
+ *
+ * On a Cloudflare Worker it is the native bucket bindings, always — the S3
+ * endpoint is not reachable from inside an isolate, which is why the first real
+ * R2 production pilot uploaded 51,937,418 bytes successfully from the browser
+ * and then failed on its own very first server-side HEAD. Everywhere else it is
+ * the S3 object plane, which is what local development and the tests exercise.
+ *
+ * There is deliberately NO third case. A Worker without usable bindings does
+ * not quietly fall back to S3-over-fetch; `requireStudioR2Bindings` refuses.
+ */
+export function resolveStudioR2Runtime(): StudioR2Runtime {
+  return isWorkerRuntime() ? "worker" : "node";
+}
+
+/**
  * Build the provider set for one server process.
  *
  * The R2 provider is created LAZILY: a deployment still running on Supabase
@@ -127,8 +148,13 @@ export function createStudioStorageProviders(
     get(id) {
       if (id === "supabase") return supabase;
       if (!r2) {
+        const runtime = resolveStudioR2Runtime();
         r2 = createR2StorageProvider({
+          // Still required on a Worker: presigning the browser's direct upload
+          // is the one capability a binding cannot provide.
           client: createR2ClientFromEnv(env),
+          runtime,
+          bindings: runtime === "worker" ? requireStudioR2Bindings() : null,
           buckets: readR2BucketNames(env),
           publicOrigin: readPublicMediaOrigin(env),
         });

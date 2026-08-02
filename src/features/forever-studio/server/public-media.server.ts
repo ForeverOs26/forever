@@ -20,6 +20,7 @@
 
 import type { PublicMediaBody, PublicMediaHead, PublicMediaSource } from "./public-media";
 import { normalizeEtag, type R2Client } from "./storage/r2-client.server";
+import { isWorkerRuntime } from "./storage/r2-bindings.server";
 import { createR2ClientFromEnv, readR2BucketNames } from "./storage/registry.server";
 
 /** The narrow slice of the Cloudflare R2 binding this route needs. */
@@ -133,8 +134,18 @@ export function createS3PublicMediaSource(env: NodeJS.ProcessEnv = process.env):
   );
 }
 
-/** The source this deployment reads public media through. */
+/**
+ * The source this deployment reads public media through.
+ *
+ * On a Worker the binding is REQUIRED. Falling back to the S3 API there is not
+ * a fallback at all: a Worker cannot reach the S3 endpoint, so the "fallback"
+ * only converts a diagnosable configuration error into a slow, silent one. The
+ * route turns this refusal into the same generic 404 every other failure
+ * produces, so nothing about which keys exist is disclosed either way.
+ */
 export function resolvePublicMediaSource(env: NodeJS.ProcessEnv = process.env): PublicMediaSource {
   const binding = bindingFromRuntime();
-  return binding ? createBindingPublicMediaSource(binding) : createS3PublicMediaSource(env);
+  if (binding) return createBindingPublicMediaSource(binding);
+  if (isWorkerRuntime()) throw new Error("studio_public_media_binding_unavailable");
+  return createS3PublicMediaSource(env);
 }
