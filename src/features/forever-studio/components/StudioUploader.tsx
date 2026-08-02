@@ -19,8 +19,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
-
 import { studioGetOverview, studioProcessJob, studioStartJob } from "../studio.functions";
 import {
   additionalMaterialWindows,
@@ -46,6 +44,7 @@ import {
   type ArchiveUploadProgress,
 } from "./archive-upload";
 import { STUDIO_OVERVIEW_KEY } from "./StudioDashboard";
+import { sendUploadBytes } from "./upload-transport";
 import {
   isStudioRouteDenial,
   StudioRouteDenied,
@@ -262,12 +261,13 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
         setPhase({ step: "uploading", done: 0, total: pairs.length });
         for (let index = 0; index < pairs.length; index += 1) {
           const { target, file } = pairs[index];
-          const { error } = await supabase.storage
-            .from(target.bucket)
-            .uploadToSignedUrl(target.path, target.token, file, {
-              contentType: file.type || undefined,
-            });
-          if (error) failedUploads.push(target.name);
+          // Straight from the device to storage, on whichever transport the
+          // server allocated. One file failing never abandons its siblings.
+          try {
+            await sendUploadBytes(target, file, { contentType: file.type || undefined });
+          } catch {
+            failedUploads.push(target.name);
+          }
           setPhase({ step: "uploading", done: index + 1, total: pairs.length });
         }
       }

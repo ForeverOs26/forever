@@ -15,6 +15,44 @@
     // user token), which fires the cloudflare:scheduled Nitro hook and runs
     // one bounded Studio continuation tick. Idle cost is a single due-jobs
     // query. See src/features/forever-studio/server/scheduled.plugin.ts.
-    "crons": ["*/5 * * * *"]
-  }
+    "crons": ["*/5 * * * *"],
+  },
+  // Cloudflare R2 media storage (FOREVER-R2-MEDIA-STORAGE-CUTOVER-001).
+  //
+  // DEPLOY CONFIGURATION ONLY — nothing in this repository creates a bucket,
+  // creates or rotates a credential, or deploys this config. The buckets must
+  // exist before the first deploy that carries this file, and they must remain
+  // PRIVATE at the bucket level: no r2.dev access, no anonymous listing, and no
+  // public custom domain. Public derivatives are delivered exclusively through
+  // the Worker's own same-origin /media/<key> route, which reads
+  // R2_PUBLIC_MEDIA and nothing else.
+  //
+  // The three buckets are separate on purpose, so "private" and "public" is a
+  // BUCKET boundary rather than a prefix convention:
+  //   forever-private-sources   original photographs, renders, documents,
+  //                             price files, re-staged archive entries and
+  //                             per-entry evidence. Never publicly readable.
+  //   forever-public-media      only verified, sanitized derivatives.
+  //   forever-project-archives  completed ZIP packages assembled by multipart
+  //                             upload. Never publicly readable.
+  //
+  // The Worker also needs the server-only secrets R2_ACCOUNT_ID,
+  // R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY (used ONLY to sign requests, most
+  // importantly the browser's short-lived direct-upload URLs), plus the
+  // non-secret STUDIO_STORAGE_WRITE_PROVIDER. See
+  // docs/FOREVER_R2_MEDIA_STORAGE_ARCHITECTURE.md.
+  "r2_buckets": [
+    {
+      "binding": "R2_PRIVATE_SOURCES",
+      "bucket_name": "forever-private-sources",
+    },
+    {
+      "binding": "R2_PUBLIC_MEDIA",
+      "bucket_name": "forever-public-media",
+    },
+    {
+      "binding": "R2_PROJECT_ARCHIVES",
+      "bucket_name": "forever-project-archives",
+    },
+  ],
 }

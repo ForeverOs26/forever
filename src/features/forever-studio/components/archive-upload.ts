@@ -13,16 +13,16 @@
  * only — no server-only imports.
  */
 
-import { supabase } from "@/integrations/supabase/client";
-
 import { studioConfirmArchiveUpload, studioPlanArchiveUpload } from "../studio.functions";
 import {
   ARCHIVE_PART_BYTES,
   LARGE_ARCHIVE_MAX_BYTES,
   LARGE_ARCHIVE_MIN_BYTES,
+  type StudioArchivePartReceipt,
   type StudioArchivePartTarget,
   type StudioMaterialPurpose,
 } from "../studio-types";
+import { sendUploadBytes } from "./upload-transport";
 
 /**
  * ZIPs above the legacy inline limit must use the chunked lane.
@@ -97,6 +97,13 @@ export async function computeUploadPartManifest(file: File): Promise<string[]> {
   return manifest;
 }
 
+/** Receipts as the confirm contract carries them: ordered, index-keyed. */
+function partReceipts(receipts: Map<number, string>): StudioArchivePartReceipt[] {
+  return [...receipts.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map(([index, etag]) => ({ index, etag }));
+}
+
 const PART_UPLOAD_ATTEMPTS = 4;
 const CONFIRM_ROUNDS = 3;
 /**
@@ -153,6 +160,12 @@ async function uploadOnePart(
   partSize: number,
   target: StudioArchivePartTarget,
   onRetry: () => void,
+  /**
+   * Receipts the storage system returns per part. The R2 multipart lane needs
+   * them to complete the upload; the Supabase lane returns none and the map
+   * simply stays empty.
+   */
+  receipts?: Map<number, string>,
 ): Promise<void> {
   const start = target.index * partSize;
   const blob = file.slice(start, Math.min(file.size, start + partSize));
@@ -163,14 +176,18 @@ async function uploadOnePart(
       onRetry();
       await delay(1000 * 2 ** (attempt - 1));
     }
-    const { error } = await supabase.storage
-      .from(target.bucket)
-      .uploadToSignedUrl(target.path, target.token, blob, {
+    let failure: unknown = null;
+    try {
+      const receipt = await sendUploadBytes(target, blob, {
         contentType: "application/octet-stream",
       });
+      if (receipt.etag) receipts?.set(target.index, receipt.etag);
+    } catch (error) {
+      failure = error;
+    }
     attempts += 1;
-    if (!error) return;
-    lastError = error;
+    if (!failure) return;
+    lastError = failure;
     // Offline is a pause, not a countdown: stop burning attempts and let the
     // caller wait for connectivity, then resume through a fresh plan.
     if (isOffline()) break;
@@ -215,6 +232,9 @@ export async function uploadLargeArchive(
       data: { jobId, fileName: file.name, declaredSize: file.size, materialPurpose, partSha256 },
     });
   let plan = await requestPlan();
+  // Per-part receipts, keyed by part index. Kept across replans: a resumed
+  // upload must still be able to name every part the storage system holds.
+  const receipts = new Map<number, string>();
   const report = (state: ArchiveUploadProgress["state"], partsDone: number) =>
     onProgress({
       uploadedBytes: Math.min(file.size, partsDone * plan.partSize),
@@ -236,7 +256,7 @@ export async function uploadLargeArchive(
     let failure: unknown = null;
     for (const target of plan.parts) {
       try {
-        await uploadOnePart(file, plan.partSize, target, () => report("retrying", done));
+        await uploadOnePart(file, plan.partSize, target, () => report("retrying", done), receipts);
         done += 1;
         stalledRounds = 0;
         report("uploading", done);
@@ -263,7 +283,7 @@ export async function uploadLargeArchive(
   report("confirming", done);
   for (let round = 0; round < CONFIRM_ROUNDS; round += 1) {
     const confirm = await studioConfirmArchiveUpload({
-      data: { jobId, archiveId: plan.archiveId, partSha256 },
+      data: { jobId, archiveId: plan.archiveId, partSha256, partEtags: partReceipts(receipts) },
     });
     if (confirm.accepted) {
       report("stored", plan.partCount);
@@ -272,7 +292,7 @@ export async function uploadLargeArchive(
     // The server found absent or wrong-sized parts: re-upload just those
     // through the fresh targets it returned, then confirm again.
     for (const target of confirm.missingParts) {
-      await uploadOnePart(file, plan.partSize, target, () => report("retrying", done));
+      await uploadOnePart(file, plan.partSize, target, () => report("retrying", done), receipts);
     }
   }
   throw new Error(`${file.name} could not be confirmed in storage. Retry to resume this upload.`);

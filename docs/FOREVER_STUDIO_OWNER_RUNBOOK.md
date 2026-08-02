@@ -290,3 +290,80 @@ is rejected by the server even if someone creates a login elsewhere.
   and retry it. Retries never create duplicates.
 - Ask for the audit trail: every publication, edit, invite, and disable is
   recorded with the account that did it.
+
+## Where your files live (Cloudflare R2)
+
+Nothing about how you use Studio changes. You pick the project, the workflow
+and the upload window, choose your files, and press Publish. What changed
+underneath is **where the heavy files are kept**.
+
+- Supabase still holds your account, your projects, developers, units, prices,
+  amenities, the CRM, and the record of every upload.
+- **Cloudflare R2** holds the files themselves: your original photographs and
+  renders, videos, brochures, price lists, payment plans, plans, maps,
+  construction media, legal documents and ZIP packages.
+- Your **originals stay private.** They are in buckets nobody can browse and
+  nobody can link to. Only a checked, cleaned copy of a supported image is ever
+  made public.
+- Public images are served from **Forever's own address**
+  (`https://forever.phuketre22.workers.dev/media/…`), not from a storage
+  provider's address. Nothing in that link reveals the original filename.
+- Your files go **straight from your device to storage**. They are not routed
+  through a Forever server on the way, which is why a large upload is fast and
+  why a dropped connection resumes instead of restarting.
+- Large ZIP packages still upload in resumable pieces. Close the browser
+  whenever you like — the work already accepted continues on its own.
+
+### Deployment prerequisites (one time, by whoever deploys)
+
+Before the release that turns this on:
+
+1. Create three **private** R2 buckets: `forever-private-sources`,
+   `forever-public-media`, `forever-project-archives`. Do **not** enable
+   `r2.dev` access, anonymous listing, or a public custom domain on any of them.
+2. Apply the CORS rule from
+   `docs/FOREVER_R2_MEDIA_STORAGE_ARCHITECTURE.md` §10 to
+   `forever-private-sources` and `forever-project-archives`. The public bucket
+   needs none.
+3. Create ONE R2 API token scoped to **Object Read & Write** on exactly those
+   three buckets — nothing wider.
+4. Add the Worker bindings `R2_PRIVATE_SOURCES`, `R2_PUBLIC_MEDIA`,
+   `R2_PROJECT_ARCHIVES`, and the server-only secrets `R2_ACCOUNT_ID`,
+   `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
+
+### Release A — ship the code, change nothing
+
+Deploy the dual-provider code with `STUDIO_STORAGE_WRITE_PROVIDER=supabase`.
+Then verify: no behaviour regression, the old catalogue still renders, Studio
+sign-in works, and **no object is created in R2 yet**. Nothing has moved.
+
+### Release B — turn on R2 for new uploads
+
+Keep the exact same reviewed code and change **only**
+`STUDIO_STORAGE_WRITE_PROVIDER=r2`. Then verify, in order:
+
+1. a newly created job allocates its upload targets in R2;
+2. upload one Owner-chosen pilot project end to end;
+3. Supabase Storage object counts do **not** increase;
+4. private originals are in the private buckets and only cleaned derivatives are
+   in the public one;
+5. the public project page renders its media;
+6. retry and resume both work.
+
+Keep the new R2-capable Worker as the rollback target.
+
+### Rollback boundary
+
+Rolling back to the **pre-R2** Worker is safe only until the first R2 job
+exists. After that it is not — that Worker cannot read an R2 job at all. From
+then on, "rollback" means the same reviewed code with
+`STUDIO_STORAGE_WRITE_PROVIDER=supabase`: new uploads go back to Supabase while
+the R2 jobs that already exist can still be finished.
+
+### The clean reset is a separate decision
+
+Removing the existing project catalogue and re-creating the projects through
+Studio is a **separate, Owner-authorized task**. It happens only after the pilot
+passes, only after a full metadata snapshot, and only with your explicit
+go-ahead. Nothing in this change deletes a project, a unit, a media row or a
+stored file.

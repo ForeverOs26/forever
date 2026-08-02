@@ -150,6 +150,24 @@ const archiveConfirmSchema = z
       .array(z.string().regex(/^[a-f0-9]{64}$/))
       .min(1)
       .max(64),
+    // R2 multipart receipts. Optional (the Supabase lane has none) and never
+    // authoritative: the server lists what storage actually holds and treats a
+    // disagreeing claim as a part that still needs bytes. Bounded and
+    // character-constrained so an arbitrary string can never reach the
+    // completion request body.
+    partEtags: z
+      .array(
+        z.object({
+          index: z.number().int().min(0).max(63),
+          etag: z
+            .string()
+            .min(1)
+            .max(200)
+            .regex(/^[A-Za-z0-9"'._:+/=-]+$/),
+        }),
+      )
+      .max(64)
+      .optional(),
   })
   .strip();
 

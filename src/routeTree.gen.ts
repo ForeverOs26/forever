@@ -30,6 +30,7 @@ import { Route as StudioUploadRouteImport } from './routes/studio.upload'
 import { Route as StudioMembersRouteImport } from './routes/studio.members'
 import { Route as ResaleSlugRouteImport } from './routes/resale.$slug'
 import { Route as ProjectsSlugRouteImport } from './routes/projects.$slug'
+import { Route as MediaSplatRouteImport } from './routes/media.$'
 import { Route as InternalCoralinaRouteImport } from './routes/internal.coralina'
 import { Route as AdvisoryReportRouteImport } from './routes/advisory_.report'
 import { Route as StudioResaleIdRouteImport } from './routes/studio.resale.$id'
@@ -141,6 +142,11 @@ const ProjectsSlugRoute = ProjectsSlugRouteImport.update({
   path: '/projects/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MediaSplatRoute = MediaSplatRouteImport.update({
+  id: '/media/$',
+  path: '/media/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InternalCoralinaRoute = InternalCoralinaRouteImport.update({
   id: '/internal/coralina',
   path: '/internal/coralina',
@@ -183,6 +189,7 @@ export interface FileRoutesByFullPath {
   '/studio': typeof StudioRouteWithChildren
   '/advisory/report': typeof AdvisoryReportRoute
   '/internal/coralina': typeof InternalCoralinaRoute
+  '/media/$': typeof MediaSplatRoute
   '/projects/$slug': typeof ProjectsSlugRoute
   '/resale/$slug': typeof ResaleSlugRoute
   '/studio/members': typeof StudioMembersRoute
@@ -210,6 +217,7 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/advisory/report': typeof AdvisoryReportRoute
   '/internal/coralina': typeof InternalCoralinaRoute
+  '/media/$': typeof MediaSplatRoute
   '/projects/$slug': typeof ProjectsSlugRoute
   '/resale/$slug': typeof ResaleSlugRoute
   '/studio/members': typeof StudioMembersRoute
@@ -239,6 +247,7 @@ export interface FileRoutesById {
   '/studio': typeof StudioRouteWithChildren
   '/advisory_/report': typeof AdvisoryReportRoute
   '/internal/coralina': typeof InternalCoralinaRoute
+  '/media/$': typeof MediaSplatRoute
   '/projects/$slug': typeof ProjectsSlugRoute
   '/resale/$slug': typeof ResaleSlugRoute
   '/studio/members': typeof StudioMembersRoute
@@ -269,6 +278,7 @@ export interface FileRouteTypes {
     | '/studio'
     | '/advisory/report'
     | '/internal/coralina'
+    | '/media/$'
     | '/projects/$slug'
     | '/resale/$slug'
     | '/studio/members'
@@ -296,6 +306,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/advisory/report'
     | '/internal/coralina'
+    | '/media/$'
     | '/projects/$slug'
     | '/resale/$slug'
     | '/studio/members'
@@ -324,6 +335,7 @@ export interface FileRouteTypes {
     | '/studio'
     | '/advisory_/report'
     | '/internal/coralina'
+    | '/media/$'
     | '/projects/$slug'
     | '/resale/$slug'
     | '/studio/members'
@@ -353,6 +365,7 @@ export interface RootRouteChildren {
   StudioRoute: typeof StudioRouteWithChildren
   AdvisoryReportRoute: typeof AdvisoryReportRoute
   InternalCoralinaRoute: typeof InternalCoralinaRoute
+  MediaSplatRoute: typeof MediaSplatRoute
   ProjectsSlugRoute: typeof ProjectsSlugRoute
   ResaleSlugRoute: typeof ResaleSlugRoute
   StudioForgotPasswordRoute: typeof StudioForgotPasswordRoute
@@ -510,6 +523,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/media/$': {
+      id: '/media/$'
+      path: '/media/$'
+      fullPath: '/media/$'
+      preLoaderRoute: typeof MediaSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/internal/coralina': {
       id: '/internal/coralina'
       path: '/internal/coralina'
@@ -583,6 +603,7 @@ const rootRouteChildren: RootRouteChildren = {
   StudioRoute: StudioRouteWithChildren,
   AdvisoryReportRoute: AdvisoryReportRoute,
   InternalCoralinaRoute: InternalCoralinaRoute,
+  MediaSplatRoute: MediaSplatRoute,
   ProjectsSlugRoute: ProjectsSlugRoute,
   ResaleSlugRoute: ResaleSlugRoute,
   StudioForgotPasswordRoute: StudioForgotPasswordRoute,

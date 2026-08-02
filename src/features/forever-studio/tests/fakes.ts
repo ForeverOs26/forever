@@ -32,8 +32,30 @@ import {
   UPLOAD_MANIFEST_DOMAIN,
   type StudioArchiveEntryState,
   type StudioArchiveStatus,
+  type StudioStorageProviderId,
+  type StudioUploadTarget,
 } from "../studio-types";
+import { R2Client } from "../server/storage/r2-client.server";
+import type { StudioStorageProviderSet } from "../server/storage/provider";
+import { createR2StorageProvider } from "../server/storage/r2-provider.server";
+import { createSupabaseStorageProvider } from "../server/storage/supabase-provider";
+import { assertLocalR2Endpoint, createLocalR2, type LocalR2 } from "./local-r2";
 
+/**
+ * The bucket names a test deployment binds. Distinct from the production names
+ * on purpose: a test that somehow reached a real endpoint would be addressing
+ * buckets that do not exist there.
+ */
+export const TEST_R2_BUCKETS = {
+  privateSources: "test-private-sources",
+  publicMedia: "test-public-media",
+  projectArchives: "test-project-archives",
+} as const;
+
+/** Origin the public `/media/…` route is served from in tests. */
+export const TEST_PUBLIC_MEDIA_ORIGIN = "https://forever.test";
+
+import { StudioAccessError } from "../server/contracts";
 import type {
   PriceListPdfExtraction,
   StudioActor,
@@ -84,6 +106,14 @@ export class FakeStorage implements StudioStorage {
   objects = new Map<string, Buffer>();
   contentTypes = new Map<string, string>();
   signedUploads: string[] = [];
+  /**
+   * Every SUPABASE STORAGE write this fake was asked to perform.
+   *
+   * The regression tests for the cutover assert this stays EMPTY for a job
+   * created on R2: a new-R2 job that reached Supabase Storage would show up
+   * here, whatever route it took to get there.
+   */
+  uploadCalls: string[] = [];
   /** Force the next public derivative upload to throw once. */
   failCopyOnce = false;
   /** Force remove to throw once (models a crash before cleanup could run). */
@@ -162,6 +192,7 @@ export class FakeStorage implements StudioStorage {
   }
 
   async upload(bucket: string, path: string, data: Buffer, contentType?: string): Promise<void> {
+    this.uploadCalls.push(this.key(bucket, path));
     if (this.failCopyOnce && bucket !== "studio-uploads") {
       this.failCopyOnce = false;
       throw new Error("storage derivative upload failed (injected)");
@@ -1646,9 +1677,13 @@ export interface FakeWorld {
   deps: StudioDeps;
   executor: FakeIngestExecutor;
   storage: FakeStorage;
+  /** The LOCAL, in-process, disposable S3-compatible R2 harness. */
+  r2: LocalR2;
   data: FakeData;
   flags: {
     partnerDemo: boolean;
+    writeProvider: StudioStorageProviderId;
+    r2Unavailable: boolean;
     ownerBootstrapEmail: string | null;
     ownerBootstrapUserId: string | null;
     nowValue: string;
@@ -1723,6 +1758,10 @@ export function makeWorld(options: { defaultMembers?: boolean } = {}): FakeWorld
   const storage = new FakeStorage();
   const flags = {
     partnerDemo: false,
+    /** The provider a NEW job is created with (the deployment setting). */
+    writeProvider: "supabase" as StudioStorageProviderId,
+    /** Models R2 selected but not configured: resolution must fail closed. */
+    r2Unavailable: false,
     ownerBootstrapEmail: null as string | null,
     ownerBootstrapUserId: null as string | null,
     nowValue: "2026-07-21T09:00:00.000Z",
@@ -1765,10 +1804,46 @@ export function makeWorld(options: { defaultMembers?: boolean } = {}): FakeWorld
       locations.filter((row) => row.slug === q.slug || row.name === q.name),
   };
 
+  // --- Storage providers --------------------------------------------------
+  // Both lanes are wired for every world: the legacy Supabase provider over the
+  // in-memory FakeStorage, and the R2 provider over the LOCAL, in-process,
+  // disposable S3 harness. `flags.writeProvider` is what a NEW job is created
+  // with; a test flips it exactly as the deployment setting would be flipped.
+  const r2 = createLocalR2();
+  assertLocalR2Endpoint(r2.endpoint);
+  const supabaseProvider = createSupabaseStorageProvider(storage);
+  const r2Provider = createR2StorageProvider({
+    client: new R2Client({
+      accountId: "local-test-account",
+      accessKeyId: r2.credentials.accessKeyId,
+      secretAccessKey: r2.credentials.secretAccessKey,
+      endpoint: r2.endpoint,
+      fetchImpl: r2.fetchImpl,
+      now: () => r2.now,
+    }),
+    buckets: TEST_R2_BUCKETS,
+    publicOrigin: TEST_PUBLIC_MEDIA_ORIGIN,
+  });
+  const storageProviders: StudioStorageProviderSet = {
+    get writeProviderId() {
+      return flags.writeProvider;
+    },
+    get(id) {
+      if (id === "supabase") return supabaseProvider;
+      if (flags.r2Unavailable) {
+        // Models a deployment that selected R2 without configuring it: the
+        // refusal must be loud, never a quiet downgrade to Supabase.
+        throw new StudioAccessError("storage_provider_unavailable");
+      }
+      return r2Provider;
+    },
+  };
+
   let authSequence = 0;
   const deps: StudioDeps = {
     data,
     storage,
+    storageProviders,
     ingest: executor,
     authAdmin: {
       async createUser(email) {
@@ -1830,6 +1905,7 @@ export function makeWorld(options: { defaultMembers?: boolean } = {}): FakeWorld
     deps,
     executor,
     storage,
+    r2,
     data,
     flags,
     advanceMinutes(mins: number) {
@@ -1930,5 +2006,38 @@ export function uploadAll(
   for (const target of uploads) {
     const body = contents[target.name] ?? magicBytesFor(target.name);
     world.storage.put(target.bucket, target.path, body);
+  }
+}
+
+/**
+ * Upload every declared file the way the BROWSER actually would: through the
+ * transport the server allocated.
+ *
+ * On the Supabase lane that is the signed-upload token (modelled by the
+ * in-memory fake). On the R2 lane it is a real presigned PUT executed against
+ * the local S3 harness, signature and all — so these tests exercise the
+ * production signer, not a shortcut around it.
+ */
+export async function uploadAllViaTransport(
+  world: FakeWorld,
+  uploads: StudioUploadTarget[],
+  contents: Record<string, Buffer | string> = {},
+): Promise<void> {
+  for (const target of uploads) {
+    const raw = contents[target.name] ?? magicBytesFor(target.name);
+    const body = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+    const transport = target.transport;
+    if (!transport || transport.kind === "supabase_signed") {
+      world.storage.put(target.bucket, target.path, body);
+      continue;
+    }
+    const response = await world.r2.fetchImpl(transport.url, {
+      method: "PUT",
+      headers: transport.headers,
+      body: new Uint8Array(body) as unknown as BodyInit,
+    });
+    if (!response.ok) {
+      throw new Error(`local R2 refused the presigned upload (HTTP ${response.status})`);
+    }
   }
 }
