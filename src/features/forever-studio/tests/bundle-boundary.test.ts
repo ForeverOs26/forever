@@ -158,6 +158,35 @@ describe("Studio bundle boundary", () => {
     );
   });
 
+  it("the Worker binding plane stays server-only and reaches no credential", () => {
+    // The binding modules are `.server.ts` and must be as unreachable from the
+    // browser as the signer is — the binding is a capability handle, and a
+    // client-reachable path to one would be a path to the private bucket.
+    for (const path of CLIENT_REACHABLE) {
+      const source = read(path);
+      expect(source, path).not.toMatch(/^import .*storage\/r2-bindings/m);
+      expect(source, path).not.toMatch(/^import .*storage\/r2-binding-objects/m);
+      expect(source, path).not.toContain("R2_PRIVATE_SOURCES");
+      expect(source, path).not.toContain("R2_PROJECT_ARCHIVES");
+      expect(source, path).not.toContain("__env__");
+    }
+    // The binding plane itself never touches a credential or the signer: it is
+    // the transport that exists precisely BECAUSE it needs neither.
+    const bindings = read("src/features/forever-studio/server/storage/r2-bindings.server.ts");
+    const objects = read("src/features/forever-studio/server/storage/r2-binding-objects.server.ts");
+    for (const source of [bindings, objects]) {
+      expect(source).not.toContain("sigv4");
+      expect(source).not.toContain("AWS4-HMAC-SHA256");
+      expect(source).not.toContain("R2_SECRET_ACCESS_KEY");
+      expect(source).not.toMatch(/^import .*r2-client\.server/m);
+    }
+    // And the stage vocabulary carries no free-text field for a key or a name.
+    const stage = read("src/features/forever-studio/server/processing-stage.ts");
+    expect(stage).toContain("STUDIO_STAGE_TELEMETRY_KEYS");
+    expect(stage).not.toContain("objectKey");
+    expect(stage).not.toContain("fileName");
+  });
+
   it("the write provider is decided on the server and persisted per job", () => {
     const service = read("src/features/forever-studio/server/service.ts");
     // Creation reads the global setting exactly once; processing never does.

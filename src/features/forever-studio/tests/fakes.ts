@@ -37,9 +37,13 @@ import {
 } from "../studio-types";
 import { R2Client } from "../server/storage/r2-client.server";
 import type { StudioStorageProviderSet } from "../server/storage/provider";
-import { createR2StorageProvider } from "../server/storage/r2-provider.server";
+import {
+  createR2StorageProvider,
+  type StudioR2Runtime,
+} from "../server/storage/r2-provider.server";
 import { createSupabaseStorageProvider } from "../server/storage/supabase-provider";
 import { assertLocalR2Endpoint, createLocalR2, type LocalR2 } from "./local-r2";
+import { createLocalR2Bindings, type LocalR2BindingHarness } from "./local-r2-binding";
 
 /**
  * The bucket names a test deployment binds. Distinct from the production names
@@ -1679,6 +1683,10 @@ export interface FakeWorld {
   storage: FakeStorage;
   /** The LOCAL, in-process, disposable S3-compatible R2 harness. */
   r2: LocalR2;
+  /** Native bucket bindings over the SAME store, plus the Worker env record. */
+  workerR2: LocalR2BindingHarness;
+  /** Which transport this world's R2 provider uses for server-side objects. */
+  r2Runtime: StudioR2Runtime;
   data: FakeData;
   flags: {
     partnerDemo: boolean;
@@ -1753,7 +1761,18 @@ export const STUDIO_TEST_AMENITIES: ReadonlyArray<{
   },
 ];
 
-export function makeWorld(options: { defaultMembers?: boolean } = {}): FakeWorld {
+/**
+ * Build a world whose R2 provider is the WORKER one.
+ *
+ * `r2Runtime: "worker"` wires the provider to the native bindings AND replaces
+ * the S3 client's `fetch` with one that rejects exactly as a Cloudflare Worker
+ * does. Presigning never touches `fetch`, so the browser's direct upload still
+ * works — which is precisely the production split that stranded the pilot:
+ * every browser PUT succeeded and every server-side S3 request did not.
+ */
+export function makeWorld(
+  options: { defaultMembers?: boolean; r2Runtime?: StudioR2Runtime } = {},
+): FakeWorld {
   const executor = new FakeIngestExecutor();
   const storage = new FakeStorage();
   const flags = {
@@ -1811,6 +1830,15 @@ export function makeWorld(options: { defaultMembers?: boolean } = {}): FakeWorld
   // with; a test flips it exactly as the deployment setting would be flipped.
   const r2 = createLocalR2();
   assertLocalR2Endpoint(r2.endpoint);
+  const r2Runtime: StudioR2Runtime = options.r2Runtime ?? "node";
+  const onWorker = r2Runtime === "worker";
+  // Three bindings over the SAME object store, scoped to the three distinct
+  // bucket names — one bucket, two doors, exactly as R2 works.
+  const workerR2 = createLocalR2Bindings(r2, {
+    private_source: TEST_R2_BUCKETS.privateSources,
+    public_media: TEST_R2_BUCKETS.publicMedia,
+    project_archives: TEST_R2_BUCKETS.projectArchives,
+  });
   const supabaseProvider = createSupabaseStorageProvider(storage);
   const r2Provider = createR2StorageProvider({
     client: new R2Client({
@@ -1818,9 +1846,13 @@ export function makeWorld(options: { defaultMembers?: boolean } = {}): FakeWorld
       accessKeyId: r2.credentials.accessKeyId,
       secretAccessKey: r2.credentials.secretAccessKey,
       endpoint: r2.endpoint,
-      fetchImpl: r2.fetchImpl,
+      // On a Worker the client may still PRESIGN (pure crypto, no request) but
+      // every server-side request it attempts rejects before a socket exists.
+      fetchImpl: onWorker ? workerR2.refusingServerFetch : r2.fetchImpl,
       now: () => r2.now,
     }),
+    runtime: r2Runtime,
+    bindings: onWorker ? workerR2.bindings : null,
     buckets: TEST_R2_BUCKETS,
     publicOrigin: TEST_PUBLIC_MEDIA_ORIGIN,
   });
@@ -1906,6 +1938,8 @@ export function makeWorld(options: { defaultMembers?: boolean } = {}): FakeWorld
     executor,
     storage,
     r2,
+    workerR2,
+    r2Runtime,
     data,
     flags,
     advanceMinutes(mins: number) {
