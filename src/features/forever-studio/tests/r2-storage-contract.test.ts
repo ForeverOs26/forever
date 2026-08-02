@@ -236,6 +236,23 @@ describe("provider persistence", () => {
   });
 });
 
+/**
+ * Settle a processing call WITHOUT letting a rejection abort the test.
+ *
+ * "It threw" and "it failed the job truthfully" are different outcomes, and the
+ * difference is the whole point here: a refusal that escapes leaves the job
+ * claimed and `processing` with nothing on the row to explain it. Awaiting
+ * directly would collapse the two into one red test with no statement of which
+ * contract broke.
+ */
+async function settle<T>(promise: Promise<T>): Promise<{ escaped: boolean; value?: T }> {
+  try {
+    return { escaped: false, value: await promise };
+  } catch {
+    return { escaped: true };
+  }
+}
+
 describe("no fallback from R2 to Supabase Storage", () => {
   it("refuses job creation when the selected provider is unavailable", async () => {
     const world = r2World();
@@ -273,8 +290,13 @@ describe("no fallback from R2 to Supabase Storage", () => {
     const supabaseWritesBefore = world.storage.uploadCalls.length;
 
     world.flags.r2Unavailable = true;
-    const result = await processUploadJob(world.deps, OWNER, started.jobId);
+    const settled = await settle(processUploadJob(world.deps, OWNER, started.jobId));
 
+    expect(
+      settled.escaped,
+      "a provider refusal must be HANDLED by the processing failure boundary, not thrown past it",
+    ).toBe(false);
+    const result = settled.value!;
     expect(result.status).toBe("failed");
     expect(result.errorCode).toBe("storage_provider_unavailable");
     // No silent downgrade: not one Supabase Storage write happened.
@@ -301,8 +323,13 @@ describe("no fallback from R2 to Supabase Storage", () => {
     expect(claimed).toBeTruthy();
 
     world.flags.r2Unavailable = true;
-    const result = await processClaimedJob(world.deps, OWNER, claimed!, token);
+    const settled = await settle(processClaimedJob(world.deps, OWNER, claimed!, token));
 
+    expect(
+      settled.escaped,
+      "a provider refusal must be HANDLED by the processing failure boundary, not thrown past it",
+    ).toBe(false);
+    const result = settled.value!;
     expect(result.status).toBe("failed");
     expect(result.errorCode).toBe("storage_provider_unavailable");
     expect(world.storage.uploadCalls).toEqual([]);
