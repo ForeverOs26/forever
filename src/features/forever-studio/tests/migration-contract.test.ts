@@ -25,6 +25,9 @@ const resumePrincipal = readFileSync(resolve(process.cwd(), RESUME_PRINCIPAL_PAT
 const DURABLE_RESUME_PATH =
   "supabase/migrations/20260722140000_studio_durable_resume_eligibility.sql";
 const durableResume = readFileSync(resolve(process.cwd(), DURABLE_RESUME_PATH), "utf8");
+const AUTOMATIC_RETRY_PATH =
+  "supabase/migrations/20260803090000_studio_automatic_retry_eligibility.sql";
+const automaticRetry = readFileSync(resolve(process.cwd(), AUTOMATIC_RETRY_PATH), "utf8");
 const ddl = sql
   .split("\n")
   .filter((line) => !line.trim().startsWith("--"))
@@ -279,5 +282,95 @@ describe("durable-resume eligibility migration contract", () => {
       expect(durableResume).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${name}`));
     }
     expect(durableResume).not.toMatch(/sb_secret_|service_role_key|eyJ[A-Za-z0-9]/);
+  });
+});
+
+describe("automatic-retry eligibility migration contract", () => {
+  it("is a later additive migration that touches no schema and no row", () => {
+    expect(AUTOMATIC_RETRY_PATH.localeCompare(DURABLE_RESUME_PATH)).toBeGreaterThan(0);
+    expect(automaticRetry).not.toMatch(/DROP\s+(TABLE|COLUMN|FUNCTION|POLICY|INDEX)/i);
+    expect(automaticRetry).not.toMatch(/CREATE\s+(TABLE|INDEX|POLICY)/i);
+    expect(automaticRetry).not.toMatch(/ALTER\s+TABLE/i);
+    const functions = automaticRetry.slice(automaticRetry.indexOf("CREATE OR REPLACE FUNCTION"));
+    // No backfill, no data movement, no RLS or membership change.
+    expect(functions).not.toMatch(/\b(INSERT|UPDATE|DELETE)\b\s+(?:INTO\s+|FROM\s+)?public\./i);
+    expect(automaticRetry).not.toMatch(/ROW LEVEL SECURITY|CREATE POLICY|studio_members\s+SET/i);
+    expect(automaticRetry).toMatch(/^BEGIN;$/m);
+    expect(automaticRetry).toMatch(/^COMMIT;$/m);
+  });
+
+  /** The executable body of one function, with prose comments excluded. */
+  function body(name: string): string {
+    const start = automaticRetry.indexOf(`FUNCTION public.${name}`);
+    const open = automaticRetry.indexOf("AS $$", start);
+    return automaticRetry.slice(open, automaticRetry.indexOf("$$;", open));
+  }
+
+  it("excludes automatically exhausted jobs BEFORE ordering, limiting and counting", () => {
+    const predicate = "NOT public.studio_job_automatic_retry_exhausted(job.facts)";
+    const count = body("studio_count_active_jobs");
+    const due = body("studio_list_due_jobs");
+
+    // Both surfaces ask the SAME question, so "due" and "counted" cannot drift.
+    for (const body of [count, due]) {
+      expect(body).toContain(predicate);
+      // The pre-existing eligibility rules are carried forward verbatim.
+      expect(body).toContain("INNER JOIN public.studio_members");
+      expect(body).toContain("source.is_active IS TRUE");
+      expect(body).toContain("p_created_by IS NULL OR job.created_by = p_created_by");
+    }
+    // THE FINDING: filtering after the limit cannot rescue a row the database
+    // never returned, so the predicate must precede ORDER BY and LIMIT.
+    expect(due.indexOf(predicate)).toBeLessThan(due.indexOf("ORDER BY"));
+    expect(due.indexOf(predicate)).toBeLessThan(due.indexOf("LIMIT"));
+    // The count query has neither, and must not acquire one.
+    expect(count).not.toContain("LIMIT");
+  });
+
+  it("reads a closed state and never re-derives the application's threshold", () => {
+    const helper = body("studio_job_automatic_retry_exhausted");
+    // Exactly the literal `automaticRetryState` compares against, defaulted the
+    // same way for an absent key.
+    expect(helper).toContain(
+      "COALESCE(p_facts -> 'retry' ->> 'automatic', 'eligible') = 'exhausted'",
+    );
+    // A numeric limit here would be a second copy of STUDIO_AUTOMATIC_RETRY_LIMIT.
+    expect(helper).not.toMatch(/automaticFailures/);
+    expect(helper).not.toMatch(/[<>]=?\s*\d/);
+    const declaration = automaticRetry.slice(
+      automaticRetry.indexOf("FUNCTION public.studio_job_automatic_retry_exhausted"),
+      automaticRetry.indexOf("AS $$", automaticRetry.indexOf("FUNCTION public.studio_job_auto")),
+    );
+    expect(declaration).toContain("IMMUTABLE");
+    expect(declaration).toContain("SET search_path = ''");
+  });
+
+  it("leaves retryable — the Owner's admission gate — completely alone", () => {
+    // The whole point of the three-state split: `retryable` still means "any
+    // lane may claim this", so an exhausted job stays claimable by a person.
+    expect(automaticRetry).not.toMatch(/SET\s+retryable/i);
+    expect(automaticRetry).not.toMatch(/FUNCTION public\.studio_claim_job/);
+    expect(automaticRetry).not.toMatch(/FUNCTION public\.studio_request_job_processing/);
+    expect(automaticRetry).not.toMatch(/FUNCTION public\.studio_fail_job/);
+    // Both queries still honour it exactly as before.
+    expect(automaticRetry).toContain("job.status = 'failed' AND job.retryable IS TRUE");
+  });
+
+  it("keeps every function service-role-only and credential-free", () => {
+    for (const name of [
+      "studio_job_automatic_retry_exhausted",
+      "studio_count_active_jobs",
+      "studio_list_due_jobs",
+    ]) {
+      expect(automaticRetry).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${name}`));
+      expect(automaticRetry).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${name}`));
+      expect(automaticRetry).toMatch(new RegExp(`FROM PUBLIC, anon, authenticated`));
+    }
+    expect(automaticRetry).not.toMatch(/TO (anon|authenticated|PUBLIC)\b/);
+    expect(automaticRetry).not.toMatch(/sb_secret_|service_role_key|eyJ[A-Za-z0-9]/);
+    // No production identifier, job id or Owner id in the migration text.
+    expect(automaticRetry).not.toMatch(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+    );
   });
 });

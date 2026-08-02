@@ -43,6 +43,7 @@ import {
 } from "../server/storage/r2-provider.server";
 import { createSupabaseStorageProvider } from "../server/storage/supabase-provider";
 import { assertLocalR2Endpoint, createLocalR2, type LocalR2 } from "./local-r2";
+import { automaticRetryBudgetExhausted } from "../server/retry-policy";
 import { createLocalR2Bindings, type LocalR2BindingHarness } from "./local-r2-binding";
 
 /**
@@ -436,6 +437,8 @@ export class FakeData implements StudioData {
         activeSources.has(job.created_by) &&
         (!createdBy || job.created_by === createdBy) &&
         job.processing_requested_at !== null &&
+        // Mirrors `NOT public.studio_job_automatic_retry_exhausted(job.facts)`.
+        !automaticRetryBudgetExhausted(job) &&
         (job.status === "received" ||
           job.status === "processing" ||
           (job.status === "failed" && job.retryable)),
@@ -446,24 +449,35 @@ export class FakeData implements StudioData {
     const activeSources = new Set(
       this.members.filter((member) => member.is_active).map((member) => member.user_id),
     );
-    return [...this.jobs.values()]
-      .filter(
-        (job) =>
-          job.created_by !== null &&
-          activeSources.has(job.created_by) &&
-          job.processing_requested_at !== null &&
-          (!createdBy || job.created_by === createdBy) &&
-          (job.status === "received" ||
-            (job.status === "failed" && job.retryable) ||
-            (job.status === "processing" &&
-              (job.processing_started_at == null || job.processing_started_at < staleBefore))),
-      )
-      .sort(
-        (left, right) =>
-          left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id),
-      )
-      .slice(0, limit)
-      .map((j) => structuredClone(j));
+    return (
+      [...this.jobs.values()]
+        .filter(
+          (job) =>
+            job.created_by !== null &&
+            activeSources.has(job.created_by) &&
+            job.processing_requested_at !== null &&
+            (!createdBy || job.created_by === createdBy) &&
+            // Mirrors `NOT public.studio_job_automatic_retry_exhausted(job.facts)`,
+            // and — exactly as in SQL — it is part of the WHERE clause, so it is
+            // applied BEFORE the ordering and the limit below. A fake that
+            // filtered after `.slice()` would pass while production starved.
+            !automaticRetryBudgetExhausted(job) &&
+            (job.status === "received" ||
+              (job.status === "failed" && job.retryable) ||
+              (job.status === "processing" &&
+                (job.processing_started_at == null || job.processing_started_at < staleBefore))),
+        )
+        .sort(
+          (left, right) =>
+            left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id),
+        )
+        // `LIMIT GREATEST(LEAST(COALESCE(p_limit, 5), 100), 0)`, not a bare
+        // slice: a null limit defaults to five and a negative one returns
+        // nothing, so a starvation test cannot pass here by taking a different
+        // number of rows than production would.
+        .slice(0, Math.max(Math.min(limit ?? 5, 100), 0))
+        .map((j) => structuredClone(j))
+    );
   }
 
   async claimJob(jobId: string, token: string, staleSeconds: number): Promise<StudioJobRow | null> {

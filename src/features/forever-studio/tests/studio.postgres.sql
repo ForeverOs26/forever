@@ -340,6 +340,223 @@ DELETE FROM auth.users WHERE id IN (
 );
 
 -- ---------------------------------------------------------------------------
+-- 4f. Automatically EXHAUSTED jobs leave the automatic lane before ORDER BY /
+--     LIMIT / COUNT, while the Owner-controlled lane stays open
+--     (FOREVER-PR134-AUTOMATIC-RETRY-SURFACING-FIX-001)
+--
+--     The shape the independent review described: five OLDEST exhausted jobs at
+--     the front of `ORDER BY created_at ASC` and one newer genuinely due job
+--     behind them, with the batch limited to five. If the exclusion ran after
+--     the limit, the five exhausted rows would consume every slot and the sixth
+--     job would starve permanently.
+-- ---------------------------------------------------------------------------
+INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
+  ('00000000-0000-0000-0000-000000000009','retry-surfacing@example.com',now());
+INSERT INTO public.studio_members(user_id,role,email,invited_by,is_active) VALUES
+  ('00000000-0000-0000-0000-000000000009','trusted_publisher','retry-surfacing@example.com',
+   '00000000-0000-0000-0000-000000000001',true);
+
+-- Five exhausted (oldest), one Owner-retryable exhausted, one terminal, one due.
+INSERT INTO public.studio_upload_jobs(
+  id,created_by,creator_role,workflow,status,processing_requested_at,created_at,
+  retryable,attempt_count,error_code,facts
+) VALUES
+  ('13000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000009',
+   'trusted_publisher','new_development','failed','2000-01-01','2000-01-01',
+   true,5,'object_stat_failed','{"retry":{"automaticFailures":5,"automatic":"exhausted"}}'),
+  ('13000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000009',
+   'trusted_publisher','new_development','failed','2000-01-02','2000-01-02',
+   true,5,'object_stat_failed','{"retry":{"automaticFailures":5,"automatic":"exhausted"}}'),
+  ('13000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000009',
+   'trusted_publisher','new_development','failed','2000-01-03','2000-01-03',
+   true,5,'object_stat_failed','{"retry":{"automaticFailures":5,"automatic":"exhausted"}}'),
+  ('13000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-000000000009',
+   'trusted_publisher','new_development','failed','2000-01-04','2000-01-04',
+   true,5,'object_stat_failed','{"retry":{"automaticFailures":5,"automatic":"exhausted"}}'),
+  ('13000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-000000000009',
+   'trusted_publisher','new_development','failed','2000-01-05','2000-01-05',
+   true,5,'object_stat_failed','{"retry":{"automaticFailures":5,"automatic":"exhausted"}}'),
+  -- Terminal: nobody may claim it, in either lane.
+  ('13000000-0000-0000-0000-000000000006','00000000-0000-0000-0000-000000000009',
+   'trusted_publisher','new_development','failed','2000-01-06','2000-01-06',
+   false,5,'provider_resolution_failed','{"retry":{"automaticFailures":5,"automatic":"exhausted"}}'),
+  -- Newest, and the only genuinely automatic work in the set.
+  ('13000000-0000-0000-0000-000000000007','00000000-0000-0000-0000-000000000009',
+   'trusted_publisher','new_development','received','2001-01-01','2001-01-01',
+   true,0,NULL,'{}');
+
+DO $$
+DECLARE
+  v_due UUID[];
+  v_before JSONB;
+  v_claimed UUID;
+BEGIN
+  SELECT jsonb_agg(to_jsonb(job) ORDER BY job.id) INTO v_before
+  FROM public.studio_upload_jobs AS job
+  WHERE job.created_by = '00000000-0000-0000-0000-000000000009';
+
+  -- The predicate itself, both directions, including the absent-key default.
+  IF public.studio_job_automatic_retry_exhausted(
+       '{"retry":{"automatic":"exhausted"}}'::jsonb) IS NOT TRUE
+     OR public.studio_job_automatic_retry_exhausted(
+       '{"retry":{"automatic":"eligible"}}'::jsonb) IS NOT FALSE
+     OR public.studio_job_automatic_retry_exhausted('{"retry":{}}'::jsonb) IS NOT FALSE
+     OR public.studio_job_automatic_retry_exhausted('{}'::jsonb) IS NOT FALSE
+     OR public.studio_job_automatic_retry_exhausted(NULL) IS NOT FALSE
+     -- A streak alone never implies exhaustion; only the written state does.
+     OR public.studio_job_automatic_retry_exhausted(
+       '{"retry":{"automaticFailures":99}}'::jsonb) IS NOT FALSE THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: exhaustion predicate is not the closed enum read';
+  END IF;
+
+  -- LIMIT 5 with five older exhausted rows in front: the newer eligible job
+  -- must still be returned, which is only possible if the exclusion ran first.
+  SELECT array_agg(id ORDER BY id) INTO v_due
+  FROM public.studio_list_due_jobs(now(), 5, '00000000-0000-0000-0000-000000000009');
+  IF v_due IS DISTINCT FROM ARRAY['13000000-0000-0000-0000-000000000007'::uuid] THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: exhausted jobs consumed the due batch (got %)', v_due;
+  END IF;
+
+  -- The sharpest form: one slot. Applied after the limit, this would be empty.
+  SELECT array_agg(id) INTO v_due
+  FROM public.studio_list_due_jobs(now(), 1, '00000000-0000-0000-0000-000000000009');
+  IF v_due IS DISTINCT FROM ARRAY['13000000-0000-0000-0000-000000000007'::uuid] THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: exclusion applied after LIMIT (got %)', v_due;
+  END IF;
+
+  -- Active counting agrees: one genuine piece of automatic work, not seven.
+  IF public.studio_count_active_jobs('00000000-0000-0000-0000-000000000009') <> 1 THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: active count included exhausted or terminal jobs';
+  END IF;
+
+  -- Flipping ONLY the closed enum changes membership of both surfaces, proving
+  -- the JSONB state — not the status, the streak or retryable — is what is read.
+  UPDATE public.studio_upload_jobs
+  SET facts = '{"retry":{"automaticFailures":0,"automatic":"eligible"}}'::jsonb
+  WHERE id = '13000000-0000-0000-0000-000000000001';
+  IF (SELECT count(*) FROM public.studio_list_due_jobs(
+        now(), 5, '00000000-0000-0000-0000-000000000009')) <> 2
+     OR public.studio_count_active_jobs('00000000-0000-0000-0000-000000000009') <> 2 THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: eligible state did not restore automatic selection';
+  END IF;
+  UPDATE public.studio_upload_jobs
+  SET facts = '{"retry":{"automaticFailures":5,"automatic":"exhausted"}}'::jsonb
+  WHERE id = '13000000-0000-0000-0000-000000000001';
+
+  -- THE OWNER LANE IS STILL OPEN. studio_claim_job is untouched by this change,
+  -- so an exhausted row with retryable = true is still claimable by an explicit
+  -- controlled retry — no direct SQL, no state repair.
+  SELECT id INTO v_claimed FROM public.studio_claim_job(
+    '13000000-0000-0000-0000-000000000002','22220000-0000-0000-0000-000000000001',900);
+  IF v_claimed IS DISTINCT FROM '13000000-0000-0000-0000-000000000002'::uuid THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: Owner-controlled retry could not claim an exhausted job';
+  END IF;
+
+  -- ...and the terminal row is refused, in that same lane.
+  v_claimed := NULL;
+  SELECT id INTO v_claimed FROM public.studio_claim_job(
+    '13000000-0000-0000-0000-000000000006','22220000-0000-0000-0000-000000000002',900);
+  IF v_claimed IS NOT NULL THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: a terminally nonretryable job was claimable';
+  END IF;
+
+  -- The deliberately flipped row round-tripped exactly, so the enum is the only
+  -- thing that moved and it moved back.
+  IF (SELECT facts FROM public.studio_upload_jobs
+        WHERE id = '13000000-0000-0000-0000-000000000001')
+     IS DISTINCT FROM '{"retry":{"automaticFailures":5,"automatic":"exhausted"}}'::jsonb THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: the exhaustion flip did not round-trip';
+  END IF;
+
+  -- Every row NOT deliberately touched is byte-identical: reading eligibility
+  -- writes nothing. (…0001 was flipped and back, which the updated_at trigger
+  -- records; …0002 was claimed on purpose. Both are asserted above instead.)
+  IF (SELECT jsonb_agg(to_jsonb(job) ORDER BY job.id)
+      FROM public.studio_upload_jobs AS job
+      WHERE job.created_by = '00000000-0000-0000-0000-000000000009'
+        AND job.id NOT IN ('13000000-0000-0000-0000-000000000001',
+                           '13000000-0000-0000-0000-000000000002'))
+      IS DISTINCT FROM (
+        SELECT jsonb_agg(value ORDER BY (value->>'id')::uuid)
+        FROM jsonb_array_elements(v_before) AS value
+        WHERE (value->>'id')::uuid NOT IN ('13000000-0000-0000-0000-000000000001',
+                                           '13000000-0000-0000-0000-000000000002')) THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: eligibility reads mutated untouched jobs';
+  END IF;
+END;
+$$;
+
+-- No schema drift: the replaced functions keep their exact identity, and the
+-- new helper is a pure, service-role-only, search_path-pinned SECURITY INVOKER
+-- function like every other Studio predicate.
+SELECT pg_temp.assert_true(
+  (SELECT count(*) = 1 FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname='public' AND p.proname='studio_job_automatic_retry_exhausted'),
+  'studio_job_automatic_retry_exhausted exists exactly once');
+SELECT pg_temp.assert_true(
+  (SELECT p.provolatile='i' FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname='public' AND p.proname='studio_job_automatic_retry_exhausted'),
+  'the exhaustion predicate is IMMUTABLE');
+SELECT pg_temp.assert_true(
+  (SELECT p.prosecdef IS FALSE FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname='public' AND p.proname='studio_job_automatic_retry_exhausted'),
+  'the exhaustion predicate is SECURITY INVOKER');
+DO $$
+DECLARE
+  v_args TEXT;
+  v_result TEXT;
+BEGIN
+  SELECT pg_get_function_identity_arguments(p.oid), pg_get_function_result(p.oid)
+    INTO v_args, v_result
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname='public' AND p.proname='studio_job_automatic_retry_exhausted';
+  IF v_args IS DISTINCT FROM 'p_facts jsonb' OR v_result IS DISTINCT FROM 'boolean' THEN
+    RAISE EXCEPTION 'studio_pg_test_failed: exhaustion predicate signature drift (args=[%] result=[%])',
+      v_args, v_result;
+  END IF;
+END;
+$$;
+SELECT pg_temp.assert_true(
+  (SELECT array_to_string(p.proconfig,',') LIKE '%search_path=%'
+     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname='public' AND p.proname='studio_job_automatic_retry_exhausted'),
+  'the exhaustion predicate pins search_path');
+SELECT pg_temp.assert_true(
+  (SELECT bool_and(p.provolatile='s' AND p.prosecdef IS FALSE
+                   AND array_to_string(p.proconfig,',') LIKE '%search_path=%')
+     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname='public'
+      AND p.proname IN ('studio_list_due_jobs','studio_count_active_jobs')),
+  'due/count functions remain STABLE, SECURITY INVOKER and search_path pinned');
+SELECT pg_temp.assert_true(
+  (SELECT pg_get_function_identity_arguments(p.oid)
+            = 'p_stale_before timestamp with time zone, p_limit integer, p_created_by uuid'
+      AND pg_get_function_result(p.oid) = 'SETOF studio_upload_jobs'
+     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname='public' AND p.proname='studio_list_due_jobs')
+  AND (SELECT pg_get_function_identity_arguments(p.oid) = 'p_created_by uuid'
+      AND pg_get_function_result(p.oid) = 'bigint'
+     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname='public' AND p.proname='studio_count_active_jobs'),
+  'due/count signatures and return types are unchanged by the replacement');
+SELECT pg_temp.assert_true(
+  has_function_privilege('service_role',
+    'public.studio_job_automatic_retry_exhausted(jsonb)','EXECUTE')
+  AND NOT has_function_privilege('anon',
+    'public.studio_job_automatic_retry_exhausted(jsonb)','EXECUTE')
+  AND NOT has_function_privilege('authenticated',
+    'public.studio_job_automatic_retry_exhausted(jsonb)','EXECUTE'),
+  'the exhaustion predicate is service-role only');
+
+DELETE FROM public.studio_upload_jobs
+WHERE created_by='00000000-0000-0000-0000-000000000009';
+DELETE FROM public.studio_members WHERE user_id='00000000-0000-0000-0000-000000000009';
+DELETE FROM auth.users WHERE id='00000000-0000-0000-0000-000000000009';
+
+-- ---------------------------------------------------------------------------
 -- 5. Atomic publish rollback: a failure leaves no project, child, or batch
 -- ---------------------------------------------------------------------------
 INSERT INTO public.studio_upload_jobs(id,created_by,creator_role,workflow,status)

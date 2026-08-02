@@ -719,8 +719,12 @@ describe("bounded automatic retries", () => {
     expect(result.errorCode).toBe("object_stat_failed");
     const job = world.data.jobs.get(started.jobId)!;
     expect(automaticFailureCount(job)).toBe(0);
+    // The count and the closed state are written together, always. The state
+    // is the literal the DATABASE reads, so a pair that disagreed would let the
+    // scheduler and the due query hold different opinions about the same job.
     expect((job.facts as Record<string, unknown>)[JOB_RETRY_FACTS_KEY]).toEqual({
       automaticFailures: 0,
+      automatic: "eligible",
     });
     expect(job.retryable).toBe(true);
   });
