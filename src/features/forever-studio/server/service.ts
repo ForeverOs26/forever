@@ -88,6 +88,22 @@ import {
   type ComposedArchiveMaterials,
 } from "./large-archive";
 import { assertNotPartnerDemo, assertOwner } from "./membership";
+import {
+  buildStageTelemetry,
+  inStage,
+  JOB_PROCESSING_FACTS_KEY,
+  stageOf,
+  stageTelemetryLogLine,
+  STUDIO_STAGE_FAILURE_CODES,
+  type StudioStageTelemetry,
+} from "./processing-stage";
+import {
+  automaticRetryBudgetExhausted,
+  nextAutomaticFailureCount,
+  retryableAfterFailure,
+  retryFactsPatch,
+  type StudioAttemptKind,
+} from "./retry-policy";
 import { jobStorageFacts, jobStorageProvider } from "./storage/job-provider";
 import type { StudioStorageProvider } from "./storage/provider";
 
@@ -600,6 +616,9 @@ export async function resumeDueJobs(
   );
   const results: StudioJobResult[] = [];
   for (const job of due) {
+    // Bounded automatic retries: a job that has exhausted its automatic budget
+    // is not claimed, not counted and not touched. Only a person restarts it.
+    if (automaticRetryBudgetExhausted(job)) continue;
     try {
       results.push(await claimAndProcess(deps, actor, job));
     } catch (error) {
@@ -693,6 +712,13 @@ export async function runScheduledStudioTick(
   result.due = due.length;
 
   for (const job of due) {
+    // The cap the runaway pilot loop needed. A job whose automatic budget is
+    // spent is skipped before it is claimed, so the scheduler stops selecting
+    // it entirely rather than re-failing it every five minutes forever.
+    if (automaticRetryBudgetExhausted(job)) {
+      result.skipped += 1;
+      continue;
+    }
     let current: StudioJobRow = job;
     for (;;) {
       if (slices >= maxSlices) return result;
@@ -713,9 +739,16 @@ export async function runScheduledStudioTick(
         }
         slices += 1;
         result.advanced += 1;
-        const outcome = await processClaimedJob(deps, principals.execution, claimed, token, {
-          ...principals,
-        });
+        const outcome = await processClaimedJob(
+          deps,
+          principals.execution,
+          claimed,
+          token,
+          { ...principals },
+          // Nobody asked for this attempt: the cron did. It spends the bounded
+          // automatic budget, exactly like the dashboard's background resume.
+          { attemptKind: "automatic" },
+        );
         if (outcome.status === "published") {
           result.published += 1;
           break;
@@ -763,6 +796,15 @@ async function claimAndProcess(
     return jobResultFromRow(jobRow);
   }
 
+  // An explicit per-job processing request is a CONTROLLED attempt: a person
+  // asked for this one, now. Background resumption is automatic and bounded.
+  const attemptKind: StudioAttemptKind = requestProcessing ? "controlled" : "automatic";
+  if (attemptKind === "automatic" && automaticRetryBudgetExhausted(jobRow)) {
+    // The automatic lane has spent its budget on this job. Leave it exactly as
+    // it is — claimed by nobody, attempt count untouched, failure visible — and
+    // wait for a person. A controlled attempt is still accepted.
+    return jobResultFromRow(jobRow);
+  }
   const token = deps.newToken();
   const claimed = requestProcessing
     ? await deps.data.requestJobProcessing(jobRow.id, token, STALE_PROCESSING_SECONDS)
@@ -773,7 +815,7 @@ async function claimAndProcess(
     if (!current) throw new StudioAccessError("job_not_found");
     return jobResultFromRow(current);
   }
-  return processClaimedJob(deps, actor, claimed, token, principals);
+  return processClaimedJob(deps, actor, claimed, token, principals, { attemptKind });
 }
 
 /** Non-fatal post-commit audit: never invalidates a committed write. */
@@ -911,17 +953,18 @@ export async function processClaimedJob(
   claimed: StudioJobRow,
   token: string,
   resolvedPrincipals?: StudioJobPrincipals,
+  options: { attemptKind?: StudioAttemptKind } = {},
 ): Promise<StudioJobResult> {
   // Direct worker callers of this exported boundary receive the same current-
   // membership authorization as the normal claim path, before storage reads or
   // copies. Normal callers pass the already-resolved pre-claim principals.
   const principals = resolvedPrincipals ?? (await resolveJobPrincipals(deps, actor, claimed));
-  // THE no-fallback point. The provider comes from the job's own persisted
-  // record — not from the current deployment setting, and never re-chosen on a
-  // retry, a resume, or a scheduled continuation. If that provider is
-  // unavailable the attempt fails closed; there is no path that quietly
-  // processes an R2 job against Supabase Storage or the reverse.
-  const provider = deps.storageProviders.get(jobStorageProvider(claimed));
+  // Unmarked callers are treated as AUTOMATIC, which is the conservative
+  // default: an unattributed attempt spends the bounded budget rather than
+  // silently acquiring the unbounded rights of an Owner-initiated one.
+  const attemptKind: StudioAttemptKind = options.attemptKind ?? "automatic";
+  const providerId = jobStorageProvider(claimed);
+  let provider: StudioStorageProvider | undefined;
   let materials: GatheredMaterials | undefined;
   // Set the moment the atomic publication transaction commits. From then on
   // this attempt's public objects belong to the published page and must
@@ -933,6 +976,21 @@ export async function processClaimedJob(
   // candidates; they are populated only after every archive is terminal.
   let archiveObjects: Array<{ bucket: string; path: string }> = [];
   try {
+    // THE no-fallback point. The provider comes from the job's own persisted
+    // record — not from the current deployment setting, and never re-chosen on
+    // a retry, a resume, or a scheduled continuation. If that provider is
+    // unavailable the attempt fails closed; there is no path that quietly
+    // processes an R2 job against Supabase Storage or the reverse.
+    //
+    // Resolved INSIDE the guarded region on purpose. A provider that refuses —
+    // missing credentials, a Worker with no usable bucket binding, an
+    // unrecognized id — used to throw past this try block entirely, so
+    // `failJob` never ran and the job sat `processing`, claimed, forever. Now
+    // every refusal reaches a truthful terminal state with a
+    // `provider_resolution` stage on it.
+    provider = await inStage("provider_resolution", async () =>
+      deps.storageProviders.get(jobStorageProvider(claimed)),
+    );
     // Large-archive lane first: advance one bounded, claim-scoped slice of
     // part verification / directory indexing / entry routing. When budgets
     // end the slice with work remaining, release the claim so the very next
@@ -1039,16 +1097,46 @@ export async function processClaimedJob(
     } catch {
       currentState = undefined;
     }
+    // Provider resolution itself can fail now that it is inside the guarded
+    // region, and an attempt with no provider has, by construction, written
+    // nothing to clean up.
     if (currentState?.status === "published") {
       const winner = (currentState.result_summary as { attempt?: string } | null)?.attempt;
-      if (winner && winner !== attemptPrefixFromToken(token) && materials?.publicObjects.length) {
+      if (
+        provider &&
+        winner &&
+        winner !== attemptPrefixFromToken(token) &&
+        materials?.publicObjects.length
+      ) {
         await removeGroupedByBucket(provider, materials.publicObjects);
       }
       return jobResultFromRow(currentState);
     }
-    if (currentState !== undefined && materials?.publicObjects.length) {
+    if (provider && currentState !== undefined && materials?.publicObjects.length) {
       await removeGroupedByBucket(provider, materials.publicObjects);
     }
+
+    // Bounded automatic retries. A CONTROLLED attempt (an Owner pressing Retry,
+    // or the first processing request after an upload) resets the budget; an
+    // AUTOMATIC one spends it. Reaching the cap makes the job non-retryable, so
+    // the scheduler's own due-job predicate stops returning it — while
+    // `attempt_count`, the error code, the stage and the message all stay
+    // exactly as true as they were.
+    const nextFailures = nextAutomaticFailureCount(claimed, attemptKind);
+    const retryable = retryableAfterFailure({
+      failureRetryable: safe.retryable,
+      nextAutomaticFailures: nextFailures,
+    });
+    const telemetry = buildStageTelemetry({
+      provider: providerId,
+      error,
+      code: safe.code,
+      attempt: claimed.attempt_count,
+      retryable,
+      workflow: claimed.workflow,
+      fallbackStage: provider ? "terminal_transition" : "provider_resolution",
+    });
+    await persistAttemptTelemetry(deps, claimed, token, telemetry, nextFailures);
 
     await deps.data
       .failJob({
@@ -1056,7 +1144,7 @@ export async function processClaimedJob(
         token,
         errorCode: safe.code,
         message: safe.message,
-        retryable: safe.retryable,
+        retryable,
       })
       .catch(() => undefined);
     return {
@@ -1071,12 +1159,54 @@ export async function processClaimedJob(
       warnings: materials ? warningSummaries(materials.warnings) : [],
       errorCode: safe.code,
       error: safe.message,
-      retryable: safe.retryable,
+      retryable,
     };
   }
 }
 
+/**
+ * Record the ALLOWLISTED stage telemetry and the automatic-retry budget on the
+ * job, while this attempt still holds the claim.
+ *
+ * Claim-checked like every other processing write, merged into `facts` so no
+ * other fact is disturbed, and never fatal: telemetry that failed to save must
+ * not turn a diagnosable failure into an undiagnosable one. The same values —
+ * and only those values — also reach the server log, so a deployment that
+ * cannot read the database can still see which stage stopped.
+ */
+async function persistAttemptTelemetry(
+  deps: StudioDeps,
+  claimed: StudioJobRow,
+  token: string,
+  telemetry: StudioStageTelemetry,
+  automaticFailures: number,
+): Promise<void> {
+  console.error(`[studio] processing_stage_failure ${stageTelemetryLogLine(telemetry)}`);
+  try {
+    await deps.data.updateJobIfClaimed(claimed.id, token, {
+      facts: {
+        ...claimed.facts,
+        [JOB_PROCESSING_FACTS_KEY]: telemetry,
+        ...retryFactsPatch(automaticFailures),
+      },
+    });
+  } catch (error) {
+    logStudioFailure("processing_telemetry_write_failed", error);
+  }
+}
+
+/**
+ * The safe internal code one failure collapses to.
+ *
+ * A stage-labelled failure keeps its stage's code, which is the whole point: a
+ * server-side object HEAD that never reached storage is `object_stat_failed`,
+ * not the `processing_failed` that every failure in the system used to share.
+ * The legacy substring rules stay for errors raised by code that predates the
+ * stage vocabulary.
+ */
 function mapFailureCode(error: unknown): string {
+  const stage = stageOf(error);
+  if (stage) return STUDIO_STAGE_FAILURE_CODES[stage];
   const text = error instanceof Error ? error.message : String(error);
   if (text.includes("forever_progressive_ingest") || text.includes("studio_publish"))
     return "ingest_failed";
