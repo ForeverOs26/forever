@@ -450,6 +450,11 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
     id: "r2",
     objects,
 
+    // On a Worker the resumable lane has no authoritative part listing, so it
+    // is declared unavailable HERE — at the one place that also refuses it —
+    // and callers read this to refuse before allocating anything at all.
+    archiveControlPlane: onWorker ? "temporarily_unavailable" : "available",
+
     async allocateOrdinaryUpload(input): Promise<StudioAllocatedUpload> {
       const contentType = input.contentType?.trim() || "application/octet-stream";
       const url = await client.presignPut({

@@ -127,6 +127,11 @@ export function createSupabaseStorageProvider(storage: StudioStorage): StudioSto
     id: "supabase",
     objects: storage,
 
+    // The Supabase lane keeps an archive as many permanent part objects, so
+    // "which parts does storage hold" is an ordinary bounded folder listing.
+    // That authority exists on every host, so the lane is always available.
+    archiveControlPlane: "available",
+
     async allocateOrdinaryUpload(input): Promise<StudioAllocatedUpload> {
       const { token } = await storage.createSignedUpload(input.bucket, input.path);
       return {

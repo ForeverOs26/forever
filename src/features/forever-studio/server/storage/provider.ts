@@ -27,6 +27,7 @@
  * one: a job created on R2 either succeeds on R2 or fails closed.
  */
 
+import type { StudioArchiveUploadCapability } from "../../archive-capability";
 import type {
   StudioArchivePartReceipt,
   StudioArchivePartTarget,
@@ -148,6 +149,18 @@ export interface StudioStorageProvider {
   readonly id: StudioStorageProviderId;
   /** Object-plane adapter used by the whole verification/derivative pipeline. */
   readonly objects: StudioStorage;
+
+  /**
+   * Whether THIS provider, as constructed for THIS process, can drive the
+   * resumable multipart archive lane.
+   *
+   * Declared by the provider rather than derived by the caller, so the answer
+   * and the refusal can never disagree: the object that would have to do the
+   * work is the object that says whether it can. A caller reads this to refuse
+   * BEFORE allocating anything; the control-plane methods below still refuse
+   * on their own, because a capability flag is a signal and not a boundary.
+   */
+  readonly archiveControlPlane: StudioArchiveUploadCapability;
 
   /** Allocate the browser's upload target for one declared ordinary file. */
   allocateOrdinaryUpload(input: {
