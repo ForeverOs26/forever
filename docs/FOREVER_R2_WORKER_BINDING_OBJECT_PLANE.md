@@ -156,7 +156,59 @@ non-retryable. Archive support is not silently disabled — it names exactly whi
 plane is unavailable, on the same deployment where ordinary files now process
 natively. Off a Worker, nothing changes.
 
-### 3.3 The exact additional architecture needed
+### 3.3 How the gap is presented, rather than hidden
+
+An incomplete lane that fails at the point of use is not much better than one
+that fails silently: the Owner has already chosen a file, waited, and formed an
+expectation. So the gap is declared up front, at three separate levels.
+
+**The provider declares it.** `StudioStorageProvider.archiveControlPlane` is a
+closed two-value capability set by the provider itself — the object that would
+have to do the work is the object that says whether it can, so the capability
+and the refusal cannot drift apart. Supabase is always `available`; R2 is
+`available` off a Worker and `temporarily_unavailable` on one.
+
+**The server refuses before allocating anything.** Every endpoint that could
+create an archive, a job, a signed part target or a stored object calls
+`assertArchiveControlPlaneAvailable` first — after authentication and
+authorization, so it is not an unauthenticated probe of what a deployment
+supports, and before the first durable effect of any kind:
+
+| Endpoint                  | Refused before                                             |
+| ------------------------- | ---------------------------------------------------------- |
+| `startUploadJob`          | the job row, staging paths and signed targets exist        |
+| `planJobArchiveUpload`    | the archive row, multipart upload and part targets exist   |
+| `confirmJobArchiveUpload` | any part-state read, completion call or archive transition |
+
+The refusal is `archive_upload_temporarily_unavailable` with a fixed safe
+message: no filename, path, object key, bucket, binding, URL, provider id,
+runtime or credential.
+
+`StartJobInput.archives` exists solely so a MIXED submission is one thing. The
+archives are planned later on their own endpoint, so without that declaration
+the browser would have to create the ordinary job first and only then discover
+the lane is closed — leaving a half-made upload behind for the Owner to clean
+up. It is untrusted like every other browser input: it cannot create an archive,
+and omitting it gains nothing, because the plan endpoint refuses independently.
+
+**The window says so.** `StudioOverview.capabilities.archiveUpload` carries the
+same closed enum to the browser. All fourteen windows still render; the archive
+window still names its material; its picker is `disabled`, and the reason is
+wired into the control's own `aria-describedby` so assistive technology hears
+the explanation rather than only meeting a dead input. Nothing else changes:
+the other thirteen windows, the workflow, the facts and the publication rules
+are exactly as they were, and no completeness or approval gate is added.
+
+The client is told, never asked. A forged capability, a stale cached overview
+or a raw HTTP call all meet the same server refusal.
+
+**One deliberate non-restriction.** The gate is on the resumable multipart
+_lane_, not on the archive _window_. A ZIP small enough for the ordinary signed
+lane never needs a part listing, so it still uploads and still expands inline
+under `project_archive`. Refusing it would remove working functionality for no
+safety gain.
+
+### 3.4 The exact additional architecture needed
 
 Three viable designs, in preference order:
 
@@ -192,7 +244,44 @@ deployment component**, and it is the one this document recommends.
 
 ---
 
-## 4. What did not change
+## 4. The follow-up: FOREVER-R2-BINDING-NATIVE-MULTIPART-ARCHIVE-001
+
+Restoring full project-archive upload on the production Worker is tracked as a
+separate task. It is deliberately NOT part of the correction that gates the lane
+— gating is small and reversible, and the recovery of the contained production
+job must not wait for an archive redesign.
+
+**Objective.** An authoritative, R2-native archive resume model — design A
+above, parts-as-objects, unless the implementing task finds better.
+
+**Invariants it must preserve.** These are the reasons the substitutes in §3.2
+were rejected, and they are not negotiable:
+
+- **direct browser-to-R2 upload** — every part travels device → R2 on its own
+  short-lived presigned request;
+- **authoritative server-verifiable resume** — what storage durably holds is
+  established by the SERVER asking storage, never by the client reporting. A
+  client's claim may still be cross-checked; it may never be the source;
+- **no Worker whole-file relay** — archive bytes never pass through the isolate;
+- **bounded memory** — the reader stays at roughly one logical part, whatever
+  the archive's size;
+- **idempotent completion** — completing an already-completed archive returns
+  the same state rather than failing, so a retried confirm after a lost response
+  succeeds;
+- **no credential expansion** — no new secret, no broader token scope, no new
+  binding beyond the three that already exist.
+
+**Definition of done.** `archiveControlPlane` reports `available` on
+`runtime = worker, provider = r2`; the archive window loses its unavailable
+state with no UI change of its own; and the gate added here becomes dead code
+that can be deleted in the same change.
+
+**Out of scope for it.** The ordinary-file object plane, the Coralina recovery,
+telemetry, and the retry policy — all already corrected and not to be disturbed.
+
+---
+
+## 5. What did not change
 
 - browser direct upload: device → R2, short-lived presigned PUT, no Worker byte
   relay, no permanent browser credential, no browser DELETE, existing CORS;
