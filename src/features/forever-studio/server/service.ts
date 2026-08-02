@@ -103,6 +103,7 @@ import {
 } from "./processing-stage";
 import {
   automaticRetryBudgetExhausted,
+  automaticRetryState,
   nextAutomaticFailureCount,
   retryableAfterFailure,
   retryFactsPatch,
@@ -2196,6 +2197,13 @@ export async function getOverview(deps: StudioDeps, actor: StudioActor): Promise
       errorCode: job.error_code,
       error: job.error,
       retryable: job.retryable,
+      // The two lanes, reported separately. `retryable` says whether ANY lane
+      // may claim the job; this says whether the automatic one has given up on
+      // it — which is the difference between "still working on it" and "waiting
+      // for you". Collapsing them is what let the dashboard promise background
+      // progress that was never going to happen.
+      automaticRetry: automaticRetryState(job),
+      attemptCount: job.attempt_count,
     })),
     members: members.map((member) => ({
       userId: member.user_id,

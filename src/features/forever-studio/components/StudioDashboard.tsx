@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 
 import {
   studioGetOverview,
+  studioProcessJob,
   studioResumePending,
   studioSetListingPublication,
   studioSetProjectPublication,
@@ -84,6 +85,21 @@ export function StudioDashboard() {
       cancelled = true;
     };
   }, [activeJobs, overview.dataUpdatedAt, queryClient]);
+
+  /**
+   * The Owner-controlled lane, reachable from job history.
+   *
+   * A job whose automatic budget is spent is no longer picked up in the
+   * background — by design. Without a control here the only way to move it
+   * would be direct SQL, which is exactly the manual intervention the bounded
+   * retry policy exists to remove. `studioProcessJob` is the same controlled
+   * attempt the uploader makes: it never resets `attempt_count`, and one
+   * request wins if several are made.
+   */
+  const retryJob = useMutation({
+    mutationFn: (input: { jobId: string }) => studioProcessJob({ data: input }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY }),
+  });
 
   const projectPublication = useMutation({
     mutationFn: (input: { slug: string; publish: boolean }) =>
@@ -270,7 +286,7 @@ export function StudioDashboard() {
             {data.jobs.map((job) => (
               <li
                 key={job.id}
-                className="flex items-center gap-2 rounded-lg border border-border/40 px-3 py-2"
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-border/40 px-3 py-2"
               >
                 <span className="flex-1 truncate">
                   {STUDIO_WORKFLOW_LABELS[job.workflow]}
@@ -288,6 +304,33 @@ export function StudioDashboard() {
                 >
                   {job.status}
                 </Badge>
+                {job.status === "failed" ? (
+                  <span
+                    data-testid={`studio-job-failure-${job.id}`}
+                    className="w-full text-xs text-muted-foreground"
+                  >
+                    {/*
+                      A job the automatic lane has given up on must SAY so, and
+                      say it here rather than by quietly vanishing. The safe
+                      code and the true attempt count are exactly what makes the
+                      failure explicable; neither is ever rewritten.
+                    */}
+                    {job.errorCode ?? "unknown_error"} · attempt {job.attemptCount}
+                    {job.automaticRetry === "exhausted"
+                      ? " · automatic retries stopped — retry when you are ready"
+                      : ""}
+                  </span>
+                ) : null}
+                {job.status === "failed" && job.retryable ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={retryJob.isPending}
+                    onClick={() => retryJob.mutate({ jobId: job.id })}
+                  >
+                    Retry
+                  </Button>
+                ) : null}
               </li>
             ))}
           </ul>
