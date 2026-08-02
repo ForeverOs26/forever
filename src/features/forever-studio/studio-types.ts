@@ -11,6 +11,8 @@
  * never creates a follow-on approval or publication gate.
  */
 
+import type { StudioArchiveUploadCapability } from "./archive-capability";
+
 export interface MediaDimensions {
   width: number;
   height: number;
@@ -628,6 +630,26 @@ export interface StartJobInput {
     contentType?: string;
     materialPurpose: StudioMaterialPurpose;
   }>;
+  /**
+   * Large archives the browser intends to upload for this job on the resumable
+   * lane, declared so the whole submission can be accepted or refused as ONE
+   * thing.
+   *
+   * They are NOT created here — each is planned later on its own endpoint,
+   * against this job. Declaring them buys exactly one guarantee: when the
+   * resumable lane is unavailable, a mixed submission is refused before the
+   * job row, the staging paths and the signed targets exist, instead of
+   * leaving a half-made ordinary upload behind for the Owner to clean up.
+   *
+   * Untrusted, like every other browser input: it cannot create an archive,
+   * and omitting it gains nothing, because the plan endpoint refuses on its
+   * own authority regardless.
+   */
+  archives?: Array<{
+    name: string;
+    size?: number;
+    materialPurpose: StudioMaterialPurpose;
+  }>;
 }
 
 export interface StartJobResult {
@@ -719,8 +741,21 @@ export interface StudioMemberListItem {
   isActive: boolean;
 }
 
+/**
+ * What this deployment's upload form may offer right now.
+ *
+ * Server-derived and closed. The client is TOLD; it never computes this from a
+ * filename, a size, a user input or anything it can see in the browser, and it
+ * cannot widen it — every archive endpoint re-derives the same answer from the
+ * storage plane that would have to do the work.
+ */
+export interface StudioCapabilities {
+  archiveUpload: StudioArchiveUploadCapability;
+}
+
 export interface StudioOverview {
   session: StudioSessionInfo;
+  capabilities: StudioCapabilities;
   projects: StudioProjectListItem[];
   listings: StudioListingListItem[];
   jobs: StudioJobListItem[];

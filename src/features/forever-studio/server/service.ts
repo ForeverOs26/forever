@@ -87,6 +87,10 @@ import {
   runArchiveSlice,
   type ComposedArchiveMaterials,
 } from "./large-archive";
+import {
+  archiveUploadCapabilityFor,
+  assertArchiveControlPlaneAvailable,
+} from "./archive-capability.server";
 import { assertNotPartnerDemo, assertOwner } from "./membership";
 import {
   buildStageTelemetry,
@@ -402,6 +406,27 @@ export async function startUploadJob(
   // value refuses the job before any row, object or upload target exists.
   const storageProvider = deps.storageProviders.writeProviderId;
   const provider = deps.storageProviders.get(storageProvider);
+  // A submission that ALSO carries large archives is refused as one thing.
+  //
+  // The archives themselves are planned later, on their own endpoint, so
+  // without this the browser would have to create the ordinary job first and
+  // only then discover the lane is closed — leaving a half-made upload behind
+  // and asking the Owner to clean it up. Declaring them here keeps the whole
+  // submission atomic: the entire request is refused before the job row, the
+  // staging paths and the signed targets exist, exactly as an invalid material
+  // purpose already is.
+  //
+  // The declaration is the browser's, so it is not trusted for anything: it
+  // cannot create an archive, and omitting it buys nothing, because the plan
+  // endpoint refuses independently. It is trusted only to make an HONEST
+  // client's refusal atomic.
+  for (const archive of input.archives ?? []) {
+    if (!cleanText(archive.name)) throw new StudioAccessError("file_name_required");
+    assertNewDirectMaterialPurpose(archive.materialPurpose);
+  }
+  if ((input.archives ?? []).length > 0) {
+    assertArchiveControlPlaneAvailable(provider);
+  }
   const jobId = crypto.randomUUID();
   const declared = declareNewDirectJobFiles(jobId, declaredFilesInput, storageProvider);
   const job: StudioJobRow = {
@@ -554,6 +579,11 @@ export async function planJobArchiveUpload(
   // write-provider setting: an archive added to an in-flight job goes exactly
   // where the rest of that job went.
   const provider = deps.storageProviders.get(jobStorageProvider(job));
+  // The resumable lane needs an authoritative part listing, which a Worker's
+  // R2 bindings cannot produce. Refused HERE — authenticated, authorized, and
+  // before `planArchiveUpload` creates the multipart upload, the archive row
+  // or a single signed part target.
+  assertArchiveControlPlaneAvailable(provider);
   const plan = await planArchiveUpload(deps, provider, job, input);
   await recordAuditSafely(deps, {
     actor_id: actor.userId,
@@ -574,6 +604,10 @@ export async function confirmJobArchiveUpload(
   assertNotPartnerDemo(deps);
   const job = await requireJobAccess(deps, actor, input.jobId);
   const provider = deps.storageProviders.get(jobStorageProvider(job));
+  // Confirmation is where the part listing is actually consulted, so it is
+  // refused on the same terms as planning — before any part-state read,
+  // completion call or archive-row transition.
+  assertArchiveControlPlaneAvailable(provider);
   const result = await confirmArchiveUpload(deps, provider, job, input);
   if (result.accepted) {
     await recordAuditSafely(deps, {
@@ -2125,6 +2159,12 @@ export async function getOverview(deps: StudioDeps, actor: StudioActor): Promise
       email: actor.email,
       role: actor.role,
       displayName: actor.displayName,
+    },
+    // What the upload form may offer, derived on the SERVER from the storage
+    // plane a new job would actually be created on. A closed two-value enum
+    // and nothing else: no provider id, no runtime, no binding, no bucket.
+    capabilities: {
+      archiveUpload: archiveUploadCapabilityFor(deps.storageProviders),
     },
     projects: projects.map((project) => ({
       id: project.id,

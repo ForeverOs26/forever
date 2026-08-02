@@ -83,6 +83,23 @@ const startJobSchema = z
         }),
       )
       .max(200),
+    // Large archives this submission also intends to upload, declared so the
+    // WHOLE request can be refused atomically when the resumable lane is
+    // unavailable. Held to the same closed purpose allowlist as an ordinary
+    // file, and equally incapable of creating anything: archives are planned
+    // on their own endpoint, which refuses on its own authority.
+    archives: z
+      .array(
+        z.object({
+          name: z.string(),
+          size: z.number().optional(),
+          materialPurpose: z.enum(
+            STUDIO_MATERIAL_PURPOSES as [StudioMaterialPurpose, ...StudioMaterialPurpose[]],
+          ),
+        }),
+      )
+      .max(200)
+      .optional(),
   })
   .strip();
 
