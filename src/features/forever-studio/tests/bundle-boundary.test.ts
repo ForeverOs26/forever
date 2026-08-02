@@ -187,6 +187,32 @@ describe("Studio bundle boundary", () => {
     expect(stage).not.toContain("fileName");
   });
 
+  it("the archive capability crosses the boundary as a closed enum and nothing else", () => {
+    // The client-safe module is a vocabulary, not a probe: it may not reach
+    // any server module, and it may not name a binding, bucket or credential.
+    const capability = read("src/features/forever-studio/archive-capability.ts");
+    expect(capability).not.toMatch(/^import /m);
+    for (const forbidden of [
+      "R2_PRIVATE_SOURCES",
+      "R2_PUBLIC_MEDIA",
+      "R2_PROJECT_ARCHIVES",
+      "__env__",
+      "cloudflarestorage",
+      "forever-private-sources",
+      "AWS4-HMAC-SHA256",
+    ]) {
+      expect(capability, forbidden).not.toContain(forbidden);
+    }
+    // The enforcement lives on the server, where the client cannot see it.
+    const guard = read("src/features/forever-studio/server/archive-capability.server.ts");
+    expect(guard).toContain("assertArchiveControlPlaneAvailable");
+    for (const path of CLIENT_REACHABLE) {
+      const source = read(path);
+      expect(source, path).not.toMatch(/^import .*archive-capability\.server/m);
+      expect(source, path).not.toContain("archiveControlPlane");
+    }
+  });
+
   it("the write provider is decided on the server and persisted per job", () => {
     const service = read("src/features/forever-studio/server/service.ts");
     // Creation reads the global setting exactly once; processing never does.

@@ -61,6 +61,9 @@ import { StudioUploader } from "../components/StudioUploader";
 
 const OVERVIEW = {
   session: { role: "owner", email: "owner@example.com", displayName: "Owner" },
+  // The resumable lane is open here: these tests are about recovering from a
+  // part-upload failure, which requires the lane to have been usable at all.
+  capabilities: { archiveUpload: "available" as const },
   projects: [],
   members: [],
   activeJobs: 0,
