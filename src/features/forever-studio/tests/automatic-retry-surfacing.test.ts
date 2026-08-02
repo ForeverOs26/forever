@@ -153,6 +153,55 @@ describe("the canonical automatic-eligibility predicate", () => {
     expect(automaticRetryBudgetExhausted(persisted)).toBe(true);
     expect(jobRetryDisposition(persisted)).toBe("automatically_exhausted");
   });
+
+  it("takes the state ONLY from persisted facts, never from a field on the job", () => {
+    // `automaticRetry` is a field the SERVER puts on the overview payload for
+    // the browser to render. If it were ever read back as input, a caller could
+    // hand the scheduler a job that claims to be eligible — and the database,
+    // which reads only `facts`, would disagree. The predicate must ignore it.
+    const exhausted = {
+      retryable: true,
+      facts: retryFactsPatch(STUDIO_AUTOMATIC_RETRY_LIMIT),
+      automaticRetry: "eligible",
+      automatic: "eligible",
+      automaticFailures: 0,
+    };
+    expect(automaticRetryState(exhausted)).toBe("exhausted");
+    expect(automaticRetryBudgetExhausted(exhausted)).toBe(true);
+    expect(jobRetryDisposition(exhausted)).toBe("automatically_exhausted");
+
+    // And the reverse: a spoofed "exhausted" cannot retire an eligible job.
+    const eligible = {
+      retryable: true,
+      facts: retryFactsPatch(0),
+      automaticRetry: "exhausted",
+      automatic: "exhausted",
+    };
+    expect(automaticRetryState(eligible)).toBe("eligible");
+    expect(jobRetryDisposition(eligible)).toBe("automatically_eligible");
+  });
+
+  it("(20) the fake data layer answers the same question the SQL does", async () => {
+    // The fake is the only reason the rest of this suite means anything, so it
+    // is checked against the predicate directly rather than trusted.
+    const world = makeWorld();
+    const jobId = await readyJob(world, "Predicate Parity");
+    world.advanceMinutes(20);
+
+    for (const disposition of [
+      "automatically_eligible",
+      "automatically_exhausted",
+      "terminally_nonretryable",
+    ] as const) {
+      setDisposition(world, jobId, disposition);
+      const row = world.data.jobs.get(jobId)!;
+      const offered = (await world.data.listDueJobs(900, 5)).some((job) => job.id === jobId);
+      const counted = (await world.data.countActiveJobs()) > 0;
+      const expected = jobRetryDisposition(row) === "automatically_eligible";
+      expect(offered, `${disposition} due`).toBe(expected);
+      expect(counted, `${disposition} counted`).toBe(expected);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
