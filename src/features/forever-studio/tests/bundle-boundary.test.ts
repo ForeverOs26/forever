@@ -38,6 +38,8 @@ const CLIENT_REACHABLE = [
   "src/features/forever-studio/components/StudioShell.tsx",
   "src/features/forever-studio/components/useStudioSession.ts",
   "src/features/forever-studio/components/archive-upload.ts",
+  "src/features/forever-studio/components/upload-transport.ts",
+  "src/routes/media.$.ts",
   "src/routes/studio_.forgot-password.tsx",
   "src/routes/studio_.reset-password.tsx",
   "src/features/forever-studio/studio-recovery-contract.ts",
@@ -127,6 +129,42 @@ describe("Studio bundle boundary", () => {
     expect(read("src/features/forever-studio/server/deps.server.ts")).toContain(
       "VITE_PARTNER_DEMO",
     );
+  });
+
+  it("R2 credentials and the S3 signer stay server-only", () => {
+    // No client-reachable module may name an R2 secret, reach the signer, or
+    // reach the provider registry: a presigned URL is minted on the server or
+    // not at all.
+    for (const path of CLIENT_REACHABLE) {
+      const source = read(path);
+      for (const secret of ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"]) {
+        expect(source, `${path}:${secret}`).not.toContain(secret);
+      }
+      expect(source, path).not.toContain("STUDIO_STORAGE_WRITE_PROVIDER");
+      expect(source, path).not.toContain("r2.cloudflarestorage.com");
+      expect(source, path).not.toMatch(
+        /^import .*storage\/(sigv4|r2-client|r2-provider|registry)/m,
+      );
+      expect(source, path).not.toContain("AWS4-HMAC-SHA256");
+    }
+    // The signer is reached only from the R2 client and the local test harness.
+    const client = read("src/features/forever-studio/server/storage/r2-client.server.ts");
+    expect(client).toContain('from "./sigv4.server"');
+    // The route file itself reaches the handler only through dynamic import.
+    const route = read("src/routes/media.$.ts");
+    expect(route).toMatch(/await import\(\s*"@\/features\/forever-studio\/server\/public-media"/);
+    expect(route).toMatch(
+      /await import\(\s*\n?\s*"@\/features\/forever-studio\/server\/public-media\.server"/,
+    );
+  });
+
+  it("the write provider is decided on the server and persisted per job", () => {
+    const service = read("src/features/forever-studio/server/service.ts");
+    // Creation reads the global setting exactly once; processing never does.
+    expect(service).toContain("deps.storageProviders.writeProviderId");
+    expect(service).toContain("deps.storageProviders.get(jobStorageProvider(claimed))");
+    const processing = service.slice(service.indexOf("export async function processClaimedJob"));
+    expect(processing).not.toContain("writeProviderId");
   });
 
   it("the ingestion lane's owner-tooling boundary is respected", () => {

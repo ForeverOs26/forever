@@ -61,10 +61,19 @@ describe("installed Supabase Storage streaming download", () => {
     expect(storageSource).not.toContain("copyObject");
     expect(extractionSource).toContain("createPublicDerivative");
     expect(extractionSource).toContain("MAX_MEDIA_SANITIZE_BYTES");
+    // Since FOREVER-R2-MEDIA-STORAGE-CUTOVER-001 the derivative write goes
+    // through the JOB's own storage provider (`options.provider.objects`,
+    // bound to `storage` at the top of gatherMaterials) rather than the
+    // ambient Supabase client. The read-verify-after-write contract is
+    // unchanged — that is what these pins protect.
     expect(extractionSource).toContain(
-      "deps.storage.upload(toBucket, toPath, derivative.bytes, derivative.contentType)",
+      "storage.upload(toBucket, toPath, derivative.bytes, derivative.contentType)",
     );
-    expect(extractionSource).toContain("deps.storage.hashObject(toBucket, toPath");
+    expect(extractionSource).toContain("storage.hashObject(toBucket, toPath");
+    expect(extractionSource).toContain("const storage = options.provider.objects;");
     expect(extractionSource).not.toContain("deps.storage.copyObject");
+    // No path in the derivative pipeline may reach the ambient Supabase
+    // storage handle: an R2 job would silently write to the wrong system.
+    expect(extractionSource).not.toContain("deps.storage.");
   });
 });
