@@ -335,6 +335,61 @@ describe("the archive window when the resumable lane is unavailable", () => {
     expect(allocationCensus(world)).toEqual(before);
   });
 
+  it("(6) a request that carries its own capability claim is refused all the same", async () => {
+    // Every field below is browser-controlled. A server that consulted ANY of
+    // them would be taking the uploader's word for whether the uploader may
+    // upload. The capability is re-derived from the provider instead, so these
+    // are simply ignored — and the refusal is identical with or without them.
+    const world = workerR2World();
+    const started = await withWorkerRuntime(world.workerR2.env, () =>
+      startUploadJob(world.deps, OWNER, {
+        workflow: "new_development",
+        projectFacts: { name: "Client Override Attempt" },
+        files: CORALINA_EQUIVALENT_MANIFEST.map((file) => ({ ...file })),
+      }),
+    );
+    const before = allocationCensus(world);
+
+    const forged = {
+      jobId: started.jobId,
+      fileName: "package.zip",
+      declaredSize: 32 * 1024 * 1024,
+      materialPurpose: "project_archive" as const,
+      partSha256: ["a".repeat(64), "b".repeat(64), "c".repeat(64), "d".repeat(64)],
+      // The lies.
+      archiveUploadCapability: "available",
+      capabilities: { archiveUpload: "available" },
+      archiveControlPlane: "available",
+      runtime: "node",
+      provider: "supabase",
+    };
+
+    await expect(
+      withWorkerRuntime(world.workerR2.env, () =>
+        planJobArchiveUpload(
+          world.deps,
+          OWNER,
+          forged as unknown as Parameters<typeof planJobArchiveUpload>[2],
+        ),
+      ),
+    ).rejects.toMatchObject({ name: ARCHIVE_UPLOAD_UNAVAILABLE_CODE });
+
+    expect(allocationCensus(world)).toEqual(before);
+
+    // And the same claim on start-job buys nothing either.
+    await expect(
+      withWorkerRuntime(world.workerR2.env, () =>
+        startUploadJob(world.deps, OWNER, {
+          workflow: "new_development",
+          files: [],
+          archives: [{ name: "package.zip", size: 4096, materialPurpose: "project_archive" }],
+          capabilities: { archiveUpload: "available" },
+        } as unknown as Parameters<typeof startUploadJob>[2]),
+      ),
+    ).rejects.toMatchObject({ name: ARCHIVE_UPLOAD_UNAVAILABLE_CODE });
+    expect(world.data.jobs.size).toBe(1);
+  });
+
   it("the capability vocabulary is closed, and absence is not permission", () => {
     expect([...STUDIO_ARCHIVE_UPLOAD_CAPABILITIES].sort()).toEqual([
       "available",
@@ -678,7 +733,43 @@ describe("the capability the server reports", () => {
 // 14, 18, 19 — the ordinary path is completely unaffected
 // ---------------------------------------------------------------------------
 
+/**
+ * Settle a call WITHOUT letting a rejection abort the test.
+ *
+ * "It threw" and "it was refused for the right reason" are different outcomes,
+ * and so are "it threw" and "it must never throw at all". Awaiting directly
+ * collapses them into one red test that does not say which invariant broke.
+ */
+async function settleCall<T>(promise: Promise<T>): Promise<{ threw: boolean; value?: T }> {
+  try {
+    return { threw: false, value: await promise };
+  } catch {
+    return { threw: true };
+  }
+}
+
 describe("the ordinary Coralina-equivalent path is untouched by the gate", () => {
+  it("(8, 14) a submission with NO archive is never touched by the gate", async () => {
+    const world = workerR2World();
+
+    const settled = await settleCall(
+      withWorkerRuntime(world.workerR2.env, () =>
+        startUploadJob(world.deps, OWNER, {
+          workflow: "new_development",
+          projectFacts: { name: "Ordinary Only" },
+          files: CORALINA_EQUIVALENT_MANIFEST.map((file) => ({ ...file })),
+        }),
+      ),
+    );
+
+    expect(
+      settled.threw,
+      "the archive gate must never refuse a submission that declares no archive",
+    ).toBe(false);
+    expect(settled.value!.uploads).toHaveLength(6);
+    expect(world.data.jobs.size).toBe(1);
+  });
+
   it("(14, 18) publishes the six-file manifest without re-upload, on bindings", async () => {
     const world = workerR2World();
     const started = await withWorkerRuntime(world.workerR2.env, () =>
