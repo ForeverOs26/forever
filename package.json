@@ -20,6 +20,8 @@
     "security:pg-test": "node scripts/security/run-browser-write-revoke-pg-tests.mjs",
     "security:storage-pg-test": "node scripts/security/run-storage-default-acl-pg-tests.mjs",
     "studio:pg-test": "node scripts/studio/run-postgres-tests.mjs",
+    "studio:repair-pg-test": "node scripts/studio/run-contained-job-repair-postgres-tests.mjs",
+    "studio:manual-retry-mutations": "node scripts/studio/run-manual-retry-repair-mutations.mjs",
     "media:pg-test": "node scripts/media/run-semantic-media-pg-tests.mjs",
     "media:role-census": "node scripts/media/role-completeness-report.mjs",
     "media:semantic-backfill": "node scripts/media/semantic-backfill.mjs",
@@ -28,7 +30,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "studio:mutation-selftest": "node scripts/studio/run-mutation-runner-selftest.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

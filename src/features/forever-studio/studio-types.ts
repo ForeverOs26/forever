@@ -11,6 +11,28 @@
  * never creates a follow-on approval or publication gate.
  */
 
+import type { StudioArchiveUploadCapability } from "./archive-capability";
+
+/**
+ * Whether the AUTOMATIC lane will still pick a failed job up on its own.
+ *
+ * A closed two-value vocabulary shared by three readers that must never
+ * disagree: the application (retry-policy.ts), the database
+ * (`studio_job_automatic_retry_exhausted`, which reads this exact literal out
+ * of the job's `facts` JSONB), and the dashboard, which uses it to decide
+ * whether it may honestly say a job is still continuing in the background.
+ *
+ * It is separate from `retryable`. `retryable` is the database's admission gate
+ * for BOTH lanes; this says only whether the automatic one has given up. A job
+ * can be `exhausted` and still perfectly claimable by a person.
+ */
+export type StudioAutomaticRetryState = "eligible" | "exhausted";
+
+export const STUDIO_AUTOMATIC_RETRY_STATES: readonly StudioAutomaticRetryState[] = [
+  "eligible",
+  "exhausted",
+];
+
 export interface MediaDimensions {
   width: number;
   height: number;
@@ -628,6 +650,26 @@ export interface StartJobInput {
     contentType?: string;
     materialPurpose: StudioMaterialPurpose;
   }>;
+  /**
+   * Large archives the browser intends to upload for this job on the resumable
+   * lane, declared so the whole submission can be accepted or refused as ONE
+   * thing.
+   *
+   * They are NOT created here — each is planned later on its own endpoint,
+   * against this job. Declaring them buys exactly one guarantee: when the
+   * resumable lane is unavailable, a mixed submission is refused before the
+   * job row, the staging paths and the signed targets exist, instead of
+   * leaving a half-made ordinary upload behind for the Owner to clean up.
+   *
+   * Untrusted, like every other browser input: it cannot create an archive,
+   * and omitting it gains nothing, because the plan endpoint refuses on its
+   * own authority regardless.
+   */
+  archives?: Array<{
+    name: string;
+    size?: number;
+    materialPurpose: StudioMaterialPurpose;
+  }>;
 }
 
 export interface StartJobResult {
@@ -644,6 +686,8 @@ export interface StudioJobResult {
   jobId: string;
   status: StudioJobStatus;
   workflow: StudioWorkflow;
+  /** True attempts made. Never reset, including across Owner-controlled retries. */
+  attemptCount: number;
   /** Public page path when a page exists (project or resale). */
   pagePath: string | null;
   projectSlug: string | null;
@@ -659,6 +703,8 @@ export interface StudioJobResult {
   warnings: StudioWarningSummary[];
   /** Stable safe error code (never a raw database/path/SQL message). */
   errorCode: string | null;
+  /** Closed, allowlisted processing stage for the latest safe failure. */
+  errorStage: string | null;
   /** Concise, user-facing explanation. Safe to display. */
   error: string | null;
   /** Whether an automatic or manual retry can still succeed. */
@@ -707,8 +753,27 @@ export interface StudioJobListItem {
   creatorEmail: string | null;
   createdAt: string;
   errorCode: string | null;
+  /** Closed, allowlisted processing stage for the latest safe failure. */
+  errorStage: string | null;
   error: string | null;
+  /**
+   * Whether ANY lane may still claim this job — the database's own admission
+   * predicate. False is terminal for the Owner too, until the row is repaired.
+   *
+   * Deliberately not "will it retry itself": a job can be retryable and still
+   * have exhausted its automatic budget, in which case only an explicit Owner
+   * retry moves it. That is what `automaticRetry` says.
+   */
   retryable: boolean;
+  /**
+   * Whether the AUTOMATIC lane will still pick this job up on its own.
+   *
+   * `exhausted` is why the dashboard must not claim this job is continuing in
+   * the background: nothing is going to pick it up until a person asks.
+   */
+  automaticRetry: StudioAutomaticRetryState;
+  /** True attempts made. Never reset, so history stays honest. */
+  attemptCount: number;
 }
 
 export interface StudioMemberListItem {
@@ -719,8 +784,21 @@ export interface StudioMemberListItem {
   isActive: boolean;
 }
 
+/**
+ * What this deployment's upload form may offer right now.
+ *
+ * Server-derived and closed. The client is TOLD; it never computes this from a
+ * filename, a size, a user input or anything it can see in the browser, and it
+ * cannot widen it — every archive endpoint re-derives the same answer from the
+ * storage plane that would have to do the work.
+ */
+export interface StudioCapabilities {
+  archiveUpload: StudioArchiveUploadCapability;
+}
+
 export interface StudioOverview {
   session: StudioSessionInfo;
+  capabilities: StudioCapabilities;
   projects: StudioProjectListItem[];
   listings: StudioListingListItem[];
   jobs: StudioJobListItem[];

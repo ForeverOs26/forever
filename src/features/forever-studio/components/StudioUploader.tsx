@@ -19,6 +19,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  ARCHIVE_UPLOAD_UNAVAILABLE_MESSAGE,
+  ARCHIVE_UPLOAD_UNAVAILABLE_WINDOW_NOTE,
+  isArchiveUploadAvailable,
+  isArchiveUploadDisplayedUnavailable,
+} from "../archive-capability";
 import { studioGetOverview, studioProcessJob, studioStartJob } from "../studio.functions";
 import {
   additionalMaterialWindows,
@@ -180,6 +186,13 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
     workflow === "project_update" ||
     workflow === "price_availability_update" ||
     workflow === "construction_media_update";
+  // Told by the server, never inferred here. Two questions with deliberately
+  // different answers while the overview is still loading: the window is not
+  // painted as unavailable on a guess, but a submission is not started on one
+  // either.
+  const archiveCapability = overview.data?.capabilities?.archiveUpload;
+  const archiveWindowUnavailable = isArchiveUploadDisplayedUnavailable(archiveCapability);
+  const archiveLaneOpen = isArchiveUploadAvailable(archiveCapability);
 
   if (overview.isError) {
     // Only a server-proven denial settles as denied; a transient fetch or
@@ -232,6 +245,21 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
         });
         return;
       }
+      // The resumable lane is closed on this deployment. Stop BEFORE the job
+      // exists, so a mixed selection creates nothing at all rather than
+      // leaving the ordinary half behind — and keep every selection exactly
+      // where the Owner put it, so removing the archive and submitting again
+      // costs one click and no re-picking. The server refuses this identically
+      // and independently; this only spares the Owner a pointless round trip.
+      if (!id && largeArchives.length > 0 && !archiveLaneOpen) {
+        setPhase({
+          step: "error",
+          message: ARCHIVE_UPLOAD_UNAVAILABLE_MESSAGE,
+          jobId: null,
+          stage: "upload",
+        });
+        return;
+      }
       if (!id) {
         const started = await studioStartJob({
           data: {
@@ -246,6 +274,19 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
               contentType: selection.file.type || undefined,
               materialPurpose: selection.purpose,
             })),
+            // Declared, not created. The archives are planned after this call
+            // on their own endpoint; naming them here is what lets the server
+            // refuse a mixed submission as ONE thing instead of creating the
+            // ordinary job and failing afterwards.
+            ...(largeArchives.length
+              ? {
+                  archives: largeArchives.map((selection) => ({
+                    name: selection.file.name,
+                    size: selection.file.size,
+                    materialPurpose: selection.purpose,
+                  })),
+                }
+              : {}),
           },
         });
         id = started.jobId;
@@ -461,6 +502,13 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
       <MaterialWindows
         workflow={workflow}
         selections={selections}
+        // Exactly one window, only when the server says so. Every other window
+        // is untouched, and no window is ever removed from the form.
+        unavailable={
+          archiveWindowUnavailable
+            ? { project_archive: ARCHIVE_UPLOAD_UNAVAILABLE_WINDOW_NOTE }
+            : undefined
+        }
         onAdd={addFiles}
         onRemove={removeSelection}
       />
@@ -487,9 +535,21 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
  * same form, so an Owner who happens to have a floor plan during a price
  * update is never told to come back through a different workflow.
  */
+/**
+ * Which windows, if any, cannot accept a file right now.
+ *
+ * A MAP rather than a boolean, so an unavailable window is a property of that
+ * one window and can never spread: every other window renders exactly as it
+ * did before, and the set of windows shown is unchanged. A window is never
+ * removed for being unavailable — an Owner who has a full project archive
+ * needs to be told that, not left wondering where the window went.
+ */
+type UnavailableWindows = Partial<Record<StudioMaterialPurpose, string>>;
+
 function MaterialWindows(props: {
   workflow: StudioWorkflow;
   selections: MaterialSelection[];
+  unavailable?: UnavailableWindows;
   onAdd: (files: FileList | null, purpose: StudioMaterialPurpose) => void;
   onRemove: (key: string) => void;
 }) {
@@ -521,6 +581,7 @@ function MaterialWindows(props: {
           group={group}
           windows={primary.filter((window) => window.group === group)}
           selections={props.selections}
+          unavailable={props.unavailable}
           onAdd={props.onAdd}
           onRemove={props.onRemove}
         />
@@ -557,6 +618,7 @@ function MaterialWindows(props: {
                 group={group}
                 windows={additional.filter((window) => window.group === group)}
                 selections={props.selections}
+                unavailable={props.unavailable}
                 onAdd={props.onAdd}
                 onRemove={props.onRemove}
               />
@@ -572,6 +634,7 @@ function MaterialGroupSection(props: {
   group: StudioMaterialGroup;
   windows: StudioMaterialWindow[];
   selections: MaterialSelection[];
+  unavailable?: UnavailableWindows;
   onAdd: (files: FileList | null, purpose: StudioMaterialPurpose) => void;
   onRemove: (key: string) => void;
 }) {
@@ -589,6 +652,7 @@ function MaterialGroupSection(props: {
             selections={props.selections.filter(
               (selection) => selection.purpose === window.purpose,
             )}
+            unavailableNote={props.unavailable?.[window.purpose]}
             onAdd={props.onAdd}
             onRemove={props.onRemove}
           />
@@ -610,6 +674,12 @@ function MaterialGroupSection(props: {
 function MaterialWindowCard(props: {
   window: StudioMaterialWindow;
   selections: MaterialSelection[];
+  /**
+   * Present ⇒ this window cannot accept a file right now, and this is the
+   * sentence saying so. The window still renders, still names its material,
+   * and still lists anything already chosen.
+   */
+  unavailableNote?: string;
   onAdd: (files: FileList | null, purpose: StudioMaterialPurpose) => void;
   onRemove: (key: string) => void;
 }) {
@@ -617,6 +687,8 @@ function MaterialWindowCard(props: {
   const inputId = `studio-material-${window.purpose}`;
   const cameraId = `studio-material-camera-${window.purpose}`;
   const hintId = `${inputId}-hint`;
+  const noteId = `${inputId}-unavailable`;
+  const unavailable = Boolean(props.unavailableNote);
   return (
     <div className="min-w-0 space-y-2 rounded-lg border border-border/40 p-3">
       <div className="min-w-0 space-y-1">
@@ -626,6 +698,18 @@ function MaterialWindowCard(props: {
         <p id={hintId} className="text-xs text-muted-foreground">
           {window.hint}
         </p>
+        {props.unavailableNote ? (
+          /*
+            Stated, not implied. A greyed-out control with no explanation reads
+            as a bug; `role="status"` means assistive technology hears the
+            reason rather than only meeting a disabled input, and the picker
+            below points its `aria-describedby` here so the reason IS part of
+            the control's description.
+          */
+          <p id={noteId} role="status" className="text-xs font-medium text-muted-foreground">
+            {props.unavailableNote}
+          </p>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -634,9 +718,16 @@ function MaterialWindowCard(props: {
           type="file"
           multiple
           accept={window.accept}
-          aria-describedby={hintId}
+          aria-describedby={unavailable ? `${hintId} ${noteId}` : hintId}
+          disabled={unavailable}
           className="peer sr-only"
           onChange={(event) => {
+            // Belt and braces with `disabled`: a programmatic change event on a
+            // disabled input must not smuggle a selection past the gate.
+            if (unavailable) {
+              event.target.value = "";
+              return;
+            }
             props.onAdd(event.target.files, window.purpose);
             // Clearing lets the SAME file be re-added after a removal.
             event.target.value = "";
@@ -644,7 +735,12 @@ function MaterialWindowCard(props: {
         />
         <label
           htmlFor={inputId}
-          className="inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground peer-focus-visible:outline-none peer-focus-visible:ring-1 peer-focus-visible:ring-ring"
+          aria-disabled={unavailable || undefined}
+          className={
+            unavailable
+              ? "inline-flex h-9 cursor-not-allowed items-center justify-center rounded-md border border-input bg-muted px-3 text-sm font-medium text-muted-foreground opacity-60 shadow-sm"
+              : "inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground peer-focus-visible:outline-none peer-focus-visible:ring-1 peer-focus-visible:ring-ring"
+          }
         >
           Choose files
         </label>

@@ -282,6 +282,274 @@ On `/studio` → **Manage publishers** (only you see this):
 There is no public registration. An account that is not on the member list
 is rejected by the server even if someone creates a login elsewhere.
 
+## Contained failed R2 job — exact-row recovery (exceptional)
+
+This is **not an ordinary Studio workflow** and it is not standing permission
+to change a failed job. It applies only to a job that was manually contained
+with `retryable=false` before Studio separated automatic exhaustion from Owner
+retryability. Every execution requires a **separate explicit Owner
+authorization for the exact job and execution window**. The current runbook and
+the presence of the SQL template do not grant that authorization.
+
+The operator template is
+[`FOREVER_STUDIO_CONTAINED_R2_JOB_EXACT_ROW_REPAIR.sql`](./FOREVER_STUDIO_CONTAINED_R2_JOB_EXACT_ROW_REPAIR.sql).
+It is documentation only: application code, CI, migrations, deployments, and
+scheduled jobs must never invoke it. It has no production identifier or
+credential and refuses to run unless the operator supplies the exact approved
+job and every preflight value at execution time.
+
+### What the repair produces: OWNER-RETRYABLE BUT AUTOMATICALLY EXHAUSTED
+
+The repair does **not** simply make the job retryable. It moves the row to a
+state with two halves, and both are required:
+
+| Field                   | After the repair | What it means                      |
+| ----------------------- | ---------------- | ---------------------------------- |
+| `retryable`             | `true`           | You may press **Retry processing** |
+| `facts.retry.automatic` | `exhausted`      | Nothing automatic will pick it up  |
+
+**`retryable=true` alone is unsafe.** The contained job was created before
+Studio separated automatic exhaustion from Owner retryability, so it carries no
+`facts.retry` record, and the database reads a missing record as _eligible_ —
+correctly, because that is the truth for every job that has never failed
+automatically. The job also already has `processing_requested_at` set from its
+earlier automatic attempts. Flipping only `retryable` would therefore make the
+row match `studio_list_due_jobs` and `studio_count_active_jobs` the moment the
+transaction commits, and the five-minute scheduled runner or the dashboard's
+background resume could claim it, increment `attempt_count`, and start touching
+storage **before you have read a single post-commit check**.
+
+So:
+
+- the automatic exhausted state **must be written in the same transaction**, in
+  the same `UPDATE`, as `retryable=true`. There is no moment in between;
+- the due count and the active count **must remain zero** for this job after the
+  repair, and the template asserts both before it commits;
+- **cron must not start processing.** Nothing automatic may move this row;
+- processing begins **only when you press Retry exactly once**, after every
+  post-commit check below has passed.
+
+If the template ever finds that the repaired row would be returned by
+`studio_list_due_jobs` or would raise `studio_count_active_jobs`, it rolls back,
+writes no audit event, and exits nonzero. A refusal is never a reason to retry
+the repair with different values.
+
+### What the repair is scoped to: the exact six-file pilot
+
+This procedure exists for one contained job and refuses anything else. The
+template requires the Owner-selected material shape exactly:
+
+- **exactly six** manifest files — not five, not seven, not "the approved count";
+- **three project photos**, one brochure, one price list, one developer profile;
+- **no Payment Plan** and **no Project Archive**, and no other purpose at all;
+- every file `storageProvider = r2`;
+- every recorded purpose provenance `owner_selected`;
+- workflow `new_development`.
+
+Any other shape — a missing brochure, a seventh file, an unknown purpose, one
+non-R2 entry — rolls the transaction back and leaves `retryable` and `facts`
+untouched.
+
+### Preconditions — all must be proved before opening a transaction
+
+Stop if any item cannot be proved from immutable deployment records and
+read-only production checks:
+
+1. PR #134 is merged, and the exact merge commit is recorded.
+2. `20260803090000_studio_automatic_retry_eligibility.sql` is recorded as
+   applied **exactly once**. No migration is applied by this procedure.
+3. The corrected Worker is deployed at the approved immutable version and
+   traffic is 100% on that version.
+4. Exactly one intended job is identified by the separately authorized job id.
+   It has `status=failed`, `retryable=false`, the approved workflow and the
+   approved `attempt_count`.
+5. The job-level provider is `r2`; the manifest has **exactly six** files whose
+   material purposes are exactly three project photos, one brochure, one price
+   list and one developer profile, with no Payment Plan, no Project Archive and
+   no other purpose; every manifest entry still has `storageProvider=r2`; every
+   recorded purpose provenance is `owner_selected`.
+6. `result_summary`, `project_slug`, `listing_id`, and `content_fingerprint`
+   are absent. Read-only catalogue checks prove that no result project, no
+   duplicate project, and no replacement job exists.
+7. `processing_token` and `processing_started_at` are absent: no automatic or
+   controlled attempt is running.
+8. Every private R2 object selected by the manifest is present, with the
+   approved aggregate object count and bytes. Do not copy filenames or object
+   keys into the command, report, ticket, or repository.
+9. Supabase Storage counts and bytes are unchanged from the approved baseline.
+10. Record, outside committed documentation, the exact `attempt_count`, safe
+    error code, SHA-256 of the safe error text, SHA-256 of `facts::text`, SHA-256
+    of `files::text`, expected workflow, and file count (which must be `6`).
+    These are the template inputs that make a changed row fail closed without
+    exposing its manifest.
+11. Record the sanitized before-state census: job count, project count, R2
+    object count/bytes, Supabase Storage count/bytes, Auth/Owner/member census,
+    and migration ledger. The record must not contain the job id, filenames,
+    object keys, URLs, credentials, tokens, or material contents.
+
+### Transaction contract
+
+Run psql with `-X` (no user startup file), the approved connection mechanism,
+and `-v` values obtained from that execution window's preflight. The template
+requires:
+
+- `job_id` — the separately authorized exact job id;
+- `expected_workflow`, `expected_attempt_count`, and `expected_file_count`;
+- `expected_error_code`, `expected_error_sha256`, `expected_facts_sha256`, and
+  `expected_files_sha256`;
+- `operator_actor_id` for the existing audit contract; and
+- `approved_at`, the separately authorized timestamp.
+
+Do not paste an expanded production command into committed documentation. The
+unexpanded form is:
+
+```text
+psql -X <approved-connection-arguments> \
+  -v job_id='<exact-authorized-job-id>' \
+  -v expected_workflow='<approved-workflow>' \
+  -v expected_attempt_count='<approved-attempt-count>' \
+  -v expected_file_count='<approved-file-count>' \
+  -v expected_error_code='<approved-safe-code>' \
+  -v expected_error_sha256='<approved-sha256>' \
+  -v expected_facts_sha256='<approved-sha256>' \
+  -v expected_files_sha256='<approved-sha256>' \
+  -v operator_actor_id='<authorized-operator-id>' \
+  -v approved_at='<approved-timestamp>' \
+  -f docs/FOREVER_STUDIO_CONTAINED_R2_JOB_EXACT_ROW_REPAIR.sql
+```
+
+The template sets `ON_ERROR_STOP`, begins one transaction, applies short
+`lock_timeout` and `statement_timeout` values, and locks the exact row. It
+rechecks every precondition under that lock. The guarded `UPDATE` repeats the
+exact id, failed status, false retryability, R2 provider, absent result fields,
+expected workflow, expected attempt count, inactive claim, the exact six-file
+count, the exact material-purpose multiset, every recorded purpose provenance,
+every manifest provider, error evidence digest, facts digest, and manifest
+digest.
+
+There are exactly two assignments, in that one `UPDATE`:
+
+1. `retryable=false → true`; and
+2. the single `facts` path `{retry,automatic}` → `exhausted`.
+
+The normal existing `updated_at` trigger may advance `updated_at`; every other
+job field must remain logically byte-for-byte identical, and every other `facts`
+key — the storage record, the project facts, any existing automatic-failure
+streak — is carried through unchanged. The template compares the complete before
+and after row after removing `retryable`, `facts` and `updated_at`, and compares
+`facts` against the before value with exactly that one path written.
+
+`attempt_count` is not reset, adjusted, or read backwards. The failure evidence
+and stage telemetry are preserved.
+
+Before it commits, the template also asserts the isolation it just created, from
+inside the same transaction: `studio_list_due_jobs` must not return this job, and
+`studio_count_active_jobs` must be unchanged.
+
+The affected-row assertion is exactly one. Zero matches, a changed status,
+provider, workflow, `attempt_count`, error, facts, manifest, material-purpose
+multiset, purpose provenance, file count, active claim, existing result,
+already-true `retryable`, a post-update row still visible to the automatic lane,
+or a `facts` object that changed anywhere except `{retry,automatic}` all select
+the explicit `ROLLBACK` path, write **no audit event**, and exit nonzero.
+After that explicit rollback, the template raises the fixed, sanitized
+PostgreSQL error `contained_job_repair_refused`; `ON_ERROR_STOP` terminates psql
+immediately. It cannot commit the rolled-back work, does not open another
+transaction, leaves no failed transaction open, and prevents every later psql
+instruction from running.
+
+The successful repair exits psql with code 0. Every refused repair exits
+nonzero under `ON_ERROR_STOP`. A nonzero exit means no Retry may be attempted.
+Exit 0 alone is not sufficient authorization to press Retry: the operator must
+still verify all required read-only postchecks below before continuing.
+**After any refusal, do not continue to Retry.** An unexpected psql or
+PostgreSQL error while the transaction is open also stops the session, so
+PostgreSQL rolls it back on disconnect. The template calls
+`studio_job_automatic_retry_exhausted`, so an environment where migration
+`20260803090000_studio_automatic_retry_eligibility.sql` is not applied fails
+closed rather than repairing a row the scheduler could still take.
+
+On the success path, the same transaction writes one bounded event through the
+existing `audit_log` schema: action
+`studio_contained_r2_job_exact_row_repair`, the authorized actor, before/after
+retryability, approved timestamp, expected counts, affected-row count, and
+committed result. It records no filename, object key, URL, credential, token, or
+material content. No audit schema or migration is added.
+
+### Required read-only post-commit checks
+
+Before anyone presses Retry, prove and record all of the following, read-only:
+
+1. Exactly the intended row now has `retryable=true`.
+2. That same row has `facts.retry.automatic = 'exhausted'`.
+3. It remains `status=failed` and provider `r2`, with the same workflow,
+   `attempt_count`, safe error evidence, stage telemetry, manifest, `created_at`,
+   result fields, and inactive claim. Every `facts` key except
+   `{retry,automatic}` is unchanged.
+4. The manifest still holds **exactly six** files, with exactly three project
+   photos, one brochure, one price list and one developer profile, no Payment
+   Plan and no Project Archive.
+5. All six files still have `storageProvider=r2`.
+6. `studio_list_due_jobs` **excludes** this job.
+7. `studio_count_active_jobs` **excludes** this job — the count is what it was
+   before the repair.
+8. The exactly-one audit event exists and reports one affected row.
+9. Every unrelated job is unchanged; **no job was created**.
+10. **No project** or listing was created, and no duplicate result exists.
+11. Private R2 object count and aggregate bytes are unchanged.
+12. Supabase Storage object count and bytes are unchanged.
+13. Auth, Owner, and Studio member state is unchanged.
+14. The migration ledger is unchanged.
+
+Checks 6 and 7 are the ones that prove nothing automatic will move first. If
+either shows the job, **stop**: the row is in the automatic lane, and pressing
+Retry is no longer the only thing that can start processing.
+
+Any mismatch ends the procedure. Do not press Retry and do not attempt a second
+repair.
+
+### One controlled Retry after a successful repair
+
+Only after every post-commit check passes, and only inside the separately
+authorized execution window:
+
+1. Open the **existing** failed job in Studio.
+2. Press **Retry processing exactly once**.
+3. Do not create a replacement project or job.
+4. Do not reselect or re-upload files.
+5. Observe the new action-specific message, `Retry started. Waiting for the
+result.` This observer reads only that exact job; it never invokes automatic
+   resume or submits Retry again.
+6. Wait for the published or safe failed terminal result. The 14-minute clock
+   starts the instant you press Retry and covers the **whole** action — sending
+   the request as well as watching it — so it always reaches a truthful end
+   state inside the 15-minute target, even if the request itself never answers.
+   If it expires, Studio says the Retry request may still be processing and its
+   final state could not be confirmed, and offers only **Refresh status**. A
+   timeout is **not** proof of processing failure, **not** proof the server
+   never received the request, and does not authorize another Retry.
+7. Verify `attempt_count` advanced by exactly one, and that it was the
+   controlled attempt that advanced it.
+8. Verify exactly one intended project exists.
+9. Verify its public JPEG derivatives render from Forever's media route.
+10. Verify PDFs remain private or public exactly as the current material-purpose
+    contract specifies.
+11. Verify Supabase Storage remains at the approved zero-change baseline.
+12. Verify no duplicate job, project, listing, or publication exists.
+13. Verify the original private R2 object count/bytes are unchanged: the same
+    objects were reused.
+14. Close the execution record with the terminal safe result and the sanitized
+    before/after censuses. Never copy the job id or private metadata into
+    committed documentation.
+
+If the controlled attempt itself fails, the ordinary bounded automatic budget is
+refreshed behind you — a controlled attempt always resets the automatic streak,
+whatever its outcome — and `attempt_count` is still never rewritten. That is a
+normal Studio state, not a second repair.
+
+No re-upload is required. A failed assertion, failed post-check, or observation
+timeout never authorizes a new job, a second repair, or a second Retry.
+
 ## If something looks wrong
 
 - A page shows less than you expect → open **Edit** and fill the gaps, or

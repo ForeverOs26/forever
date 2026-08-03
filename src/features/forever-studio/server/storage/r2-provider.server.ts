@@ -7,6 +7,16 @@
  * buckets, presigns the browser's direct uploads, and drives the multipart
  * lifecycle.
  *
+ * TWO TRANSPORTS, ONE CHOICE, MADE AT CONSTRUCTION
+ *   - `runtime: "worker"` — every SERVER-SIDE object operation goes through the
+ *     native R2 bucket bindings. This is production. The S3 client stays for
+ *     the one thing a binding cannot do: presigning the BROWSER's direct
+ *     upload. There is no automatic S3 fallback here, because on a Worker the
+ *     S3 endpoint is not reachable at all — that is the defect that stranded
+ *     the first real R2 pilot, and a "fallback" to it is just a slower failure.
+ *   - `runtime: "node"` (default) — local development, tests and any non-Worker
+ *     host keep the S3 object plane exactly as before.
+ *
  * INVARIANTS THIS MODULE OWNS
  *   - the browser never receives a credential — only a short-lived presigned
  *     request for ONE object key and ONE method;
@@ -17,10 +27,21 @@
  *     reach Supabase Storage;
  *   - browser-presigned DELETE is never issued — deletion is server-side only,
  *     and only for job-scoped keys.
+ *
+ * KNOWN GAP — THE MULTIPART CONTROL PLANE. The large-archive lifecycle needs
+ * `ListParts` as its resume authority, and the R2 binding API has no
+ * equivalent (it can create, resume, complete and abort a multipart upload, but
+ * it cannot enumerate the parts R2 durably holds). Substituting the browser's
+ * claimed receipts would make the client the authority over its own upload,
+ * which is exactly what the current design refuses to do. So on a Worker the
+ * multipart control plane FAILS CLOSED with a stage-labelled refusal instead of
+ * pretending, and the additional architecture needed to close it properly is
+ * recorded in docs/FOREVER_R2_WORKER_BINDING_OBJECT_PLANE.md.
  */
 
 import type { StudioArchivePartTarget } from "../../studio-types";
 import type { StudioObjectDigest, StudioObjectStat, StudioStorage } from "../contracts";
+import { inStage, StudioStageError } from "../processing-stage";
 import {
   isNoSuchUpload,
   normalizeEtag,
@@ -28,6 +49,8 @@ import {
   R2RequestError,
   type R2MultipartPart,
 } from "./r2-client.server";
+import { createR2BindingArchiveReader, createR2BindingObjects } from "./r2-binding-objects.server";
+import type { StudioR2Bindings } from "./r2-bindings.server";
 import {
   bucketKindForLogicalBucket,
   LOGICAL_ARCHIVE_BUCKET,
@@ -54,8 +77,24 @@ export const DEFAULT_PRESIGN_TTL_SECONDS = 900; // 15 minutes
 /** Only ever a job-scoped key may be deleted by the server. */
 const JOB_SCOPED_PATH = /^(jobs|studio|archives)\/[0-9a-fA-F-]{36}\//;
 
+/**
+ * Which transport this process performs SERVER-SIDE object operations over.
+ * `node` is the default so every existing non-Worker caller — the CLI, the
+ * local harness, the whole test suite — keeps the behaviour it was written
+ * against, and moving to bindings is an explicit, visible decision.
+ */
+export type StudioR2Runtime = "worker" | "node";
+
 export interface R2ProviderConfig {
+  /**
+   * The S3 client. On a Worker its ONLY remaining job is presigning the
+   * browser's direct uploads; it performs no server-side object operation.
+   */
   client: R2Client;
+  /** Server-side object transport. Defaults to `node` (the S3 object plane). */
+  runtime?: StudioR2Runtime;
+  /** Native bucket bindings. REQUIRED when `runtime` is `worker`. */
+  bindings?: StudioR2Bindings | null;
   buckets: {
     privateSources: string;
     publicMedia: string;
@@ -238,12 +277,16 @@ function createR2Objects(config: R2ProviderConfig): StudioStorage {
     },
 
     async statObject(bucket, path): Promise<StudioObjectStat | null> {
-      const head = await client.head(bucketNameFor(config, bucket), keyFor(bucket, path));
+      const head = await inStage("object_stat", () =>
+        client.head(bucketNameFor(config, bucket), keyFor(bucket, path)),
+      );
       return head ? { size: head.size } : null;
     },
 
     async hashObject(bucket, path, headBytes) {
-      const response = await client.get(bucketNameFor(config, bucket), keyFor(bucket, path));
+      const response = await inStage("object_read", () =>
+        client.get(bucketNameFor(config, bucket), keyFor(bucket, path)),
+      );
       if (!response) return null;
       const { createHash } = await import("node:crypto");
       const hash = createHash("sha256");
@@ -267,7 +310,9 @@ function createR2Objects(config: R2ProviderConfig): StudioStorage {
     },
 
     async readObjectStream(bucket, path, onChunk) {
-      const response = await client.get(bucketNameFor(config, bucket), keyFor(bucket, path));
+      const response = await inStage("object_read", () =>
+        client.get(bucketNameFor(config, bucket), keyFor(bucket, path)),
+      );
       if (!response) return null;
       try {
         return await consumeStream(response.body, onChunk);
@@ -277,10 +322,14 @@ function createR2Objects(config: R2ProviderConfig): StudioStorage {
     },
 
     async downloadWithin(bucket, path, maxBytes) {
-      const head = await client.head(bucketNameFor(config, bucket), keyFor(bucket, path));
+      const head = await inStage("object_stat", () =>
+        client.head(bucketNameFor(config, bucket), keyFor(bucket, path)),
+      );
       if (!head) return null;
       if (head.size > maxBytes) return null;
-      const response = await client.get(bucketNameFor(config, bucket), keyFor(bucket, path));
+      const response = await inStage("object_read", () =>
+        client.get(bucketNameFor(config, bucket), keyFor(bucket, path)),
+      );
       if (!response) return null;
       const chunks: Buffer[] = [];
       await consumeStream(response.body, (chunk) => {
@@ -291,14 +340,16 @@ function createR2Objects(config: R2ProviderConfig): StudioStorage {
 
     async upload(bucket, path, data, contentType) {
       const kind = bucketKindForLogicalBucket(bucket);
-      await client.put(
-        bucketNameFor(config, bucket),
-        keyFor(bucket, path),
-        new Uint8Array(data),
-        contentType,
-        // Public objects are immutable and content-addressed; private ones get
-        // no caching hint at all because nothing ever caches them.
-        kind === "public_media" ? PUBLIC_MEDIA_CACHE_CONTROL : undefined,
+      await inStage(kind === "public_media" ? "public_object_write" : "object_write", () =>
+        client.put(
+          bucketNameFor(config, bucket),
+          keyFor(bucket, path),
+          new Uint8Array(data),
+          contentType,
+          // Public objects are immutable and content-addressed; private ones get
+          // no caching hint at all because nothing ever caches them.
+          kind === "public_media" ? PUBLIC_MEDIA_CACHE_CONTROL : undefined,
+        ),
       );
     },
 
@@ -308,7 +359,9 @@ function createR2Objects(config: R2ProviderConfig): StudioStorage {
         // bug in the caller, and refusing it here keeps that bug from becoming
         // data loss.
         if (!JOB_SCOPED_PATH.test(path)) throw new Error("r2_delete_outside_job_scope");
-        await client.delete(bucketNameFor(config, bucket), keyFor(bucket, path));
+        await inStage("object_delete", () =>
+          client.delete(bucketNameFor(config, bucket), keyFor(bucket, path)),
+        );
       }
     },
 
@@ -321,8 +374,43 @@ function createR2Objects(config: R2ProviderConfig): StudioStorage {
   };
 }
 
+/**
+ * The bindings a Worker-runtime provider must have been given.
+ *
+ * Constructed once, at provider construction, so a misconfigured deployment is
+ * refused BEFORE a job is claimed rather than halfway through one — and so no
+ * per-operation code path has to remember to check.
+ */
+function requireBindings(config: R2ProviderConfig): StudioR2Bindings {
+  if (config.bindings) return config.bindings;
+  throw new StudioStageError("provider_resolution", {
+    retryable: false,
+    message:
+      "Cloudflare R2 is selected but this Worker has no usable bucket binding. Nothing was changed.",
+  });
+}
+
+/**
+ * The large-archive multipart control plane needs server-side S3 requests
+ * (`ListParts` above all, which is the resume authority). A Worker cannot make
+ * them, and no binding provides them.
+ *
+ * Refusing here is deliberate and LOUD: archive support is not silently
+ * disabled — it raises a specific, sanitized, stage-labelled code that says
+ * exactly which plane is unavailable, on the same deployment where ordinary
+ * files now process natively. Off a Worker nothing changes.
+ */
+function refuseArchiveControlPlane(): never {
+  throw new StudioStageError("archive_control_plane", { retryable: false });
+}
+
 export function createR2StorageProvider(config: R2ProviderConfig): StudioStorageProvider {
-  const objects = createR2Objects(config);
+  const runtime: StudioR2Runtime = config.runtime ?? "node";
+  const onWorker = runtime === "worker";
+  const bindings = onWorker ? requireBindings(config) : null;
+  const objects = bindings
+    ? createR2BindingObjects({ bindings, publicOrigin: config.publicOrigin })
+    : createR2Objects(config);
   const client = config.client;
   const ttl = config.presignTtlSeconds ?? DEFAULT_PRESIGN_TTL_SECONDS;
   const archiveBucket = () => bucketNameFor(config, LOGICAL_ARCHIVE_BUCKET);
@@ -362,6 +450,11 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
     id: "r2",
     objects,
 
+    // On a Worker the resumable lane has no authoritative part listing, so it
+    // is declared unavailable HERE — at the one place that also refuses it —
+    // and callers read this to refuse before allocating anything at all.
+    archiveControlPlane: onWorker ? "temporarily_unavailable" : "available",
+
     async allocateOrdinaryUpload(input): Promise<StudioAllocatedUpload> {
       const contentType = input.contentType?.trim() || "application/octet-stream";
       const url = await client.presignPut({
@@ -384,6 +477,7 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
     },
 
     async beginArchiveUpload(geometry): Promise<StudioArchiveStorageState> {
+      if (onWorker) refuseArchiveControlPlane();
       const objectKey = r2ArchiveObjectPath(geometry.jobId, geometry.archiveId);
       const uploadId = await client.createMultipartUpload(
         archiveBucket(),
@@ -413,17 +507,18 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
       const accepted = new Map<number, StudioAcceptedPart>();
       if (state.completed && state.objectKey) {
         // Completed: the object is the truth. Every planned part is present by
-        // construction, at its planned size.
-        const head = await client.head(
-          archiveBucket(),
-          keyFor(LOGICAL_ARCHIVE_BUCKET, state.objectKey),
-        );
+        // construction, at its planned size. Verifying a COMPLETED object is an
+        // ordinary object-plane stat, so it runs natively on a Worker.
+        const head = await objects.statObject(LOGICAL_ARCHIVE_BUCKET, state.objectKey);
         if (!head || head.size !== geometry.declaredSize) return accepted;
         for (let index = 0; index < geometry.partCount; index += 1) {
           accepted.set(index, { size: expectedPartSize(geometry, index) });
         }
         return accepted;
       }
+      // Everything below enumerates an IN-PROGRESS multipart upload. That is
+      // the resume authority, and it has no binding equivalent.
+      if (onWorker) refuseArchiveControlPlane();
       const { objectKey, uploadId } = requireMultipart(state);
       let parts: R2MultipartPart[];
       try {
@@ -451,6 +546,7 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
 
     async completeArchiveUpload({ geometry, state, parts }) {
       if (state.completed) return state;
+      if (onWorker) refuseArchiveControlPlane();
       const { objectKey, uploadId } = requireMultipart(state);
       const ordered: R2MultipartPart[] = [];
       for (let index = 0; index < geometry.partCount; index += 1) {
@@ -489,6 +585,10 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
 
     async abortArchiveUpload({ state }) {
       if (state.completed || !state.objectKey || !state.multipartUploadId) return;
+      // Best-effort and never fatal, by contract. On a Worker there is nothing
+      // to abort — no multipart upload can have been created there — so this
+      // stays a no-op rather than turning hygiene into a job failure.
+      if (onWorker) return;
       await client
         .abortMultipartUpload(
           archiveBucket(),
@@ -505,6 +605,18 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
 
     archiveReader({ geometry, state, totalSize }) {
       if (!state.objectKey) throw new StudioArchiveUploadLostError("upload_unknown");
+      // Reading a COMPLETED archive is ranged object access, which the binding
+      // does natively — so the scheduled processing lane reads archives the
+      // same Worker-safe way it reads every other object.
+      if (bindings) {
+        return createR2BindingArchiveReader({
+          bindings,
+          logicalBucket: LOGICAL_ARCHIVE_BUCKET,
+          objectPath: state.objectKey,
+          geometry,
+          totalSize,
+        });
+      }
       return new R2ArchiveReader(
         config,
         archiveBucket(),

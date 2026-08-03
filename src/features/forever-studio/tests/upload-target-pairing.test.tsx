@@ -71,6 +71,8 @@ import type { StartJobInput, StudioUploadTarget } from "../studio-types";
 
 const OVERVIEW = {
   session: { role: "owner", email: "owner@example.com", displayName: "Owner" },
+  // The resumable lane is open here: pairing is what these tests are about.
+  capabilities: { archiveUpload: "available" as const },
   projects: [],
   listings: [],
   jobs: [],

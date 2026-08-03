@@ -75,6 +75,10 @@ import {
 
 const OVERVIEW = {
   session: { role: "owner", email: "owner@example.com", displayName: "Owner" },
+  // A deployment whose storage plane CAN drive the resumable lane. These tests
+  // are about which window a file was filed under, not about capability, so
+  // they state the capability explicitly rather than inheriting a default.
+  capabilities: { archiveUpload: "available" as const },
   projects: [],
   listings: [],
   jobs: [],

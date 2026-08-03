@@ -83,6 +83,23 @@ const startJobSchema = z
         }),
       )
       .max(200),
+    // Large archives this submission also intends to upload, declared so the
+    // WHOLE request can be refused atomically when the resumable lane is
+    // unavailable. Held to the same closed purpose allowlist as an ordinary
+    // file, and equally incapable of creating anything: archives are planned
+    // on their own endpoint, which refuses on its own authority.
+    archives: z
+      .array(
+        z.object({
+          name: z.string(),
+          size: z.number().optional(),
+          materialPurpose: z.enum(
+            STUDIO_MATERIAL_PURPOSES as [StudioMaterialPurpose, ...StudioMaterialPurpose[]],
+          ),
+        }),
+      )
+      .max(200)
+      .optional(),
   })
   .strip();
 
@@ -113,6 +130,18 @@ export const studioProcessJob = createServerFn({ method: "POST" })
     const { runStudioEndpoint } = await import("./server/errors");
     return runStudioEndpoint("processing", () =>
       processUploadJob(context.deps, context.actor, data.jobId),
+    );
+  });
+
+/** Exact-job, read-only observation after one explicit processing request. */
+export const studioGetJobStatus = createServerFn({ method: "GET" })
+  .middleware([requireStudioMember])
+  .validator(z.object({ jobId: z.string().uuid() }))
+  .handler(async ({ data, context }) => {
+    const { getUploadJobStatus } = await import("./server/service");
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("job_status", () =>
+      getUploadJobStatus(context.deps, context.actor, data.jobId),
     );
   });
 

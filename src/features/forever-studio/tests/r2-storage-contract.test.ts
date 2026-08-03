@@ -236,6 +236,23 @@ describe("provider persistence", () => {
   });
 });
 
+/**
+ * Settle a processing call WITHOUT letting a rejection abort the test.
+ *
+ * "It threw" and "it failed the job truthfully" are different outcomes, and the
+ * difference is the whole point here: a refusal that escapes leaves the job
+ * claimed and `processing` with nothing on the row to explain it. Awaiting
+ * directly would collapse the two into one red test with no statement of which
+ * contract broke.
+ */
+async function settle<T>(promise: Promise<T>): Promise<{ escaped: boolean; value?: T }> {
+  try {
+    return { escaped: false, value: await promise };
+  } catch {
+    return { escaped: true };
+  }
+}
+
 describe("no fallback from R2 to Supabase Storage", () => {
   it("refuses job creation when the selected provider is unavailable", async () => {
     const world = r2World();
@@ -251,6 +268,17 @@ describe("no fallback from R2 to Supabase Storage", () => {
     expect(world.r2.objects.size).toBe(0);
   });
 
+  /**
+   * A provider refusal is a TERMINAL FAILURE, not an escaped exception.
+   *
+   * It used to be the latter, because provider resolution sat outside
+   * `processClaimedJob`'s try block: the throw went straight past the failure
+   * boundary, `failJob` never ran, and the job stayed claimed and `processing`
+   * — occupying its own lease until it went stale, with nothing on the row to
+   * say why. The no-fallback guarantee these tests exist to protect is
+   * unchanged and asserted exactly as before; what changed is that the job now
+   * ends up somewhere truthful.
+   */
   it("fails an R2 job closed rather than processing it against Supabase", async () => {
     const world = r2World();
     const started = await startUploadJob(world.deps, OWNER, {
@@ -262,16 +290,22 @@ describe("no fallback from R2 to Supabase Storage", () => {
     const supabaseWritesBefore = world.storage.uploadCalls.length;
 
     world.flags.r2Unavailable = true;
-    await expect(processUploadJob(world.deps, OWNER, started.jobId)).rejects.toThrow(
-      "storage_provider_unavailable",
-    );
+    const settled = await settle(processUploadJob(world.deps, OWNER, started.jobId));
 
+    expect(
+      settled.escaped,
+      "a provider refusal must be HANDLED by the processing failure boundary, not thrown past it",
+    ).toBe(false);
+    const result = settled.value!;
+    expect(result.status).toBe("failed");
+    expect(result.errorCode).toBe("storage_provider_unavailable");
     // No silent downgrade: not one Supabase Storage write happened.
     expect(world.storage.uploadCalls.length).toBe(supabaseWritesBefore);
     expect(world.storage.objects.size).toBe(0);
-    // And the job is not published.
+    // And the job is not published — nor left claimed and processing.
     const job = await world.deps.data.getJob(started.jobId);
-    expect(job?.status).not.toBe("published");
+    expect(job?.status).toBe("failed");
+    expect(job?.processing_token).toBeNull();
   });
 
   it("a scheduled continuation of an R2 job also refuses to touch Supabase", async () => {
@@ -289,10 +323,21 @@ describe("no fallback from R2 to Supabase Storage", () => {
     expect(claimed).toBeTruthy();
 
     world.flags.r2Unavailable = true;
-    await expect(processClaimedJob(world.deps, OWNER, claimed!, token)).rejects.toThrow(
-      "storage_provider_unavailable",
-    );
+    const settled = await settle(processClaimedJob(world.deps, OWNER, claimed!, token));
+
+    expect(
+      settled.escaped,
+      "a provider refusal must be HANDLED by the processing failure boundary, not thrown past it",
+    ).toBe(false);
+    const result = settled.value!;
+    expect(result.status).toBe("failed");
+    expect(result.errorCode).toBe("storage_provider_unavailable");
     expect(world.storage.uploadCalls).toEqual([]);
+    // The claim was released by the terminal transition, so the job is not
+    // stuck holding a lease nobody will ever finish.
+    const after = await world.deps.data.getJob(started.jobId);
+    expect(after?.status).toBe("failed");
+    expect(after?.processing_token).toBeNull();
   });
 });
 
