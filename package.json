@@ -30,7 +30,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "studio:mutation-selftest": "node scripts/studio/run-mutation-runner-selftest.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
