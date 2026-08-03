@@ -16,6 +16,29 @@
   // is the date the current production Worker already runs on; changing it
   // changes Worker runtime semantics and is a deliberate, separate decision.
   "compatibility_date": "2026-07-30",
+  // Workers Logs (FOREVER-STUDIO-STALE-ASSET-RECOVERY-001).
+  //
+  // The PR #134 incident was investigated with NO retained server-side record:
+  // observability was off, Logpush was off and there were no tail consumers, so
+  // the only Worker evidence available was a live `wrangler tail` started after
+  // the fact. That blind spot is closed here.
+  //
+  // `head_sampling_rate: 1` records every invocation. This is deliberate for a
+  // corrective release: a release whose whole purpose is to prove a version
+  // transition is safe cannot afford to sample away the invocation that went
+  // wrong. Traffic on this Worker is a single-Owner internal tool plus a small
+  // public site, so full sampling is bounded.
+  //
+  // HONEST LIMIT, restated wherever this is documented: Workers Logs record
+  // Worker INVOCATIONS. The failure this release addresses happens inside the
+  // browser, and a 404 for a missing asset is answered by the asset handler
+  // without raising a Worker exception. Workers Logs therefore CANNOT, on their
+  // own, prove a browser-only dynamic-import failure. They remove the
+  // server-side blind spot; they do not observe the client.
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+  },
   "triggers": {
     // Studio scheduled runner: every 5 minutes the platform invokes the
     // Worker's scheduled() export (no browser session, no HTTP endpoint, no
