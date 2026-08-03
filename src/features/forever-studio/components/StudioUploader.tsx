@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
+import { beginConsequentialAction } from "@/lib/stale-asset/write-safety";
 import {
   ARCHIVE_UPLOAD_UNAVAILABLE_MESSAGE,
   ARCHIVE_UPLOAD_UNAVAILABLE_WINDOW_NOTE,
@@ -226,6 +227,12 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
     // must offer "Resume upload" (replan + missing parts only), never a
     // processing request against an archive with parts still missing.
     let stage: "upload" | "processing" = "upload";
+    // FOREVER-STUDIO-STALE-ASSET-RECOVERY-001. From job creation through the
+    // processing confirmation this action is consequential, so an automatic
+    // stale-asset reload is refused for its whole duration. After a MANUAL
+    // reload nothing restarts on its own: the job is durable server-side and
+    // the dashboard's read-only status view reports what actually happened.
+    const releaseUpload = beginConsequentialAction("upload_start");
     try {
       const failedUploads: string[] = [];
       // Which transport lane a file takes is a SIZE decision, never a purpose
@@ -391,6 +398,8 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
         jobId: id,
         stage,
       });
+    } finally {
+      releaseUpload();
     }
   };
 

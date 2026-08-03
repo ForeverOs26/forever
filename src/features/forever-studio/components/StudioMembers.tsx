@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { beginConsequentialAction } from "@/lib/stale-asset/write-safety";
 
 import { studioGetOverview, studioInviteMember, studioSetMemberActive } from "../studio.functions";
 import { STUDIO_OVERVIEW_KEY } from "./StudioDashboard";
@@ -28,9 +29,20 @@ export function StudioMembers() {
   const [displayName, setDisplayName] = useState("");
   const [message, setMessage] = useState<string | null>(null);
 
+  // Membership changes are consequential (FOREVER-STUDIO-STALE-ASSET-RECOVERY-001):
+  // an automatic reload mid-invitation must never be able to produce a second
+  // invitation or a second role change.
   const invite = useMutation({
-    mutationFn: () =>
-      studioInviteMember({ data: { email, password: password || undefined, displayName } }),
+    mutationFn: async () => {
+      const release = beginConsequentialAction("member_change");
+      try {
+        return await studioInviteMember({
+          data: { email, password: password || undefined, displayName },
+        });
+      } finally {
+        release();
+      }
+    },
     onSuccess: (result) => {
       // Never echo the password back. Confirm the outcome only.
       setMessage(
@@ -46,8 +58,14 @@ export function StudioMembers() {
     onError: (error) => setMessage(error instanceof Error ? error.message : "Invitation failed."),
   });
   const setActive = useMutation({
-    mutationFn: (input: { userId: string; isActive: boolean }) =>
-      studioSetMemberActive({ data: input }),
+    mutationFn: async (input: { userId: string; isActive: boolean }) => {
+      const release = beginConsequentialAction("member_change");
+      try {
+        return await studioSetMemberActive({ data: input });
+      } finally {
+        release();
+      }
+    },
     onSettled: () => queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY }),
     onError: (error) => setMessage(error instanceof Error ? error.message : "Update failed."),
   });

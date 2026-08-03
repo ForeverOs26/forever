@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { beginConsequentialAction } from "@/lib/stale-asset/write-safety";
 
 import {
   studioGetJobStatus,
@@ -115,6 +116,14 @@ export function StudioDashboard() {
     expired: boolean;
     /** Stops the browser waiting locally. Never proof the server did not run. */
     abort: AbortController | null;
+    /**
+     * Consequential-action registrations (FOREVER-STUDIO-STALE-ASSET-RECOVERY-001).
+     * While either is held, an automatic stale-asset reload is REFUSED — a
+     * reload during an unconfirmed Retry could become a second Retry, which
+     * this lane exists to make impossible.
+     */
+    releaseSubmit: (() => void) | null;
+    releaseObserve: (() => void) | null;
   };
 
   const [ownerRetries, setOwnerRetries] = useState<Record<string, StudioOwnerRetryView>>({});
@@ -133,6 +142,10 @@ export function StudioDashboard() {
     if (!timers) return;
     if (timers.pollTimer) clearTimeout(timers.pollTimer);
     clearTimeout(timers.deadlineTimer);
+    // Every terminal path funnels through here, so this is the one place the
+    // consequential-action registrations are released.
+    timers.releaseSubmit?.();
+    timers.releaseObserve?.();
     retryTimersRef.current.delete(jobId);
   };
 
@@ -262,6 +275,10 @@ export function StudioDashboard() {
   };
 
   const observeOwnerRetry = (jobId: string, initial: StudioJobResult, timers: OwnerRetryTimers) => {
+    // The submission is settled but the JOB is not, so the action stays
+    // consequential: an automatic reload here would abandon an observation
+    // whose outcome nothing else is watching.
+    timers.releaseObserve ??= beginConsequentialAction("owner_retry_observe");
     putOwnerRetry(jobId, {
       phase: "observing",
       status: initial.status,
@@ -339,6 +356,11 @@ export function StudioDashboard() {
       nextIntervalMs: STUDIO_OWNER_RETRY_OBSERVATION.initialIntervalMs,
       expired: false,
       abort: typeof AbortController === "function" ? new AbortController() : null,
+      // Registered BEFORE the request leaves. The dangerous window opens the
+      // moment the browser might have sent something, not when a response
+      // arrives.
+      releaseSubmit: beginConsequentialAction("owner_retry_submit"),
+      releaseObserve: null,
     };
     retryTimersRef.current.set(job.id, timers);
 
@@ -347,9 +369,15 @@ export function StudioDashboard() {
       // A response that arrives after the deadline is a stale action response.
       // It does not restart polling, unlock Retry, or navigate; only the
       // read-only Refresh path may establish current truth.
+      // The submit itself has settled; observation (registered below) carries
+      // the action from here.
+      timers.releaseSubmit?.();
+      timers.releaseSubmit = null;
       if (retryTimersRef.current.get(job.id) !== timers || timers.expired) return;
       if (!settleOwnerRetry(result)) observeOwnerRetry(job.id, result, timers);
     } catch (error) {
+      timers.releaseSubmit?.();
+      timers.releaseSubmit = null;
       if (retryTimersRef.current.get(job.id) !== timers || timers.expired) return;
       if (error instanceof Error && error.name === "job_not_found") {
         markOwnerRetryMissing(job.id);
@@ -378,14 +406,29 @@ export function StudioDashboard() {
     }
   };
 
+  // Publication is consequential: it changes what the public site shows. While
+  // one is in flight an automatic stale-asset reload is refused, and after a
+  // manual reload nothing republishes on its own.
   const projectPublication = useMutation({
-    mutationFn: (input: { slug: string; publish: boolean }) =>
-      studioSetProjectPublication({ data: input }),
+    mutationFn: async (input: { slug: string; publish: boolean }) => {
+      const release = beginConsequentialAction("publication");
+      try {
+        return await studioSetProjectPublication({ data: input });
+      } finally {
+        release();
+      }
+    },
     onSettled: () => queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY }),
   });
   const listingPublication = useMutation({
-    mutationFn: (input: { listingId: string; publish: boolean }) =>
-      studioSetListingPublication({ data: input }),
+    mutationFn: async (input: { listingId: string; publish: boolean }) => {
+      const release = beginConsequentialAction("publication");
+      try {
+        return await studioSetListingPublication({ data: input });
+      } finally {
+        release();
+      }
+    },
     onSettled: () => queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY }),
   });
 
