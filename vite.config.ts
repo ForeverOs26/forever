@@ -4,11 +4,32 @@
 //     componentTagger (dev-only), VITE_* env injection, @ path alias, React/TanStack dedupe,
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import type { NitroConfig } from "nitro/types";
 import type { Plugin } from "vite";
 
+import { resolveForeverBuildId } from "./scripts/build/forever-build-id";
+
 const PARTNER_DEMO_HEALTH_PATH = "/__forever_partner_demo_health";
+
+/**
+ * Public build identity (FOREVER-STUDIO-STALE-ASSET-RECOVERY-001).
+ *
+ * Inlined into BOTH the client and the server output of this build, so the
+ * constant compiled into a running page and the constant served by
+ * `/forever-build.json` are the same value for one immutable build and differ
+ * across a release. That single comparison is what makes the stale-asset
+ * recovery a decision rather than a guess.
+ *
+ * Deterministic by construction — never a timestamp, never random — because a
+ * build this repository cannot reproduce is already treated as a defect (see
+ * the `compatibility_date` reasoning in wrangler.jsonc). A release may pin the
+ * value explicitly with `FOREVER_BUILD_ID`.
+ */
+const FOREVER_BUILD_ID = resolveForeverBuildId(dirname(fileURLToPath(import.meta.url)));
 
 function partnerDemoHealthPlugin(): Plugin {
   return {
@@ -54,6 +75,9 @@ const nitroRuntimeOptions = {
 export default defineConfig({
   vite: {
     plugins: [partnerDemoHealthPlugin()],
+    define: {
+      __FOREVER_BUILD_ID__: JSON.stringify(FOREVER_BUILD_ID),
+    },
   },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).

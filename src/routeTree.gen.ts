@@ -15,6 +15,7 @@ import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as ReviewsRouteImport } from './routes/reviews'
 import { Route as OffersRouteImport } from './routes/offers'
 import { Route as NavigatorRouteImport } from './routes/navigator'
+import { Route as ForeverBuildDotjsonRouteImport } from './routes/forever-build[.]json'
 import { Route as DiscoveryRouteImport } from './routes/discovery'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as BoothRouteImport } from './routes/booth'
@@ -65,6 +66,11 @@ const OffersRoute = OffersRouteImport.update({
 const NavigatorRoute = NavigatorRouteImport.update({
   id: '/navigator',
   path: '/navigator',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForeverBuildDotjsonRoute = ForeverBuildDotjsonRouteImport.update({
+  id: '/forever-build.json',
+  path: '/forever-build.json',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DiscoveryRoute = DiscoveryRouteImport.update({
@@ -181,6 +187,7 @@ export interface FileRoutesByFullPath {
   '/booth': typeof BoothRoute
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
+  '/forever-build.json': typeof ForeverBuildDotjsonRoute
   '/navigator': typeof NavigatorRoute
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
@@ -210,6 +217,7 @@ export interface FileRoutesByTo {
   '/booth': typeof BoothRoute
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
+  '/forever-build.json': typeof ForeverBuildDotjsonRoute
   '/navigator': typeof NavigatorRoute
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
@@ -239,6 +247,7 @@ export interface FileRoutesById {
   '/booth': typeof BoothRoute
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
+  '/forever-build.json': typeof ForeverBuildDotjsonRoute
   '/navigator': typeof NavigatorRoute
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
@@ -270,6 +279,7 @@ export interface FileRouteTypes {
     | '/booth'
     | '/contact'
     | '/discovery'
+    | '/forever-build.json'
     | '/navigator'
     | '/offers'
     | '/reviews'
@@ -299,6 +309,7 @@ export interface FileRouteTypes {
     | '/booth'
     | '/contact'
     | '/discovery'
+    | '/forever-build.json'
     | '/navigator'
     | '/offers'
     | '/reviews'
@@ -327,6 +338,7 @@ export interface FileRouteTypes {
     | '/booth'
     | '/contact'
     | '/discovery'
+    | '/forever-build.json'
     | '/navigator'
     | '/offers'
     | '/reviews'
@@ -357,6 +369,7 @@ export interface RootRouteChildren {
   BoothRoute: typeof BoothRoute
   ContactRoute: typeof ContactRoute
   DiscoveryRoute: typeof DiscoveryRoute
+  ForeverBuildDotjsonRoute: typeof ForeverBuildDotjsonRoute
   NavigatorRoute: typeof NavigatorRoute
   OffersRoute: typeof OffersRoute
   ReviewsRoute: typeof ReviewsRoute
@@ -416,6 +429,13 @@ declare module '@tanstack/react-router' {
       path: '/navigator'
       fullPath: '/navigator'
       preLoaderRoute: typeof NavigatorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forever-build.json': {
+      id: '/forever-build.json'
+      path: '/forever-build.json'
+      fullPath: '/forever-build.json'
+      preLoaderRoute: typeof ForeverBuildDotjsonRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/discovery': {
@@ -595,6 +615,7 @@ const rootRouteChildren: RootRouteChildren = {
   BoothRoute: BoothRoute,
   ContactRoute: ContactRoute,
   DiscoveryRoute: DiscoveryRoute,
+  ForeverBuildDotjsonRoute: ForeverBuildDotjsonRoute,
   NavigatorRoute: NavigatorRoute,
   OffersRoute: OffersRoute,
   ReviewsRoute: ReviewsRoute,
