@@ -5,12 +5,13 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 import {
+  studioGetJobStatus,
   studioGetOverview,
   studioProcessJob,
   studioResumePending,
@@ -22,8 +23,16 @@ import {
   resalePagePath,
   STUDIO_WORKFLOW_LABELS,
   STUDIO_WORKFLOWS,
+  type StudioJobListItem,
+  type StudioJobResult,
   type StudioWorkflow,
 } from "../studio-types";
+import {
+  nextOwnerRetryInterval,
+  ownerRetryIsBusy,
+  STUDIO_OWNER_RETRY_OBSERVATION,
+  type StudioOwnerRetryView,
+} from "./manual-retry-observation";
 import { useStudioSession } from "./useStudioSession";
 import {
   isStudioRouteDenial,
@@ -87,6 +96,49 @@ export function StudioDashboard() {
   }, [activeJobs, overview.dataUpdatedAt, queryClient]);
 
   /**
+   * One local record and one bounded timer pair per Retry the Owner explicitly
+   * starts. These refs survive ordinary renders and overview invalidations;
+   * no effect derives a new loop from query data, so a refresh cannot duplicate
+   * an existing poller.
+   */
+  const [ownerRetries, setOwnerRetries] = useState<Record<string, StudioOwnerRetryView>>({});
+  const ownerRetriesRef = useRef<Record<string, StudioOwnerRetryView>>({});
+  const retryLocksRef = useRef(new Set<string>());
+  const mountedRef = useRef(true);
+  const retryTimersRef = useRef(
+    new Map<
+      string,
+      {
+        pollTimer: ReturnType<typeof setTimeout> | null;
+        timeoutTimer: ReturnType<typeof setTimeout>;
+        nextIntervalMs: number;
+      }
+    >(),
+  );
+
+  const putOwnerRetry = (jobId: string, view: StudioOwnerRetryView) => {
+    ownerRetriesRef.current = { ...ownerRetriesRef.current, [jobId]: view };
+    if (mountedRef.current) setOwnerRetries(ownerRetriesRef.current);
+  };
+
+  const clearOwnerRetryTimers = (jobId: string) => {
+    const timers = retryTimersRef.current.get(jobId);
+    if (!timers) return;
+    if (timers.pollTimer) clearTimeout(timers.pollTimer);
+    clearTimeout(timers.timeoutTimer);
+    retryTimersRef.current.delete(jobId);
+  };
+
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+      for (const jobId of retryTimersRef.current.keys()) clearOwnerRetryTimers(jobId);
+      retryLocksRef.current.clear();
+    },
+    [],
+  );
+
+  /**
    * The Owner-controlled lane, reachable from job history.
    *
    * A job whose automatic budget is spent is no longer picked up in the
@@ -98,8 +150,187 @@ export function StudioDashboard() {
    */
   const retryJob = useMutation({
     mutationFn: (input: { jobId: string }) => studioProcessJob({ data: input }),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY }),
   });
+
+  const invalidateOverview = () =>
+    void queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY });
+
+  const settleOwnerRetry = (result: StudioJobResult): boolean => {
+    if (result.status === "published") {
+      clearOwnerRetryTimers(result.jobId);
+      putOwnerRetry(result.jobId, {
+        phase: "published",
+        status: "published",
+        message: "Retry succeeded. The project result is ready.",
+        errorCode: null,
+        errorStage: null,
+        attemptCount: result.attemptCount,
+        retryable: false,
+        pagePath: result.pagePath,
+      });
+      retryLocksRef.current.delete(result.jobId);
+      invalidateOverview();
+      return true;
+    }
+    if (result.status === "failed") {
+      clearOwnerRetryTimers(result.jobId);
+      const terminal = !result.retryable;
+      putOwnerRetry(result.jobId, {
+        phase: terminal ? "terminally_nonretryable" : "failed",
+        status: "failed",
+        message: terminal
+          ? "This job is terminally nonretryable. A separately authorized repair is required before Retry can be used."
+          : "The retry finished safely but did not publish. Review the code below before retrying.",
+        errorCode: result.errorCode,
+        errorStage: result.errorStage,
+        attemptCount: result.attemptCount,
+        retryable: result.retryable,
+        pagePath: null,
+      });
+      if (result.retryable) retryLocksRef.current.delete(result.jobId);
+      invalidateOverview();
+      return true;
+    }
+    return false;
+  };
+
+  const markOwnerRetryMissing = (jobId: string) => {
+    clearOwnerRetryTimers(jobId);
+    const prior = ownerRetriesRef.current[jobId];
+    putOwnerRetry(jobId, {
+      phase: "missing",
+      status: prior?.status ?? "failed",
+      message: "This upload job could not be found. No further Retry was submitted.",
+      errorCode: "job_not_found",
+      errorStage: null,
+      attemptCount: prior?.attemptCount ?? 0,
+      retryable: false,
+      pagePath: null,
+    });
+    retryLocksRef.current.delete(jobId);
+  };
+
+  const markOwnerRetryTimeout = (jobId: string) => {
+    clearOwnerRetryTimers(jobId);
+    const prior = ownerRetriesRef.current[jobId];
+    putOwnerRetry(jobId, {
+      phase: "timeout",
+      status: prior?.status ?? "processing",
+      message:
+        "The retry is still being processed or its final state could not be confirmed. Refresh the status before retrying.",
+      errorCode: prior?.errorCode ?? null,
+      errorStage: prior?.errorStage ?? null,
+      attemptCount: prior?.attemptCount ?? 0,
+      retryable: false,
+      pagePath: prior?.pagePath ?? null,
+    });
+    // Deliberately retain the per-job lock. Only a read-only Refresh that
+    // observes a retryable failure may make another Retry available.
+  };
+
+  const observeOwnerRetry = (jobId: string, initial: StudioJobResult) => {
+    clearOwnerRetryTimers(jobId);
+    putOwnerRetry(jobId, {
+      phase: "observing",
+      status: initial.status,
+      message: "Retry started. Waiting for the result.",
+      errorCode: initial.errorCode,
+      errorStage: initial.errorStage,
+      attemptCount: initial.attemptCount,
+      retryable: false,
+      pagePath: initial.pagePath,
+    });
+
+    const timers = {
+      pollTimer: null as ReturnType<typeof setTimeout> | null,
+      timeoutTimer: setTimeout(
+        () => markOwnerRetryTimeout(jobId),
+        STUDIO_OWNER_RETRY_OBSERVATION.totalTimeoutMs,
+      ),
+      nextIntervalMs: STUDIO_OWNER_RETRY_OBSERVATION.initialIntervalMs,
+    };
+    retryTimersRef.current.set(jobId, timers);
+
+    const schedule = () => {
+      const current = retryTimersRef.current.get(jobId);
+      if (!current) return;
+      const interval = current.nextIntervalMs;
+      current.pollTimer = setTimeout(async () => {
+        if (retryTimersRef.current.get(jobId) !== current) return;
+        try {
+          const result = await studioGetJobStatus({ data: { jobId } });
+          if (retryTimersRef.current.get(jobId) !== current) return;
+          if (settleOwnerRetry(result)) return;
+          putOwnerRetry(jobId, {
+            phase: "observing",
+            status: result.status,
+            message: "Retry started. Waiting for the result.",
+            errorCode: result.errorCode,
+            errorStage: result.errorStage,
+            attemptCount: result.attemptCount,
+            retryable: false,
+            pagePath: result.pagePath,
+          });
+        } catch (error) {
+          if (retryTimersRef.current.get(jobId) !== current) return;
+          if (error instanceof Error && error.name === "job_not_found") {
+            markOwnerRetryMissing(jobId);
+            return;
+          }
+          // A transient observation failure is not a processing failure. Keep
+          // the true last-known state and let the bounded deadline decide.
+        }
+        current.nextIntervalMs = nextOwnerRetryInterval(interval);
+        schedule();
+      }, interval);
+    };
+    schedule();
+  };
+
+  const startOwnerRetry = async (job: StudioJobListItem) => {
+    // Synchronous per-job mutex: this closes the pre-render double-click gap.
+    if (retryLocksRef.current.has(job.id)) return;
+    retryLocksRef.current.add(job.id);
+    putOwnerRetry(job.id, {
+      phase: "submitting",
+      status: "processing",
+      message: "Retry started. Waiting for the result.",
+      errorCode: job.errorCode,
+      errorStage: job.errorStage,
+      attemptCount: job.attemptCount,
+      retryable: false,
+      pagePath: null,
+    });
+    try {
+      const result = await retryJob.mutateAsync({ jobId: job.id });
+      if (!settleOwnerRetry(result)) observeOwnerRetry(job.id, result);
+    } catch (error) {
+      if (error instanceof Error && error.name === "job_not_found") {
+        markOwnerRetryMissing(job.id);
+      } else {
+        // The mutation may have reached the server even if its response did
+        // not reach the browser. Never submit it again automatically.
+        markOwnerRetryTimeout(job.id);
+      }
+    }
+  };
+
+  const refreshOwnerRetryStatus = async (jobId: string) => {
+    const prior = ownerRetriesRef.current[jobId];
+    if (!prior || prior.phase === "refreshing") return;
+    putOwnerRetry(jobId, {
+      ...prior,
+      phase: "refreshing",
+      message: "Refreshing the exact job status…",
+    });
+    try {
+      const result = await studioGetJobStatus({ data: { jobId } });
+      if (!settleOwnerRetry(result)) markOwnerRetryTimeout(jobId);
+    } catch (error) {
+      if (error instanceof Error && error.name === "job_not_found") markOwnerRetryMissing(jobId);
+      else markOwnerRetryTimeout(jobId);
+    }
+  };
 
   const projectPublication = useMutation({
     mutationFn: (input: { slug: string; publish: boolean }) =>
@@ -283,56 +514,99 @@ export function StudioDashboard() {
           <p className="text-sm text-muted-foreground">No uploads yet.</p>
         ) : (
           <ul className="space-y-1 text-sm">
-            {data.jobs.map((job) => (
-              <li
-                key={job.id}
-                className="flex flex-wrap items-center gap-2 rounded-lg border border-border/40 px-3 py-2"
-              >
-                <span className="flex-1 truncate">
-                  {STUDIO_WORKFLOW_LABELS[job.workflow]}
-                  {job.projectSlug ? ` · ${job.projectSlug}` : ""}
-                </span>
-                <span className="text-xs text-muted-foreground">{job.creatorEmail ?? ""}</span>
-                <Badge
-                  variant={
-                    job.status === "published"
-                      ? "default"
-                      : job.status === "failed"
-                        ? "destructive"
-                        : "secondary"
-                  }
+            {data.jobs.map((job) => {
+              const ownerRetry = ownerRetries[job.id];
+              const displayStatus = ownerRetry?.status ?? job.status;
+              const retryAvailable =
+                data.session.role === "owner" &&
+                (ownerRetry
+                  ? ownerRetryIsBusy(ownerRetry) ||
+                    (ownerRetry.phase === "failed" && ownerRetry.retryable)
+                  : job.status === "failed" && job.retryable);
+              return (
+                <li
+                  key={job.id}
+                  data-testid={`studio-job-${job.id}`}
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-border/40 px-3 py-2"
                 >
-                  {job.status}
-                </Badge>
-                {job.status === "failed" ? (
-                  <span
-                    data-testid={`studio-job-failure-${job.id}`}
-                    className="w-full text-xs text-muted-foreground"
+                  <span className="flex-1 truncate">
+                    {STUDIO_WORKFLOW_LABELS[job.workflow]}
+                    {job.projectSlug ? ` · ${job.projectSlug}` : ""}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{job.creatorEmail ?? ""}</span>
+                  <Badge
+                    variant={
+                      displayStatus === "published"
+                        ? "default"
+                        : displayStatus === "failed"
+                          ? "destructive"
+                          : "secondary"
+                    }
                   >
-                    {/*
+                    {displayStatus}
+                  </Badge>
+                  {job.status === "failed" ? (
+                    <span
+                      data-testid={`studio-job-failure-${job.id}`}
+                      className="w-full text-xs text-muted-foreground"
+                    >
+                      {/*
                       A job the automatic lane has given up on must SAY so, and
                       say it here rather than by quietly vanishing. The safe
                       code and the true attempt count are exactly what makes the
                       failure explicable; neither is ever rewritten.
                     */}
-                    {job.errorCode ?? "unknown_error"} · attempt {job.attemptCount}
-                    {job.automaticRetry === "exhausted"
-                      ? " · automatic retries stopped — retry when you are ready"
-                      : ""}
-                  </span>
-                ) : null}
-                {job.status === "failed" && job.retryable ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={retryJob.isPending}
-                    onClick={() => retryJob.mutate({ jobId: job.id })}
-                  >
-                    Retry
-                  </Button>
-                ) : null}
-              </li>
-            ))}
+                      {job.errorCode ?? "unknown_error"}
+                      {job.errorStage ? ` · ${job.errorStage}` : ""} · attempt {job.attemptCount}
+                      {job.automaticRetry === "exhausted"
+                        ? " · automatic retries stopped — retry when you are ready"
+                        : ""}
+                    </span>
+                  ) : null}
+                  {retryAvailable ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={ownerRetryIsBusy(ownerRetry)}
+                      onClick={() => void startOwnerRetry(job)}
+                    >
+                      Retry processing
+                    </Button>
+                  ) : null}
+                  {ownerRetry ? (
+                    <div
+                      data-testid={`studio-retry-observation-${job.id}`}
+                      className="w-full space-y-2 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+                      role="status"
+                    >
+                      <p>{ownerRetry.message}</p>
+                      {ownerRetry.phase === "failed" ||
+                      ownerRetry.phase === "terminally_nonretryable" ? (
+                        <p data-testid={`studio-retry-failure-${job.id}`}>
+                          {ownerRetry.errorCode ?? "unknown_error"}
+                          {ownerRetry.errorStage ? ` · ${ownerRetry.errorStage}` : ""} · attempt{" "}
+                          {ownerRetry.attemptCount}
+                        </p>
+                      ) : null}
+                      {ownerRetry.phase === "published" && ownerRetry.pagePath ? (
+                        <Button asChild size="sm" variant="outline">
+                          <a href={ownerRetry.pagePath}>Open published result</a>
+                        </Button>
+                      ) : null}
+                      {ownerRetry.phase === "timeout" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void refreshOwnerRetryStatus(job.id)}
+                        >
+                          Refresh status
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

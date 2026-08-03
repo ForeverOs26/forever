@@ -133,6 +133,18 @@ export const studioProcessJob = createServerFn({ method: "POST" })
     );
   });
 
+/** Exact-job, read-only observation after one explicit processing request. */
+export const studioGetJobStatus = createServerFn({ method: "GET" })
+  .middleware([requireStudioMember])
+  .validator(z.object({ jobId: z.string().uuid() }))
+  .handler(async ({ data, context }) => {
+    const { getUploadJobStatus } = await import("./server/service");
+    const { runStudioEndpoint } = await import("./server/errors");
+    return runStudioEndpoint("job_status", () =>
+      getUploadJobStatus(context.deps, context.actor, data.jobId),
+    );
+  });
+
 const archivePlanSchema = z
   .object({
     jobId: z.string().uuid(),

@@ -31,6 +31,7 @@ const endpoints = vi.hoisted(() => ({
   getOverview: vi.fn(),
   resumePending: vi.fn(),
   processJob: vi.fn(),
+  getJobStatus: vi.fn(),
   setProjectPublication: vi.fn(),
   setListingPublication: vi.fn(),
 }));
@@ -39,6 +40,7 @@ vi.mock("../studio.functions", () => ({
   studioGetOverview: endpoints.getOverview,
   studioResumePending: endpoints.resumePending,
   studioProcessJob: endpoints.processJob,
+  studioGetJobStatus: endpoints.getJobStatus,
   studioSetProjectPublication: endpoints.setProjectPublication,
   studioSetListingPublication: endpoints.setListingPublication,
 }));
@@ -63,6 +65,7 @@ const CAPPED_JOB = {
   creatorEmail: "owner@example.com",
   createdAt: "2026-01-01T00:00:00.000Z",
   errorCode: "object_stat_failed",
+  errorStage: "object_stat",
   error: "Forever could not confirm the uploaded files in storage.",
   retryable: true,
   automaticRetry: "exhausted" as const,
@@ -155,9 +158,23 @@ describe("the dashboard when only exhausted jobs remain", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     endpoints.getOverview.mockReset();
     endpoints.resumePending.mockReset().mockResolvedValue({ resumed: 0, results: [] });
-    endpoints.processJob
-      .mockReset()
-      .mockResolvedValue({ jobId: "job-capped", status: "published" });
+    endpoints.processJob.mockReset().mockResolvedValue({
+      jobId: "job-capped",
+      status: "published",
+      workflow: "new_development",
+      attemptCount: STUDIO_AUTOMATIC_RETRY_LIMIT + 1,
+      pagePath: "/projects/capped-project",
+      projectSlug: "capped-project",
+      listingId: null,
+      publicStatus: "published",
+      counts: null,
+      warnings: [],
+      errorCode: null,
+      errorStage: null,
+      error: null,
+      retryable: false,
+    });
+    endpoints.getJobStatus.mockReset();
   });
 
   afterEach(() => {
@@ -225,7 +242,7 @@ describe("the dashboard when only exhausted jobs remain", () => {
 
     // Exactly one Retry control: the exhausted job the database would still
     // admit. The terminal one offers none, because a claim would be refused.
-    const retries = screen.getAllByRole("button", { name: "Retry" });
+    const retries = screen.getAllByRole("button", { name: "Retry processing" });
     expect(retries).toHaveLength(1);
 
     await act(async () => {

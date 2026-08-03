@@ -686,6 +686,8 @@ export interface StudioJobResult {
   jobId: string;
   status: StudioJobStatus;
   workflow: StudioWorkflow;
+  /** True attempts made. Never reset, including across Owner-controlled retries. */
+  attemptCount: number;
   /** Public page path when a page exists (project or resale). */
   pagePath: string | null;
   projectSlug: string | null;
@@ -701,6 +703,8 @@ export interface StudioJobResult {
   warnings: StudioWarningSummary[];
   /** Stable safe error code (never a raw database/path/SQL message). */
   errorCode: string | null;
+  /** Closed, allowlisted processing stage for the latest safe failure. */
+  errorStage: string | null;
   /** Concise, user-facing explanation. Safe to display. */
   error: string | null;
   /** Whether an automatic or manual retry can still succeed. */
@@ -749,6 +753,8 @@ export interface StudioJobListItem {
   creatorEmail: string | null;
   createdAt: string;
   errorCode: string | null;
+  /** Closed, allowlisted processing stage for the latest safe failure. */
+  errorStage: string | null;
   error: string | null;
   /**
    * Whether ANY lane may still claim this job — the database's own admission

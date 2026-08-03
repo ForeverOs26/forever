@@ -95,6 +95,7 @@ import { assertNotPartnerDemo, assertOwner } from "./membership";
 import {
   buildStageTelemetry,
   inStage,
+  isStudioProcessingStage,
   JOB_PROCESSING_FACTS_KEY,
   stageOf,
   stageTelemetryLogLine,
@@ -132,6 +133,11 @@ const TEXT_LIMIT = 4000;
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
+
+function jobErrorStage(job: Pick<StudioJobRow, "facts">): string | null {
+  const processing = job.facts[JOB_PROCESSING_FACTS_KEY] as { stage?: unknown } | undefined;
+  return isStudioProcessingStage(processing?.stage) ? processing.stage : null;
+}
 
 function roleProvenanceStatus(role: StudioRole): ProvenanceStatus {
   // Direct publication authorization is NOT verification: an ordinary Studio
@@ -516,6 +522,7 @@ function jobResultFromRow(job: StudioJobRow): StudioJobResult {
     jobId: job.id,
     status: job.status,
     workflow: job.workflow,
+    attemptCount: job.attempt_count,
     pagePath: stored.pagePath ?? null,
     projectSlug: stored.projectSlug ?? job.project_slug,
     listingId: stored.listingId ?? job.listing_id,
@@ -523,6 +530,7 @@ function jobResultFromRow(job: StudioJobRow): StudioJobResult {
     counts: stored.counts ?? null,
     warnings: stored.warnings ?? [],
     errorCode: job.error_code,
+    errorStage: jobErrorStage(job),
     error: job.error,
     retryable: job.retryable,
   };
@@ -538,6 +546,24 @@ export async function processUploadJob(
   if (!job) throw new StudioAccessError("job_not_found");
   assertObjectAccess(actor, job.created_by);
   return claimAndProcess(deps, actor, job, true);
+}
+
+/**
+ * Read the exact current state of one owned job without claiming, resuming, or
+ * otherwise changing it. This is the observation half of an explicit Owner
+ * retry: the mutation happens once, and every later request is read-only.
+ */
+export async function getUploadJobStatus(
+  deps: StudioDeps,
+  actor: StudioActor,
+  jobId: string,
+): Promise<StudioJobResult> {
+  const job = await deps.data.getJob(jobId);
+  if (!job) {
+    throw new StudioAccessError("job_not_found", "This upload job no longer exists.");
+  }
+  assertObjectAccess(actor, job.created_by);
+  return jobResultFromRow(job);
 }
 
 // ---------------------------------------------------------------------------
@@ -1038,6 +1064,7 @@ export async function processClaimedJob(
         jobId: claimed.id,
         status: "processing",
         workflow: claimed.workflow,
+        attemptCount: claimed.attempt_count,
         pagePath: null,
         projectSlug: claimed.project_slug,
         listingId: claimed.listing_id,
@@ -1045,6 +1072,7 @@ export async function processClaimedJob(
         counts: null,
         warnings: [],
         errorCode: null,
+        errorStage: null,
         error: null,
         retryable: true,
         progress: await buildJobProgress(deps, { ...claimed, status: "processing" }),
@@ -1186,6 +1214,7 @@ export async function processClaimedJob(
       jobId: claimed.id,
       status: "failed",
       workflow: claimed.workflow,
+      attemptCount: claimed.attempt_count,
       pagePath: null,
       projectSlug: claimed.project_slug,
       listingId: claimed.listing_id,
@@ -1193,6 +1222,7 @@ export async function processClaimedJob(
       counts: null,
       warnings: materials ? warningSummaries(materials.warnings) : [],
       errorCode: safe.code,
+      errorStage: telemetry.stage,
       error: safe.message,
       retryable,
     };
@@ -1413,6 +1443,7 @@ async function finalizeProject(
     jobId: job.id,
     status: "published",
     workflow: job.workflow,
+    attemptCount: job.attempt_count,
     pagePath: resultPayload.pagePath,
     projectSlug: slug,
     listingId: null,
@@ -1420,6 +1451,7 @@ async function finalizeProject(
     counts: summary.counts,
     warnings: resultPayload.warnings,
     errorCode: null,
+    errorStage: null,
     error: null,
     retryable: true,
   };
@@ -1585,6 +1617,7 @@ async function finalizeResale(
     jobId: job.id,
     status: "published",
     workflow: job.workflow,
+    attemptCount: job.attempt_count,
     pagePath: resalePagePath(published.slug),
     projectSlug: null,
     listingId: published.listingId,
@@ -1598,6 +1631,7 @@ async function finalizeResale(
     },
     warnings: resultPayload.warnings,
     errorCode: null,
+    errorStage: null,
     error: null,
     retryable: true,
   };
@@ -2195,6 +2229,7 @@ export async function getOverview(deps: StudioDeps, actor: StudioActor): Promise
       creatorEmail: job.creator_email,
       createdAt: job.created_at,
       errorCode: job.error_code,
+      errorStage: jobErrorStage(job),
       error: job.error,
       retryable: job.retryable,
       // The two lanes, reported separately. `retryable` says whether ANY lane
