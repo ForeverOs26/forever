@@ -6,6 +6,8 @@ This document defines development and business phases, dependencies, sequencing,
 
 The strategic direction is governed by `docs/FOREVER_STRATEGIC_NORTH_STAR.md`.
 
+The Owner-approved catalogue operating policy is governed by `docs/FOREVER_OWNER_DIRECT_PUBLICATION_POLICY.md`. The Owner-approved post-purchase and exit direction is governed by `docs/FOREVER_EXIT_001.md`.
+
 ## Current phase
 
 **Forever Studio — Production Preflight and Owner Rollout Decision**
@@ -22,19 +24,24 @@ Partner Demo v1 remains canonical and pending presentation in parallel.
 
 Coralina remains an unpublished draft. Rainpalm remains unimported and unpublished. Factory remains A0 — Propose only.
 
+The direct-publication policy supersedes any interpretation that 5–8 projects are a permission gate. The first 5–8 remain an operating batch for measuring Studio speed and friction; catalogue growth continues toward the Owner objective of **100+ commercially relevant projects**.
+
+FOREVER-EXIT-001 is an approved parallel strategic direction. Its non-code ownership register, mandate preparation, manual transaction pilot, legal review, privacy operating work and demand log may begin without displacing Studio stabilization or fast catalogue onboarding. Product code begins only after ordinary Studio publication is stable and the manual workflow has produced evidence.
+
 ## Strategic sequencing
 
 Forever's approved sequence is:
 
 ```text
 truthful public surface
-→ real partner and guest feedback
-→ Coralina publication readiness
-→ 5–8 commercially important real projects
-→ fast advisor and lead workflow
-→ measured reservations and transactions
-→ controlled catalogue expansion
-→ developer partnerships and market intelligence
+→ stable Owner-direct Studio publication
+→ Coralina recovery and first live project
+→ fast project onboarding
+→ 20 → 50 → 100+ commercially relevant projects
+→ advisor and lead conversion workflow
+→ manual Forever Exit proof and buyer↔unit continuity
+→ measured reservations, assignments, resales and transactions
+→ controlled partnerships and market intelligence
 ```
 
 Do not default to:
@@ -87,22 +94,23 @@ The repository implementation now provides a source-honest, fail-closed public b
 - external feedback exists and has been reviewed;
 - the next product checkpoint is selected from evidence.
 
-## Phase 1 — Coralina and the focused real catalogue
+## Phase 1 — Coralina and catalogue-scale direct publication
 
 ### Objective
 
-Create a small catalogue that is useful in real advisory conversations.
+Create a commercially useful catalogue quickly, then continue growing without waiting for secondary content approval.
 
 ### Sequence
 
-1. complete **Coralina Publication Readiness**;
-2. reconcile the unpublished draft with the latest approved source package;
-3. confirm media and price-publication policy;
-4. prepare the exact production change set;
-5. obtain separate Owner authorization before production update or publication;
-6. select 5–8 commercially important projects;
-7. produce Passport-light records with visible gaps and source freshness;
-8. measure actual Owner time and correction rate per project.
+1. complete **Coralina Publication Readiness** and recover/publish the existing approved job through separately authorized production actions;
+2. prove the ordinary R2 and Owner-direct publication path;
+3. implement `FOREVER-STUDIO-FAST-PROJECT-ONBOARDING-001`;
+4. require only the minimum data needed for a useful, identifiable project;
+5. publish official developer materials and Owner-selected amenities without a secondary factual or readiness queue;
+6. use the first 5–8 projects as an operating batch for measuring time, failure rate and Studio friction;
+7. continue through 20 projects, then 50, then 100+ Owner-selected projects;
+8. publish first and enrich prices, units, payment structures, Passport and Intelligence later;
+9. measure actual Owner time and correction rate per project.
 
 ### Project selection criteria
 
@@ -116,13 +124,15 @@ Prioritize projects using:
 - fit with common guest profiles;
 - ability to maintain current data honestly.
 
-Do not target 25–40 projects before the 5–8 project pilot proves onboarding economics and guest value.
+The first 5–8 projects are not a permission gate. Continue publication when the Studio flow is safe; remove friction as it is measured rather than stopping catalogue growth for another approval cycle.
 
 ### Exit criteria
 
-- Coralina is either safely published through a separately approved action or remains explicitly blocked by a documented business decision;
-- 5–8 real project records are usable in advisory;
-- Owner time per project and correction rate are measured;
+- Coralina is safely published through a separately approved production action or remains explicitly blocked by a documented production fact;
+- ordinary Owner-direct project publication works repeatedly;
+- median Owner interaction is moving toward the ≤15-minute target;
+- 20 projects are live or their exact blockers are documented;
+- the path to 50 and 100+ projects is operational rather than theoretical;
 - Navigator produces supported reasons for a meaningful portion of real sessions.
 
 ## Phase 2 — Advisor conversion system
@@ -150,6 +160,95 @@ Use the existing Supabase lead boundary and Advisory foundations before buying o
 - at least one reservation or transaction is attributed to Forever-assisted work;
 - the report and advisor workflow save measurable time or improve conversion.
 
+## Parallel Phase E — Forever Ownership & Exit (FOREVER-EXIT-001)
+
+### Objective
+
+Give existing and future clients a credible way to exit an off-plan or completed property, turn post-purchase continuity into new seller and buyer leads, and make liquidity visible inside projects Forever already covers.
+
+### Product rule
+
+Forever Exit is not a listing marketplace. The unit of public authority is a signed mandate for a specific unit.
+
+```text
+no valid mandate
+→ no public exit offer
+```
+
+This mandate is not a secondary factual review of an Owner-selected developer project. Project publication remains governed by the Owner Direct Publication Policy. Mandates apply only when Forever markets a third party's specific unit.
+
+### Track A — starts without product code
+
+1. create and maintain the internal buyer↔unit register for past and future Forever transactions;
+2. prepare a Thai-lawyer-reviewed mandate;
+3. select one existing client/unit and run one assignment or resale workflow manually;
+4. record operational and document friction as implementation evidence;
+5. begin a private demand log by project and unit profile;
+6. confirm DPO, RoPA and notice-and-takedown operating records.
+
+This work may run in parallel only when it does not delay Coralina recovery, fast onboarding or the 100+ project catalogue.
+
+### Dependencies before Exit v1 code
+
+- ordinary Studio publication is stable;
+- the first manual transaction has closed or produced a documented legally viable workflow;
+- at least one signed mandate exists;
+- Thai legal advice confirms the operating structure and mandate boundary;
+- no product decision delays the active catalogue-scale objective.
+
+### Exit v1 sequence
+
+1. persist buyer↔unit relationships;
+2. support private Exit Intent without a public listing;
+3. persist mandate authority and validity;
+4. extend listing type to `resale` and `assignment`;
+5. attach an exit offer to a canonical unit, with a minimal unit stub allowed when full unit inventory is not yet loaded;
+6. keep owner identity, mandate, SPA, proof of payment, FET, title and similar evidence private;
+7. expose only safe derived fields and explicitly public media;
+8. show the initial exit lane on sold-out/developer-unavailable units;
+9. add project CTAs: `I own a unit in this project` and `Notify me about investor exits`;
+10. implement deterministic demand matching;
+11. provide a direct assignment/resale share page;
+12. add freshness, expiry, audit and correction workflows;
+13. provide Exit Check and later Exit Passport.
+
+### Exit criteria
+
+- 100% of public exit offers have a valid mandate;
+- 0 sensitive legal/personal owner files are publicly exposed;
+- at least one existing client has completed the manual or digital workflow;
+- at least one qualified buyer demand record has matched an owner exit;
+- exactly one canonical project/unit identity is used per offer;
+- no re-upload or duplicated disconnected listing is required when Forever already holds the unit relationship;
+- the first assignment/resale transaction is attributed to Forever or the remaining commercial blocker is documented.
+
+### Not in this phase
+
+- public owner registration;
+- open marketplace;
+- public Assignments section before active inventory justifies it;
+- full owner portal;
+- lead sale or lead auction;
+- platform escrow or client-money custody;
+- iBuying;
+- paid verification badge;
+- transaction-price index;
+- automated public tax calculator before authoritative legal confirmation;
+- mandatory co-broker network;
+- owner-paid visibility model without a new strategic review.
+
+### Review triggers
+
+- first manual exit closes;
+- first owner refuses a mandate;
+- developer objects to exit presentation;
+- legal advice conflicts with the operating model;
+- 10 active Exit Intents;
+- 2 Forever-attributed exits;
+- owner portal, paid visibility or public owner registration is proposed;
+- 30 verified exit transactions;
+- six months without review.
+
 ## Phase 3 — Controlled coverage and partnerships
 
 ### Objective
@@ -158,13 +257,13 @@ Scale only after commercial and operating proof.
 
 ### Candidate work
 
-- expand from 5–8 toward 10–15 projects;
-- decide from evidence whether 20–30 is justified;
+- continue catalogue growth toward 100+ while measuring useful demand coverage;
 - pilot additional Telegram channels only for already covered projects;
 - formalize developer partnerships with independence rules;
 - produce useful project-change and market-intelligence content;
 - test Booth commercially when the catalogue can support varied guest needs;
-- consider partner-agent access and qualified referral workflows.
+- consider partner-agent access and qualified referral workflows;
+- expand Forever Exit partner handling only after Forever has valid mandates, controlled inventory and clear attribution.
 
 ### Independence rule
 
@@ -174,16 +273,17 @@ Developer payment, promotion, or access must never alter source facts, risk stat
 
 Only after measured proof:
 
-- wider project coverage;
-- resale and rental extensions;
-- Phuket market-intelligence products;
+- wider project coverage and ongoing enrichment;
+- Forever Exit owner portal and repeat/referral workflows;
+- rental and property-management extensions;
+- Phuket market-intelligence and verified comparable products;
 - agent or developer subscriptions;
 - additional Thai markets;
 - public grounded AI assistance;
 - selected Factory autonomy promotion;
 - potential B2B commercialization of internal tools.
 
-Marketplace, international expansion, live AI guest advice, and Factory commercialization each require a new strategic review.
+Marketplace, international expansion, live AI guest advice, public owner self-registration, owner-paid listing visibility, and Factory commercialization each require a new strategic review.
 
 ## Work-in-progress policy
 
@@ -192,7 +292,9 @@ Forever should normally run no more than:
 - one guest/product/commercial task; and
 - one data/operations task.
 
-Technical merge is not enough to close a phase. Every major phase needs an external signal such as guest feedback, partner feedback, a developer decision, a viewing, a reservation, a closed deal, or a measured operating improvement.
+FOREVER-EXIT-001 Track A is permitted as a lightweight business-validation stream only when it does not displace the active product task or the data/operations task.
+
+Technical merge is not enough to close a phase. Every major phase needs an external signal such as guest feedback, partner feedback, a developer decision, a viewing, a reservation, a closed deal, an assignment/resale mandate, or a measured operating improvement.
 
 ## Completed foundations retained
 
@@ -226,7 +328,12 @@ These are capabilities, not automatic priorities.
 - Knowledge persistence RC6/RC7 — trigger: Git artifacts or current storage prevent required operations;
 - Booth hardware — trigger: catalogue and partner distribution justify a measured pilot;
 - external CRM — trigger: lead volume exceeds the simple internal workflow;
-- Factory autonomy — trigger: bounded automation has a sustained low-incident record and measurable ROI.
+- Factory autonomy — trigger: bounded automation has a sustained low-incident record and measurable ROI;
+- full Forever Exit owner portal — trigger: at least 10 active Exit Intents or 2 closed exits;
+- public Assignments section — trigger: enough current mandated offers to avoid an empty marketplace;
+- public owner self-registration — trigger: legal, identity, support and abuse boundaries are independently approved;
+- automated exit-tax calculator — trigger: Thai legal/accounting confirmation resolves the transfer/SBT basis;
+- verified transaction-price index — trigger: at least 30 closed evidence-backed exit transactions.
 
 ## Metrics
 
@@ -242,9 +349,18 @@ Reservations or closed transactions in which Forever materially influenced the g
 - contact to viewing;
 - viewing to reservation;
 - source-backed projects published;
+- percentage of projects published within 15 minutes of Owner interaction;
 - catalogue freshness;
 - Owner hours per project onboarding;
 - correction rate after publication;
+- buyer↔unit records captured;
+- private Exit Intents;
+- signed exit mandates;
+- time from mandate to first qualified match;
+- existing clients re-engaged;
+- closed assignment/resale transactions;
+- percentage of public exit offers with a valid mandate — target 100%;
+- percentage of sensitive owner evidence exposed publicly — target 0%;
 - Forever-attributed commission or revenue.
 
 Commits, tests, modules, documents, agents, and catalogue size without demand are not primary business metrics.
