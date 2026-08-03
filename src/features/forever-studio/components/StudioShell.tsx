@@ -5,13 +5,30 @@
  */
 
 import { Link } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import { noteStaleAssetRouteGraphLoaded } from "@/lib/stale-asset/stale-asset-recovery";
 
 import { studioSignOut } from "./useStudioSession";
 
 export function StudioShell(props: { email?: string | null; children: ReactNode }) {
+  /**
+   * The ONLY proof that a recovered Studio route is usable
+   * (FOREVER-STUDIO-STALE-ASSET-RECOVERY-001).
+   *
+   * This shell mounts once the authenticated Studio chunk graph has actually
+   * loaded — which is precisely what a stale deployment breaks. Reaching here
+   * is therefore the earliest honest moment to release the one-attempt marker.
+   * The root component mounting is NOT proof and never clears it.
+   */
+  useEffect(() => {
+    noteStaleAssetRouteGraphLoaded({
+      pathname: window.location.pathname,
+      proof: "studio_shell_mounted",
+    });
+  }, []);
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-30 border-b border-border/60 bg-background/95 backdrop-blur">

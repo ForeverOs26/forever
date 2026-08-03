@@ -7,10 +7,18 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { StaleAssetRecoveryScreen } from "../lib/stale-asset/StaleAssetRecoveryScreen";
+import { classifyStaleAssetError, verdictIsStale } from "../lib/stale-asset/stale-asset-contract";
+import {
+  getStaleAssetRecoveryState,
+  noteStaleAssetRouteGraphLoaded,
+  requireManualStaleAssetRecovery,
+  subscribeStaleAssetRecoveryState,
+} from "../lib/stale-asset/stale-asset-recovery";
 
 function NotFoundComponent() {
   return (
@@ -34,12 +42,50 @@ function NotFoundComponent() {
   );
 }
 
+/**
+ * The root boundary has three honest outcomes
+ * (FOREVER-STUDIO-STALE-ASSET-RECOVERY-001):
+ *
+ *   A. a CONFIRMED stale versioned asset whose single automatic attempt is
+ *      still available — the capture layer owns it and a bounded reload is
+ *      already in flight, so this boundary shows the update screen rather than
+ *      a generic failure;
+ *   B. a CONFIRMED stale versioned asset whose attempt is spent — the same
+ *      specific screen, with a manual reload, and never a second automatic one;
+ *   C. anything else — the existing generic screen, unchanged, with no
+ *      automatic reload and no raw exception.
+ *
+ * The classification is the same narrow one used everywhere else, so an
+ * ordinary React throw, a Supabase failure, a Studio RPC error or a permission
+ * error can never reach A or B. The boundary stays safe on public routes: it
+ * reveals nothing about Studio and nothing about the error itself.
+ */
+function isConfirmedStaleAssetError(error: unknown): boolean {
+  if (typeof window === "undefined") return false;
+  const message = error instanceof Error ? error.message : "";
+  return verdictIsStale(
+    classifyStaleAssetError({ kind: "render_error", message }, { origin: window.location.origin }),
+  );
+}
+
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
-  console.error(error);
   const router = useRouter();
+  const staleAsset = isConfirmedStaleAssetError(error);
+
   useEffect(() => {
+    if (staleAsset) {
+      // Outcomes A and B. The capture layer decides whether an automatic reload
+      // is permitted; this only guarantees the visitor sees the specific screen
+      // instead of the generic one.
+      requireManualStaleAssetRecovery();
+      return;
+    }
+    // Outcome C — unchanged behaviour for every ordinary application error.
+    console.error(error);
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
+  }, [error, staleAsset]);
+
+  if (staleAsset) return <StaleAssetRecoveryScreen />;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -129,6 +175,36 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const router = useRouter();
+  const recoveryState = useSyncExternalStore(
+    subscribeStaleAssetRecoveryState,
+    getStaleAssetRecoveryState,
+    // Server render: the recovery machine is a browser concern and must never
+    // change what SSR emits.
+    () => "idle" as const,
+  );
+
+  /**
+   * Clearing the one-attempt marker requires PROOF that the intended route
+   * graph loaded — never merely that this component mounted. `onResolved`
+   * fires after a route's modules have loaded and its match is settled, so it
+   * is proof for ordinary routes. Studio routes need more: `StudioShell`
+   * reports its own mount, because the shell and its dashboard chunks are
+   * exactly what failed.
+   */
+  useEffect(() => {
+    const unsubscribe = router.subscribe("onResolved", () => {
+      noteStaleAssetRouteGraphLoaded({
+        pathname: window.location.pathname,
+        proof: "router_resolved",
+      });
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [router]);
+
+  if (recoveryState === "recovery_required") return <StaleAssetRecoveryScreen />;
 
   return (
     <QueryClientProvider client={queryClient}>
