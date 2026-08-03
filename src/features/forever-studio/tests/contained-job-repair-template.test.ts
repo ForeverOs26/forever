@@ -5,8 +5,10 @@ import { describe, expect, it } from "vitest";
 
 const TEMPLATE_PATH = "docs/FOREVER_STUDIO_CONTAINED_R2_JOB_EXACT_ROW_REPAIR.sql";
 const RUNBOOK_PATH = "docs/FOREVER_STUDIO_OWNER_RUNBOOK.md";
+const HARNESS_PATH = "scripts/studio/run-contained-job-repair-postgres-tests.mjs";
 const template = readFileSync(resolve(process.cwd(), TEMPLATE_PATH), "utf8");
 const runbook = readFileSync(resolve(process.cwd(), RUNBOOK_PATH), "utf8");
+const harness = readFileSync(resolve(process.cwd(), HARNESS_PATH), "utf8");
 
 const updateStatement = template.slice(
   template.indexOf("UPDATE public.studio_upload_jobs AS job"),
@@ -215,6 +217,36 @@ describe("contained failed R2 job exact-row repair template", () => {
     );
   });
 
+  it("terminates every refusal through a fixed PostgreSQL error under ON_ERROR_STOP", () => {
+    expect(template).toContain("\\set ON_ERROR_STOP on");
+    expect(template).not.toContain("\\quit 3");
+    const refusalExceptions = template.match(
+      /DO \$contained_job_repair_refused\$\s+BEGIN\s+RAISE EXCEPTION 'contained_job_repair_refused';\s+END\s+\$contained_job_repair_refused\$;/g,
+    );
+    // Ten required-parameter guards plus the transactional mismatch branch.
+    expect(refusalExceptions).toHaveLength(11);
+    expect(template).toMatch(
+      /\\else\s+ROLLBACK;\s+\\echo 'contained_job_repair_rolled_back[^\n]*\s+DO \$contained_job_repair_refused\$[\s\S]*?RAISE EXCEPTION 'contained_job_repair_refused';[\s\S]*?\\endif/,
+    );
+    expect(template).toMatch(
+      /\\if :repair_ok\s+COMMIT;\s+\\echo 'contained_job_repair_committed affected_rows=1 automatic_retry=exhausted'\s+\\else/,
+    );
+  });
+
+  it("requires refusal text and a nonzero real psql result without accepting runner failures", () => {
+    expect(harness).toContain("const refusalMarkerPresent");
+    expect(harness).toContain("if (result.code === 0)");
+    expect(harness).toContain("expected sanitized refusal marker was not emitted");
+    expect(harness).toContain("fixed sanitized PostgreSQL refusal exception was not raised");
+    expect(harness).toContain("repair runner spawn failure");
+    expect(harness).toContain("repair runner was killed by signal");
+    expect(harness).toContain("repair runner returned no process exit status");
+    expect(harness).toContain("INSERT INTO public.repair_late_instructions DEFAULT VALUES");
+    expect(harness).toContain("row fingerprint unchanged after refusal");
+    expect(harness).toContain("database census unchanged after refusal");
+    expect(harness).toContain("valid exact repair exits psql with code zero");
+  });
+
   it("uses one bounded existing audit event and introduces no fallback or admin feature", () => {
     expect(template).toContain("INSERT INTO public.audit_log");
     expect(template).toContain("studio_contained_r2_job_exact_row_repair");
@@ -252,5 +284,13 @@ describe("Owner runbook exceptional recovery boundary", () => {
     expect(runbook).toMatch(/three project photos/i);
     expect(runbook).toMatch(/no Payment Plan/i);
     expect(runbook).toMatch(/no Project Archive/i);
+  });
+
+  it("documents the truthful process-exit contract and the required postchecks", () => {
+    expect(runbook).toMatch(/successful repair exits psql with code 0/i);
+    expect(runbook).toMatch(/every refused repair exits\s+nonzero under `ON_ERROR_STOP`/i);
+    expect(runbook).toMatch(/nonzero exit means no Retry may be attempted/i);
+    expect(runbook).toMatch(/exit 0 alone is not sufficient authorization/i);
+    expect(runbook).toMatch(/read-only postchecks/i);
   });
 });

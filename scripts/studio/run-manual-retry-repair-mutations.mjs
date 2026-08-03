@@ -30,6 +30,10 @@ const REPO = process.cwd();
 const DASHBOARD = resolve(REPO, "src/features/forever-studio/components/StudioDashboard.tsx");
 const TIMING = resolve(REPO, "src/features/forever-studio/components/manual-retry-observation.ts");
 const TEMPLATE = resolve(REPO, "docs/FOREVER_STUDIO_CONTAINED_R2_JOB_EXACT_ROW_REPAIR.sql");
+const POSTGRES_HARNESS = resolve(
+  REPO,
+  "scripts/studio/run-contained-job-repair-postgres-tests.mjs",
+);
 const MIGRATION = resolve(
   REPO,
   "supabase/migrations/20260803090000_studio_automatic_retry_eligibility.sql",
@@ -45,7 +49,10 @@ const VITEST = resolve(
 );
 
 const originals = new Map(
-  [DASHBOARD, TIMING, TEMPLATE, MIGRATION].map((file) => [file, readFileSync(file)]),
+  [DASHBOARD, TIMING, TEMPLATE, POSTGRES_HARNESS, MIGRATION].map((file) => [
+    file,
+    readFileSync(file),
+  ]),
 );
 const templateSource = originals.get(TEMPLATE).toString("utf8");
 
@@ -301,6 +308,107 @@ const mutations = [
     to: "'11111111-1111-4111-8111-111111111111'::uuid,",
     tests: [SQL_TEST],
     reason: /requires runtime parameters and contains no credential or fixed job id/,
+  },
+
+  // -- The psql process-exit contract --------------------------------------
+  {
+    name: "one refusal branch regresses to invalid psql quit arguments",
+    file: TEMPLATE,
+    from:
+      "  \\echo 'contained_job_repair_refused required_parameter=job_id'\n" +
+      "  DO $contained_job_repair_refused$\n" +
+      "  BEGIN\n" +
+      "    RAISE EXCEPTION 'contained_job_repair_refused';\n" +
+      "  END\n" +
+      "  $contained_job_repair_refused$;",
+    to: "  \\echo 'contained_job_repair_refused required_parameter=job_id'\n" + "  \\quit 3",
+    tests: [SQL_TEST],
+    reason: /terminates every refusal through a fixed PostgreSQL error/,
+  },
+  {
+    name: "refusal exception removed after rollback",
+    file: TEMPLATE,
+    from:
+      "  ROLLBACK;\n" +
+      "  \\echo 'contained_job_repair_rolled_back reason=' :repair_reason\n" +
+      "  DO $contained_job_repair_refused$\n" +
+      "  BEGIN\n" +
+      "    RAISE EXCEPTION 'contained_job_repair_refused';\n" +
+      "  END\n" +
+      "  $contained_job_repair_refused$;",
+    to:
+      "  ROLLBACK;\n" +
+      "  \\echo 'contained_job_repair_rolled_back reason=' :repair_reason\n" +
+      "  DO $contained_job_repair_refused$\n" +
+      "  BEGIN\n" +
+      "    RAISE NOTICE 'contained_job_repair_refused';\n" +
+      "  END\n" +
+      "  $contained_job_repair_refused$;",
+    tests: [SQL_TEST],
+    reason: /terminates every refusal through a fixed PostgreSQL error/,
+  },
+  {
+    name: "ON_ERROR_STOP disabled",
+    file: TEMPLATE,
+    from: "\\set ON_ERROR_STOP on",
+    to: "\\set ON_ERROR_STOP off",
+    tests: [SQL_TEST],
+    reason: /terminates every refusal through a fixed PostgreSQL error/,
+  },
+  {
+    name: "PostgreSQL harness ignores the refusal exit code",
+    file: POSTGRES_HARNESS,
+    from: "  if (result.code === 0) {",
+    to: "  if (false && result.code === 0) {",
+    tests: [SQL_TEST],
+    reason: /requires refusal text and a nonzero real psql result/,
+  },
+  {
+    name: "PostgreSQL harness accepts exit zero when refusal text is present",
+    file: POSTGRES_HARNESS,
+    from: "  if (result.code === 0) {",
+    to: "  if (result.code === 0 && !refusalMarkerPresent) {",
+    tests: [SQL_TEST],
+    reason: /requires refusal text and a nonzero real psql result/,
+  },
+  {
+    name: "success path is forced to exit nonzero",
+    file: TEMPLATE,
+    from:
+      "  COMMIT;\n" +
+      "  \\echo 'contained_job_repair_committed affected_rows=1 automatic_retry=exhausted'",
+    to:
+      "  COMMIT;\n" +
+      "  \\echo 'contained_job_repair_committed affected_rows=1 automatic_retry=exhausted'\n" +
+      "  DO $contained_job_repair_refused$\n" +
+      "  BEGIN\n" +
+      "    RAISE EXCEPTION 'contained_job_repair_refused';\n" +
+      "  END\n" +
+      "  $contained_job_repair_refused$;",
+    tests: [SQL_TEST],
+    reason: /terminates every refusal through a fixed PostgreSQL error/,
+  },
+  {
+    name: "refusal exception is raised before rollback",
+    file: TEMPLATE,
+    from:
+      "  ROLLBACK;\n" +
+      "  \\echo 'contained_job_repair_rolled_back reason=' :repair_reason\n" +
+      "  DO $contained_job_repair_refused$\n" +
+      "  BEGIN\n" +
+      "    RAISE EXCEPTION 'contained_job_repair_refused';\n" +
+      "  END\n" +
+      "  $contained_job_repair_refused$;",
+    to:
+      "  DO $contained_job_repair_refused$\n" +
+      "  BEGIN\n" +
+      "    RAISE EXCEPTION 'contained_job_repair_refused';\n" +
+      "  END\n" +
+      "  $contained_job_repair_refused$;\n" +
+      "  ROLLBACK;\n" +
+      "  \\echo 'contained_job_repair_rolled_back reason=' :repair_reason",
+    tests: [SQL_TEST],
+    reason: /terminates every refusal through a fixed PostgreSQL error/,
   },
 
   // -- The automatic lane itself -------------------------------------------

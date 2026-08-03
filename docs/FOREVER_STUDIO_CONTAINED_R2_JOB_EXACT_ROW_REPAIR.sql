@@ -42,52 +42,92 @@
 \if :{?job_id}
 \else
   \echo 'contained_job_repair_refused required_parameter=job_id'
-  \quit 3
+  DO $contained_job_repair_refused$
+  BEGIN
+    RAISE EXCEPTION 'contained_job_repair_refused';
+  END
+  $contained_job_repair_refused$;
 \endif
 \if :{?expected_workflow}
 \else
   \echo 'contained_job_repair_refused required_parameter=expected_workflow'
-  \quit 3
+  DO $contained_job_repair_refused$
+  BEGIN
+    RAISE EXCEPTION 'contained_job_repair_refused';
+  END
+  $contained_job_repair_refused$;
 \endif
 \if :{?expected_attempt_count}
 \else
   \echo 'contained_job_repair_refused required_parameter=expected_attempt_count'
-  \quit 3
+  DO $contained_job_repair_refused$
+  BEGIN
+    RAISE EXCEPTION 'contained_job_repair_refused';
+  END
+  $contained_job_repair_refused$;
 \endif
 \if :{?expected_file_count}
 \else
   \echo 'contained_job_repair_refused required_parameter=expected_file_count'
-  \quit 3
+  DO $contained_job_repair_refused$
+  BEGIN
+    RAISE EXCEPTION 'contained_job_repair_refused';
+  END
+  $contained_job_repair_refused$;
 \endif
 \if :{?expected_error_code}
 \else
   \echo 'contained_job_repair_refused required_parameter=expected_error_code'
-  \quit 3
+  DO $contained_job_repair_refused$
+  BEGIN
+    RAISE EXCEPTION 'contained_job_repair_refused';
+  END
+  $contained_job_repair_refused$;
 \endif
 \if :{?expected_error_sha256}
 \else
   \echo 'contained_job_repair_refused required_parameter=expected_error_sha256'
-  \quit 3
+  DO $contained_job_repair_refused$
+  BEGIN
+    RAISE EXCEPTION 'contained_job_repair_refused';
+  END
+  $contained_job_repair_refused$;
 \endif
 \if :{?expected_facts_sha256}
 \else
   \echo 'contained_job_repair_refused required_parameter=expected_facts_sha256'
-  \quit 3
+  DO $contained_job_repair_refused$
+  BEGIN
+    RAISE EXCEPTION 'contained_job_repair_refused';
+  END
+  $contained_job_repair_refused$;
 \endif
 \if :{?expected_files_sha256}
 \else
   \echo 'contained_job_repair_refused required_parameter=expected_files_sha256'
-  \quit 3
+  DO $contained_job_repair_refused$
+  BEGIN
+    RAISE EXCEPTION 'contained_job_repair_refused';
+  END
+  $contained_job_repair_refused$;
 \endif
 \if :{?operator_actor_id}
 \else
   \echo 'contained_job_repair_refused required_parameter=operator_actor_id'
-  \quit 3
+  DO $contained_job_repair_refused$
+  BEGIN
+    RAISE EXCEPTION 'contained_job_repair_refused';
+  END
+  $contained_job_repair_refused$;
 \endif
 \if :{?approved_at}
 \else
   \echo 'contained_job_repair_refused required_parameter=approved_at'
-  \quit 3
+  DO $contained_job_repair_refused$
+  BEGIN
+    RAISE EXCEPTION 'contained_job_repair_refused';
+  END
+  $contained_job_repair_refused$;
 \endif
 
 BEGIN;
@@ -434,5 +474,9 @@ SELECT ok AS repair_ok,
 \else
   ROLLBACK;
   \echo 'contained_job_repair_rolled_back reason=' :repair_reason
-  \quit 3
+  DO $contained_job_repair_refused$
+  BEGIN
+    RAISE EXCEPTION 'contained_job_repair_refused';
+  END
+  $contained_job_repair_refused$;
 \endif

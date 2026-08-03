@@ -22,7 +22,7 @@
  *     an independent reviewer's expansion.
  */
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,6 +31,10 @@ const REPO = process.cwd();
 const MIGRATIONS_DIR = join(REPO, "supabase", "migrations");
 const BOOTSTRAP = join(REPO, "scripts", "studio", "pg-bootstrap.sql");
 const TEMPLATE = join(REPO, "docs", "FOREVER_STUDIO_CONTAINED_R2_JOB_EXACT_ROW_REPAIR.sql");
+const RETRY_ELIGIBILITY_MIGRATION = join(
+  MIGRATIONS_DIR,
+  "20260803090000_studio_automatic_retry_eligibility.sql",
+);
 const WINDOWS = process.platform === "win32";
 
 function findBinDir() {
@@ -121,6 +125,45 @@ function psqlFile(file, variables = {}) {
     `${name}=${value}`,
   ]);
   return run(bin("psql"), psqlArgs([...variableArgs, "-f", file]));
+}
+
+/**
+ * Invoke the real psql process without turning an expected SQL refusal into a
+ * JavaScript exception. Spawn failures, signals and missing exit status remain
+ * runner failures and can never be mistaken for a successful refusal test.
+ */
+function psqlFileResult(file, variables = {}, afterStatement = "") {
+  const variableArgs = Object.entries(variables).flatMap(([name, value]) => [
+    "-v",
+    `${name}=${value}`,
+  ]);
+  const args = psqlArgs([
+    ...variableArgs,
+    "-f",
+    file,
+    ...(afterStatement ? ["-c", afterStatement] : []),
+  ]);
+  const result = runAs
+    ? spawnSync("runuser", ["-u", runAs, "--", bin("psql"), ...args], {
+        stdio: "pipe",
+        encoding: "utf8",
+      })
+    : spawnSync(bin("psql"), args, { stdio: "pipe", encoding: "utf8" });
+
+  if (result.error) {
+    throw new Error(`repair runner spawn failure: ${result.error.message}`);
+  }
+  if (result.signal) {
+    throw new Error(`repair runner was killed by signal ${result.signal}`);
+  }
+  if (!Number.isInteger(result.status)) {
+    throw new Error("repair runner returned no process exit status");
+  }
+  return {
+    code: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
 }
 
 function sql(statement, tuplesOnly = false) {
@@ -246,15 +289,21 @@ function expectEquals(actual, expected, label) {
   if (actual !== expected) throw new Error(`${label}: expected ${expected}, got ${actual}`);
 }
 
-function rowState(jobId) {
+function rowFingerprint(jobId) {
   return sql(
-    `SELECT retryable::text
-            || '|' || COALESCE(facts #>> '{retry,automatic}', '(absent)')
-            || '|' || status
-            || '|' || attempt_count
-            || '|' || encode(digest(convert_to(facts::text, 'UTF8'), 'sha256'), 'hex')
-            || '|' || encode(digest(convert_to(files::text, 'UTF8'), 'sha256'), 'hex')
-       FROM public.studio_upload_jobs WHERE id='${jobId}'`,
+    `SELECT encode(digest(convert_to(to_jsonb(job)::text, 'UTF8'), 'sha256'), 'hex')
+       FROM public.studio_upload_jobs AS job WHERE id='${jobId}'`,
+    true,
+  );
+}
+
+function databaseCensus() {
+  return sql(
+    `SELECT (SELECT count(*) FROM public.studio_upload_jobs)
+            || '|' || (SELECT count(*) FROM public.audit_log)
+            || '|' || (SELECT count(*) FROM public.projects)
+            || '|' || (SELECT count(*) FROM public.listings)
+            || '|' || (SELECT count(*) FROM public.repair_late_instructions)`,
     true,
   );
 }
@@ -271,24 +320,35 @@ function auditCount(jobId) {
 function expectRepairRefused(variables, label, overrides = {}) {
   const params = { ...variables, ...overrides };
   const jobId = params.job_id;
-  const before = jobId ? rowState(jobId) : null;
-  let refused = false;
-  try {
-    const output = psqlFile(TEMPLATE, params);
-    refused = /contained_job_repair_(refused|rolled_back)/.test(output);
-  } catch (error) {
-    const detail = `${error.stdout ?? ""}\n${error.stderr ?? ""}\n${error.message ?? ""}`;
-    // A refusal is either the template's own explicit path or a guard that
-    // rejects the parameters before the transaction can reach the UPDATE.
-    refused =
-      /contained_job_repair_(refused|rolled_back)/.test(detail) ||
-      /violates check constraint/.test(detail);
-    if (!refused) throw error;
+  const before = jobId ? rowFingerprint(jobId) : null;
+  const censusBefore = databaseCensus();
+  const result = psqlFileResult(
+    TEMPLATE,
+    params,
+    "INSERT INTO public.repair_late_instructions DEFAULT VALUES",
+  );
+  const detail = `${result.stdout}\n${result.stderr}`;
+  const refusalMarkerPresent = /contained_job_repair_(refused|rolled_back)/.test(detail);
+
+  assertions += 1;
+  if (result.code === 0) {
+    throw new Error(`${label}: refusal marker was emitted but psql exited zero`);
   }
   assertions += 1;
-  if (!refused) throw new Error(`${label}: repair unexpectedly committed`);
+  if (!refusalMarkerPresent) {
+    throw new Error(`${label}: expected sanitized refusal marker was not emitted`);
+  }
+  assertions += 1;
+  if (!result.stderr.includes("contained_job_repair_refused")) {
+    throw new Error(`${label}: fixed sanitized PostgreSQL refusal exception was not raised`);
+  }
+  expectEquals(databaseCensus(), censusBefore, `${label}: database census unchanged after refusal`);
   if (jobId) {
-    expectEquals(rowState(jobId), before, `${label}: row unchanged after refusal`);
+    expectEquals(
+      rowFingerprint(jobId),
+      before,
+      `${label}: row fingerprint unchanged after refusal`,
+    );
     expectEquals(auditCount(jobId), "0", `${label}: no audit event after refusal`);
   }
 }
@@ -347,6 +407,9 @@ try {
     );
     CREATE TABLE public.scheduler_claim_attempts (
       claimed integer NOT NULL
+    );
+    CREATE TABLE public.repair_late_instructions (
+      id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY
     );
   `);
 
@@ -432,7 +495,9 @@ $observe$;
 
   const observer = runAsync(bin("psql"), psqlArgs(["-f", racePath]));
   await new Promise((resolve) => setTimeout(resolve, 900));
-  const successOutput = psqlFile(TEMPLATE, successParams);
+  const successRun = psqlFileResult(TEMPLATE, successParams);
+  expectEquals(String(successRun.code), "0", "valid exact repair exits psql with code zero");
+  const successOutput = `${successRun.stdout}\n${successRun.stderr}`;
   if (
     !/contained_job_repair_committed affected_rows=1 automatic_retry=exhausted/.test(successOutput)
   ) {
@@ -728,14 +793,48 @@ $scheduler$;
   for (const [label, manifest] of materialCases) {
     const jobId = insertFixture(`material-${label}`, manifest);
     const params = preflight(jobId);
-    expectRepairRefused(params, `material guard: ${label}`);
-    // A wrong file count must also refuse when the operator forces the count.
-    if (manifest.length !== 6) {
-      expectRepairRefused(params, `material guard: ${label} with forced count`, {
-        expected_file_count: 6,
-      });
-    }
+    expectRepairRefused(
+      params,
+      `material guard: ${label}`,
+      manifest.length === 6 ? {} : { expected_file_count: 6 },
+    );
   }
+
+  // The two isolation assertions are exercised as real refusal paths, not only
+  // as source contracts. Each injected function is disposable and the actual
+  // migration is reapplied immediately after the refusal.
+  const dueAssertion = insertFixture("due-assertion-failure");
+  const dueAssertionParams = preflight(dueAssertion);
+  sql(`
+    CREATE OR REPLACE FUNCTION public.studio_list_due_jobs(
+      p_stale_before TIMESTAMPTZ,
+      p_limit INTEGER DEFAULT 5,
+      p_created_by UUID DEFAULT NULL
+    ) RETURNS SETOF public.studio_upload_jobs
+    LANGUAGE sql STABLE SET search_path = ''
+    AS $due_assertion_fault$
+      SELECT job.* FROM public.studio_upload_jobs AS job WHERE job.id='${dueAssertion}'::uuid;
+    $due_assertion_fault$
+  `);
+  expectRepairRefused(dueAssertionParams, "scheduler-isolation assertion failure");
+  psqlFile(RETRY_ELIGIBILITY_MIGRATION);
+
+  const activeAssertion = insertFixture("active-count-assertion-failure");
+  const activeAssertionParams = preflight(activeAssertion);
+  sql(`
+    CREATE OR REPLACE FUNCTION public.studio_count_active_jobs(
+      p_created_by UUID DEFAULT NULL
+    ) RETURNS BIGINT
+    LANGUAGE sql STABLE SET search_path = ''
+    AS $active_assertion_fault$
+      SELECT CASE WHEN EXISTS (
+        SELECT 1 FROM public.studio_upload_jobs AS job
+         WHERE job.id='${activeAssertion}'::uuid AND job.retryable IS TRUE
+      ) THEN 1 ELSE 0 END::bigint;
+    $active_assertion_fault$
+  `);
+  expectRepairRefused(activeAssertionParams, "active-count assertion failure");
+  psqlFile(RETRY_ELIGIBILITY_MIGRATION);
 
   // A different workflow is outside this exceptional procedure entirely.
   const otherWorkflow = insertFixture("other-workflow", MANIFESTS.authorized, {
@@ -779,7 +878,8 @@ $scheduler$;
   const withStreak = insertFixture("with-streak", MANIFESTS.authorized, {
     facts: { ...FACTS, retry: { automaticFailures: 5, automatic: "eligible" } },
   });
-  psqlFile(TEMPLATE, preflight(withStreak));
+  const withStreakRun = psqlFileResult(TEMPLATE, preflight(withStreak));
+  expectEquals(String(withStreakRun.code), "0", "second valid exact repair exits zero");
   expectEquals(
     sql(
       `SELECT (facts #> '{retry}')::text FROM public.studio_upload_jobs WHERE id='${withStreak}'`,

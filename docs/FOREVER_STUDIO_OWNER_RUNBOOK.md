@@ -452,9 +452,19 @@ multiset, purpose provenance, file count, active claim, existing result,
 already-true `retryable`, a post-update row still visible to the automatic lane,
 or a `facts` object that changed anywhere except `{retry,automatic}` all select
 the explicit `ROLLBACK` path, write **no audit event**, and exit nonzero.
+After that explicit rollback, the template raises the fixed, sanitized
+PostgreSQL error `contained_job_repair_refused`; `ON_ERROR_STOP` terminates psql
+immediately. It cannot commit the rolled-back work, does not open another
+transaction, leaves no failed transaction open, and prevents every later psql
+instruction from running.
+
+The successful repair exits psql with code 0. Every refused repair exits
+nonzero under `ON_ERROR_STOP`. A nonzero exit means no Retry may be attempted.
+Exit 0 alone is not sufficient authorization to press Retry: the operator must
+still verify all required read-only postchecks below before continuing.
 **After any refusal, do not continue to Retry.** An unexpected psql or
-PostgreSQL error stops the session while the transaction is open, so PostgreSQL
-rolls it back on disconnect. The template calls
+PostgreSQL error while the transaction is open also stops the session, so
+PostgreSQL rolls it back on disconnect. The template calls
 `studio_job_automatic_retry_exhausted`, so an environment where migration
 `20260803090000_studio_automatic_retry_eligibility.sql` is not applied fails
 closed rather than repairing a row the scheduler could still take.
