@@ -184,6 +184,36 @@ async function clickRetry(jobId = JOB_A.id) {
 const pageText = () => document.body.textContent ?? "";
 const AUTO_BANNER = /this continues\s*automatically even if you close the page/i;
 
+const TIMEOUT_MESSAGE =
+  /The Retry request may still be processing, but its final state could not be confirmed\. Refresh the status before attempting any further action\./;
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  // The dashboard's own catch handles rejection; this keeps an unobserved
+  // rejection from failing the run before the component attaches its handler.
+  promise.catch(() => undefined);
+  return { promise, resolve, reject };
+}
+
+async function advance(ms: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
+
+function refreshButton(jobId = JOB_A.id) {
+  return within(row(jobId)).getByRole("button", { name: "Refresh status" });
+}
+
+function queryRetryButton(jobId = JOB_A.id) {
+  return within(row(jobId)).queryByRole("button", { name: "Retry processing" });
+}
+
 describe("Owner-controlled Retry result inspection", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -366,8 +396,14 @@ describe("action-specific polling is independent from automatic work", () => {
     expect(retryButton(JOB_B.id)).toBeEnabled();
     await clickRetry(JOB_B.id);
     expect(endpoints.processJob).toHaveBeenCalledTimes(2);
-    expect(endpoints.processJob).toHaveBeenNthCalledWith(1, { data: { jobId: JOB_A.id } });
-    expect(endpoints.processJob).toHaveBeenNthCalledWith(2, { data: { jobId: JOB_B.id } });
+    expect(endpoints.processJob).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ data: { jobId: JOB_A.id } }),
+    );
+    expect(endpoints.processJob).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ data: { jobId: JOB_B.id } }),
+    );
   });
 });
 
@@ -415,7 +451,9 @@ describe("duplicate submission and bounded timer controls", () => {
       vi.advanceTimersByTimeAsync(STUDIO_OWNER_RETRY_OBSERVATION.totalTimeoutMs + 1),
     );
 
-    expect(pageText()).toMatch(/still being processed or its final state could not be confirmed/i);
+    expect(pageText()).toMatch(
+      /The Retry request may still be processing, but its final state could not be confirmed\. Refresh the status before attempting any further action\./,
+    );
     expect(within(row()).getByText("processing")).toBeInTheDocument();
     expect(within(row()).getByRole("button", { name: "Refresh status" })).toBeEnabled();
     expect(within(row()).queryByRole("button", { name: "Retry processing" })).toBeNull();
@@ -471,6 +509,271 @@ describe("duplicate submission and bounded timer controls", () => {
   });
 });
 
+/**
+ * FOREVER-PR134-REPAIR-ISOLATION-AND-ABSOLUTE-DEADLINE-001 — PART 3.
+ *
+ * One absolute deadline, started before the mutation leaves the browser, ends
+ * the whole Owner action: submission, the server response, observation and
+ * terminal settlement all spend the same budget.
+ */
+describe("the absolute Owner Retry deadline covers submission and observation", () => {
+  const DEADLINE = STUDIO_OWNER_RETRY_OBSERVATION.totalTimeoutMs;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    endpoints.getOverview.mockReset();
+    endpoints.resumePending.mockReset().mockResolvedValue({ resumed: 0, results: [] });
+    endpoints.processJob.mockReset();
+    endpoints.getJobStatus.mockReset().mockResolvedValue(result(JOB_A, "processing"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("(1) arms the deadline before the mutation is invoked, not after it answers", async () => {
+    const gate = deferred<StudioJobResult>();
+    endpoints.processJob.mockReturnValue(gate.promise);
+    renderDashboard();
+    await settle();
+
+    const timersBefore = vi.getTimerCount();
+    await clickRetry();
+
+    // The submission has not answered, yet the action already owns a timer and
+    // a cancellation handle: the clock started with the Owner's click.
+    expect(endpoints.processJob).toHaveBeenCalledTimes(1);
+    expect(pageText()).toContain("Retry started. Waiting for the result.");
+    expect(vi.getTimerCount()).toBeGreaterThan(timersBefore);
+    const submitted = endpoints.processJob.mock.calls[0][0] as { signal?: AbortSignal };
+    expect(submitted.signal).toBeInstanceOf(AbortSignal);
+    expect(submitted.signal?.aborted).toBe(false);
+  });
+
+  it("(2) an immediate published response still settles normally", async () => {
+    endpoints.processJob.mockResolvedValue(result(JOB_A, "published"));
+    renderDashboard();
+    await settle();
+    await clickRetry();
+
+    expect(pageText()).toContain("Retry succeeded. The project result is ready.");
+    await advance(DEADLINE + 1);
+    expect(pageText()).not.toMatch(TIMEOUT_MESSAGE);
+  });
+
+  it("(3) an immediate failed response still settles normally", async () => {
+    endpoints.processJob.mockResolvedValue(result(JOB_A, "failed", { attemptCount: 8 }));
+    renderDashboard();
+    await settle();
+    await clickRetry();
+
+    expect(screen.getByTestId("studio-retry-failure-job-a")).toHaveTextContent("attempt 8");
+    await advance(DEADLINE + 1);
+    expect(pageText()).not.toMatch(TIMEOUT_MESSAGE);
+  });
+
+  it("(4) a slow processing response leaves observation only the remaining budget", async () => {
+    const gate = deferred<StudioJobResult>();
+    endpoints.processJob.mockReturnValue(gate.promise);
+    renderDashboard();
+    await settle();
+    await clickRetry();
+
+    // Submission consumes four of the fourteen minutes.
+    const submitMs = 4 * 60 * 1_000;
+    await advance(submitMs);
+    gate.resolve(result(JOB_A, "processing"));
+    await settle();
+    expect(pageText()).toContain("Retry started. Waiting for the result.");
+
+    // Ten minutes minus a beat: still observing, because the budget is shared.
+    await advance(DEADLINE - submitMs - 2_000);
+    expect(pageText()).not.toMatch(TIMEOUT_MESSAGE);
+
+    await advance(3_000);
+    expect(pageText()).toMatch(TIMEOUT_MESSAGE);
+  });
+
+  it("(5) a mutation that never settles ends in a bounded truthful state", async () => {
+    endpoints.processJob.mockReturnValue(deferred<StudioJobResult>().promise);
+    renderDashboard();
+    await settle();
+    await clickRetry();
+
+    await advance(DEADLINE - 1_000);
+    expect(pageText()).not.toMatch(TIMEOUT_MESSAGE);
+
+    await advance(2_000);
+    expect(pageText()).toMatch(TIMEOUT_MESSAGE);
+    expect(refreshButton()).toBeEnabled();
+    const submitted = endpoints.processJob.mock.calls[0][0] as { signal?: AbortSignal };
+    expect(submitted.signal?.aborted).toBe(true);
+  });
+
+  it("(6) a mutation resolving after the deadline is ignored as stale", async () => {
+    const gate = deferred<StudioJobResult>();
+    endpoints.processJob.mockReturnValue(gate.promise);
+    renderDashboard();
+    await settle();
+    await clickRetry();
+    await advance(DEADLINE + 1);
+
+    gate.resolve(result(JOB_A, "processing"));
+    await settle();
+    await advance(60_000);
+
+    expect(pageText()).toMatch(TIMEOUT_MESSAGE);
+    expect(endpoints.getJobStatus).not.toHaveBeenCalled();
+    expect(queryRetryButton()).toBeNull();
+    expect(refreshButton()).toBeEnabled();
+  });
+
+  it("(7) a published mutation resolving after the deadline never navigates", async () => {
+    const gate = deferred<StudioJobResult>();
+    endpoints.processJob.mockReturnValue(gate.promise);
+    renderDashboard();
+    await settle();
+    await clickRetry();
+    await advance(DEADLINE + 1);
+
+    gate.resolve(result(JOB_A, "published"));
+    await settle();
+
+    expect(pageText()).toMatch(TIMEOUT_MESSAGE);
+    expect(within(row()).queryByRole("link", { name: "Open published result" })).toBeNull();
+  });
+
+  it("(7b) a mutation rejecting after the deadline is ignored safely", async () => {
+    const gate = deferred<StudioJobResult>();
+    endpoints.processJob.mockReturnValue(gate.promise);
+    renderDashboard();
+    await settle();
+    await clickRetry();
+    await advance(DEADLINE + 1);
+
+    gate.reject(new Error("network"));
+    await settle();
+    await advance(60_000);
+
+    expect(pageText()).toMatch(TIMEOUT_MESSAGE);
+    expect(endpoints.processJob).toHaveBeenCalledTimes(1);
+    expect(endpoints.getJobStatus).not.toHaveBeenCalled();
+  });
+
+  it("(8, 9, 10) the deadline never marks the job failed, resubmits, or unlocks Retry", async () => {
+    endpoints.processJob.mockReturnValue(deferred<StudioJobResult>().promise);
+    renderDashboard();
+    await settle();
+    await clickRetry();
+    await advance(DEADLINE + 1);
+
+    expect(within(row()).getByText("processing")).toBeInTheDocument();
+    expect(screen.queryByTestId("studio-retry-failure-job-a")).toBeNull();
+    expect(endpoints.processJob).toHaveBeenCalledTimes(1);
+    expect(queryRetryButton()).toBeNull();
+    expect(refreshButton()).toBeEnabled();
+
+    await advance(5 * 60 * 1_000);
+    expect(endpoints.processJob).toHaveBeenCalledTimes(1);
+  });
+
+  it("(11) read-only Refresh can discover an eventual published state", async () => {
+    endpoints.processJob.mockReturnValue(deferred<StudioJobResult>().promise);
+    renderDashboard();
+    await settle();
+    await clickRetry();
+    await advance(DEADLINE + 1);
+
+    endpoints.getJobStatus.mockResolvedValueOnce(result(JOB_A, "published"));
+    fireEvent.click(refreshButton());
+    await settle();
+
+    expect(pageText()).toContain("Retry succeeded. The project result is ready.");
+    expect(endpoints.processJob).toHaveBeenCalledTimes(1);
+  });
+
+  it("(12) read-only Refresh can discover an eventual failed state", async () => {
+    endpoints.processJob.mockReturnValue(deferred<StudioJobResult>().promise);
+    renderDashboard();
+    await settle();
+    await clickRetry();
+    await advance(DEADLINE + 1);
+
+    endpoints.getJobStatus.mockResolvedValueOnce(
+      result(JOB_A, "failed", { attemptCount: 8, retryable: true }),
+    );
+    fireEvent.click(refreshButton());
+    await settle();
+
+    expect(screen.getByTestId("studio-retry-failure-job-a")).toHaveTextContent("attempt 8");
+    expect(endpoints.processJob).toHaveBeenCalledTimes(1);
+  });
+
+  it("(13) unmount clears the submit deadline before any response arrives", async () => {
+    endpoints.processJob.mockReturnValue(deferred<StudioJobResult>().promise);
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+    const { unmount } = renderDashboard();
+    await settle();
+    await clickRetry();
+
+    const clearsBeforeUnmount = clearTimeoutSpy.mock.calls.length;
+    unmount();
+    expect(clearTimeoutSpy.mock.calls.length).toBeGreaterThan(clearsBeforeUnmount);
+    await vi.advanceTimersByTimeAsync(DEADLINE + 1);
+    expect(endpoints.getJobStatus).not.toHaveBeenCalled();
+    clearTimeoutSpy.mockRestore();
+  });
+
+  it("(14) overview invalidation does not reset the absolute deadline", async () => {
+    endpoints.processJob.mockResolvedValue(result(JOB_A, "processing"));
+    const { queryClient } = renderDashboard();
+    await settle();
+    await clickRetry();
+
+    await advance(DEADLINE - 10_000);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY });
+    });
+    await settle();
+    expect(pageText()).not.toMatch(TIMEOUT_MESSAGE);
+
+    // The original deadline still lands on time despite the refresh.
+    await advance(11_000);
+    expect(pageText()).toMatch(TIMEOUT_MESSAGE);
+  });
+
+  it("(15) rerendering does not start a fresh deadline", async () => {
+    endpoints.processJob.mockResolvedValue(result(JOB_A, "processing"));
+    renderDashboard();
+    await settle();
+    await clickRetry();
+
+    await advance(DEADLINE - 10_000);
+    // Repeated renders driven by the ordinary polling loop must not re-arm it.
+    await settle();
+    await settle();
+    expect(pageText()).not.toMatch(TIMEOUT_MESSAGE);
+
+    await advance(11_000);
+    expect(pageText()).toMatch(TIMEOUT_MESSAGE);
+  });
+
+  it("(16) the whole submit-and-observe flow stays inside the 15-minute boundary", async () => {
+    endpoints.processJob.mockReturnValue(deferred<StudioJobResult>().promise);
+    renderDashboard();
+    await settle();
+
+    const startedAt = Date.now();
+    await clickRetry();
+    await advance(DEADLINE + 1);
+
+    // Terminal, and terminal early enough for the Owner to act inside 15 min.
+    expect(pageText()).toMatch(TIMEOUT_MESSAGE);
+    expect(Date.now() - startedAt).toBeLessThan(15 * 60 * 1_000);
+    expect(DEADLINE).toBeLessThan(15 * 60 * 1_000);
+  });
+});
+
 describe("safe manual-Retry rendering", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -512,6 +815,8 @@ describe("safe manual-Retry rendering", () => {
     await clickRetry();
 
     expect(pageText()).not.toMatch(/re-?upload|reselect|choose files/i);
-    expect(endpoints.processJob).toHaveBeenCalledWith({ data: { jobId: JOB_A.id } });
+    expect(endpoints.processJob).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { jobId: JOB_A.id } }),
+    );
   });
 });

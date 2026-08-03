@@ -100,21 +100,28 @@ export function StudioDashboard() {
    * starts. These refs survive ordinary renders and overview invalidations;
    * no effect derives a new loop from query data, so a refresh cannot duplicate
    * an existing poller.
+   *
+   * `deadlineTimer` is the ONE absolute deadline for the whole Owner action. It
+   * is armed synchronously before the mutation is sent and is never replaced,
+   * so submission and observation spend the same budget: a submit that never
+   * settles cannot sit in `submitting` forever, and a submit that took four
+   * minutes leaves observation ten, not another fourteen.
    */
+  type OwnerRetryTimers = {
+    pollTimer: ReturnType<typeof setTimeout> | null;
+    deadlineTimer: ReturnType<typeof setTimeout>;
+    nextIntervalMs: number;
+    /** Set before the local action is abandoned, so a late response is ignored. */
+    expired: boolean;
+    /** Stops the browser waiting locally. Never proof the server did not run. */
+    abort: AbortController | null;
+  };
+
   const [ownerRetries, setOwnerRetries] = useState<Record<string, StudioOwnerRetryView>>({});
   const ownerRetriesRef = useRef<Record<string, StudioOwnerRetryView>>({});
   const retryLocksRef = useRef(new Set<string>());
   const mountedRef = useRef(true);
-  const retryTimersRef = useRef(
-    new Map<
-      string,
-      {
-        pollTimer: ReturnType<typeof setTimeout> | null;
-        timeoutTimer: ReturnType<typeof setTimeout>;
-        nextIntervalMs: number;
-      }
-    >(),
-  );
+  const retryTimersRef = useRef(new Map<string, OwnerRetryTimers>());
 
   const putOwnerRetry = (jobId: string, view: StudioOwnerRetryView) => {
     ownerRetriesRef.current = { ...ownerRetriesRef.current, [jobId]: view };
@@ -125,7 +132,7 @@ export function StudioDashboard() {
     const timers = retryTimersRef.current.get(jobId);
     if (!timers) return;
     if (timers.pollTimer) clearTimeout(timers.pollTimer);
-    clearTimeout(timers.timeoutTimer);
+    clearTimeout(timers.deadlineTimer);
     retryTimersRef.current.delete(jobId);
   };
 
@@ -149,7 +156,8 @@ export function StudioDashboard() {
    * request wins if several are made.
    */
   const retryJob = useMutation({
-    mutationFn: (input: { jobId: string }) => studioProcessJob({ data: input }),
+    mutationFn: (input: { jobId: string; signal?: AbortSignal }) =>
+      studioProcessJob({ data: { jobId: input.jobId }, signal: input.signal }),
   });
 
   const invalidateOverview = () =>
@@ -210,6 +218,13 @@ export function StudioDashboard() {
     retryLocksRef.current.delete(jobId);
   };
 
+  /**
+   * The single truthful end state for an action that ran out of budget.
+   *
+   * It never claims the job failed and never claims the server did not receive
+   * the request: an unconfirmed Retry is exactly that, and the only honest next
+   * step is a read-only status refresh.
+   */
   const markOwnerRetryTimeout = (jobId: string) => {
     clearOwnerRetryTimers(jobId);
     const prior = ownerRetriesRef.current[jobId];
@@ -217,7 +232,7 @@ export function StudioDashboard() {
       phase: "timeout",
       status: prior?.status ?? "processing",
       message:
-        "The retry is still being processed or its final state could not be confirmed. Refresh the status before retrying.",
+        "The Retry request may still be processing, but its final state could not be confirmed. Refresh the status before attempting any further action.",
       errorCode: prior?.errorCode ?? null,
       errorStage: prior?.errorStage ?? null,
       attemptCount: prior?.attemptCount ?? 0,
@@ -228,8 +243,25 @@ export function StudioDashboard() {
     // observes a retryable failure may make another Retry available.
   };
 
-  const observeOwnerRetry = (jobId: string, initial: StudioJobResult) => {
-    clearOwnerRetryTimers(jobId);
+  /**
+   * The absolute deadline expiring — during submission or during observation.
+   *
+   * `expired` is set and the request is cancelled BEFORE the local state moves,
+   * so the original promise settling afterwards is recognized as stale and
+   * ignored rather than reviving a poller, unlocking Retry, or navigating.
+   * Cancelling stops the browser waiting; it is never evidence about what the
+   * server did.
+   */
+  const expireOwnerRetry = (jobId: string) => {
+    const timers = retryTimersRef.current.get(jobId);
+    if (timers) {
+      timers.expired = true;
+      timers.abort?.abort();
+    }
+    markOwnerRetryTimeout(jobId);
+  };
+
+  const observeOwnerRetry = (jobId: string, initial: StudioJobResult, timers: OwnerRetryTimers) => {
     putOwnerRetry(jobId, {
       phase: "observing",
       status: initial.status,
@@ -241,19 +273,11 @@ export function StudioDashboard() {
       pagePath: initial.pagePath,
     });
 
-    const timers = {
-      pollTimer: null as ReturnType<typeof setTimeout> | null,
-      timeoutTimer: setTimeout(
-        () => markOwnerRetryTimeout(jobId),
-        STUDIO_OWNER_RETRY_OBSERVATION.totalTimeoutMs,
-      ),
-      nextIntervalMs: STUDIO_OWNER_RETRY_OBSERVATION.initialIntervalMs,
-    };
-    retryTimersRef.current.set(jobId, timers);
-
+    // No new deadline. The one armed before the mutation is still running, so
+    // observation receives only the remaining budget.
     const schedule = () => {
       const current = retryTimersRef.current.get(jobId);
-      if (!current) return;
+      if (current !== timers || current.expired) return;
       const interval = current.nextIntervalMs;
       current.pollTimer = setTimeout(async () => {
         if (retryTimersRef.current.get(jobId) !== current) return;
@@ -301,10 +325,32 @@ export function StudioDashboard() {
       retryable: false,
       pagePath: null,
     });
+
+    // The absolute deadline is armed HERE, synchronously, before the request
+    // is sent. A mutation that never settles is therefore bounded by the same
+    // ceiling as an observation that never terminates.
+    clearOwnerRetryTimers(job.id);
+    const timers: OwnerRetryTimers = {
+      pollTimer: null,
+      deadlineTimer: setTimeout(
+        () => expireOwnerRetry(job.id),
+        STUDIO_OWNER_RETRY_OBSERVATION.totalTimeoutMs,
+      ),
+      nextIntervalMs: STUDIO_OWNER_RETRY_OBSERVATION.initialIntervalMs,
+      expired: false,
+      abort: typeof AbortController === "function" ? new AbortController() : null,
+    };
+    retryTimersRef.current.set(job.id, timers);
+
     try {
-      const result = await retryJob.mutateAsync({ jobId: job.id });
-      if (!settleOwnerRetry(result)) observeOwnerRetry(job.id, result);
+      const result = await retryJob.mutateAsync({ jobId: job.id, signal: timers.abort?.signal });
+      // A response that arrives after the deadline is a stale action response.
+      // It does not restart polling, unlock Retry, or navigate; only the
+      // read-only Refresh path may establish current truth.
+      if (retryTimersRef.current.get(job.id) !== timers || timers.expired) return;
+      if (!settleOwnerRetry(result)) observeOwnerRetry(job.id, result, timers);
     } catch (error) {
+      if (retryTimersRef.current.get(job.id) !== timers || timers.expired) return;
       if (error instanceof Error && error.name === "job_not_found") {
         markOwnerRetryMissing(job.id);
       } else {

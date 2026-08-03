@@ -251,8 +251,12 @@ describe("the dashboard when only exhausted jobs remain", () => {
     await settle();
 
     // (9) It reaches the ordinary controlled-processing endpoint — the same one
-    // the uploader uses. No SQL, no special path.
-    expect(endpoints.processJob).toHaveBeenCalledWith({ data: { jobId: "job-capped" } });
+    // the uploader uses, with the same payload. No SQL, no special path. The
+    // action also carries its own cancellation handle for the absolute
+    // deadline, which is local to the browser and changes nothing server-side.
+    expect(endpoints.processJob).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { jobId: "job-capped" } }),
+    );
   });
 });
 
