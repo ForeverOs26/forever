@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
  * FOREVER-WRANGLER-KEEP-VARS-CORRECTION-001 — mutation controls.
- * Extended by FOREVER-PR138-MERGE-BLOCKER-CORRECTION-002 from 8 to 20.
+ * Extended by FOREVER-PR138-MERGE-BLOCKER-CORRECTION-002 from 8 to 20, then by
+ * FOREVER-PR138-WORKER-VERSION-PINNING-CORRECTION-004 from 20 to 28.
  *
- * Twenty edits to REAL source, REAL configuration and REAL documentation, each
+ * Twenty-eight edits to REAL source, configuration, tests and documentation, each
  * of which must make a NAMED assertion fail. A guard that has never been seen
  * to fail is not a guard, and this correction exists precisely because a safety
  * property was believed rather than measured — twice.
@@ -35,6 +36,17 @@
  *   18. accept duplicate binding names;
  *   19. remove fingerprint equality from the PASS condition;
  *   20. permit one added and one removed binding at equal count.
+ *
+ * THE EIGHT VERSION-PINNING CONTROLS:
+ *
+ *   21. remove the live snapshot UUID comparison;
+ *   22. remove the candidate snapshot UUID comparison;
+ *   23. allow candidate Worker UUID to equal previous;
+ *   24. accept a manually supplied candidate UUID without the upload receipt;
+ *   25. reuse the live snapshot as the candidate;
+ *   26. permit preview acceptance before postupload identity PASS;
+ *   27. introduce a PATH-resolved Wrangler fallback;
+ *   28. make fixture comparison CRLF-sensitive.
  *
  * A process that could not start, a run that collected no tests, or a failure
  * for some other reason is REJECTED as evidence rather than counted as a
@@ -70,8 +82,23 @@ const CONTRACT = resolve(REPO, "src/lib/stale-asset/worker-variable-preservation
 const CAPTURE = resolve(REPO, "src/lib/stale-asset/worker-binding-capture.ts");
 const PREFLIGHT = resolve(REPO, "scripts/release/verify-binding-preservation.mjs");
 const CAPTURE_CLI = resolve(REPO, "scripts/release/capture-worker-version-bindings.mjs");
+const UPLOAD_WRAPPER = resolve(REPO, "scripts/release/upload-worker-version.mjs");
+const WRANGLER_GATE = resolve(REPO, "scripts/release/wrangler-version-gate.mjs");
+const RELEASE_IDENTITY = resolve(REPO, "src/lib/stale-asset/worker-release-identity.ts");
+const CAPTURE_TEST_SOURCE = resolve(REPO, "src/lib/stale-asset/worker-binding-capture.test.ts");
 
-const TOUCHED = [WRANGLER, RUNBOOK, CONTRACT, CAPTURE, PREFLIGHT, CAPTURE_CLI];
+const TOUCHED = [
+  WRANGLER,
+  RUNBOOK,
+  CONTRACT,
+  CAPTURE,
+  PREFLIGHT,
+  CAPTURE_CLI,
+  UPLOAD_WRAPPER,
+  WRANGLER_GATE,
+  RELEASE_IDENTITY,
+  CAPTURE_TEST_SOURCE,
+];
 
 const PRESERVATION_TEST = "src/lib/stale-asset/worker-variable-preservation.test.ts";
 const CONFIG_TEST = "src/lib/stale-asset/worker-config-contract.test.ts";
@@ -79,6 +106,7 @@ const RUNBOOK_TEST = "src/lib/stale-asset/release-runbook-contract.test.ts";
 const PREFLIGHT_TEST = "src/lib/stale-asset/release-binding-preflight.test.ts";
 const UPLOAD_TEST = "src/lib/stale-asset/worker-upload-command.test.ts";
 const CAPTURE_TEST = "src/lib/stale-asset/worker-binding-capture.test.ts";
+const RELEASE_IDENTITY_TEST = "src/lib/stale-asset/release-identity-separation.test.ts";
 
 const ALL_TESTS = [
   PRESERVATION_TEST,
@@ -87,6 +115,7 @@ const ALL_TESTS = [
   PREFLIGHT_TEST,
   UPLOAD_TEST,
   CAPTURE_TEST,
+  RELEASE_IDENTITY_TEST,
 ];
 
 const VITEST = resolve(
@@ -212,7 +241,7 @@ const mutations = [
     from: "/** Binding classes a fingerprint distinguishes. Values are never included. */",
     to:
       "/** A committed production value. This is the value-leak control. */\n" +
-      'export const LEAKED_SUPABASE_ORIGIN = "https://abtvsrcnfwlbawvrjeed.supabase.co";\n\n' +
+      'export const LEAKED_SUPABASE_ORIGIN = "https://pr138syntheticcanary.supabase.co";\n\n' +
       "/** Binding classes a fingerprint distinguishes. Values are never included. */",
     tests: [PRESERVATION_TEST],
     reason: /commits no value for either deployment-managed variable|supabase\.co/,
@@ -362,6 +391,86 @@ const mutations = [
     to: "    if (false && !liveByName.has(binding.name)) {",
     tests: [PRESERVATION_TEST, PREFLIGHT_TEST],
     reason: /binding_added|at EQUAL count|EQUAL COUNT/,
+  },
+  {
+    name: "21. the live snapshot UUID comparison is removed",
+    file: PREFLIGHT,
+    from:
+      "        liveWorkerVersionMatches =\n" +
+      "          liveSnapshot.workerVersionId === releaseProvenance.previousWorkerVersionId;",
+    to: "        liveWorkerVersionMatches = true;",
+    tests: [PREFLIGHT_TEST],
+    reason: /WRONG_LIVE_UUID_REFUSED|live_worker_version_mismatch/,
+  },
+  {
+    name: "22. the candidate snapshot UUID comparison is removed",
+    file: PREFLIGHT,
+    from:
+      "        candidateWorkerVersionMatches =\n" +
+      "          candidateSnapshot.workerVersionId === releaseProvenance.candidateWorkerVersionId;",
+    to: "        candidateWorkerVersionMatches = true;",
+    tests: [PREFLIGHT_TEST],
+    reason: /WRONG_CANDIDATE_UUID_REFUSED|candidate_worker_version_mismatch/,
+  },
+  {
+    name: "23. candidate Worker UUID may equal the previous UUID",
+    file: RELEASE_IDENTITY,
+    from: "  if (record.candidateWorkerVersionId === record.previousWorkerVersionId) {",
+    to: "  if (false && record.candidateWorkerVersionId === record.previousWorkerVersionId) {",
+    tests: [RELEASE_IDENTITY_TEST, PREFLIGHT_TEST],
+    reason: /candidate_worker_version_not_new|CANDIDATE_NOT_PREVIOUS/,
+  },
+  {
+    name: "24. a manual candidate UUID is accepted without the upload receipt",
+    edits: [
+      {
+        file: CAPTURE_CLI,
+        from: "if (authorized && offlineVersionId) {",
+        to: "if (false && authorized && offlineVersionId) {",
+      },
+      {
+        file: CAPTURE_CLI,
+        from: "let versionId = authorized ? liveVersionId : offlineVersionId;",
+        to: "let versionId = authorized ? (liveVersionId ?? offlineVersionId) : offlineVersionId;",
+      },
+    ],
+    tests: [UPLOAD_TEST],
+    reason: /CANDIDATE_UUID_NOT_MANUAL/,
+  },
+  {
+    name: "25. the live snapshot file may be reused as the candidate",
+    file: PREFLIGHT,
+    from: '  if (resolve(REPO, arg("--live")) === resolve(REPO, arg("--candidate"))) {',
+    to: '  if (false && resolve(REPO, arg("--live")) === resolve(REPO, arg("--candidate"))) {',
+    tests: [PREFLIGHT_TEST],
+    reason: /SAME_SNAPSHOT_REFUSED|same_snapshot_input/,
+  },
+  {
+    name: "26. preview acceptance is permitted before postupload identity PASS",
+    file: RUNBOOK,
+    from:
+      "   variables survived; see §2a. Only when step 6 reports both\n" +
+      "   `workerVersionIdentityOk: true` and `BINDINGS_PRESERVED` does preview\n" +
+      "   acceptance begin.",
+    to: "   variables survived; see §2a. Preview acceptance may begin before the postupload PASS.",
+    tests: [RUNBOOK_TEST],
+    reason: /pins POSTUPLOAD|workerVersionIdentityOk/,
+  },
+  {
+    name: "27. Wrangler resolution falls back to PATH",
+    file: WRANGLER_GATE,
+    from: "  const chosen = override ? resolve(override) : existsSync(local) ? local : null;",
+    to: '  const chosen = override ? resolve(override) : existsSync(local) ? local : "wrangler";',
+    tests: [UPLOAD_TEST],
+    reason: /NO_PATH_FALLBACK/,
+  },
+  {
+    name: "28. fixture comparison becomes CRLF-sensitive",
+    file: CAPTURE_TEST_SOURCE,
+    from: 'const canonicalUtf8Lf = (value: string) => value.replace(/\\r\\n/g, "\\n");',
+    to: "const canonicalUtf8Lf = (value: string) => value;",
+    tests: [CAPTURE_TEST],
+    reason: /CRLF_LF_DETERMINISTIC/,
   },
 ];
 

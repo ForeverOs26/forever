@@ -45,6 +45,7 @@ const PRESERVED_ID = "22222222-2222-4222-8222-222222222222";
 const REJECTED_ID = "33333333-3333-4333-8333-333333333333";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
+const canonicalUtf8Lf = (value: string) => value.replace(/\r\n/g, "\n");
 const readRaw = (name: string) => JSON.parse(read(`${RAW}/${name}`)) as unknown;
 
 const scratch = mkdtempSync(resolve(tmpdir(), "forever-capture-"));
@@ -323,7 +324,7 @@ describe("the raw response never reaches disk, stdout, stderr or an error", () =
 });
 
 describe("the committed sanitized fixtures are mechanically reproducible", () => {
-  it("capturing the raw live fixture reproduces the committed live snapshot byte-for-byte", () => {
+  it("CRLF_LF_DETERMINISTIC: capture reproduces canonical UTF-8/LF on every checkout", () => {
     const out = resolve(scratch, "reproduced-live.json");
     expect(
       runCapture(
@@ -335,7 +336,9 @@ describe("the committed sanitized fixtures are mechanically reproducible", () =>
         out,
       ).status,
     ).toBe(0);
-    expect(readFileSync(out, "utf8")).toBe(read(`${FIXTURES}/live-bindings.json`));
+    const committed = read(`${FIXTURES}/live-bindings.json`);
+    expect(canonicalUtf8Lf(readFileSync(out, "utf8"))).toBe(canonicalUtf8Lf(committed));
+    expect(canonicalUtf8Lf(committed.replace(/\n/g, "\r\n"))).toBe(canonicalUtf8Lf(committed));
   });
 
   it("capturing the raw rejected fixture reproduces the committed ten-binding snapshot", () => {
@@ -350,7 +353,9 @@ describe("the committed sanitized fixtures are mechanically reproducible", () =>
         out,
       ).status,
     ).toBe(0);
-    expect(readFileSync(out, "utf8")).toBe(read(`${FIXTURES}/candidate-rejected-bindings.json`));
+    expect(canonicalUtf8Lf(readFileSync(out, "utf8"))).toBe(
+      canonicalUtf8Lf(read(`${FIXTURES}/candidate-rejected-bindings.json`)),
+    );
   });
 
   it("offline review mode refuses to run without a raw fixture, and never calls Cloudflare", () => {

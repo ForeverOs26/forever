@@ -34,6 +34,9 @@ const WRAPPER = "scripts/release/upload-worker-version.mjs";
 const GATE = "scripts/release/wrangler-version-gate.mjs";
 const FIXTURES = "scripts/release/fixtures";
 const LIVE = `${FIXTURES}/live-bindings.json`;
+const PROVENANCE = `${FIXTURES}/worker-version-provenance.json`;
+const LIVE_ID = "11111111-1111-4111-8111-111111111111";
+const CANDIDATE_ID = "22222222-2222-4222-8222-222222222222";
 
 function run(script: string, ...args: string[]) {
   return spawnSync(process.execPath, [script, ...args], {
@@ -43,7 +46,21 @@ function run(script: string, ...args: string[]) {
   });
 }
 
-const runPreflight = (...args: string[]) => run(SCRIPT, ...args);
+const runPreflightUnpinned = (...args: string[]) => run(SCRIPT, ...args);
+const runPreflight = (...args: string[]) => {
+  if (args.includes("--preupload")) {
+    return run(
+      SCRIPT,
+      ...args,
+      ...(args.includes("--expected-live-version") ? [] : ["--expected-live-version", LIVE_ID]),
+    );
+  }
+  return run(
+    SCRIPT,
+    ...args,
+    ...(args.includes("--release-provenance") ? [] : ["--release-provenance", PROVENANCE]),
+  );
+};
 const output = (result: ReturnType<typeof run>) => `${result.stdout}${result.stderr}`;
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
@@ -114,6 +131,185 @@ describe("release binding preflight — fail-closed, executed", () => {
 
   it("STOPS when no candidate argument is supplied at all", () => {
     expect(runPreflight("--live", LIVE).status).toBe(1);
+  });
+});
+
+describe("exact immutable Worker version provenance — fail-closed, executed", () => {
+  const writeJson = (name: string, value: unknown) => {
+    const path = `.forever-build/${name}.json`;
+    writeFileSync(resolve(process.cwd(), path), `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    return path;
+  };
+  const snapshotWithId = (source: string, workerVersionId: string, name: string) => {
+    const parsed = JSON.parse(read(source)) as Record<string, unknown>;
+    return writeJson(name, { ...parsed, workerVersionId });
+  };
+  const provenance = (
+    previousWorkerVersionId = LIVE_ID,
+    candidateWorkerVersionId = CANDIDATE_ID,
+    name = "version-provenance",
+  ) =>
+    writeJson(name, {
+      schemaVersion: 1,
+      previousWorkerVersionId,
+      candidateWorkerVersionId,
+    });
+
+  it("PREUPLOAD_EXACT_LIVE_UUID: accepts only the discovered deployed Worker UUID", () => {
+    const pass = runPreflight("--preupload", "--live", LIVE);
+    expect(pass.status).toBe(0);
+    expect(output(pass)).toContain("version identity    : PINNED");
+
+    const wrong = runPreflight(
+      "--preupload",
+      "--live",
+      LIVE,
+      "--expected-live-version",
+      "99999999-9999-4999-8999-999999999999",
+    );
+    expect(wrong.status).toBe(1);
+    expect(output(wrong)).toContain("live_worker_version_mismatch");
+    expect(output(wrong)).toContain("snapshot_version_mismatch");
+  });
+
+  it("PREUPLOAD_PROVENANCE_REQUIRED: refuses omitted and malformed discovery UUIDs", () => {
+    const missing = runPreflightUnpinned("--preupload", "--live", LIVE);
+    expect(missing.status).toBe(1);
+    expect(output(missing)).toContain("release_provenance_missing");
+
+    const malformed = runPreflightUnpinned(
+      "--preupload",
+      "--live",
+      LIVE,
+      "--expected-live-version",
+      "not-a-worker-uuid",
+    );
+    expect(malformed.status).toBe(1);
+    expect(output(malformed)).toContain("release_provenance_invalid");
+  });
+
+  it("POSTUPLOAD_EXACT_UUIDS: accepts the exact previous and upload-returned candidate pair", () => {
+    const result = runPreflight(
+      "--live",
+      LIVE,
+      "--candidate",
+      `${FIXTURES}/candidate-preserved-bindings.json`,
+    );
+    expect(result.status).toBe(0);
+    expect(output(result)).toContain("version identity    : PINNED");
+  });
+
+  it("SAME_SNAPSHOT_REFUSED: refuses one file supplied as live and candidate", () => {
+    const result = runPreflight("--live", LIVE, "--candidate", LIVE);
+    expect(result.status).toBe(1);
+    expect(output(result)).toContain("same_snapshot_input");
+    expect(output(result)).not.toMatch(/^\[release-preflight] PASS/m);
+  });
+
+  it("SAME_WORKER_UUID_REFUSED: refuses the same Worker UUID in two different files", () => {
+    const duplicateIdentity = snapshotWithId(LIVE, LIVE_ID, "candidate-same-worker-id");
+    const result = runPreflight("--live", LIVE, "--candidate", duplicateIdentity);
+    expect(result.status).toBe(1);
+    expect(output(result)).toContain("candidate_worker_version_mismatch");
+  });
+
+  it("WRONG_CANDIDATE_UUID_REFUSED: exact bindings cannot substitute a retained candidate", () => {
+    const wrongCandidate = snapshotWithId(
+      `${FIXTURES}/candidate-preserved-bindings.json`,
+      "33333333-3333-4333-8333-333333333333",
+      "candidate-wrong-worker-id",
+    );
+    const result = runPreflight("--live", LIVE, "--candidate", wrongCandidate);
+    expect(result.status).toBe(1);
+    expect(output(result)).toContain("candidate_worker_version_mismatch");
+    expect(output(result)).toContain("snapshot_version_mismatch");
+  });
+
+  it("WRONG_LIVE_UUID_REFUSED: exact bindings cannot substitute an older live snapshot", () => {
+    const wrongLive = snapshotWithId(
+      LIVE,
+      "99999999-9999-4999-8999-999999999999",
+      "older-live-worker-id",
+    );
+    const result = runPreflight(
+      "--live",
+      wrongLive,
+      "--candidate",
+      `${FIXTURES}/candidate-preserved-bindings.json`,
+    );
+    expect(result.status).toBe(1);
+    expect(output(result)).toContain("live_worker_version_mismatch");
+    expect(output(result)).toContain("snapshot_version_mismatch");
+  });
+
+  it("CANDIDATE_NOT_PREVIOUS: the canonical receipt refuses an equal version pair", () => {
+    const equalReceipt = provenance(LIVE_ID, LIVE_ID, "candidate-equals-previous");
+    const result = runPreflight(
+      "--live",
+      LIVE,
+      "--candidate",
+      snapshotWithId(LIVE, LIVE_ID, "equal-version-candidate"),
+      "--release-provenance",
+      equalReceipt,
+    );
+    expect(result.status).toBe(1);
+    expect(output(result)).toContain("candidate_worker_version_not_new");
+  });
+
+  it("SWAPPED_IDENTITIES_REFUSED: exact fingerprints do not excuse swapped roles", () => {
+    const result = runPreflight(
+      "--live",
+      `${FIXTURES}/candidate-preserved-bindings.json`,
+      "--candidate",
+      snapshotWithId(LIVE, LIVE_ID, "swapped-candidate"),
+    );
+    expect(result.status).toBe(1);
+    expect(output(result)).toContain("live_worker_version_mismatch");
+    expect(output(result)).toContain("candidate_worker_version_mismatch");
+  });
+
+  it("RELEASE_PROVENANCE_REQUIRED: missing and padded receipts STOP", () => {
+    const missing = runPreflightUnpinned(
+      "--live",
+      LIVE,
+      "--candidate",
+      `${FIXTURES}/candidate-preserved-bindings.json`,
+    );
+    expect(missing.status).toBe(1);
+    expect(output(missing)).toContain("release_provenance_missing");
+    expect(output(missing)).toContain("candidate_receipt_missing");
+
+    const padded = writeJson("padded-version-receipt", {
+      schemaVersion: 1,
+      previousWorkerVersionId: LIVE_ID,
+      candidateWorkerVersionId: CANDIDATE_ID,
+      rawOutput: "CANARY_MUST_NOT_BE_ACCEPTED",
+    });
+    const invalid = runPreflight(
+      "--live",
+      LIVE,
+      "--candidate",
+      `${FIXTURES}/candidate-preserved-bindings.json`,
+      "--release-provenance",
+      padded,
+    );
+    expect(invalid.status).toBe(1);
+    expect(output(invalid)).toContain("release_provenance_invalid");
+    expect(output(invalid)).not.toContain("CANARY_MUST_NOT_BE_ACCEPTED");
+  });
+
+  it("PREVIEW_GATE_BLOCKED: no postupload identity PASS means no preview acceptance", () => {
+    const report = ".forever-build/preview-blocked-report.json";
+    const wrongCandidate = snapshotWithId(
+      `${FIXTURES}/candidate-preserved-bindings.json`,
+      "33333333-3333-4333-8333-333333333333",
+      "preview-blocked-candidate",
+    );
+    const result = runPreflight("--live", LIVE, "--candidate", wrongCandidate, "--json", report);
+    expect(result.status).toBe(1);
+    const parsed = JSON.parse(read(report)) as Record<string, unknown>;
+    expect(parsed.workerVersionIdentityOk).toBe(false);
+    expect(parsed.verdict).toBe("STOP");
   });
 });
 
@@ -225,6 +421,10 @@ describe("P2-2 — duplicates and EXACT fingerprint equality", () => {
     expect(parsed.fingerprintsEqual).toBe(true);
     expect(parsed.fingerprintEqualityRequiredForPass).toBe(true);
     expect(parsed.snapshotSchemaValid).toBe(true);
+    expect(parsed.releaseProvenanceValid).toBe(true);
+    expect(parsed.liveWorkerVersionMatches).toBe(true);
+    expect(parsed.candidateWorkerVersionMatches).toBe(true);
+    expect(parsed.workerVersionIdentityOk).toBe(true);
     expect(parsed.uploadSpecCanonical).toBe(true);
     expect(parsed.verdict).toBe("BINDINGS_PRESERVED");
     expect(parsed.contactedProduction).toBe(false);

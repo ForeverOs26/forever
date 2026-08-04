@@ -469,6 +469,16 @@ describe("no shell is involved anywhere in the release upload path", () => {
     }
   });
 
+  it("NO_PATH_FALLBACK: the resolver cannot spawn a PATH-resolved wrangler", () => {
+    const source = read("scripts/release/wrangler-version-gate.mjs");
+    expect(source).toContain(
+      "const chosen = override ? resolve(override) : existsSync(local) ? local : null;",
+    );
+    expect(source).not.toMatch(/spawn(?:Sync)?\(\s*["'`]wrangler["'`]/);
+    expect(source).not.toMatch(/command:\s*["'`]wrangler["'`]/);
+    expect(source).not.toMatch(/:\s*["'`]wrangler["'`]\s*;/);
+  });
+
   it("spawns wrangler from the canonical argv only, in the one wrapper", () => {
     const wrapper = read("scripts/release/upload-worker-version.mjs");
     expect(wrapper).toContain("...PRODUCTION_VERSION_UPLOAD_SPEC.args");
@@ -476,5 +486,26 @@ describe("no shell is involved anywhere in the release upload path", () => {
     // The wrapper refuses to spawn until the preflight has produced PASS.
     expect(wrapper).toContain("PREUPLOAD_CONTRACT_OK");
     expect(wrapper).toContain("the binding preflight did not produce PASS");
+  });
+
+  it("UPLOAD_RECEIPT_SANITIZED: consumes structured output and writes only canonical provenance", () => {
+    const wrapper = read("scripts/release/upload-worker-version.mjs");
+    expect(wrapper).toContain("WRANGLER_OUTPUT_FILE_PATH");
+    expect(wrapper).toContain("parseWranglerVersionUploadReceipt");
+    expect(wrapper).toContain("serializeWorkerVersionProvenance");
+    expect(wrapper).toContain("--receipt <path>");
+    expect(wrapper).toContain("rmSync(outputDirectory, { recursive: true, force: true })");
+    expect(wrapper).not.toContain('stdio: "inherit"');
+    expect(wrapper).toContain("Raw upload output is not echoed");
+  });
+
+  it("CANDIDATE_UUID_NOT_MANUAL: authorized candidate capture consumes the upload receipt", () => {
+    const capture = read("scripts/release/capture-worker-version-bindings.mjs");
+    expect(capture).toContain("--candidate-release-provenance");
+    expect(capture).toContain("verifyWorkerVersionProvenance");
+    expect(capture).toContain("--version-id is offline-fixture-only");
+    expect(capture).toContain("verdict.provenance.candidateWorkerVersionId");
+    expect(capture).toContain("if (authorized && offlineVersionId)");
+    expect(capture).toContain("let versionId = authorized ? liveVersionId : offlineVersionId;");
   });
 });
