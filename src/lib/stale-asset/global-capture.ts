@@ -14,20 +14,30 @@
  *   - `unhandledrejection` — the backstop for a dynamic import rejection that
  *     no one else handled.
  *
- * WHY CANCELLING IS CORRECT HERE, AND ONLY HERE. TanStack Router already
- * contains its own unconditional one-shot reload for lazy route components: on
- * failure it writes `sessionStorage["tanstack_router_reload:<raw error
- * message>"]` and calls `location.reload()` if that key was absent. That guard
- * has no build-identity check, no write-action safety, no success clearing, and
- * it persists the complete asset URL. Leaving it in the confirmed-stale path
- * would mean two independent reload mechanisms racing.
+ * EXACTLY ONE RECOVERY AUTHORITY (independent-review P1-5).
  *
- * So for a CONFIRMED stale asset — and only then — this layer calls
- * `preventDefault()` and takes ownership: it either performs exactly one
- * identity-checked, write-safe reload, or it shows the bounded recovery screen.
- * For every other error nothing is cancelled, nothing is swallowed, and the
- * existing root error boundary remains authoritative. There is no blanket
- * `preventDefault`.
+ * An earlier revision of this layer COEXISTED with the router's own built-in
+ * one-shot reload for lazy route components — an unconditional mechanism with
+ * no build-identity check, no write-action safety, no route deny list and no
+ * success clearing, whose storage key contained the complete failing asset URL.
+ * Coexistence meant that wherever the classifier declined, the framework
+ * reloaded anyway: identity-blind, write-unsafe, and including on
+ * `/studio/reset-password`. Six real error shapes were measured doing exactly
+ * that.
+ *
+ * That mechanism no longer ships. `scripts/build/tanstack-reload-ownership.mjs`
+ * substitutes a repository-controlled loader at build time, verified by a
+ * fingerprint that fails the build if upstream changes, and a built-output scan
+ * asserts the forbidden key is absent from every emitted file. This layer is
+ * therefore the ONLY thing in the application that can reload a page.
+ *
+ * WHY CANCELLING IS STILL CORRECT HERE, AND ONLY HERE. For a CONFIRMED stale
+ * asset — and only then — this layer calls `preventDefault()` and takes
+ * ownership: it either performs one identity-checked, write-safe, bounded
+ * reload, or it shows the recovery screen. For every other error nothing is
+ * cancelled, nothing is swallowed, and the existing root error boundary remains
+ * authoritative. There is no blanket `preventDefault`, no pre-seeded storage
+ * key, and no listener racing another listener.
  *
  * IDEMPOTENCE. Exactly one listener per event type, ever. Re-invocation — a
  * remount, a hot update, a second import of this module — is a no-op, and

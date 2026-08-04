@@ -40,6 +40,8 @@ const PROJECT_EDITOR = resolve(
 const DASHBOARD = resolve(REPO, "src/features/forever-studio/components/StudioDashboard.tsx");
 const BUILD_ID = resolve(REPO, "scripts/build/forever-build-id.ts");
 const BUILD_ORCHESTRATOR = resolve(REPO, "scripts/build/build-forever.mjs");
+const VITE_CONFIG = resolve(REPO, "vite.config.ts");
+const LAZY_LOADER = resolve(REPO, "scripts/build/forever-lazy-route-component.js");
 
 const CLASSIFIER_TEST = "src/lib/stale-asset/stale-asset-classifier.test.ts";
 const RECOVERY_TEST = "src/lib/stale-asset/stale-asset-recovery.test.ts";
@@ -50,6 +52,7 @@ const CONFIG_TEST = "src/lib/stale-asset/worker-config-contract.test.ts";
 const RUNBOOK_TEST = "src/lib/stale-asset/release-runbook-contract.test.ts";
 const WRITE_CONTRACT_TEST = "src/lib/stale-asset/studio-write-contract.test.ts";
 const BUILD_IDENTITY_TEST = "src/lib/stale-asset/build-identity.test.ts";
+const TANSTACK_TEST = "src/lib/stale-asset/tanstack-reload-ownership.test.ts";
 
 const ALL_TESTS = [
   CLASSIFIER_TEST,
@@ -61,6 +64,7 @@ const ALL_TESTS = [
   RUNBOOK_TEST,
   WRITE_CONTRACT_TEST,
   BUILD_IDENTITY_TEST,
+  TANSTACK_TEST,
 ];
 
 const VITEST = resolve(
@@ -82,6 +86,8 @@ const originals = new Map(
     DASHBOARD,
     BUILD_ID,
     BUILD_ORCHESTRATOR,
+    VITE_CONFIG,
+    LAZY_LOADER,
   ].map((file) => [
     file,
     readFileSync(file),
@@ -253,6 +259,33 @@ const mutations = [
     to: "  if (false) {",
     tests: [BUILD_IDENTITY_TEST],
     reason: /recomputes the digest after the final pass and requires exact equality/,
+  },
+  /**
+   * ADVERSARIAL CONTROL 7 (independent-review P1-5) — TanStack's built-in
+   * reload is restored by unwiring the ownership plugin.
+   */
+  {
+    name: "TanStack built-in reload restored",
+    file: VITE_CONFIG,
+    from: "      foreverTanstackReloadOwnership(),\n",
+    to: "",
+    tests: [TANSTACK_TEST],
+    reason: /vite\.config\.ts installs the ownership plugin before anything else/,
+  },
+  /**
+   * ADVERSARIAL CONTROL 8 (independent-review P1-5) — the forbidden raw key,
+   * with the complete failing asset URL in it, is written again.
+   */
+  {
+    name: "forbidden raw TanStack key restored",
+    file: LAZY_LOADER,
+    from: "          error = err;\n",
+    to:
+      "          error = err;\n" +
+      // Split so this runner's own source does not carry the forbidden literal.
+      `          sessionStorage.setItem("tanstack_router_${"reload:"}" + err.message, "1");\n`,
+    tests: [TANSTACK_TEST],
+    reason: /never touches sessionStorage, and never writes the forbidden key/,
   },
   {
     name: "Auth storage cleared during recovery",

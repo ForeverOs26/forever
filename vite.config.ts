@@ -9,6 +9,7 @@ import type { NitroConfig } from "nitro/types";
 import type { Plugin } from "vite";
 
 import { resolveForeverBuildId } from "./scripts/build/forever-build-id";
+import { foreverTanstackReloadOwnership } from "./scripts/build/tanstack-reload-ownership.mjs";
 
 const PARTNER_DEMO_HEALTH_PATH = "/__forever_partner_demo_health";
 
@@ -71,7 +72,16 @@ const nitroRuntimeOptions = {
 
 export default defineConfig({
   vite: {
-    plugins: [partnerDemoHealthPlugin()],
+    plugins: [
+      // Exactly ONE recovery authority (independent-review P1-5). Substitutes
+      // a repository-controlled lazy route-component loader for TanStack
+      // Router's, whose built-in reload is identity-blind, write-unsafe and
+      // stores the complete failing asset URL in sessionStorage. The plugin
+      // refuses to build if the upstream module is not the pinned shape it was
+      // written against.
+      foreverTanstackReloadOwnership(),
+      partnerDemoHealthPlugin(),
+    ],
     define: {
       __FOREVER_BUILD_ID__: JSON.stringify(FOREVER_BUILD_ID),
     },
