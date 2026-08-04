@@ -454,3 +454,73 @@ describe("the protected-tree disclosure is accurate and preserved", () => {
     );
   });
 });
+
+/**
+ * FOREVER-WRANGLER-KEEP-VARS-CORRECTION-001.
+ *
+ * A candidate uploaded from exact merged main lost two deployment-managed
+ * variables and returned HTTP 500 on its preview. It was caught at 0% and no
+ * traffic moved. Every statement that prevents a repeat is a safety control,
+ * so each is pinned here rather than trusted to survive a later edit.
+ */
+describe("the runbook preserves deployment-managed Worker variables", () => {
+  it("prescribes --keep-vars on the candidate upload, in the sequence itself", () => {
+    expect(runbookFlat).toContain("wrangler versions upload --keep-vars");
+    expect(runbookFlat).toContain("`--keep-vars` is not optional");
+  });
+
+  it("states that omitted vars are DELETED when keep-vars is false", () => {
+    // The Cloudflare quote is a blockquote, so `>` survives flattening at each
+    // wrapped line. Assert within a line rather than across the wrap.
+    expect(runbookFlat).toContain("Wrangler will delete all vars before setting");
+    expect(runbookFlat).toContain("The default is `false`");
+    expect(runbookFlat).toContain('"delete all vars, then apply the none I declared"');
+  });
+
+  it("states that dashboard/deployment-managed vars must be preserved", () => {
+    expect(runbookFlat).toContain("deployment plane remains the **source of truth**");
+    expect(runbook).toContain("SUPABASE_URL");
+    expect(runbook).toContain("STUDIO_STORAGE_WRITE_PROVIDER");
+  });
+
+  it("states that surviving secrets do NOT prove plain-text vars survived", () => {
+    expect(runbookFlat).toContain("Surviving secrets are NOT evidence");
+    expect(runbookFlat).toContain("Secrets are never deleted, with or without the flag");
+    expect(runbookFlat).toContain("measuring the one thing that could not have failed");
+  });
+
+  it("requires the candidate binding fingerprint to equal the live one before preview acceptance", () => {
+    expect(runbookFlat).toContain(
+      "the candidate's binding fingerprint must EQUAL the live Worker's",
+    );
+    expect(runbookFlat).toContain("values never read");
+  });
+
+  it("rejects a candidate with fewer bindings even at 0% traffic", () => {
+    expect(runbookFlat).toContain(
+      "a candidate carrying fewer bindings than the live Worker is REJECTED",
+    );
+    expect(runbookFlat).toContain("even though it holds 0% of traffic");
+  });
+
+  it("forbids cutting over a candidate that 500s or lacks either variable", () => {
+    expect(runbookFlat).toContain("never cut over a candidate that returns 500");
+    expect(runbookFlat).toContain('no percentage, no "verify it after", no exceptions');
+  });
+
+  it("names BOTH halves — no vars block AND keep_vars — as jointly required", () => {
+    expect(runbookFlat).toContain("repository **overwrites** the vars");
+    expect(runbookFlat).toContain("Wrangler **deletes** the vars");
+    expect(runbookFlat).toContain("Both are required");
+  });
+
+  it("records the failed candidate as a safe pre-cutover finding, not an incident", () => {
+    expect(runbookFlat).toContain("This was a safe pre-cutover finding, not a production incident");
+    expect(runbookFlat).toContain("production traffic never moved");
+    expect(runbookFlat).toContain("Coralina remained contained");
+  });
+
+  it("carries no production variable value in the documentation itself", () => {
+    expect(runbook).not.toMatch(/https:\/\/[a-z0-9]{20}\.supabase\.co/);
+  });
+});

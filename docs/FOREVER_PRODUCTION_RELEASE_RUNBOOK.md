@@ -150,8 +150,16 @@ uploaded. Those are the two facts that make such a release verifiable at all.
    from that build read `same_client_assets` and refuse the recovery this identity
    exists to enable. The build refuses it outright.
 
-2. **Upload the candidate at 0% traffic.** `wrangler versions upload`. No traffic
-   moves. Nothing about the live site changes.
+2. **Upload the candidate at 0% traffic**, preserving deployment-managed
+   variables:
+
+   ```
+   wrangler versions upload --keep-vars --config .output/server/wrangler.json
+   ```
+
+   **`--keep-vars` is not optional and not a convenience.** See §2a — omitting
+   it deletes every deployment-managed variable. No traffic moves. Nothing about
+   the live site changes.
 
    **Record the immutable Worker version UUID this upload returns, and require
    it to be NEW.** Every authorized upload produces a new Worker version UUID,
@@ -162,10 +170,19 @@ uploaded. Those are the two facts that make such a release verifiable at all.
    time**: it is the rollback target, and it must be captured before anything
    moves, not reconstructed afterwards.
 
+   2a. **Verify the candidate's BINDING FINGERPRINT equals the live Worker's,
+   before anything else is checked.** Read both binding sets back from
+   Cloudflare and compare name and class for every binding — values are never
+   read. `npm run release:verify-bindings` performs this comparison fail-closed.
+   A candidate missing any binding is REJECTED here, at 0%, and the release
+   STOPS. Surviving secrets do not prove the plain-text variables survived; see
+   §2a.
+
 3. **Verify the candidate on its own version preview URL.** The preview URL
    (`<version-prefix>-<worker-name>.<subdomain>.workers.dev`) exercises that
    specific version, including its own asset set. Confirm the version-prefix in
-   that URL belongs to the candidate UUID recorded in step 2.
+   that URL belongs to the candidate UUID recorded in step 2. **Any 5xx on a
+   public route is a stop** — a candidate that returns 500 is never cut over.
 4. **Validate the full transitive route-chunk graph** on the candidate: crawl the
    documents, collect every `/assets/*` reference transitively, and require
    HTTP 200 for all of them. A single 404 here is a stop.
@@ -222,18 +239,107 @@ their own Owner authorization and their own task.
 
 ---
 
+## 2a. `--keep-vars`, AND WHY SURVIVING SECRETS PROVE NOTHING
+
+Corrected by `FOREVER-WRANGLER-KEEP-VARS-CORRECTION-001` after a candidate
+uploaded from exact merged main lost two production bindings.
+
+### What happened
+
+Candidate `ae4cae19` was built from exact merged main `bbf698d2`, self-verified,
+and passed every local gate. Cloudflare returned it carrying **10 bindings where
+the live Worker `fb4bf6d7` carried 12**. The two missing were the
+deployment-managed plain-text variables:
+
+- `SUPABASE_URL`
+- `STUDIO_STORAGE_WRITE_PROVIDER`
+
+Its preview returned **HTTP 500** on `/` and `/projects`:
+`Missing Supabase environment variable(s): SUPABASE_URL`.
+
+**This was a safe pre-cutover finding, not a production incident.** The
+candidate was held at 0%, the preview check caught it before any Owner hold was
+requested, production traffic never moved, the live Worker stayed at 100%, and
+Coralina remained contained. The 0%-candidate discipline in §2 is what turned a
+site-wide outage into a rejected artefact.
+
+### Why Wrangler removed them
+
+Cloudflare documents `--keep-vars` identically for `versions upload` and
+`deploy`:
+
+> When not used (or set to false), Wrangler will delete all vars before setting
+> those found in the Wrangler configuration. When used (and set to true), the
+> environment variables are not deleted before the deployment. If you set
+> variables via the dashboard you probably want to use this flag. Note that
+> secrets are never deleted by deployments.
+
+**The default is `false`.** `wrangler.jsonc` declares no `vars` block — so the
+effective instruction was "delete all vars, then apply the none I declared".
+
+`wrangler.jsonc`'s own schema states the same: "If you change your vars in the
+dashboard, wrangler _will_ override/delete them on its next deploy."
+
+### Two halves, both required
+
+§3 has always forbidden a `vars` block, because declaring one would **replace**
+the deployment-managed values. That is correct and it was never sufficient:
+
+| Failure mode                       | What prevents it        |
+| ---------------------------------- | ----------------------- |
+| repository **overwrites** the vars | declaring **no** `vars` |
+| Wrangler **deletes** the vars      | **`keep_vars: true`**   |
+
+The earlier runbook had the first and read as though it had both. Forever now
+carries **both, plus the explicit flag** — three independent defences:
+
+1. `wrangler.jsonc` sets `keep_vars: true`, which Nitro propagates into
+   `.output/server/wrangler.json`;
+2. every production upload command passes `--keep-vars` explicitly;
+3. the fail-closed preflight (`npm run release:verify-bindings`) refuses a
+   candidate whose binding fingerprint is not equal to the live Worker's.
+
+The deployment plane remains the **source of truth** for both values. The
+repository never carries them, never names them in a `vars` block, and never
+moves `SUPABASE_URL` into a client-visible variable.
+
+### Surviving secrets are NOT evidence
+
+**Secrets are never deleted, with or without the flag.** A candidate can show
+all six secret bindings intact while every plain-text variable has been removed
+— which is exactly what `ae4cae19` looked like. Any check that reasons "the
+secrets are still there, so the environment survived" is measuring the one thing
+that could not have failed.
+
+Therefore, before preview acceptance:
+
+- **the candidate's binding fingerprint must EQUAL the live Worker's** — name
+  and class for every binding, values never read;
+- **a candidate carrying fewer bindings than the live Worker is REJECTED**, even
+  though it holds 0% of traffic and harms nothing where it sits;
+- **never cut over a candidate that returns 500, or that lacks either
+  `SUPABASE_URL` or `STUDIO_STORAGE_WRITE_PROVIDER`** — no percentage, no
+  "verify it after", no exceptions.
+
+A rejected candidate is left at 0%. It is not deleted, and it is not modified;
+it is evidence.
+
+---
+
 ## 3. What must never be part of a release step
 
 - No percentage rollout while version affinity is absent (§0).
 - No migration applied or reverted as part of a cutover.
 - No `retryable` change, no Coralina row repair, no Retry, no re-upload.
 - No credential rotation, no R2 or Supabase Storage mutation.
-- No binding removed. The deployed Worker carries twelve bindings; four are
-  declared by this repository (`ASSETS`, `R2_PRIVATE_SOURCES`, `R2_PUBLIC_MEDIA`,
-  `R2_PROJECT_ARCHIVES`) and the rest are deployment-plane secrets plus
-  `STUDIO_STORAGE_WRITE_PROVIDER`. `wrangler.jsonc` declares **no** `vars` block
-  on purpose: declaring one would replace the deployment-set provider variable
-  and silently break R2 job creation.
+- No binding removed. The deployed Worker carries twelve bindings: four declared
+  by this repository (`ASSETS`, `R2_PRIVATE_SOURCES`, `R2_PUBLIC_MEDIA`,
+  `R2_PROJECT_ARCHIVES`), two deployment-managed plain-text variables
+  (`SUPABASE_URL`, `STUDIO_STORAGE_WRITE_PROVIDER`) and six deployment-managed
+  secrets. `wrangler.jsonc` declares **no** `vars` block on purpose — declaring
+  one would replace the deployment-set values — **and** sets `keep_vars: true`,
+  without which Wrangler deletes those undeclared variables before applying the
+  configuration. Both are required; see §2a for the candidate that proved it.
 
 ---
 
