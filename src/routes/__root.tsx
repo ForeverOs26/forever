@@ -229,6 +229,56 @@ function RootComponent() {
    *
    * Whatever happens, the attempted-transition HISTORY is never touched.
    */
+  /**
+   * REAL APPLICATION BOOTSTRAP AND ROUTE-READY MARKERS
+   * (narrow-re-review RR2-P2-2).
+   *
+   * The committed browser proof used to start every scenario from a document
+   * the harness origin answered with HTTP 500, on which no route ever mounted.
+   * Several scenarios then "passed" by nothing happening. A proof needs a
+   * positive statement that the REAL application booted, and it has to come
+   * from the real root component of the real router rather than from a
+   * test-only page.
+   *
+   * These two attributes are that statement, and nothing else depends on them:
+   *
+   *   `data-forever-app="mounted"`  this component — the root of the real route
+   *                                 tree — executed in the browser.
+   *   `data-forever-route`          `ready` when the router resolved a route
+   *                                 whose leaf and nested modules all loaded
+   *                                 and no error boundary is active; `error`
+   *                                 otherwise. Derived from the SAME router
+   *                                 evidence the attestation uses, so it cannot
+   *                                 drift from it.
+   *   `data-forever-route-id`       the matched leaf route id — a static string
+   *                                 from the generated route tree, carrying no
+   *                                 parameter, query or identifier.
+   *
+   * Client-only: effects do not run during server rendering, so SSR output is
+   * byte-for-byte unchanged.
+   */
+  useEffect(() => {
+    document.documentElement.dataset.foreverApp = "mounted";
+  }, []);
+
+  useEffect(() => {
+    const publish = () => {
+      const evidence = routeLoadEvidence(router as unknown as RouterStateLike);
+      const matches = (router as unknown as RouterStateLike).state?.matches ?? [];
+      const leaf = matches[matches.length - 1] as { routeId?: unknown } | undefined;
+      const ready =
+        evidence.leafRouteLoaded && evidence.nestedModulesLoaded && !evidence.errorBoundaryActive;
+      document.documentElement.dataset.foreverRoute = ready ? "ready" : "error";
+      document.documentElement.dataset.foreverRouteId =
+        typeof leaf?.routeId === "string" ? leaf.routeId : "";
+    };
+    publish();
+    const unsubscribe = router.subscribe("onResolved", publish);
+    return () => {
+      unsubscribe();
+    };
+  }, [router]);
+
   useEffect(() => {
     const unsubscribe = router.subscribe("onResolved", () => {
       const pathname = window.location.pathname;

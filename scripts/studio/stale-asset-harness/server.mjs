@@ -30,6 +30,8 @@ import { existsSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { SUPABASE_STUB_ORIGIN, startSupabaseStub } from "./supabase-stub.mjs";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..", "..");
 
@@ -48,8 +50,8 @@ const VERSIONS = {
 let active = "a";
 
 /** The identifiers the two versions were built with. */
-const BUILD_ID_A = process.env.FOREVER_HARNESS_BUILD_ID_A ?? "aaaaaaaaaaaa";
-const BUILD_ID_B = process.env.FOREVER_HARNESS_BUILD_ID_B ?? "bbbbbbbbbbbb";
+const CLIENT_ASSET_ID_A = process.env.FOREVER_HARNESS_CLIENT_ASSET_ID_A ?? "aaaaaaaaaaaa";
+const CLIENT_ASSET_ID_B = process.env.FOREVER_HARNESS_CLIENT_ASSET_ID_B ?? "bbbbbbbbbbbb";
 
 /**
  * Server-side document-request counter.
@@ -71,16 +73,16 @@ const otherRequests = [];
 let blockedAssetSubstring = null;
 
 /**
- * How the front origin answers `/forever-build.json`.
+ * How the front origin answers `/forever-client-assets.json`.
  *
  *   normal  — forward to the active version (the truth);
  *   stale   — answer with the PREVIOUS version's identifier, which is what a
  *             cached or lagging edge does, and which must produce
- *             `same_build` and therefore NO automatic reload;
+ *             `same_client_assets` and therefore NO automatic reload;
  *   timeout — never answer, so the probe's own deadline decides;
- *   error   — answer 500, which must produce `active_build_unknown`.
+ *   error   — answer 500, which must produce `active_client_assets_unknown`.
  */
-let buildEndpointMode = "normal";
+let clientAssetsEndpointMode = "normal";
 
 /**
  * How the front origin answers a MISSING asset.
@@ -182,13 +184,12 @@ function jsonResponse(clientResponse, status, body) {
 }
 
 function handleControl(clientRequest, clientResponse, url) {
-  const buildMode = /^\/__harness\/build-endpoint\/(normal|stale|timeout|error)$/.exec(
-    url.pathname,
-  );
-  if (buildMode) {
-    buildEndpointMode = buildMode[1];
-    log(`build endpoint mode set to ${buildEndpointMode}`);
-    jsonResponse(clientResponse, 200, { buildEndpointMode });
+  const clientAssetsMode =
+    /^\/__harness\/client-assets-endpoint\/(normal|stale|timeout|error)$/.exec(url.pathname);
+  if (clientAssetsMode) {
+    clientAssetsEndpointMode = clientAssetsMode[1];
+    log(`client-assets endpoint mode set to ${clientAssetsEndpointMode}`);
+    jsonResponse(clientResponse, 200, { clientAssetsEndpointMode });
     return true;
   }
   const asset = /^\/__harness\/asset-mode\/(normal|html200)$/.exec(url.pathname);
@@ -211,7 +212,7 @@ function handleControl(clientRequest, clientResponse, url) {
   if (url.pathname === "/__harness/state") {
     const body = JSON.stringify({
       active,
-      buildEndpointMode,
+      clientAssetsEndpointMode,
       assetMode,
       assets: { a: assetNames("a").length, b: assetNames("b").length },
       documentRequests,
@@ -250,6 +251,13 @@ function handleControl(clientRequest, clientResponse, url) {
 }
 
 async function main() {
+  // The LOCAL DATA PLANE comes up first (narrow-re-review RR2-P2-2). Both
+  // built versions were compiled against it, and without it their server
+  // rendering throws on the first document and every scenario would start from
+  // an HTTP 500 page — which is exactly the defect this corrects.
+  const supabaseStub = await startSupabaseStub();
+  log(`supabase stub on ${SUPABASE_STUB_ORIGIN}`);
+
   startVersion("a");
   startVersion("b");
   await Promise.all([waitForVersion("a"), waitForVersion("b")]);
@@ -260,19 +268,19 @@ async function main() {
       if (handleControl(clientRequest, clientResponse, url)) return;
     }
 
-    // The build probe, under harness control. Nothing here is faked beyond
-    // what a real edge does: a lagging cache, a hung origin, or a 500.
-    if (url.pathname === "/forever-build.json" && buildEndpointMode !== "normal") {
-      if (buildEndpointMode === "timeout") return; // never answer
-      if (buildEndpointMode === "error") {
+    // The CLIENT ASSET probe, under harness control. Nothing here is faked
+    // beyond what a real edge does: a lagging cache, a hung origin, or a 500.
+    if (url.pathname === "/forever-client-assets.json" && clientAssetsEndpointMode !== "normal") {
+      if (clientAssetsEndpointMode === "timeout") return; // never answer
+      if (clientAssetsEndpointMode === "error") {
         clientResponse.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
-        clientResponse.end("harness: build endpoint unavailable");
+        clientResponse.end("harness: client-assets endpoint unavailable");
         return;
       }
       // stale: report the version that is NOT active.
       const stale = active === "a" ? "b" : "a";
       jsonResponse(clientResponse, 200, {
-        build: stale === "a" ? BUILD_ID_A : BUILD_ID_B,
+        clientAssetId: stale === "a" ? CLIENT_ASSET_ID_A : CLIENT_ASSET_ID_B,
       });
       return;
     }
@@ -290,7 +298,7 @@ async function main() {
     // plane. Recorded as `path@version` so a reload is unmistakable.
     if (
       !url.pathname.startsWith("/assets/") &&
-      url.pathname !== "/forever-build.json" &&
+      url.pathname !== "/forever-client-assets.json" &&
       url.pathname !== "/favicon.ico" &&
       (clientRequest.headers.accept ?? "").includes("text/html")
     ) {
@@ -315,6 +323,7 @@ async function main() {
 
   const shutdown = () => {
     for (const key of Object.keys(VERSIONS)) VERSIONS[key].child?.kill();
+    supabaseStub.close();
     front.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000).unref();
   };

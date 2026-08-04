@@ -99,7 +99,7 @@ describe("no stale-asset test may silently skip", () => {
     const files = [
       "src/lib/stale-asset/worker-config-contract.test.ts",
       "src/lib/stale-asset/tanstack-reload-ownership.test.ts",
-      "src/lib/stale-asset/build-identity.test.ts",
+      "src/lib/stale-asset/client-asset-identity.test.ts",
       "src/lib/stale-asset/studio-write-contract.test.ts",
     ];
     for (const file of files) {
@@ -169,8 +169,89 @@ describe("the browser proof is committed, runnable and fail-closed", () => {
 
   it("it reports passed/failed/skipped/not-run separately, and skipped is always zero", () => {
     expect(driver).toContain("skipped: 0");
-    expect(driver).toContain("notRun: 0");
+    expect(driver).toContain("notRun: isBootstrapFailure ? result.total : 0");
     expect(driver).toContain("0 skipped, 0 not run");
+  });
+
+  // -------------------------------------------------------------------------
+  // RR2-P2-2 — the proof cannot pass on a page that never loaded
+  // -------------------------------------------------------------------------
+
+  it("REQUIRES a healthy application document before any scenario runs", () => {
+    expect(driver).toContain("THE GLOBAL PRECONDITION");
+    expect(driver).toContain("requireHealthyApplication");
+    expect(driver).toContain("the application document returned HTTP ${probe.status}, not 200");
+    expect(driver).toContain("not text/html");
+    expect(driver).toContain("the real application bootstrap marker never appeared");
+    expect(driver).toContain("the router did not report a ready route within");
+    expect(driver).toContain("required entry asset(s) did not resolve");
+  });
+
+  it("classifies a failed precondition as INFRASTRUCTURE, with zero scenarios passed", () => {
+    expect(driver).toContain("infrastructure_bootstrap_failure");
+    expect(driver).toContain("passed: isBootstrapFailure ? 0 : result.total - result.failed");
+    expect(driver).toContain("INFRASTRUCTURE/BOOTSTRAP FAILURE");
+    expect(driver).toContain("process.exitCode = 1");
+  });
+
+  it("makes EVERY scenario declare the document status it requires", () => {
+    // Every scenario object carries a `document: { status: ... }`, and the
+    // opener refuses anything else. A scenario cannot silently inherit a 500.
+    const declared = driver.match(/document: \{ status: \d+/g) ?? [];
+    const scenarios = driver.match(/^ {4}id: \d+,$/gm) ?? [];
+    expect(scenarios.length).toBeGreaterThanOrEqual(20);
+    expect(declared).toHaveLength(scenarios.length);
+    expect(driver).toContain("returned HTTP ${status}, expected ${expected.status}");
+  });
+
+  it("distinguishes document, bootstrap, stale-chunk, recovery-screen and generic outcomes", () => {
+    for (const kind of [
+      "document_or_server_failure",
+      "application_bootstrap_failure",
+      "stale_content_hashed_chunk_failure",
+      "expected_recovery_screen",
+      "generic_application_error",
+    ]) {
+      expect(driver, kind).toContain(kind);
+    }
+  });
+
+  it("contains NO vacuous assertion that passes because nothing happened", () => {
+    // The exact shape RR2-P2-2 found: `assert(true, "no recovery screen was
+    // required")` and its siblings. A scenario about a screen must require the
+    // screen. Comments are stripped first, so the module may still DESCRIBE the
+    // defect it removed.
+    const code = driver
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("//"))
+      .join("\n");
+    expect(code).not.toMatch(/assert\(\s*true\b/);
+    expect(code).not.toContain("no recovery screen was required");
+    expect(code).not.toContain("no automatic recovery was needed");
+    expect(code).not.toContain("there is nothing for a duplicate to inherit");
+  });
+
+  it("reproduces the failure through a REAL client-side route transition", () => {
+    // A full document navigation fetches the ACTIVE version's own document and
+    // its own chunks, so nothing is ever stale. The incident is a running page
+    // asking for a lazy chunk only its own version had.
+    expect(driver).toContain("A REAL CLIENT-SIDE ROUTE TRANSITION");
+    expect(driver).toContain("clientNavigate");
+    expect(driver).toContain("new PopStateEvent");
+  });
+
+  it("uses a local data plane rather than a non-resolving placeholder host", () => {
+    const build = read(HARNESS_BUILD);
+    expect(build).toContain("VITE_SUPABASE_URL: SUPABASE_STUB_ORIGIN");
+    expect(build).toContain("SUPABASE_URL: SUPABASE_STUB_ORIGIN");
+    // No remote host may be configured as a VALUE any more; the header may
+    // still name the one that was removed and say why.
+    expect(build).not.toMatch(/SUPABASE_URL: "https?:/);
+    expect(build).toContain("MEASURED WRONG");
+    const stub = read("scripts/studio/stale-asset-harness/supabase-stub.mjs");
+    expect(stub).toContain("127.0.0.1");
+    expect(stub).toContain("holds NO data, issues NO token");
   });
 
   it("it deterministically cleans up the origin and every context", () => {
@@ -191,9 +272,9 @@ describe("the browser proof is committed, runnable and fail-closed", () => {
     expect(server).toContain("__harness/activate");
   });
 
-  it("the origin can model a stale, timing-out and failing build endpoint", () => {
+  it("the origin can model a stale, timing-out and failing client-assets endpoint", () => {
     const server = read(HARNESS_SERVER);
-    expect(server).toContain("buildEndpointMode");
+    expect(server).toContain("clientAssetsEndpointMode");
     for (const mode of ["normal", "stale", "timeout", "error"]) {
       expect(server, mode).toContain(mode);
     }
