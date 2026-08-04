@@ -18,7 +18,13 @@
  *     CLOUDFLARE_ACCOUNT_ID=… CLOUDFLARE_API_TOKEN=… \
  *     node scripts/release/capture-worker-version-bindings.mjs \
  *       --authorize-release --worker <name> \
- *       --version-id <worker-version-uuid> --out <sanitized-snapshot.json>
+ *       --live-version-id <discovered-worker-version-uuid> --out <live-snapshot.json>
+ *
+ *   CANDIDATE capture consumes the upload wrapper's immutable receipt, never
+ *   an operator-retyped candidate UUID:
+ *     node scripts/release/capture-worker-version-bindings.mjs \
+ *       --authorize-release --worker <name> \
+ *       --candidate-release-provenance <receipt.json> --out <candidate-snapshot.json>
  *
  * Release mode calls exactly one documented endpoint:
  *
@@ -58,6 +64,9 @@ const REPO = process.cwd();
 const jiti = createJiti(import.meta.url);
 
 const capture = await jiti.import(resolve(REPO, "src/lib/stale-asset/worker-binding-capture.ts"));
+const releaseIdentity = await jiti.import(
+  resolve(REPO, "src/lib/stale-asset/worker-release-identity.ts"),
+);
 
 const {
   CLOUDFLARE_API_BASE,
@@ -65,6 +74,7 @@ const {
   serializeBindingSnapshot,
   validateBindingSnapshot,
 } = capture;
+const { verifyWorkerVersionProvenance } = releaseIdentity;
 
 const log = (message) => process.stdout.write(`[capture-bindings] ${message}\n`);
 
@@ -79,12 +89,46 @@ function arg(flag) {
 }
 const has = (flag) => process.argv.includes(flag);
 
-const versionId = arg("--version-id");
 const out = arg("--out");
 const fromFile = arg("--from-version-detail");
 const authorized = has("--authorize-release");
+const offlineVersionId = arg("--version-id");
+const liveVersionId = arg("--live-version-id");
+const candidateProvenancePath = arg("--candidate-release-provenance");
 
-if (!versionId) stop("--version-id <worker-version-uuid> is required.");
+if (authorized && offlineVersionId) {
+  stop(
+    "--version-id is offline-fixture-only. Authorized capture requires --live-version-id from " +
+      "deployment discovery or --candidate-release-provenance from the upload wrapper.",
+  );
+}
+if (authorized && Boolean(liveVersionId) === Boolean(candidateProvenancePath)) {
+  stop(
+    "authorized capture requires exactly one of --live-version-id or " +
+      "--candidate-release-provenance.",
+  );
+}
+
+let versionId = authorized ? liveVersionId : offlineVersionId;
+if (candidateProvenancePath) {
+  const absolute = resolve(REPO, candidateProvenancePath);
+  if (!existsSync(absolute)) stop("the candidate upload receipt was not found.");
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(absolute, "utf8"));
+  } catch {
+    stop("the candidate upload receipt is not valid JSON; its contents are not echoed.");
+  }
+  const verdict = verifyWorkerVersionProvenance(parsed);
+  if (!verdict.accepted) {
+    stop(
+      `${verdict.refusal}: the candidate upload receipt failed the canonical identity contract.`,
+    );
+  }
+  versionId = verdict.provenance.candidateWorkerVersionId;
+}
+
+if (!versionId) stop("an exact Worker version UUID source is required.");
 if (!out) stop("--out <path> is required.");
 
 /**

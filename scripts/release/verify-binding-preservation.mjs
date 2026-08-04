@@ -33,11 +33,13 @@
  * USAGE
  *   node scripts/release/verify-binding-preservation.mjs \
  *     --live <live-snapshot.json> --candidate <candidate-snapshot.json> \
+ *     --release-provenance <worker-version-provenance.json> \
  *     [--generated .output/server/wrangler.json] \
  *     [--upload-spec <upload-spec.json>] [--json <report-out.json>]
  *
  *   node scripts/release/verify-binding-preservation.mjs --preupload \
- *     --live <live-snapshot.json>        # before a candidate exists
+ *     --live <live-snapshot.json> \
+ *     --expected-live-version <deployed-worker-version-uuid>
  *
  * INPUT SHAPE (both snapshots, exactly — no other key is accepted)
  *   { "schemaVersion": 1,
@@ -62,6 +64,9 @@ const contract = await jiti.import(
   resolve(REPO, "src/lib/stale-asset/worker-variable-preservation.ts"),
 );
 const capture = await jiti.import(resolve(REPO, "src/lib/stale-asset/worker-binding-capture.ts"));
+const releaseIdentity = await jiti.import(
+  resolve(REPO, "src/lib/stale-asset/worker-release-identity.ts"),
+);
 
 const {
   DEPLOYMENT_MANAGED_PLAIN_TEXT_BINDINGS,
@@ -75,10 +80,12 @@ const {
 } = contract;
 
 const { validateBindingSnapshot } = capture;
+const { isWorkerVersionId, verifyWorkerVersionProvenance } = releaseIdentity;
 
 const log = (message) => process.stdout.write(`[release-preflight] ${message}\n`);
 
 const schemaViolations = [];
+const versionViolations = [];
 
 function fail(message) {
   process.stderr.write(`[release-preflight] STOP: ${message}\n`);
@@ -157,9 +164,113 @@ if (!liveSnapshot || (!preuploadOnly && !candidateSnapshot)) {
   process.exit(1);
 }
 
-/** Descriptors only. The version id is provenance, never a comparison input. */
+/** Descriptors and immutable version provenance are independent required inputs. */
 const live = liveSnapshot.bindings;
 const candidate = candidateSnapshot ? candidateSnapshot.bindings : null;
+
+const addVersionViolation = (code, detail) => {
+  versionViolations.push({ code, binding: "(release provenance)", detail });
+  log(`  ${code}: ${detail}`);
+};
+
+let releaseProvenance = null;
+let liveWorkerVersionMatches = false;
+let candidateWorkerVersionMatches = preuploadOnly ? null : false;
+
+if (preuploadOnly) {
+  const expectedLiveVersion = arg("--expected-live-version");
+  if (!expectedLiveVersion) {
+    addVersionViolation(
+      "release_provenance_missing",
+      "the exact deployed Worker version UUID from discovery is required before upload.",
+    );
+  } else if (!isWorkerVersionId(expectedLiveVersion)) {
+    addVersionViolation(
+      "release_provenance_invalid",
+      "the discovered live Worker version is not an immutable Worker UUID.",
+    );
+  } else if (liveSnapshot.workerVersionId !== expectedLiveVersion) {
+    addVersionViolation(
+      "live_worker_version_mismatch",
+      "the live snapshot is not attributed to the exact discovered deployed Worker version.",
+    );
+    addVersionViolation(
+      "snapshot_version_mismatch",
+      "snapshot identity and expected live release identity differ.",
+    );
+  } else {
+    liveWorkerVersionMatches = true;
+  }
+} else {
+  if (resolve(REPO, arg("--live")) === resolve(REPO, arg("--candidate"))) {
+    addVersionViolation(
+      "same_snapshot_input",
+      "the same snapshot file cannot stand for both previous and candidate Worker versions.",
+    );
+  }
+
+  const provenancePath = arg("--release-provenance");
+  if (!provenancePath) {
+    addVersionViolation(
+      "release_provenance_missing",
+      "the mechanically generated candidate upload receipt is required after upload.",
+    );
+    addVersionViolation("candidate_receipt_missing", "no candidate upload receipt was supplied.");
+  } else {
+    const absolute = resolve(REPO, provenancePath);
+    let parsed = null;
+    if (!existsSync(absolute)) {
+      addVersionViolation(
+        "release_provenance_missing",
+        "the candidate upload receipt was not found.",
+      );
+      addVersionViolation("candidate_receipt_missing", "no candidate upload receipt was found.");
+    } else {
+      try {
+        parsed = JSON.parse(readFileSync(absolute, "utf8"));
+      } catch {
+        addVersionViolation(
+          "release_provenance_invalid",
+          "the candidate upload receipt is not valid JSON; its contents are not echoed.",
+        );
+      }
+    }
+
+    if (parsed !== null) {
+      const provenanceVerdict = verifyWorkerVersionProvenance(parsed);
+      if (!provenanceVerdict.accepted) {
+        addVersionViolation(
+          provenanceVerdict.refusal,
+          "the candidate upload receipt failed the canonical release-identity contract.",
+        );
+      } else {
+        releaseProvenance = provenanceVerdict.provenance;
+        liveWorkerVersionMatches =
+          liveSnapshot.workerVersionId === releaseProvenance.previousWorkerVersionId;
+        candidateWorkerVersionMatches =
+          candidateSnapshot.workerVersionId === releaseProvenance.candidateWorkerVersionId;
+        if (!liveWorkerVersionMatches) {
+          addVersionViolation(
+            "live_worker_version_mismatch",
+            "the live snapshot is not the exact previous Worker version in the upload receipt.",
+          );
+        }
+        if (!candidateWorkerVersionMatches) {
+          addVersionViolation(
+            "candidate_worker_version_mismatch",
+            "the candidate snapshot is not the exact Worker version returned by the upload.",
+          );
+        }
+        if (!liveWorkerVersionMatches || !candidateWorkerVersionMatches) {
+          addVersionViolation(
+            "snapshot_version_mismatch",
+            "one or both snapshot identities differ from the canonical release provenance.",
+          );
+        }
+      }
+    }
+  }
+}
 
 // ---- the keep-vars contract, checked against what would actually be run -----
 
@@ -243,6 +354,7 @@ log(`expected total     : ${EXPECTED_PRODUCTION_BINDING_COUNT}`);
 if (candidate) log(`fingerprints equal : ${fingerprintsEqual}`);
 log(`upload spec        : ${specVerdict.ok ? "CANONICAL" : "REFUSED"}`);
 log(`keep-vars contract : ${keepVars.ok ? "OK" : "VIOLATED"}`);
+log(`version identity    : ${versionViolations.length === 0 ? "PINNED" : "REFUSED"}`);
 
 for (const reason of keepVars.reasons) log(`  keep-vars: ${reason}`);
 for (const violation of verdict.violations) {
@@ -283,6 +395,9 @@ const FINGERPRINT_EQUALITY_REQUIRED = true;
  */
 const ok =
   schemaViolations.length === 0 &&
+  versionViolations.length === 0 &&
+  liveWorkerVersionMatches &&
+  (preuploadOnly || (releaseProvenance !== null && candidateWorkerVersionMatches === true)) &&
   verdict.ok &&
   keepVars.ok &&
   specVerdict.ok &&
@@ -291,14 +406,19 @@ const ok =
   (preuploadOnly || verdict.candidateBindingCount === verdict.liveBindingCount);
 
 const report = {
-  task: "FOREVER-PR138-MERGE-BLOCKER-CORRECTION-002",
+  task: "FOREVER-PR138-WORKER-VERSION-PINNING-CORRECTION-004",
   contactedProduction: false,
   secretValuesRead: 0,
   mode: preuploadOnly ? "PREUPLOAD" : "LIVE_VS_CANDIDATE",
-  // Version ids are release provenance, recorded so a snapshot can never be
-  // attributed to the wrong immutable Worker version.
+  // Sanitized immutable ids only; no raw Wrangler output is retained here.
   liveWorkerVersionId: liveSnapshot.workerVersionId,
   candidateWorkerVersionId: candidateSnapshot ? candidateSnapshot.workerVersionId : null,
+  previousWorkerVersionId: releaseProvenance?.previousWorkerVersionId ?? null,
+  uploadedCandidateWorkerVersionId: releaseProvenance?.candidateWorkerVersionId ?? null,
+  releaseProvenanceValid: preuploadOnly ? null : releaseProvenance !== null,
+  liveWorkerVersionMatches,
+  candidateWorkerVersionMatches,
+  workerVersionIdentityOk: versionViolations.length === 0,
   liveBindingCount: verdict.liveBindingCount,
   candidateBindingCount: verdict.candidateBindingCount,
   expectedBindingCount: EXPECTED_PRODUCTION_BINDING_COUNT,
@@ -310,7 +430,7 @@ const report = {
   keepVarsContractOk: keepVars.ok,
   keepVarsReasons: keepVars.reasons,
   expectedBindingsAbsent: expectedMissing,
-  violations: [...schemaViolations, ...verdict.violations],
+  violations: [...schemaViolations, ...versionViolations, ...verdict.violations],
   verdict: ok ? (preuploadOnly ? "PREUPLOAD_CONTRACT_OK" : "BINDINGS_PRESERVED") : "STOP",
 };
 
@@ -331,7 +451,9 @@ if (!ok) {
 log(
   preuploadOnly
     ? "PASS (PREUPLOAD_CONTRACT_OK) — the live snapshot, the generated configuration and the " +
-        "canonical upload specification all hold. Upload may proceed."
-    : "PASS — every live binding is preserved, the fingerprints are EQUAL and the keep-vars " +
-        "contract holds.",
+        "canonical upload specification all hold, pinned to the exact discovered live Worker " +
+        "UUID. Upload may proceed."
+    : "PASS — every live binding is preserved, both snapshots are pinned to the exact previous " +
+        "and upload-returned Worker UUIDs, the fingerprints are EQUAL and the keep-vars contract " +
+        "holds.",
 );

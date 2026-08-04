@@ -38,7 +38,9 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 import { createJiti } from "jiti";
 
@@ -50,8 +52,12 @@ const jiti = createJiti(import.meta.url);
 const contract = await jiti.import(
   resolve(REPO, "src/lib/stale-asset/worker-variable-preservation.ts"),
 );
+const releaseIdentity = await jiti.import(
+  resolve(REPO, "src/lib/stale-asset/worker-release-identity.ts"),
+);
 const { PRODUCTION_VERSION_UPLOAD_SPEC, PRODUCTION_VERSION_UPLOAD_COMMAND, verifyUploadSpec } =
   contract;
+const { parseWranglerVersionUploadReceipt, serializeWorkerVersionProvenance } = releaseIdentity;
 
 const log = (message) => process.stdout.write(`[upload-version] ${message}\n`);
 
@@ -104,10 +110,17 @@ log(`shell              : false`);
 // ---- 3. the pre-upload binding preflight -----------------------------------
 
 const livePath = arg("--live");
+const expectedLiveVersion = arg("--expected-live-version");
 if (!livePath) {
   stop(
     "--live <live-snapshot.json> is required. The live Worker's bindings are captured BEFORE the " +
       "upload, mechanically, so the post-upload comparison has something honest to compare against.",
+  );
+}
+if (!expectedLiveVersion) {
+  stop(
+    "--expected-live-version <uuid> is required from the authorized read-only deployment " +
+      "discovery step.",
   );
 }
 
@@ -118,6 +131,8 @@ const preflight = spawnSync(
     "--preupload",
     "--live",
     livePath,
+    "--expected-live-version",
+    expectedLiveVersion,
   ],
   { cwd: REPO, encoding: "utf8", shell: false, env: { ...process.env, NO_COLOR: "1" } },
 );
@@ -142,23 +157,92 @@ if (!has("--authorize-upload")) {
   process.exit(0);
 }
 
-const run = spawnSync(
-  wrangler.launcher.command,
-  [...wrangler.launcher.prefixArgs, ...PRODUCTION_VERSION_UPLOAD_SPEC.args],
-  { cwd: REPO, stdio: "inherit", shell: false },
-);
-if (run.error || typeof run.status !== "number") {
-  stop("Wrangler could not be executed.");
+const receiptPath = arg("--receipt");
+if (!receiptPath) {
+  stop(
+    "--receipt <path> is required in authorized mode so the upload-returned candidate UUID " +
+      "cannot be replaced by a manually supplied value.",
+  );
 }
-if (run.status !== 0) {
+const receiptAbsolute = resolve(REPO, receiptPath);
+if (existsSync(receiptAbsolute)) {
+  stop("the receipt path already exists; an upload receipt is immutable and is never overwritten.");
+}
+
+// Wrangler's documented output-file contract is ND-JSON. It is consumed from
+// one task-owned temporary directory and removed in `finally`; stdout/stderr
+// and the raw ND-JSON are never copied into release evidence or echoed.
+const outputDirectory = mkdtempSync(join(tmpdir(), "forever-wrangler-output-"));
+const outputPath = join(outputDirectory, "version-upload.ndjson");
+let uploadReceipt = null;
+let uploadFailure = null;
+
+try {
+  const uploadEnvironment = {
+    ...process.env,
+    WRANGLER_OUTPUT_FILE_PATH: outputPath,
+    FORCE_COLOR: "0",
+    NO_COLOR: "1",
+  };
+  delete uploadEnvironment.WRANGLER_OUTPUT_FILE_DIRECTORY;
+
+  const run = spawnSync(
+    wrangler.launcher.command,
+    [...wrangler.launcher.prefixArgs, ...PRODUCTION_VERSION_UPLOAD_SPEC.args],
+    {
+      cwd: REPO,
+      encoding: "utf8",
+      shell: false,
+      env: uploadEnvironment,
+    },
+  );
+  if (run.error || typeof run.status !== "number") {
+    throw new Error("Wrangler could not be executed. Raw output is not echoed.");
+  }
+  if (run.status !== 0) {
+    throw new Error(
+      `wrangler exited ${run.status}. Raw output is not echoed; capture no snapshot and move no traffic.`,
+    );
+  }
+  if (!existsSync(outputPath)) {
+    throw new Error(
+      "Wrangler produced no documented structured upload result. No receipt was written and no " +
+        "traffic may move.",
+    );
+  }
+
+  const receiptVerdict = parseWranglerVersionUploadReceipt(
+    readFileSync(outputPath, "utf8"),
+    expectedLiveVersion,
+  );
+  if (!receiptVerdict.accepted) {
+    throw new Error(
+      `${receiptVerdict.refusal}. Raw upload output is not echoed; no receipt was written and no ` +
+        "traffic may move.",
+    );
+  }
+  uploadReceipt = receiptVerdict.receipt;
+} catch (error) {
+  uploadFailure =
+    error instanceof Error ? error.message : "the upload result could not be trusted.";
+} finally {
+  rmSync(outputDirectory, { recursive: true, force: true });
+}
+
+if (uploadFailure || uploadReceipt === null) {
   process.stderr.write(
-    `[upload-version] STOP: wrangler exited ${run.status}. Capture no snapshot and move no traffic.\n`,
+    `[upload-version] STOP: ${uploadFailure ?? "the upload result could not be trusted."}\n`,
   );
   process.exit(1);
 }
 
+writeFileSync(receiptAbsolute, serializeWorkerVersionProvenance(uploadReceipt), {
+  encoding: "utf8",
+  flag: "wx",
+});
+
 log(
-  "upload complete. NEXT, BEFORE PREVIEW ACCEPTANCE: capture the new version's bindings with " +
-    "`npm run release:capture-bindings` and run the full preflight against the live snapshot. " +
-    "The candidate holds 0% until that comparison PASSES.",
+  "upload complete; a sanitized immutable candidate receipt was written. NEXT, BEFORE PREVIEW " +
+    "ACCEPTANCE: capture the candidate through --candidate-release-provenance and run the full " +
+    "preflight against that same receipt. The candidate holds 0% until identity and bindings PASS.",
 );
