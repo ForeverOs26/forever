@@ -286,16 +286,12 @@ describe("the runbook keeps client asset identity out of the release gate", () =
 
   it("requires a NEW immutable Worker version UUID for every uploaded candidate", () => {
     expect(runbookFlat).toContain(
-      "Record the immutable Worker version UUID this upload returns, and require it to be NEW",
+      "The wrapper records the immutable Worker version UUID mechanically and requires it to be NEW",
     );
     expect(runbookFlat).toContain(
-      "Every authorized upload produces a new Worker version UUID, including an upload whose " +
-        "client asset graph did not move",
+      "Wrangler's documented structured `version-upload` result is consumed in memory",
     );
-    expect(runbookFlat).toContain(
-      "If the recorded candidate UUID equals the currently deployed one, no new Worker was " +
-        "uploaded and the release STOPS",
-    );
+    expect(runbookFlat).toContain("candidate_worker_version_not_new` STOPS the release");
   });
 
   it("makes the deployed Worker version UUID the release gate, not the endpoint", () => {
@@ -452,5 +448,192 @@ describe("the protected-tree disclosure is accurate and preserved", () => {
     expect(contractFlat).toContain(
       "the final correction session did not access the protected tree",
     );
+  });
+});
+
+/**
+ * FOREVER-WRANGLER-KEEP-VARS-CORRECTION-001.
+ *
+ * A candidate uploaded from exact merged main lost two deployment-managed
+ * variables and returned HTTP 500 on its preview. It was caught at 0% and no
+ * traffic moved. Every statement that prevents a repeat is a safety control,
+ * so each is pinned here rather than trusted to survive a later edit.
+ */
+describe("the runbook preserves deployment-managed Worker variables", () => {
+  it("prescribes --keep-vars on the candidate upload, in the sequence itself", () => {
+    expect(runbookFlat).toContain("wrangler versions upload --keep-vars");
+    expect(runbookFlat).toContain("`--keep-vars` is not optional");
+  });
+
+  it("states that omitted vars are DELETED when keep-vars is false", () => {
+    // The Cloudflare quote is a blockquote, so `>` survives flattening at each
+    // wrapped line. Assert within a line rather than across the wrap.
+    expect(runbookFlat).toContain("Wrangler will delete all vars before setting");
+    expect(runbookFlat).toContain("The default is `false`");
+    expect(runbookFlat).toContain('"delete all vars, then apply the none I declared"');
+  });
+
+  it("states that dashboard/deployment-managed vars must be preserved", () => {
+    expect(runbookFlat).toContain("deployment plane remains the **source of truth**");
+    expect(runbook).toContain("SUPABASE_URL");
+    expect(runbook).toContain("STUDIO_STORAGE_WRITE_PROVIDER");
+  });
+
+  it("states that surviving secrets do NOT prove plain-text vars survived", () => {
+    expect(runbookFlat).toContain("Surviving secrets are NOT evidence");
+    expect(runbookFlat).toContain("Secrets are never deleted, with or without the flag");
+    expect(runbookFlat).toContain("measuring the one thing that could not have failed");
+  });
+
+  it("requires the candidate binding fingerprint to equal the live one before preview acceptance", () => {
+    expect(runbookFlat).toContain(
+      "the candidate's binding fingerprint must EQUAL the live Worker's",
+    );
+    expect(runbookFlat).toContain("values never read");
+  });
+
+  it("rejects a candidate with fewer bindings even at 0% traffic", () => {
+    expect(runbookFlat).toContain(
+      "a candidate carrying fewer bindings than the live Worker is REJECTED",
+    );
+    expect(runbookFlat).toContain("even though it holds 0% of traffic");
+  });
+
+  it("forbids cutting over a candidate that 500s or lacks either variable", () => {
+    expect(runbookFlat).toContain("never cut over a candidate that returns 500");
+    expect(runbookFlat).toContain('no percentage, no "verify it after", no exceptions');
+  });
+
+  it("names BOTH halves — no vars block AND keep_vars — as jointly required", () => {
+    expect(runbookFlat).toContain("repository **overwrites** the vars");
+    expect(runbookFlat).toContain("Wrangler **deletes** the vars");
+    expect(runbookFlat).toContain("Both are required");
+  });
+
+  it("records the failed candidate as a safe pre-cutover finding, not an incident", () => {
+    expect(runbookFlat).toContain("This was a safe pre-cutover finding, not a production incident");
+    expect(runbookFlat).toContain("production traffic never moved");
+    expect(runbookFlat).toContain("Coralina remained contained");
+  });
+
+  it("carries no production variable value in the documentation itself", () => {
+    expect(runbook).not.toMatch(/https:\/\/[a-z0-9]{20}\.supabase\.co/);
+  });
+});
+
+/**
+ * FOREVER-PR138-MERGE-BLOCKER-CORRECTION-002.
+ *
+ * The independent review of the correction above returned CHANGES_REQUIRED on
+ * two counts the runbook is responsible for: it told the operator to trust a
+ * substring test, and it named a preflight whose input no tool produced. Both
+ * are documentation failures as much as code failures, so the corrected
+ * sequence is pinned here.
+ */
+describe("the runbook prescribes the MECHANICAL release sequence", () => {
+  it("captures the live binding snapshot with a tool, before any upload", () => {
+    expect(runbookFlat).toContain("Discover and capture the LIVE Worker UUID, mechanically");
+    expect(runbook).toContain("npm run release:capture-bindings");
+    expect(runbookFlat).toContain(
+      "GET /accounts/{account_id}/workers/scripts/{script_name}/versions/{version_id}",
+    );
+    expect(runbook).toContain("result.resources.bindings");
+  });
+
+  it("never tells an operator to hand-write binding JSON", () => {
+    expect(runbookFlat).toContain("Do not hand-write this file");
+    expect(runbookFlat).toContain("Never hand-write a binding snapshot");
+  });
+
+  it("uploads through the structured wrapper, not a typed shell command", () => {
+    expect(runbook).toContain("npm run release:upload-version");
+    expect(runbookFlat).toContain("through the structured wrapper");
+    expect(runbookFlat).toContain("with **no shell**");
+  });
+
+  it("captures the candidate snapshot and only then runs the exact preflight", () => {
+    const sequence = runbook.slice(runbook.indexOf("## 2. The release sequence"));
+    const capture = sequence.indexOf("Capture the CANDIDATE's binding snapshot");
+    const verify = sequence.indexOf("Run the strict EXACT-fingerprint preflight");
+    const reject = sequence.indexOf("Reject any identity or binding mismatch");
+    const preview = sequence.indexOf("Verify the candidate on its own version preview URL");
+    for (const index of [capture, verify, reject, preview]) expect(index).toBeGreaterThan(-1);
+    expect(verify).toBeGreaterThan(capture);
+    expect(reject).toBeGreaterThan(verify);
+    expect(preview).toBeGreaterThan(reject);
+  });
+
+  it("requires the two fingerprints to be EQUAL as a pass condition", () => {
+    expect(runbookFlat).toContain("**the two fingerprints are EQUAL**");
+    expect(runbookFlat).toContain("no name is duplicated");
+    expect(runbookFlat).toContain("no binding was added");
+  });
+
+  it("pins PREUPLOAD to the exact deployment-discovery UUID", () => {
+    expect(runbook).toContain("--live-version-id <exact-discovered-live-worker-version-uuid>");
+    expect(runbook).toContain(
+      "--expected-live-version <exact-discovered-live-worker-version-uuid>",
+    );
+    expect(runbookFlat).toContain("liveSnapshot.workerVersionId");
+    expect(runbookFlat).toContain("omitted, malformed, older or substituted UUID is a named STOP");
+  });
+
+  it("pins POSTUPLOAD to the mechanical candidate receipt before preview acceptance", () => {
+    expect(runbook).toContain("--receipt .forever-build/worker-version-provenance.json");
+    expect(runbook).toContain(
+      "--candidate-release-provenance .forever-build/worker-version-provenance.json",
+    );
+    expect(runbook).toContain("--release-provenance .forever-build/worker-version-provenance.json");
+    expect(runbookFlat).toContain("An operator never retypes the candidate UUID");
+    expect(runbookFlat).toContain("workerVersionIdentityOk: true");
+    expect(runbookFlat).toContain("BINDINGS_PRESERVED");
+  });
+
+  it("states that a substring test is NOT proof, and lists what it accepted", () => {
+    expect(runbookFlat).toContain("A substring test is not proof");
+    expect(runbook).toContain("--keep-vars=false");
+    expect(runbook).toContain("--no-keep-vars");
+    expect(runbook).toContain("--keep-vars-disabled");
+    expect(runbookFlat).toContain("Ten commands that DELETE");
+    // The discredited check is never presented as evidence.
+    expect(runbook).not.toContain('includes("--keep-vars")');
+  });
+
+  it("publishes the canonical specification as data, and derives the text from it", () => {
+    expect(runbook).toContain("PRODUCTION_VERSION_UPLOAD_SPEC");
+    expect(runbook).toContain(
+      '"versions", "upload", "--keep-vars", "--config", ".output/server/wrangler.json"',
+    );
+    expect(runbookFlat).toContain("derived from** that specification");
+    expect(runbook).toContain("`shell: false`");
+  });
+
+  it("requires the exact supported Wrangler version and forbids a PATH fallback", () => {
+    expect(runbookFlat).toContain("exact supported version");
+    expect(runbookFlat).toContain("never falls back to a PATH lookup");
+  });
+
+  it("refuses to spawn Wrangler before the preflight passed", () => {
+    expect(runbook).toContain("PREUPLOAD_CONTRACT_OK");
+  });
+
+  it("keeps every safety property the earlier corrections established", () => {
+    expect(runbookFlat).toContain("a percentage rollout is PROHIBITED");
+    expect(runbookFlat).toContain("Upload the candidate at 0% traffic");
+    expect(runbookFlat).toContain("Obtain an explicit, short Owner Studio hold");
+    expect(runbookFlat).toContain("Atomic cutover");
+    expect(runbookFlat).toContain("Do not begin Coralina repair or any Retry in the release task");
+  });
+
+  it("renumbers the sequence consistently — no step points at a step that moved", () => {
+    const sequence = runbook.slice(
+      runbook.indexOf("## 2. The release sequence"),
+      runbook.indexOf("## 2a."),
+    );
+    const numbers = [...sequence.matchAll(/^(\d+)\. \*\*/gm)].map((match) => Number(match[1]));
+    expect(numbers).toEqual([...Array(18).keys()].map((index) => index + 1));
+    // The upload is step 4, and every back-reference names step 4.
+    expect(sequence).toContain("4. **Upload the candidate at 0% traffic");
+    expect(runbook).not.toMatch(/UUID recorded in step 2\b/);
   });
 });

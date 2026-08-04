@@ -18,11 +18,15 @@ import { describe, expect, it } from "vitest";
 import {
   INVALID_PRE_R2_WORKER_VERSION_PREFIX,
   RELEASE_PROVENANCE_FIELDS,
+  WORKER_VERSION_PROVENANCE_SCHEMA_VERSION,
   WORKER_VERSION_ID_PATTERN,
   isLocalReleaseManifest,
   isWorkerVersionId,
+  parseWranglerVersionUploadReceipt,
+  serializeWorkerVersionProvenance,
   verifyReleaseProvenance,
   verifyRollbackTarget,
+  verifyWorkerVersionProvenance,
 } from "./worker-release-identity";
 import { FOREVER_CLIENT_ASSET_ID_PATTERN } from "./client-asset-id-contract";
 
@@ -31,6 +35,7 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8"
 /** Two real-shaped Cloudflare Worker version ids. Invented, never deployed. */
 const CANDIDATE = "3f1b8c2e-4a7d-4e51-9c60-b2a19d47f0e8";
 const PREVIOUS = "b7d40a19-2c88-4f36-8f21-5e0c9a1d3b77";
+const UPLOAD_CANDIDATE = "22222222-2222-4222-8222-222222222222";
 /** A 32-hex client asset identity, the exact shape the runbook used to spend. */
 const CLIENT_ASSET_ID = "24834ab95d7b514e8fae653a5d18e4a8";
 
@@ -210,6 +215,92 @@ describe("release provenance records all eight facts together", () => {
     expect(verifyReleaseProvenance(undefined)).toEqual({
       accepted: false,
       refusal: "missing_field",
+    });
+  });
+});
+
+describe("the strict minimal Worker-version upload receipt", () => {
+  const receipt = {
+    schemaVersion: WORKER_VERSION_PROVENANCE_SCHEMA_VERSION,
+    previousWorkerVersionId: PREVIOUS,
+    candidateWorkerVersionId: CANDIDATE,
+  } as const;
+
+  it("reuses the canonical release identity rules for the exact version pair", () => {
+    expect(verifyWorkerVersionProvenance(receipt)).toEqual({
+      accepted: true,
+      provenance: receipt,
+    });
+    expect(
+      verifyWorkerVersionProvenance({ ...receipt, candidateWorkerVersionId: PREVIOUS }),
+    ).toEqual({ accepted: false, refusal: "candidate_worker_version_not_new" });
+  });
+
+  it("is a closed three-field schema", () => {
+    expect(verifyWorkerVersionProvenance(null)).toEqual({
+      accepted: false,
+      refusal: "release_provenance_missing",
+    });
+    expect(verifyWorkerVersionProvenance({ ...receipt, rawOutput: "forbidden" })).toEqual({
+      accepted: false,
+      refusal: "release_provenance_invalid",
+    });
+    expect(
+      verifyWorkerVersionProvenance({
+        schemaVersion: 1,
+        previousWorkerVersionId: PREVIOUS,
+      }),
+    ).toEqual({ accepted: false, refusal: "release_provenance_missing" });
+    expect(
+      verifyWorkerVersionProvenance({ ...receipt, candidateWorkerVersionId: "not-a-uuid" }),
+    ).toEqual({ accepted: false, refusal: "release_provenance_invalid" });
+  });
+
+  it("parses only Wrangler's documented version-upload.version_id field", () => {
+    const raw = read("scripts/release/fixtures/raw/wrangler-version-upload.ndjson");
+    const verdict = parseWranglerVersionUploadReceipt(raw.replace(/\n/g, "\r\n"), PREVIOUS);
+    expect(verdict).toEqual({
+      accepted: true,
+      receipt: {
+        schemaVersion: 1,
+        previousWorkerVersionId: PREVIOUS,
+        candidateWorkerVersionId: UPLOAD_CANDIDATE,
+      },
+    });
+  });
+
+  it("serializes only sanitized ids and never the raw-output canary", () => {
+    const raw = read("scripts/release/fixtures/raw/wrangler-version-upload.ndjson");
+    const verdict = parseWranglerVersionUploadReceipt(raw, PREVIOUS);
+    expect(verdict.accepted).toBe(true);
+    if (!verdict.accepted) return;
+    const serialized = serializeWorkerVersionProvenance(verdict.receipt);
+    expect(Object.keys(JSON.parse(serialized))).toEqual([
+      "schemaVersion",
+      "previousWorkerVersionId",
+      "candidateWorkerVersionId",
+    ]);
+    expect(serialized).not.toContain("CANARY_RAW_WRANGLER_OUTPUT_MUST_NOT_PERSIST");
+    expect(serialized).not.toContain("preview_urls");
+    expect(serialized).not.toContain("command_line_args");
+  });
+
+  it("refuses missing, duplicated, malformed and not-new upload results without echoing them", () => {
+    const event = (id: string) =>
+      JSON.stringify({ type: "version-upload", version: 1, version_id: id });
+    for (const raw of [
+      "{}\n",
+      "not json\n",
+      `${event(UPLOAD_CANDIDATE)}\n${event("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")}\n`,
+      `${event("not-a-uuid")}\n`,
+    ]) {
+      const verdict = parseWranglerVersionUploadReceipt(raw, PREVIOUS);
+      expect(verdict.accepted, raw).toBe(false);
+      expect(JSON.stringify(verdict), raw).not.toContain(raw);
+    }
+    expect(parseWranglerVersionUploadReceipt(`${event(PREVIOUS)}\n`, PREVIOUS)).toEqual({
+      accepted: false,
+      refusal: "candidate_worker_version_not_new",
     });
   });
 });

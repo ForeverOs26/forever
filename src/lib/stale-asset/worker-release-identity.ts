@@ -74,6 +74,143 @@ export function isWorkerVersionId(value: unknown): value is string {
 }
 
 /**
+ * The value-free Worker-version receipt shared by upload, capture and release
+ * preflight tooling. This is the small, post-upload subset of the eight-field
+ * release provenance record: the exact live version and the exact new version.
+ */
+export const WORKER_VERSION_PROVENANCE_SCHEMA_VERSION = 1;
+
+export const WORKER_VERSION_PROVENANCE_FIELDS = [
+  "schemaVersion",
+  "previousWorkerVersionId",
+  "candidateWorkerVersionId",
+] as const;
+
+export type WorkerVersionProvenance = {
+  readonly schemaVersion: typeof WORKER_VERSION_PROVENANCE_SCHEMA_VERSION;
+  readonly previousWorkerVersionId: string;
+  readonly candidateWorkerVersionId: string;
+};
+
+export type WorkerVersionProvenanceRefusal =
+  | "release_provenance_missing"
+  | "release_provenance_invalid"
+  | "candidate_worker_version_not_new";
+
+export type WorkerVersionProvenanceVerdict =
+  | { readonly accepted: true; readonly provenance: WorkerVersionProvenance }
+  | { readonly accepted: false; readonly refusal: WorkerVersionProvenanceRefusal };
+
+/**
+ * Validates the strict minimal receipt without ever carrying an upload log,
+ * binding value, credential or account identifier into release evidence.
+ */
+export function verifyWorkerVersionProvenance(value: unknown): WorkerVersionProvenanceVerdict {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { accepted: false, refusal: "release_provenance_missing" };
+  }
+
+  const record = value as Record<string, unknown>;
+  const actualKeys = Object.keys(record).sort();
+  const expectedKeys = [...WORKER_VERSION_PROVENANCE_FIELDS].sort();
+  if (
+    actualKeys.length !== expectedKeys.length ||
+    actualKeys.some((key, i) => key !== expectedKeys[i])
+  ) {
+    const missing = WORKER_VERSION_PROVENANCE_FIELDS.some((field) => !(field in record));
+    return {
+      accepted: false,
+      refusal: missing ? "release_provenance_missing" : "release_provenance_invalid",
+    };
+  }
+  if (record.schemaVersion !== WORKER_VERSION_PROVENANCE_SCHEMA_VERSION) {
+    return { accepted: false, refusal: "release_provenance_invalid" };
+  }
+  if (
+    !isWorkerVersionId(record.previousWorkerVersionId) ||
+    !isWorkerVersionId(record.candidateWorkerVersionId)
+  ) {
+    return { accepted: false, refusal: "release_provenance_invalid" };
+  }
+  if (record.candidateWorkerVersionId === record.previousWorkerVersionId) {
+    return { accepted: false, refusal: "candidate_worker_version_not_new" };
+  }
+
+  return {
+    accepted: true,
+    provenance: {
+      schemaVersion: WORKER_VERSION_PROVENANCE_SCHEMA_VERSION,
+      previousWorkerVersionId: record.previousWorkerVersionId,
+      candidateWorkerVersionId: record.candidateWorkerVersionId,
+    },
+  };
+}
+
+export function serializeWorkerVersionProvenance(provenance: WorkerVersionProvenance): string {
+  return `${JSON.stringify(
+    {
+      schemaVersion: provenance.schemaVersion,
+      previousWorkerVersionId: provenance.previousWorkerVersionId,
+      candidateWorkerVersionId: provenance.candidateWorkerVersionId,
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+export type WranglerVersionUploadReceiptVerdict =
+  | { readonly accepted: true; readonly receipt: WorkerVersionProvenance }
+  | {
+      readonly accepted: false;
+      readonly refusal: "upload_receipt_invalid" | WorkerVersionProvenanceRefusal;
+    };
+
+/**
+ * Consumes Wrangler's documented ND-JSON output-file contract. Only the single
+ * `version-upload.version_id` field is retained; all other output is ignored
+ * and no rejected raw line is included in a refusal.
+ */
+export function parseWranglerVersionUploadReceipt(
+  ndjson: string,
+  previousWorkerVersionId: string,
+): WranglerVersionUploadReceiptVerdict {
+  if (!isWorkerVersionId(previousWorkerVersionId) || typeof ndjson !== "string") {
+    return { accepted: false, refusal: "upload_receipt_invalid" };
+  }
+
+  const versionIds: unknown[] = [];
+  for (const line of ndjson.split(/\r?\n/)) {
+    if (line.trim().length === 0) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return { accepted: false, refusal: "upload_receipt_invalid" };
+    }
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      (parsed as Record<string, unknown>).type === "version-upload"
+    ) {
+      versionIds.push((parsed as Record<string, unknown>).version_id);
+    }
+  }
+
+  if (versionIds.length !== 1 || !isWorkerVersionId(versionIds[0])) {
+    return { accepted: false, refusal: "upload_receipt_invalid" };
+  }
+
+  const verdict = verifyWorkerVersionProvenance({
+    schemaVersion: WORKER_VERSION_PROVENANCE_SCHEMA_VERSION,
+    previousWorkerVersionId,
+    candidateWorkerVersionId: versionIds[0],
+  });
+  if (!verdict.accepted) return verdict;
+  return { accepted: true, receipt: verdict.provenance };
+}
+
+/**
  * The complete set of facts a release record must carry.
  *
  * Recorded TOGETHER on purpose: each answers a different question, and any one

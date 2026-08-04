@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "workerVersionId": "88888888-8888-4888-8888-888888888888",
+  "_note": "a capture that stored more than the schema allows",
+  "values": {},
+  "bindings": [
+    {
+      "name": "ASSETS",
+      "type": "assets"
+    },
+    {
+      "name": "SUPABASE_URL",
+      "type": "plain_text"
+    }
+  ]
+}

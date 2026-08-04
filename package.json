@@ -38,7 +38,12 @@
     "build:determinism": "node scripts/build/measure-output-determinism.mjs",
     "studio:stale-asset-harness": "node scripts/studio/stale-asset-harness/build-versions.mjs && node scripts/studio/stale-asset-harness/run-browser-scenarios.mjs",
     "studio:stale-asset-harness:run": "node scripts/studio/stale-asset-harness/run-browser-scenarios.mjs",
-    "studio:stale-asset-focused": "node scripts/studio/run-focused-stale-asset-suite.mjs"
+    "studio:stale-asset-focused": "node scripts/studio/run-focused-stale-asset-suite.mjs",
+    "release:wrangler-gate": "node scripts/release/wrangler-version-gate.mjs",
+    "release:capture-bindings": "node scripts/release/capture-worker-version-bindings.mjs",
+    "release:verify-bindings": "node scripts/release/verify-binding-preservation.mjs",
+    "release:upload-version": "node scripts/release/upload-worker-version.mjs",
+    "release:keep-vars-mutations": "node scripts/release/run-keep-vars-mutations.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

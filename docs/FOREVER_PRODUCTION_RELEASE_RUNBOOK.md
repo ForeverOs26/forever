@@ -150,75 +150,323 @@ uploaded. Those are the two facts that make such a release verifiable at all.
    from that build read `same_client_assets` and refuse the recovery this identity
    exists to enable. The build refuses it outright.
 
-2. **Upload the candidate at 0% traffic.** `wrangler versions upload`. No traffic
+2. **Discover and capture the LIVE Worker UUID, mechanically, before anything
+   is uploaded.** Use the authorized read-only deployment discovery result as
+   the exact previous Worker UUID, then capture only that immutable version:
+
+   ```
+   npm run release:capture-bindings -- --authorize-release \
+     --worker forever --live-version-id <exact-discovered-live-worker-version-uuid> \
+     --out .forever-build/live-bindings.json
+   ```
+
+   This calls exactly one documented endpoint —
+   `GET /accounts/{account_id}/workers/scripts/{script_name}/versions/{version_id}`
+   — requires the returned `result.id` to equal the version you asked for, reads
+   `result.resources.bindings`, and writes **only** `{ name, type }` per binding.
+
+   **Do not hand-write this file.** Cloudflare returns a `plain_text` binding as
+   `{ name, text, type }`, and `text` is the production value of `SUPABASE_URL`.
+   The capture tool never writes, logs or quotes the raw response; a
+   hand-transcribed file, by contrast, is a record of what the operator EXPECTED
+   and makes the comparison in step 6 confirm itself.
+
+3. **Prove the local upload contract before spawning anything.** The wrapper in
+   step 4 runs `npm run release:verify-bindings -- --preupload` for you: the live
+   snapshot must satisfy the closed schema, `.output/server/wrangler.json` must
+   carry `keep_vars: true` and must declare **no** `vars` block, and the upload
+   specification must be canonical. It also requires
+   `--expected-live-version <exact-discovered-live-worker-version-uuid>` and
+   refuses unless `liveSnapshot.workerVersionId` equals that exact discovery
+   result. An omitted, malformed, older or substituted UUID is a named STOP.
+   Anything else STOPS before Wrangler starts.
+
+4. **Upload the candidate at 0% traffic, through the structured wrapper**, which
+   preserves deployment-managed variables:
+
+   ```
+   npm run release:upload-version -- \
+     --live .forever-build/live-bindings.json \
+     --expected-live-version <exact-discovered-live-worker-version-uuid> \
+     --receipt .forever-build/worker-version-provenance.json \
+     --authorize-upload
+   ```
+
+   The wrapper first proves the resolved Wrangler is exactly the supported
+   version, then spawns — with **no shell** — exactly this and nothing else:
+
+   ```
+   wrangler versions upload --keep-vars --config .output/server/wrangler.json
+   ```
+
+   **`--keep-vars` is not optional and not a convenience.** See §2a — omitting
+   it deletes every deployment-managed variable. That argument vector is
+   compared token by token against the canonical one, so `--keep-vars=false`,
+   `--keep-vars false`, `--no-keep-vars`, `--keep-vars-disabled`, a duplicated
+   flag, a flag after a `--` terminator, a `#` comment, a decoy argument
+   containing the substring, `deploy`, a wrong `--config` path and a missing
+   `--config` are each REFUSED by name. **A substring test is not proof**: the
+   earlier contract used one and accepted every command in that list. No traffic
    moves. Nothing about the live site changes.
 
-   **Record the immutable Worker version UUID this upload returns, and require
-   it to be NEW.** Every authorized upload produces a new Worker version UUID,
-   including an upload whose client asset graph did not move. If the recorded
-   candidate UUID equals the currently deployed one, no new Worker was uploaded
-   and the release STOPS — that is not a release, it is a record of one that did
-   not happen. **Record the currently deployed Worker version UUID at the same
-   time**: it is the rollback target, and it must be captured before anything
-   moves, not reconstructed afterwards.
+   **The wrapper records the immutable Worker version UUID mechanically and
+   requires it to be NEW.** Wrangler's documented structured `version-upload`
+   result is consumed in memory; only `version_id` is retained. The wrapper
+   writes exactly the three sanitized fields `schemaVersion`,
+   `previousWorkerVersionId` and `candidateWorkerVersionId` to the immutable
+   receipt path, never stdout, stderr, a preview URL, a credential or any raw
+   Wrangler result. It refuses
+   an existing receipt rather than overwriting it. If the candidate UUID equals
+   the discovered currently deployed UUID, `candidate_worker_version_not_new`
+   STOPS the release. An operator never retypes the candidate UUID.
 
-3. **Verify the candidate on its own version preview URL.** The preview URL
+5. **Capture the CANDIDATE's binding snapshot the same mechanical way**, from
+   the Worker version UUID the upload just returned:
+
+   ```
+   npm run release:capture-bindings -- --authorize-release \
+     --worker forever \
+     --candidate-release-provenance .forever-build/worker-version-provenance.json \
+     --out .forever-build/candidate-bindings.json
+   ```
+
+6. **Run the strict EXACT-fingerprint preflight, before anything else is
+   checked:**
+
+   ```
+   npm run release:verify-bindings -- \
+     --live .forever-build/live-bindings.json \
+     --candidate .forever-build/candidate-bindings.json \
+     --release-provenance .forever-build/worker-version-provenance.json
+   ```
+
+   It passes only when both snapshots satisfy the closed schema, the live
+   snapshot UUID equals `previousWorkerVersionId`, the candidate snapshot UUID
+   equals `candidateWorkerVersionId`, the canonical release-identity validator
+   proves the candidate differs from the previous Worker, every live binding is
+   present, no binding was added, no class changed, no name is duplicated, the
+   counts are equal, and **the two fingerprints are EQUAL** — name and class for
+   every binding, values never read.
+
+7. **Reject any identity or binding mismatch.** A reused snapshot, a retained
+   older Worker, a candidate missing any binding, carrying any extra binding,
+   or whose fingerprint differs by a single name or class is REJECTED here, at
+   0%, and the release STOPS. Surviving secrets do not prove the plain-text
+   variables survived; see §2a. Only when step 6 reports both
+   `workerVersionIdentityOk: true` and `BINDINGS_PRESERVED` does preview
+   acceptance begin.
+
+8. **Verify the candidate on its own version preview URL.** The preview URL
    (`<version-prefix>-<worker-name>.<subdomain>.workers.dev`) exercises that
    specific version, including its own asset set. Confirm the version-prefix in
-   that URL belongs to the candidate UUID recorded in step 2.
-4. **Validate the full transitive route-chunk graph** on the candidate: crawl the
+   that URL belongs to the candidate UUID recorded in step 4. **Any 5xx on a
+   public route is a stop** — a candidate that returns 500 is never cut over.
+9. **Validate the full transitive route-chunk graph** on the candidate: crawl the
    documents, collect every `/assets/*` reference transitively, and require
    HTTP 200 for all of them. A single 404 here is a stop.
-5. **Validate stale VERSION_A → VERSION_B recovery locally** with the two-version
-   harness (`scripts/studio/stale-asset-harness/`): baseline, one automatic
-   reload, no loop when the new version is still broken, no reload for ordinary
-   errors, and no mutation resubmission.
-6. **Enable and verify Workers Logs.** `observability.enabled` is `true` with
-   `head_sampling_rate: 1` in `wrangler.jsonc`; confirm it survived into
-   `.output/server/wrangler.json` and that logs appear for the candidate. The
-   sampling rate is a PERMANENT setting, not a temporary elevation — see §7.
-7. **Obtain an explicit, short Owner Studio hold.** Required for the first
-   bootstrap release — see §4. The Owner is told the window and told to take no
-   Studio action during it.
-8. **The Owner closes or refreshes the existing Studio tab and performs no
-   action.** No upload, no publication, no Retry, no member change, no password
-   change.
-9. **Atomic cutover.** Move from old 100% / new 0% to old 0% / new 100% in ONE
-   `wrangler versions deploy` invocation. No intermediate percentage. Run
-   `--dry-run` first and confirm the exact source and target **Worker version
-   UUIDs** — the target must be the candidate UUID recorded in step 2, and the
-   source must be the previous UUID recorded in step 2.
-   9a. **Watch the asset-404 rate for the first minutes after cutover.**
-   Cloudflare's own gradual-rollout guidance names an increased 404 rate on
-   asset files as the signal that clients are requesting assets the active
-   version does not have. It is the one cheap server-side signal that would
-   have surfaced the PR #134 incident, and it is checked here, on the Worker's
-   analytics, before the acceptance gate. A rising asset-404 rate is a
-   rollback trigger, not a curiosity.
+10. **Validate stale VERSION_A → VERSION_B recovery locally** with the two-version
+    harness (`scripts/studio/stale-asset-harness/`): baseline, one automatic
+    reload, no loop when the new version is still broken, no reload for ordinary
+    errors, and no mutation resubmission.
+11. **Enable and verify Workers Logs.** `observability.enabled` is `true` with
+    `head_sampling_rate: 1` in `wrangler.jsonc`; confirm it survived into
+    `.output/server/wrangler.json` and that logs appear for the candidate. The
+    sampling rate is a PERMANENT setting, not a temporary elevation — see §7.
+12. **Obtain an explicit, short Owner Studio hold.** Required for the first
+    bootstrap release — see §4. The Owner is told the window and told to take no
+    Studio action during it.
+13. **The Owner closes or refreshes the existing Studio tab and performs no
+    action.** No upload, no publication, no Retry, no member change, no password
+    change.
+14. **Atomic cutover.** Move from old 100% / new 0% to old 0% / new 100% in ONE
+    `wrangler versions deploy` invocation. No intermediate percentage. Run
+    `--dry-run` first and confirm the exact source and target **Worker version
+    UUIDs** — the target must be the candidate UUID recorded in step 4, and the
+    source must be the previous UUID recorded in step 4.
+    14a. **Watch the asset-404 rate for the first minutes after cutover.**
+    Cloudflare's own gradual-rollout guidance names an increased 404 rate on
+    asset files as the signal that clients are requesting assets the active
+    version does not have. It is the one cheap server-side signal that would
+    have surfaced the PR #134 incident, and it is checked here, on the Worker's
+    analytics, before the acceptance gate. A rising asset-404 rate is a
+    rollback trigger, not a curiosity.
 
-10. **Verify public routes.** The full public probe set: `/`, `/projects`,
+15. **Verify public routes.** The full public probe set: `/`, `/projects`,
     `/sitemap.xml`, `/robots.txt`, the deleted-legacy-route 404 contract and the
     `/media/*` generic 404 contract. Zero 5xx.
-11. **Verify the deployed WORKER VERSION, by UUID.** `wrangler deployments list`
-    must show the candidate Worker version UUID recorded in step 2 holding 100%
+16. **Verify the deployed WORKER VERSION, by UUID.** `wrangler deployments list`
+    must show the candidate Worker version UUID recorded in step 4 holding 100%
     of traffic. **This is the release gate.** It is the only step that proves
     which Worker is deployed, and no client-side value can stand in for it.
-    11a. **Verify the full current asset graph** on the live origin, transitively,
+    16a. **Verify the full current asset graph** on the live origin, transitively,
     including the authenticated Studio chunk graph reachable from `/studio`.
     Also confirm `/forever-client-assets.json` reports the `CLIENT_ASSET_ID`
     this candidate was built with. **This checks client asset compatibility, not
     the release.** For a server-only release it will report the SAME value as
     before the cutover, and that is the expected, correct answer — it is
-    therefore never treated as evidence that the cutover happened. Step 11 is.
-12. **The Owner opens Studio fresh and confirms the authenticated dashboard
+    therefore never treated as evidence that the cutover happened. Step 16 is.
+17. **The Owner opens Studio fresh and confirms the authenticated dashboard
     renders.** This is the acceptance gate. Asset-level checks cannot replace it.
-13. **Roll back immediately if the authenticated check fails.** Reallocate
-    traffic to the previous Worker version UUID recorded in step 2 at 100% — an
+18. **Roll back immediately if the authenticated check fails.** Reallocate
+    traffic to the previous Worker version UUID recorded in step 4 at 100% — an
     existing immutable version, no rebuild, no new version. Verify public routes
     and the asset graph again afterwards.
 
 **Do not begin Coralina repair or any Retry in the release task.** Both require
 their own Owner authorization and their own task.
+
+---
+
+## 2a. `--keep-vars`, AND WHY SURVIVING SECRETS PROVE NOTHING
+
+Corrected by `FOREVER-WRANGLER-KEEP-VARS-CORRECTION-001` after a candidate
+uploaded from exact merged main lost two production bindings.
+
+### What happened
+
+Candidate `ae4cae19` was built from exact merged main `bbf698d2`, self-verified,
+and passed every local gate. Cloudflare returned it carrying **10 bindings where
+the live Worker `fb4bf6d7` carried 12**. The two missing were the
+deployment-managed plain-text variables:
+
+- `SUPABASE_URL`
+- `STUDIO_STORAGE_WRITE_PROVIDER`
+
+Its preview returned **HTTP 500** on `/` and `/projects`:
+`Missing Supabase environment variable(s): SUPABASE_URL`.
+
+**This was a safe pre-cutover finding, not a production incident.** The
+candidate was held at 0%, the preview check caught it before any Owner hold was
+requested, production traffic never moved, the live Worker stayed at 100%, and
+Coralina remained contained. The 0%-candidate discipline in §2 is what turned a
+site-wide outage into a rejected artefact.
+
+### Why Wrangler removed them
+
+Cloudflare documents `--keep-vars` identically for `versions upload` and
+`deploy`:
+
+> When not used (or set to false), Wrangler will delete all vars before setting
+> those found in the Wrangler configuration. When used (and set to true), the
+> environment variables are not deleted before the deployment. If you set
+> variables via the dashboard you probably want to use this flag. Note that
+> secrets are never deleted by deployments.
+
+**The default is `false`.** `wrangler.jsonc` declares no `vars` block — so the
+effective instruction was "delete all vars, then apply the none I declared".
+
+`wrangler.jsonc`'s own schema states the same: "If you change your vars in the
+dashboard, wrangler _will_ override/delete them on its next deploy."
+
+### Two halves, both required
+
+§3 has always forbidden a `vars` block, because declaring one would **replace**
+the deployment-managed values. That is correct and it was never sufficient:
+
+| Failure mode                       | What prevents it        |
+| ---------------------------------- | ----------------------- |
+| repository **overwrites** the vars | declaring **no** `vars` |
+| Wrangler **deletes** the vars      | **`keep_vars: true`**   |
+
+The earlier runbook had the first and read as though it had both. Forever now
+carries **both, plus the explicit flag** — three independent defences:
+
+1. `wrangler.jsonc` sets `keep_vars: true`, which Nitro propagates into
+   `.output/server/wrangler.json`;
+2. the production upload is a **structured argument vector**, not a shell
+   string, and `--keep-vars` is verified as an exact token — see §2b;
+3. the fail-closed preflight (`npm run release:verify-bindings`) refuses a
+   candidate whose binding fingerprint is not EQUAL to the live Worker's, on
+   snapshots captured **mechanically** from Cloudflare rather than written by
+   hand.
+
+---
+
+## 2b. THE UPLOAD IS A STRUCTURED COMMAND, AND A SUBSTRING IS NOT PROOF
+
+Added by `FOREVER-PR138-MERGE-BLOCKER-CORRECTION-002` after an independent
+review of the correction above returned **CHANGES_REQUIRED**.
+
+The first correction pinned the upload as text and validated it by asking
+whether the text contained `--keep-vars`. An independent review executed
+fourteen adversarial commands against that check. **Ten commands that DELETE
+deployment-managed variables were accepted**, including:
+
+| Accepted, and does not preserve          | Why it passed a substring test |
+| ---------------------------------------- | ------------------------------ |
+| `--keep-vars=false`                      | contains `--keep-vars`         |
+| `--keep-vars false`                      | contains `--keep-vars`         |
+| `--no-keep-vars`, `--keep-vars-disabled` | contains `--keep-vars`         |
+| a trailing `# --keep-vars` comment       | contains `--keep-vars`         |
+| a decoy argument carrying the substring  | contains `--keep-vars`         |
+| text after a `--` terminator             | contains `--keep-vars`         |
+| `echo '--keep-vars'`                     | contains `--keep-vars`         |
+| `wrangler deploy …`                      | contains `--keep-vars`         |
+| a wrong or missing `--config`            | never checked at all           |
+
+Cloudflare's own wording — _"When not used (**or set to false**)"_ — makes
+`--keep-vars=false` precisely the deleting invocation that produced `ae4cae19`.
+Editing this runbook to it left every assertion green.
+
+**So there is no command string any more.** The upload is one canonical
+specification, held as data in
+`src/lib/stale-asset/worker-variable-preservation.ts`:
+
+```
+PRODUCTION_VERSION_UPLOAD_SPEC = {
+  executable: "wrangler",
+  args: ["versions", "upload", "--keep-vars", "--config", ".output/server/wrangler.json"],
+}
+```
+
+- the command printed in §2 step 4 is **derived from** that specification, so
+  documentation and execution cannot drift apart;
+- `npm run release:upload-version` is the only thing that spawns Wrangler, and
+  it spawns exactly those arguments with **`shell: false`** — nothing is
+  concatenated, quoted, split or word-expanded, so there is no text for a shell
+  to reinterpret;
+- every argument is compared token by token; anything that is not the canonical
+  vector is refused with a NAMED reason;
+- the wrapper resolves Wrangler explicitly and requires the **exact supported
+  version**. It never falls back to a PATH lookup, so a release is never
+  performed by whichever Wrangler happens to be installed;
+- the wrapper runs the pre-upload preflight FIRST and refuses to spawn Wrangler
+  unless it produced `PREUPLOAD_CONTRACT_OK`.
+
+**Never hand-write a binding snapshot.** The preflight's inputs are produced by
+`npm run release:capture-bindings`, which reads
+`result.resources.bindings` from Cloudflare's documented version-detail
+endpoint and writes only `{ name, type }`. Cloudflare returns `plain_text` as
+`{ name, text, type }` and `text` is the production value, so the raw response
+is never written, never logged and never quoted in an error. An unrecognised
+binding type is a STOP, never an omission. A snapshot transcribed by hand
+records what the operator expected and makes the comparison confirm itself —
+which is the same false assurance §2a exists to remove.
+
+The deployment plane remains the **source of truth** for both values. The
+repository never carries them, never names them in a `vars` block, and never
+moves `SUPABASE_URL` into a client-visible variable.
+
+### Surviving secrets are NOT evidence
+
+**Secrets are never deleted, with or without the flag.** A candidate can show
+all six secret bindings intact while every plain-text variable has been removed
+— which is exactly what `ae4cae19` looked like. Any check that reasons "the
+secrets are still there, so the environment survived" is measuring the one thing
+that could not have failed.
+
+Therefore, before preview acceptance:
+
+- **the candidate's binding fingerprint must EQUAL the live Worker's** — name
+  and class for every binding, values never read;
+- **a candidate carrying fewer bindings than the live Worker is REJECTED**, even
+  though it holds 0% of traffic and harms nothing where it sits;
+- **never cut over a candidate that returns 500, or that lacks either
+  `SUPABASE_URL` or `STUDIO_STORAGE_WRITE_PROVIDER`** — no percentage, no
+  "verify it after", no exceptions.
+
+A rejected candidate is left at 0%. It is not deleted, and it is not modified;
+it is evidence.
 
 ---
 
@@ -228,12 +476,14 @@ their own Owner authorization and their own task.
 - No migration applied or reverted as part of a cutover.
 - No `retryable` change, no Coralina row repair, no Retry, no re-upload.
 - No credential rotation, no R2 or Supabase Storage mutation.
-- No binding removed. The deployed Worker carries twelve bindings; four are
-  declared by this repository (`ASSETS`, `R2_PRIVATE_SOURCES`, `R2_PUBLIC_MEDIA`,
-  `R2_PROJECT_ARCHIVES`) and the rest are deployment-plane secrets plus
-  `STUDIO_STORAGE_WRITE_PROVIDER`. `wrangler.jsonc` declares **no** `vars` block
-  on purpose: declaring one would replace the deployment-set provider variable
-  and silently break R2 job creation.
+- No binding removed. The deployed Worker carries twelve bindings: four declared
+  by this repository (`ASSETS`, `R2_PRIVATE_SOURCES`, `R2_PUBLIC_MEDIA`,
+  `R2_PROJECT_ARCHIVES`), two deployment-managed plain-text variables
+  (`SUPABASE_URL`, `STUDIO_STORAGE_WRITE_PROVIDER`) and six deployment-managed
+  secrets. `wrangler.jsonc` declares **no** `vars` block on purpose — declaring
+  one would replace the deployment-set values — **and** sets `keep_vars: true`,
+  without which Wrangler deletes those undeclared variables before applying the
+  configuration. Both are required; see §2a for the candidate that proved it.
 
 ---
 
@@ -251,7 +501,7 @@ Therefore:
 - **This first hotfix deployment cannot protect a tab that is already open on the
   old build.** It will behave exactly as the PR #134 release did for such a tab.
 - The first release therefore requires **one explicit Owner tab refresh or
-  closure hold** (steps 7–8), or a separately approved compatibility bridge.
+  closure hold** (steps 12–13), or a separately approved compatibility bridge.
 - This limitation is not hidden, not worked around, and not softened.
 
 **After** this hotfix is successfully deployed, a client running this recovery
@@ -288,7 +538,7 @@ upload, no new version, no rebuild.
 3. **Every current-version Studio tab is closed or refreshed as directed**, and
    the Owner confirms it.
 4. **The rollback target is verified BY WORKER VERSION UUID**: it is the exact
-   immutable previous Worker version UUID recorded in step 2 of §2, it is an
+   immutable previous Worker version UUID recorded in step 4 of §2, it is an
    existing version in `wrangler versions list`, and it is **not** the invalid
    pre-R2 Worker `9919f28c`.
 
@@ -366,7 +616,7 @@ exists to make safe. Trading a real risk for a logging saving is a poor bargain.
 **Honest limit, restated:** Workers Logs record Worker INVOCATIONS. A 404 for a
 missing static asset is answered by the asset handler without raising a Worker
 exception, so Workers Logs cannot, on their own, prove a browser-only
-dynamic-import failure. Step 9a's asset-404 rate on Worker analytics is the
+dynamic-import failure. Step 14a's asset-404 rate on Worker analytics is the
 signal that covers that gap.
 
 ---

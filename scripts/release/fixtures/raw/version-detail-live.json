@@ -1,0 +1,81 @@
+{
+  "errors": [],
+  "messages": [],
+  "success": true,
+  "result": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "number": 1,
+    "metadata": {
+      "author_email": "",
+      "author_id": "",
+      "created_on": "",
+      "modified_on": "",
+      "source": "api"
+    },
+    "resources": {
+      "bindings": [
+        {
+          "name": "ASSETS",
+          "type": "assets"
+        },
+        {
+          "bucket_name": "forever-fixture-bucket",
+          "name": "R2_PRIVATE_SOURCES",
+          "type": "r2_bucket"
+        },
+        {
+          "bucket_name": "forever-fixture-bucket",
+          "name": "R2_PUBLIC_MEDIA",
+          "type": "r2_bucket"
+        },
+        {
+          "bucket_name": "forever-fixture-bucket",
+          "name": "R2_PROJECT_ARCHIVES",
+          "type": "r2_bucket"
+        },
+        {
+          "name": "SUPABASE_URL",
+          "text": "",
+          "type": "plain_text"
+        },
+        {
+          "name": "STUDIO_STORAGE_WRITE_PROVIDER",
+          "text": "",
+          "type": "plain_text"
+        },
+        {
+          "name": "R2_ACCESS_KEY_ID",
+          "text": "",
+          "type": "secret_text"
+        },
+        {
+          "name": "R2_ACCOUNT_ID",
+          "text": "",
+          "type": "secret_text"
+        },
+        {
+          "name": "R2_SECRET_ACCESS_KEY",
+          "text": "",
+          "type": "secret_text"
+        },
+        {
+          "name": "STUDIO_OWNER_USER_ID",
+          "text": "",
+          "type": "secret_text"
+        },
+        {
+          "name": "SUPABASE_PUBLISHABLE_KEY",
+          "text": "",
+          "type": "secret_text"
+        },
+        {
+          "name": "SUPABASE_SERVICE_ROLE_KEY",
+          "text": "",
+          "type": "secret_text"
+        }
+      ],
+      "script": {},
+      "script_runtime": {}
+    }
+  }
+}

@@ -1,0 +1,2 @@
+{"type":"wrangler-session","version":1,"command_line_args":["versions","upload"],"log_file_path":"CANARY_RAW_WRANGLER_OUTPUT_MUST_NOT_PERSIST"}
+{"type":"version-upload","version":1,"version_id":"22222222-2222-4222-8222-222222222222","preview_urls":["https://synthetic-version.example.invalid"]}
