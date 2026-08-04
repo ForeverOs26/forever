@@ -38,7 +38,8 @@
     "build:determinism": "node scripts/build/measure-output-determinism.mjs",
     "studio:stale-asset-harness": "node scripts/studio/stale-asset-harness/build-versions.mjs && node scripts/studio/stale-asset-harness/run-browser-scenarios.mjs",
     "studio:stale-asset-harness:run": "node scripts/studio/stale-asset-harness/run-browser-scenarios.mjs",
-    "studio:stale-asset-focused": "node scripts/studio/run-focused-stale-asset-suite.mjs"
+    "studio:stale-asset-focused": "node scripts/studio/run-focused-stale-asset-suite.mjs",
+    "release:verify-bindings": "node scripts/release/verify-binding-preservation.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

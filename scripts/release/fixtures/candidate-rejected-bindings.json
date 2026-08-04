@@ -1,0 +1,15 @@
+{
+  "_note": "FOREVER-WRANGLER-KEEP-VARS-CORRECTION-001 fixture. The SHAPE of the rejected candidate: 10 bindings, all six secrets intact, both deployment-managed plain-text variables gone. Names and classes only.",
+  "bindings": [
+    { "name": "ASSETS", "type": "assets" },
+    { "name": "R2_PRIVATE_SOURCES", "type": "r2_bucket" },
+    { "name": "R2_PUBLIC_MEDIA", "type": "r2_bucket" },
+    { "name": "R2_PROJECT_ARCHIVES", "type": "r2_bucket" },
+    { "name": "R2_ACCESS_KEY_ID", "type": "secret_text" },
+    { "name": "R2_ACCOUNT_ID", "type": "secret_text" },
+    { "name": "R2_SECRET_ACCESS_KEY", "type": "secret_text" },
+    { "name": "STUDIO_OWNER_USER_ID", "type": "secret_text" },
+    { "name": "SUPABASE_PUBLISHABLE_KEY", "type": "secret_text" },
+    { "name": "SUPABASE_SERVICE_ROLE_KEY", "type": "secret_text" }
+  ]
+}
