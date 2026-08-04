@@ -38,6 +38,7 @@ export const FOCUSED_SUITE = [
   "src/lib/stale-asset/acceptance-reporting.test.ts",
   "src/lib/stale-asset/client-asset-identity.test.ts",
   "src/lib/stale-asset/global-capture.test.ts",
+  "src/lib/stale-asset/release-binding-preflight.test.ts",
   "src/lib/stale-asset/release-identity-separation.test.ts",
   "src/lib/stale-asset/release-runbook-contract.test.ts",
   "src/lib/stale-asset/root-boundary.test.tsx",
@@ -46,6 +47,7 @@ export const FOCUSED_SUITE = [
   "src/lib/stale-asset/studio-write-contract.test.ts",
   "src/lib/stale-asset/tanstack-reload-ownership.test.ts",
   "src/lib/stale-asset/worker-config-contract.test.ts",
+  "src/lib/stale-asset/worker-variable-preservation.test.ts",
   "src/lib/stale-asset/write-safety.test.ts",
 ];
 
