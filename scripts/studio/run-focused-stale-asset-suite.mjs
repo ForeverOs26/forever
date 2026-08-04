@@ -46,7 +46,9 @@ export const FOCUSED_SUITE = [
   "src/lib/stale-asset/stale-asset-recovery.test.ts",
   "src/lib/stale-asset/studio-write-contract.test.ts",
   "src/lib/stale-asset/tanstack-reload-ownership.test.ts",
+  "src/lib/stale-asset/worker-binding-capture.test.ts",
   "src/lib/stale-asset/worker-config-contract.test.ts",
+  "src/lib/stale-asset/worker-upload-command.test.ts",
   "src/lib/stale-asset/worker-variable-preservation.test.ts",
   "src/lib/stale-asset/write-safety.test.ts",
 ];

@@ -524,3 +524,100 @@ describe("the runbook preserves deployment-managed Worker variables", () => {
     expect(runbook).not.toMatch(/https:\/\/[a-z0-9]{20}\.supabase\.co/);
   });
 });
+
+/**
+ * FOREVER-PR138-MERGE-BLOCKER-CORRECTION-002.
+ *
+ * The independent review of the correction above returned CHANGES_REQUIRED on
+ * two counts the runbook is responsible for: it told the operator to trust a
+ * substring test, and it named a preflight whose input no tool produced. Both
+ * are documentation failures as much as code failures, so the corrected
+ * sequence is pinned here.
+ */
+describe("the runbook prescribes the MECHANICAL release sequence", () => {
+  it("captures the live binding snapshot with a tool, before any upload", () => {
+    expect(runbookFlat).toContain("Capture the LIVE Worker's binding snapshot, mechanically");
+    expect(runbook).toContain("npm run release:capture-bindings");
+    expect(runbookFlat).toContain(
+      "GET /accounts/{account_id}/workers/scripts/{script_name}/versions/{version_id}",
+    );
+    expect(runbook).toContain("result.resources.bindings");
+  });
+
+  it("never tells an operator to hand-write binding JSON", () => {
+    expect(runbookFlat).toContain("Do not hand-write this file");
+    expect(runbookFlat).toContain("Never hand-write a binding snapshot");
+  });
+
+  it("uploads through the structured wrapper, not a typed shell command", () => {
+    expect(runbook).toContain("npm run release:upload-version");
+    expect(runbookFlat).toContain("through the structured wrapper");
+    expect(runbookFlat).toContain("with **no shell**");
+  });
+
+  it("captures the candidate snapshot and only then runs the exact preflight", () => {
+    const sequence = runbook.slice(runbook.indexOf("## 2. The release sequence"));
+    const capture = sequence.indexOf("Capture the CANDIDATE's binding snapshot");
+    const verify = sequence.indexOf("Run the strict EXACT-fingerprint preflight");
+    const reject = sequence.indexOf("Reject any mismatch");
+    const preview = sequence.indexOf("Verify the candidate on its own version preview URL");
+    for (const index of [capture, verify, reject, preview]) expect(index).toBeGreaterThan(-1);
+    expect(verify).toBeGreaterThan(capture);
+    expect(reject).toBeGreaterThan(verify);
+    expect(preview).toBeGreaterThan(reject);
+  });
+
+  it("requires the two fingerprints to be EQUAL as a pass condition", () => {
+    expect(runbookFlat).toContain("**the two fingerprints are EQUAL**");
+    expect(runbookFlat).toContain("no name is duplicated");
+    expect(runbookFlat).toContain("no binding was added");
+  });
+
+  it("states that a substring test is NOT proof, and lists what it accepted", () => {
+    expect(runbookFlat).toContain("A substring test is not proof");
+    expect(runbook).toContain("--keep-vars=false");
+    expect(runbook).toContain("--no-keep-vars");
+    expect(runbook).toContain("--keep-vars-disabled");
+    expect(runbookFlat).toContain("Ten commands that DELETE");
+    // The discredited check is never presented as evidence.
+    expect(runbook).not.toContain('includes("--keep-vars")');
+  });
+
+  it("publishes the canonical specification as data, and derives the text from it", () => {
+    expect(runbook).toContain("PRODUCTION_VERSION_UPLOAD_SPEC");
+    expect(runbook).toContain(
+      '"versions", "upload", "--keep-vars", "--config", ".output/server/wrangler.json"',
+    );
+    expect(runbookFlat).toContain("derived from** that specification");
+    expect(runbook).toContain("`shell: false`");
+  });
+
+  it("requires the exact supported Wrangler version and forbids a PATH fallback", () => {
+    expect(runbookFlat).toContain("exact supported version");
+    expect(runbookFlat).toContain("never falls back to a PATH lookup");
+  });
+
+  it("refuses to spawn Wrangler before the preflight passed", () => {
+    expect(runbook).toContain("PREUPLOAD_CONTRACT_OK");
+  });
+
+  it("keeps every safety property the earlier corrections established", () => {
+    expect(runbookFlat).toContain("a percentage rollout is PROHIBITED");
+    expect(runbookFlat).toContain("Upload the candidate at 0% traffic");
+    expect(runbookFlat).toContain("Obtain an explicit, short Owner Studio hold");
+    expect(runbookFlat).toContain("Atomic cutover");
+    expect(runbookFlat).toContain("Do not begin Coralina repair or any Retry in the release task");
+  });
+
+  it("renumbers the sequence consistently — no step points at a step that moved", () => {
+    const sequence = runbook.slice(
+      runbook.indexOf("## 2. The release sequence"),
+      runbook.indexOf("## 2a."),
+    );
+    const numbers = [...sequence.matchAll(/^(\d+)\. \*\*/gm)].map((match) => Number(match[1]));
+    expect(numbers).toEqual([...Array(18).keys()].map((index) => index + 1));
+    // The upload is step 4, and every back-reference names step 4.
+    expect(sequence).toContain("4. **Upload the candidate at 0% traffic");
+    expect(runbook).not.toMatch(/UUID recorded in step 2\b/);
+  });
+});

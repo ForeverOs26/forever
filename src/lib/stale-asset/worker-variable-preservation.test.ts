@@ -28,6 +28,7 @@ import {
   KEEP_VARS_CONFIG_KEY,
   KEEP_VARS_FLAG,
   PRODUCTION_VERSION_UPLOAD_COMMAND,
+  PRODUCTION_VERSION_UPLOAD_SPEC,
   REPOSITORY_DECLARED_BINDINGS,
   type BindingDescriptor,
   bindingFingerprint,
@@ -114,40 +115,56 @@ describe("the production upload command carries the flag explicitly", () => {
 });
 
 describe("verifyKeepVarsContract — defence in depth, reported independently", () => {
-  it("accepts a config with keep_vars=true and a command with --keep-vars", () => {
+  it("accepts a config with keep_vars=true and the canonical upload specification", () => {
     const verdict = verifyKeepVarsContract({
       generatedConfig: { keep_vars: true },
-      uploadCommand: PRODUCTION_VERSION_UPLOAD_COMMAND,
+      uploadSpec: PRODUCTION_VERSION_UPLOAD_SPEC,
     });
     expect(verdict.ok).toBe(true);
     expect(verdict.reasons).toEqual([]);
   });
 
-  it("REFUSES a config missing keep_vars even when the command carries the flag", () => {
+  it("REFUSES a config missing keep_vars even when the upload carries the flag", () => {
     const verdict = verifyKeepVarsContract({
       generatedConfig: {},
-      uploadCommand: PRODUCTION_VERSION_UPLOAD_COMMAND,
+      uploadSpec: PRODUCTION_VERSION_UPLOAD_SPEC,
     });
     expect(verdict.ok).toBe(false);
     expect(verdict.reasons.join(" ")).toContain("does not set keep_vars: true");
   });
 
-  it("REFUSES a bare upload command even when the config carries keep_vars", () => {
+  it("REFUSES a bare upload even when the config carries keep_vars", () => {
     const verdict = verifyKeepVarsContract({
       generatedConfig: { keep_vars: true },
-      uploadCommand: "wrangler versions upload --config .output/server/wrangler.json",
+      uploadSpec: {
+        executable: "wrangler",
+        args: ["versions", "upload", "--config", ".output/server/wrangler.json"],
+      },
     });
     expect(verdict.ok).toBe(false);
-    expect(verdict.reasons.join(" ")).toContain("does not pass --keep-vars");
+    expect(verdict.reasons.join(" ")).toContain("keep_vars_missing");
   });
 
   it("REFUSES a vars block, which replaces the values keep_vars preserves", () => {
     const verdict = verifyKeepVarsContract({
       generatedConfig: { keep_vars: true, vars: {} },
-      uploadCommand: PRODUCTION_VERSION_UPLOAD_COMMAND,
+      uploadSpec: PRODUCTION_VERSION_UPLOAD_SPEC,
     });
     expect(verdict.ok).toBe(false);
     expect(verdict.reasons.join(" ")).toContain("declares a vars block");
+  });
+
+  it("REFUSES a shell command STRING — the escape path PR138 review closed", () => {
+    // `includes("--keep-vars")` accepted `--keep-vars=false`, which Cloudflare
+    // documents as the invocation that DELETES every deployment-managed var.
+    // The whole free-text surface is gone; the exhaustive adversarial matrix
+    // lives in worker-upload-command.test.ts.
+    const verdict = verifyKeepVarsContract({
+      generatedConfig: { keep_vars: true },
+      uploadSpec: PRODUCTION_VERSION_UPLOAD_COMMAND,
+    });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.reasons.join(" ")).toContain("spec_malformed");
   });
 });
 
@@ -299,6 +316,76 @@ describe("verifyBindingPreservation — fail-closed", () => {
     expect(verdict.ok).toBe(false);
     const detail = verdict.violations.map((violation) => violation.detail).join(" ");
     expect(detail).toContain("0%");
+  });
+
+  /**
+   * PR138 independent review, P2-2. Duplicate descriptors PASSED, and
+   * fingerprint equality was computed, printed and then excluded from the pass
+   * condition — so the script could print PASS in the same run that recorded
+   * `fingerprintsEqual: false`.
+   */
+  it("STOPS on a duplicate binding name in the CANDIDATE", () => {
+    const candidate = [...LIVE_BINDINGS, { name: "SUPABASE_URL", type: "plain_text" } as const];
+    const verdict = verifyBindingPreservation(LIVE_BINDINGS, candidate);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.violations.map((violation) => violation.code)).toContain("duplicate_binding");
+  });
+
+  it("STOPS on a duplicate binding name in the LIVE snapshot", () => {
+    const live = [...LIVE_BINDINGS, { name: "ASSETS", type: "assets" } as const];
+    const verdict = verifyBindingPreservation(live, LIVE_BINDINGS);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.violations.map((violation) => violation.code)).toContain("duplicate_binding");
+  });
+
+  it("STOPS on a duplicate name carrying a DIFFERENT class", () => {
+    const candidate = [...LIVE_BINDINGS, { name: "SUPABASE_URL", type: "secret_text" } as const];
+    const verdict = verifyBindingPreservation(LIVE_BINDINGS, candidate);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.violations.map((violation) => violation.code)).toContain("duplicate_binding");
+  });
+
+  it("does NOT let a Map silently reconcile a duplicate into agreement", () => {
+    // Eleven distinct bindings wearing a twelve-binding count: keying by name
+    // would have kept the last entry and reported a matching set.
+    const candidate = [...LIVE_BINDINGS.slice(0, 11), LIVE_BINDINGS[0]];
+    expect(candidate).toHaveLength(12);
+    const verdict = verifyBindingPreservation(LIVE_BINDINGS, candidate);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.candidateBindingCount).toBe(verdict.liveBindingCount);
+    expect(verdict.violations.map((violation) => violation.code)).toContain("duplicate_binding");
+  });
+
+  it("STOPS on a binding the live Worker does not have, at EQUAL count", () => {
+    const candidate = [
+      ...LIVE_BINDINGS.filter((binding) => binding.name !== "SUPABASE_URL"),
+      { name: "UNEXPECTED_BINDING", type: "plain_text" } as const,
+    ];
+    expect(candidate).toHaveLength(LIVE_BINDINGS.length);
+    const verdict = verifyBindingPreservation(LIVE_BINDINGS, candidate);
+    expect(verdict.ok).toBe(false);
+    const codes = verdict.violations.map((violation) => violation.code);
+    expect(codes).toContain("binding_added");
+    expect(codes).toContain("plain_text_binding_missing");
+    expect(codes).toContain("fingerprint_mismatch");
+    // The count check alone would have been satisfied. It is not the gate.
+    expect(codes).not.toContain("binding_count_regressed");
+  });
+
+  it("makes fingerprint INEQUALITY a violation in its own right", () => {
+    const candidate = LIVE_BINDINGS.map((binding) =>
+      binding.name === "ASSETS" ? { ...binding, type: "r2_bucket" as const } : binding,
+    );
+    const verdict = verifyBindingPreservation(LIVE_BINDINGS, candidate);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.liveFingerprint).not.toBe(verdict.candidateFingerprint);
+    expect(verdict.violations.map((violation) => violation.code)).toContain("fingerprint_mismatch");
+  });
+
+  it("reports EQUAL fingerprints only when the sets are identical", () => {
+    const verdict = verifyBindingPreservation(LIVE_BINDINGS, [...LIVE_BINDINGS].reverse());
+    expect(verdict.ok).toBe(true);
+    expect(verdict.liveFingerprint).toBe(verdict.candidateFingerprint);
   });
 });
 
