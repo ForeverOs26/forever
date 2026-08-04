@@ -49,6 +49,8 @@ const HARNESS_ENV = {
   // (independent-review P3-3), so the harness must state the explicitly
   // non-production guard. `npm run build` never sets it.
   FOREVER_ALLOW_TEST_BUILD_ID: "1",
+  // Exposes the read-mostly harness seam. Never set by `npm run build`.
+  VITE_FOREVER_STALE_ASSET_HARNESS: "1",
 };
 
 function log(message) {

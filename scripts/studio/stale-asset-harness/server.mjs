@@ -47,6 +47,10 @@ const VERSIONS = {
 
 let active = "a";
 
+/** The identifiers the two versions were built with. */
+const BUILD_ID_A = process.env.FOREVER_HARNESS_BUILD_ID_A ?? "aaaaaaaaaaaa";
+const BUILD_ID_B = process.env.FOREVER_HARNESS_BUILD_ID_B ?? "bbbbbbbbbbbb";
+
 /**
  * Server-side document-request counter.
  *
@@ -65,6 +69,28 @@ const otherRequests = [];
  * version, whose router returns its own 404 document. Nothing is faked.
  */
 let blockedAssetSubstring = null;
+
+/**
+ * How the front origin answers `/forever-build.json`.
+ *
+ *   normal  — forward to the active version (the truth);
+ *   stale   — answer with the PREVIOUS version's identifier, which is what a
+ *             cached or lagging edge does, and which must produce
+ *             `same_build` and therefore NO automatic reload;
+ *   timeout — never answer, so the probe's own deadline decides;
+ *   error   — answer 500, which must produce `active_build_unknown`.
+ */
+let buildEndpointMode = "normal";
+
+/**
+ * How the front origin answers a MISSING asset.
+ *
+ *   normal  — forward to the active version, whose router returns its own 404
+ *             document (the shape the production incident recorded);
+ *   html200 — answer 200 with an HTML document, which some edges do and which
+ *             a dynamic import must still treat as a failure.
+ */
+let assetMode = "normal";
 
 function log(message) {
   process.stdout.write(`[stale-asset-harness] ${message}\n`);
@@ -147,7 +173,31 @@ function proxy(clientRequest, clientResponse) {
   clientRequest.pipe(upstream);
 }
 
+function jsonResponse(clientResponse, status, body) {
+  clientResponse.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+  });
+  clientResponse.end(JSON.stringify(body));
+}
+
 function handleControl(clientRequest, clientResponse, url) {
+  const buildMode = /^\/__harness\/build-endpoint\/(normal|stale|timeout|error)$/.exec(
+    url.pathname,
+  );
+  if (buildMode) {
+    buildEndpointMode = buildMode[1];
+    log(`build endpoint mode set to ${buildEndpointMode}`);
+    jsonResponse(clientResponse, 200, { buildEndpointMode });
+    return true;
+  }
+  const asset = /^\/__harness\/asset-mode\/(normal|html200)$/.exec(url.pathname);
+  if (asset) {
+    assetMode = asset[1];
+    log(`asset mode set to ${assetMode}`);
+    jsonResponse(clientResponse, 200, { assetMode });
+    return true;
+  }
   if (url.pathname === "/__harness/reset-counters") {
     documentRequests.length = 0;
     otherRequests.length = 0;
@@ -161,6 +211,8 @@ function handleControl(clientRequest, clientResponse, url) {
   if (url.pathname === "/__harness/state") {
     const body = JSON.stringify({
       active,
+      buildEndpointMode,
+      assetMode,
       assets: { a: assetNames("a").length, b: assetNames("b").length },
       documentRequests,
       otherRequests,
@@ -206,6 +258,33 @@ async function main() {
     const url = new URL(clientRequest.url ?? "/", `http://127.0.0.1:${FRONT_PORT}`);
     if (url.pathname.startsWith("/__harness/")) {
       if (handleControl(clientRequest, clientResponse, url)) return;
+    }
+
+    // The build probe, under harness control. Nothing here is faked beyond
+    // what a real edge does: a lagging cache, a hung origin, or a 500.
+    if (url.pathname === "/forever-build.json" && buildEndpointMode !== "normal") {
+      if (buildEndpointMode === "timeout") return; // never answer
+      if (buildEndpointMode === "error") {
+        clientResponse.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+        clientResponse.end("harness: build endpoint unavailable");
+        return;
+      }
+      // stale: report the version that is NOT active.
+      const stale = active === "a" ? "b" : "a";
+      jsonResponse(clientResponse, 200, {
+        build: stale === "a" ? BUILD_ID_A : BUILD_ID_B,
+      });
+      return;
+    }
+
+    // An asset answered 200 with a document, which some edges do.
+    if (assetMode === "html200" && url.pathname.startsWith("/assets/")) {
+      clientResponse.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      clientResponse.end("<!doctype html><html><body>harness fallback document</body></html>");
+      return;
     }
     // A document request: not an asset, not the build probe, not the control
     // plane. Recorded as `path@version` so a reload is unmistakable.

@@ -63,7 +63,9 @@ describe("the root boundary keeps three outcomes", () => {
     // this boundary is a bare TypeError carrying no asset evidence, so a
     // message-only test would render the generic screen in every refusal path.
     expect(root).toContain("stateRendersRecoveryScreen(recoveryState)");
-    expect(root).toContain("stateRendersRecoveryScreen(recoveryState) || isConfirmedStaleAssetError");
+    expect(root).toContain(
+      "stateRendersRecoveryScreen(recoveryState) || isConfirmedStaleAssetError",
+    );
   });
 
   it("clears NOTHING generically — success needs an exact-route attestation", () => {

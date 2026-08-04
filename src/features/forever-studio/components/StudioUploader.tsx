@@ -282,30 +282,30 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
         const started = await runStudioWriteAction("upload_start", () =>
           studioStartJob({
             data: {
-            workflow,
-            projectSlug: projectSlug.trim() || undefined,
-            projectFacts: isResale ? undefined : projectFacts,
-            resaleFacts: isResale ? resaleFacts : undefined,
-            // The Owner's chosen window crosses the wire with every file.
-            files: ordinary.map((selection) => ({
-              name: selection.file.name,
-              size: selection.file.size,
-              contentType: selection.file.type || undefined,
-              materialPurpose: selection.purpose,
-            })),
-            // Declared, not created. The archives are planned after this call
-            // on their own endpoint; naming them here is what lets the server
-            // refuse a mixed submission as ONE thing instead of creating the
-            // ordinary job and failing afterwards.
-            ...(largeArchives.length
-              ? {
-                  archives: largeArchives.map((selection) => ({
-                    name: selection.file.name,
-                    size: selection.file.size,
-                    materialPurpose: selection.purpose,
-                  })),
-                }
-              : {}),
+              workflow,
+              projectSlug: projectSlug.trim() || undefined,
+              projectFacts: isResale ? undefined : projectFacts,
+              resaleFacts: isResale ? resaleFacts : undefined,
+              // The Owner's chosen window crosses the wire with every file.
+              files: ordinary.map((selection) => ({
+                name: selection.file.name,
+                size: selection.file.size,
+                contentType: selection.file.type || undefined,
+                materialPurpose: selection.purpose,
+              })),
+              // Declared, not created. The archives are planned after this call
+              // on their own endpoint; naming them here is what lets the server
+              // refuse a mixed submission as ONE thing instead of creating the
+              // ordinary job and failing afterwards.
+              ...(largeArchives.length
+                ? {
+                    archives: largeArchives.map((selection) => ({
+                      name: selection.file.name,
+                      size: selection.file.size,
+                      materialPurpose: selection.purpose,
+                    })),
+                  }
+                : {}),
             },
           }),
         );

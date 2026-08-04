@@ -409,10 +409,7 @@ function parsePending(value: unknown, now: number): StaleAssetPendingRecovery | 
   const candidate = value as Record<string, unknown>;
   if (!hasOnlyKeys(candidate, PENDING_KEYS)) return null;
   if (!isStaleAssetRouteKind(candidate.route)) return null;
-  const attempt = parseAttempt(
-    { from: candidate.from, to: candidate.to, at: candidate.at },
-    now,
-  );
+  const attempt = parseAttempt({ from: candidate.from, to: candidate.to, at: candidate.at }, now);
   if (!attempt) return null;
   return { ...attempt, route: candidate.route };
 }
@@ -633,10 +630,7 @@ export function attestationClearsPending(
     return { accepted: false, refusal: "nested_modules_not_loaded" };
   }
   if (attestation.errorBoundaryActive) return { accepted: false, refusal: "error_boundary_active" };
-  if (
-    routeKindRequiresAuthenticatedStudio(observed) &&
-    !attestation.studioAuthenticatedReady
-  ) {
+  if (routeKindRequiresAuthenticatedStudio(observed) && !attestation.studioAuthenticatedReady) {
     return { accepted: false, refusal: "studio_not_authenticated_ready" };
   }
   if (!attestation.stabilizedWithoutStaleSignal) {

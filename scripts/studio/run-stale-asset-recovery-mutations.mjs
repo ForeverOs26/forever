@@ -2,7 +2,7 @@
 /**
  * FOREVER-STUDIO-STALE-ASSET-RECOVERY-001 — mutation controls.
  *
- * Twenty-one edits to REAL source and REAL documentation, each of which must make
+ * Twenty-eight edits to REAL source and REAL documentation, each of which must make
  * a NAMED assertion fail. A process that could not start, a run that collected
  * no tests, or a failure for some other reason is rejected as evidence rather
  * than counted as a detection — that classification lives in
@@ -42,6 +42,12 @@ const BUILD_ID = resolve(REPO, "scripts/build/forever-build-id.ts");
 const BUILD_ORCHESTRATOR = resolve(REPO, "scripts/build/build-forever.mjs");
 const VITE_CONFIG = resolve(REPO, "vite.config.ts");
 const LAZY_LOADER = resolve(REPO, "scripts/build/forever-lazy-route-component.js");
+const WORKER_CONFIG_TEST_FILE = resolve(REPO, "src/lib/stale-asset/worker-config-contract.test.ts");
+const BROWSER_RUNNER = resolve(
+  REPO,
+  "scripts/studio/stale-asset-harness/run-browser-scenarios.mjs",
+);
+const FOCUSED_RUNNER = resolve(REPO, "scripts/studio/run-focused-stale-asset-suite.mjs");
 
 const CLASSIFIER_TEST = "src/lib/stale-asset/stale-asset-classifier.test.ts";
 const RECOVERY_TEST = "src/lib/stale-asset/stale-asset-recovery.test.ts";
@@ -53,6 +59,7 @@ const RUNBOOK_TEST = "src/lib/stale-asset/release-runbook-contract.test.ts";
 const WRITE_CONTRACT_TEST = "src/lib/stale-asset/studio-write-contract.test.ts";
 const BUILD_IDENTITY_TEST = "src/lib/stale-asset/build-identity.test.ts";
 const TANSTACK_TEST = "src/lib/stale-asset/tanstack-reload-ownership.test.ts";
+const REPORTING_TEST = "src/lib/stale-asset/acceptance-reporting.test.ts";
 
 const ALL_TESTS = [
   CLASSIFIER_TEST,
@@ -65,6 +72,7 @@ const ALL_TESTS = [
   WRITE_CONTRACT_TEST,
   BUILD_IDENTITY_TEST,
   TANSTACK_TEST,
+  REPORTING_TEST,
 ];
 
 const VITEST = resolve(
@@ -88,10 +96,10 @@ const originals = new Map(
     BUILD_ORCHESTRATOR,
     VITE_CONFIG,
     LAZY_LOADER,
-  ].map((file) => [
-    file,
-    readFileSync(file),
-  ]),
+    WORKER_CONFIG_TEST_FILE,
+    BROWSER_RUNNER,
+    FOCUSED_RUNNER,
+  ].map((file) => [file, readFileSync(file)]),
 );
 
 function test(files) {
@@ -177,7 +185,7 @@ const mutations = [
     name: "non-Studio navigation clears the attempted-transition history",
     file: RECOVERY_CONTRACT,
     from:
-      "  if (!pending) return { accepted: false, refusal: \"no_pending_recovery\" };\n" +
+      '  if (!pending) return { accepted: false, refusal: "no_pending_recovery" };\n' +
       "  if (attestation.buildId !== pending.to) {",
     to:
       "  if (!pending) return { accepted: true };\n" +
@@ -192,8 +200,7 @@ const mutations = [
   {
     name: "outcome B falls through to the generic boundary",
     file: ROOT_ROUTE,
-    from:
-      "  const staleAsset = stateRendersRecoveryScreen(recoveryState) || isConfirmedStaleAssetError(error);",
+    from: "  const staleAsset = stateRendersRecoveryScreen(recoveryState) || isConfirmedStaleAssetError(error);",
     to: "  const staleAsset = isConfirmedStaleAssetError(error);",
     tests: [BOUNDARY_TEST],
     reason:
@@ -357,6 +364,69 @@ const mutations = [
     to: "",
     tests: [CONFIG_TEST],
     reason: /keeps all three R2 bucket bindings, bound to the production buckets/,
+  },
+  /**
+   * ADVERSARIAL CONTROL 10 (independent-review P2-2) — the generated-Worker
+   * contract goes back to skipping when the config is absent, which is exactly
+   * how six assertions stopped running while the suite reported green.
+   */
+  {
+    name: "generated Worker test skips when the config is absent",
+    file: WORKER_CONFIG_TEST_FILE,
+    from: '  it("retains the cron trigger", () => {',
+    to: '  it.skip("retains the cron trigger", () => {',
+    tests: [REPORTING_TEST],
+    reason: /the focused suite contains no conditional .it\.skip. or .maybe. gate/,
+  },
+  /**
+   * ADVERSARIAL CONTROL 11 (independent-review P2-3) — the browser harness
+   * treats a missing driver as a skip instead of a failure.
+   */
+  {
+    name: "browser harness tolerates a missing driver",
+    file: BROWSER_RUNNER,
+    from: '        "This is a FAILURE, not a skip — the browser proof cannot be reported as passing "',
+    to: '        "skipping the browser proof "',
+    tests: [REPORTING_TEST],
+    reason: /a MISSING BROWSER DRIVER is a failure, never a skip/,
+  },
+  /**
+   * ADVERSARIAL CONTROL 14 (independent-review P2-6) — skipped tests are added
+   * to passed tests, which is the specific inaccuracy that concealed P2-2.
+   */
+  {
+    name: "skipped tests counted as passed",
+    file: FOCUSED_RUNNER,
+    from: "  if (counts.passed !== counts.total) {",
+    to: "  if (counts.passed + counts.skipped !== counts.total) {",
+    tests: [REPORTING_TEST],
+    reason: /NEVER adds skipped tests to passed tests/,
+  },
+  /**
+   * ADVERSARIAL CONTROL 12 (independent-review P2-5) — the rollback hold is
+   * removed, so a rollback can land on a tab mid-mutation.
+   */
+  {
+    name: "rollback hold removed",
+    file: RUNBOOK,
+    from:
+      "1. **The Owner is told to stop and take no Studio action.** Explicitly, before\n" +
+      "   anything moves. Same wording as the forward hold.\n",
+    to: "1. **Proceed.** No Owner hold is required for a rollback.\n",
+    tests: [RUNBOOK_TEST],
+    reason: /instructs the Owner not to interact before the rollback/,
+  },
+  /**
+   * ADVERSARIAL CONTROL 13 (independent-review P2-4) — the observability
+   * lifecycle decision is removed, leaving the sampling rate undefined again.
+   */
+  {
+    name: "observability lifecycle removed",
+    file: RUNBOOK,
+    from: "- **Owner of the decision:** the release Owner.\n",
+    to: "",
+    tests: [RUNBOOK_TEST],
+    reason: /names an owner, a volume bound and a trigger to revisit/,
   },
   {
     name: "runbook restores 5% → 25% → 100% without version affinity",

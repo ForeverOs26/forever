@@ -35,7 +35,10 @@
     "test:watch": "vitest",
     "format": "prettier --write .",
     "studio:mutation-selftest": "node scripts/studio/run-mutation-runner-selftest.mjs",
-    "build:determinism": "node scripts/build/measure-output-determinism.mjs"
+    "build:determinism": "node scripts/build/measure-output-determinism.mjs",
+    "studio:stale-asset-harness": "node scripts/studio/stale-asset-harness/build-versions.mjs && node scripts/studio/stale-asset-harness/run-browser-scenarios.mjs",
+    "studio:stale-asset-harness:run": "node scripts/studio/stale-asset-harness/run-browser-scenarios.mjs",
+    "studio:stale-asset-focused": "node scripts/studio/run-focused-stale-asset-suite.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -111,6 +114,7 @@
     "globals": "^15.15.0",
     "jsdom": "^25.0.1",
     "nitro": "3.0.260603-beta",
+    "playwright": "^1.62.1",
     "prettier": "^3.7.3",
     "supabase": "^2.109.1",
     "typescript": "^5.8.3",

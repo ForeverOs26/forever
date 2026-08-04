@@ -46,7 +46,16 @@
 
 import type { StaleAssetSignal } from "./stale-asset-contract";
 import { classifyStaleAssetError, verdictIsStale } from "./stale-asset-contract";
-import { handleStaleAssetSignal } from "./stale-asset-recovery";
+import {
+  currentRecoveryLedger,
+  getStaleAssetRecoveryState,
+  handleStaleAssetSignal,
+} from "./stale-asset-recovery";
+import {
+  beginConsequentialAction,
+  hasUnprovenConsequentialAction,
+  type StaleAssetConsequentialAction,
+} from "./write-safety";
 
 type PreloadErrorEvent = Event & { payload?: unknown };
 
@@ -125,10 +134,43 @@ export function installStaleAssetCapture(): void {
     // error boundary, which stays authoritative for everything non-stale.
   };
 
+  installHarnessSeam();
+
   window.addEventListener("vite:preloadError", onPreloadError);
   // Capture phase: resource load errors do not bubble.
   window.addEventListener("error", onWindowError, true);
   window.addEventListener("unhandledrejection", onRejection);
+}
+
+/**
+ * THE TWO-VERSION BROWSER HARNESS SEAM — never present in production.
+ *
+ * The committed browser proof (independent-review P2-3) has to drive real
+ * scenarios that a signed-out page cannot reach on its own: a write whose
+ * response was lost, and this engine's own dynamic-import wording. Faking those
+ * in the harness would prove nothing about the real modules, so the harness
+ * BUILD — and only the harness build — exposes a read-mostly seam onto them.
+ *
+ * The guard is a `VITE_*` value the production build never sets, so the whole
+ * block is statically eliminated: `worker-config-contract.test.ts` scans the
+ * real production client bundle and fails if `__foreverStaleAssetHarness`
+ * appears in it.
+ *
+ * The seam exposes no credential, no token, no route data and no error text —
+ * only the closed-vocabulary classifier verdict, the recovery state, the
+ * bounded ledger, and the write registry the harness needs to arm a scenario.
+ */
+function installHarnessSeam(): void {
+  if (import.meta.env?.VITE_FOREVER_STALE_ASSET_HARNESS !== "1") return;
+  (window as unknown as Record<string, unknown>).__foreverStaleAssetHarness = {
+    classify: (signal: StaleAssetSignal) =>
+      classifyStaleAssetError(signal, { origin: window.location.origin }),
+    state: () => getStaleAssetRecoveryState(),
+    ledger: () => currentRecoveryLedger(Date.now()),
+    hasUnprovenWrite: () => hasUnprovenConsequentialAction(),
+    beginConsequentialAction: (action: StaleAssetConsequentialAction) =>
+      beginConsequentialAction(action),
+  };
 }
 
 export function uninstallStaleAssetCapture(): void {

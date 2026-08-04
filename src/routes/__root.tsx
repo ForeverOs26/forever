@@ -13,10 +13,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { StaleAssetRecoveryScreen } from "../lib/stale-asset/StaleAssetRecoveryScreen";
 import { classifyStaleAssetError, verdictIsStale } from "../lib/stale-asset/stale-asset-contract";
-import {
-  routeLoadEvidence,
-  type RouterStateLike,
-} from "../lib/stale-asset/route-load-evidence";
+import { routeLoadEvidence, type RouterStateLike } from "../lib/stale-asset/route-load-evidence";
 import {
   attestStaleAssetRecovery,
   getStaleAssetRecoveryState,

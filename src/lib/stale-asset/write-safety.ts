@@ -127,9 +127,7 @@ export function beginConsequentialAction(action: StaleAssetConsequentialAction):
  * correct, because a manual reload is the visitor's decision and resubmits
  * nothing.
  */
-export function markConsequentialActionUnreconciled(
-  action: StaleAssetConsequentialAction,
-): void {
+export function markConsequentialActionUnreconciled(action: StaleAssetConsequentialAction): void {
   unreconciled.set(action, (unreconciled.get(action) ?? 0) + 1);
 }
 

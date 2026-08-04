@@ -97,7 +97,9 @@ function main() {
   const metadata = compare(first, second, (name) => name === "nitro.json");
 
   log(`client runtime graph : ${client.total} files, ${client.differing.length} differing`);
-  log(`generated Worker cfg : ${workerConfig.total} files, ${workerConfig.differing.length} differing`);
+  log(
+    `generated Worker cfg : ${workerConfig.total} files, ${workerConfig.differing.length} differing`,
+  );
   log(`server JavaScript    : ${serverJs.total} files, ${serverJs.differing.length} differing`);
   log(`build metadata       : ${metadata.total} files, ${metadata.differing.length} differing`);
   for (const name of serverJs.differing) log(`  server differs: ${name}`);

@@ -119,7 +119,8 @@ export const STUDIO_WRITE_CONTRACT: readonly StudioWriteContractEntry[] = [
     registration: "runStudioWriteAction in StudioProjectEditor.save",
     dispatch: "StudioProjectEditor.save mutationFn",
     release: "the same call's terminal path",
-    lostResponse: "the precedence-aware save is last-writer-wins per field; the refetch shows truth",
+    lostResponse:
+      "the precedence-aware save is last-writer-wins per field; the refetch shows truth",
     recoveredPage: "nothing re-saves; unsaved form state is simply gone, as it is on any reload",
   },
   {

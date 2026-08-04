@@ -7,8 +7,9 @@
  * "cannot prove a version change" has to mean "do not reload".
  */
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve, sep } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -248,10 +249,6 @@ describe("the probe fails closed", () => {
 // ---------------------------------------------------------------------------
 
 describe("the output digest covers the whole emitted runtime graph", () => {
-  const { mkdirSync, rmSync, writeFileSync } = require("node:fs") as typeof import("node:fs");
-  const { join } = require("node:path") as typeof import("node:path");
-  const { tmpdir } = require("node:os") as typeof import("node:os");
-
   let seq = 0;
   function emit(files: Record<string, string>): string {
     seq += 1;
@@ -259,7 +256,7 @@ describe("the output digest covers the whole emitted runtime graph", () => {
     rmSync(root, { recursive: true, force: true });
     for (const [path, contents] of Object.entries(files)) {
       const full = join(root, path);
-      mkdirSync(full.slice(0, full.lastIndexOf(require("node:path").sep)), { recursive: true });
+      mkdirSync(full.slice(0, full.lastIndexOf(sep)), { recursive: true });
       writeFileSync(full, contents, "utf8");
     }
     return root;
@@ -269,7 +266,7 @@ describe("the output digest covers the whole emitted runtime graph", () => {
   const BASE: Record<string, string> = {
     "nitro.json": '{"date":"2026-08-04T00:00:00.000Z"}',
     "public/assets/index-AAAAAAAA.js": 'console.log("entry");',
-    "public/assets/StudioDashboard-BBBBBBBB.js": 'export const dash = 1;',
+    "public/assets/StudioDashboard-BBBBBBBB.js": "export const dash = 1;",
     "public/assets/styles-CCCCCCCC.css": "body{color:red}",
     "public/favicon.ico": "icon-bytes",
     "public/_headers": "/*\n  X-Frame-Options: DENY",
@@ -366,8 +363,9 @@ describe("the output digest covers the whole emitted runtime graph", () => {
   });
 
   it("the generated Worker headers file contributes", () => {
-    expect(digestOf({ ...BASE, "public/_headers": "/*\n  X-Frame-Options: SAMEORIGIN" }).digest)
-      .not.toBe(digestOf(BASE).digest);
+    expect(
+      digestOf({ ...BASE, "public/_headers": "/*\n  X-Frame-Options: SAMEORIGIN" }).digest,
+    ).not.toBe(digestOf(BASE).digest);
   });
 
   it("the build DATE metadata cannot change the identity", () => {
