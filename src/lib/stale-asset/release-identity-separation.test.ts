@@ -163,9 +163,10 @@ describe("release provenance records all eight facts together", () => {
 
   it("REFUSES a candidate Worker version equal to the previous one", () => {
     // A server-only release that was never uploaded looks exactly like this.
-    expect(
-      verifyReleaseProvenance(provenance({ candidateWorkerVersionId: PREVIOUS })),
-    ).toEqual({ accepted: false, refusal: "candidate_worker_version_not_new" });
+    expect(verifyReleaseProvenance(provenance({ candidateWorkerVersionId: PREVIOUS }))).toEqual({
+      accepted: false,
+      refusal: "candidate_worker_version_not_new",
+    });
   });
 
   it("REFUSES a client asset identity standing in for a Worker version", () => {
@@ -178,12 +179,14 @@ describe("release provenance records all eight facts together", () => {
   });
 
   it("REFUSES anything that is not a Worker version UUID in either slot", () => {
-    expect(
-      verifyReleaseProvenance(provenance({ candidateWorkerVersionId: "3f1b8c2e" })),
-    ).toEqual({ accepted: false, refusal: "candidate_worker_version_not_a_uuid" });
-    expect(
-      verifyReleaseProvenance(provenance({ previousWorkerVersionId: "previous" })),
-    ).toEqual({ accepted: false, refusal: "previous_worker_version_not_a_uuid" });
+    expect(verifyReleaseProvenance(provenance({ candidateWorkerVersionId: "3f1b8c2e" }))).toEqual({
+      accepted: false,
+      refusal: "candidate_worker_version_not_a_uuid",
+    });
+    expect(verifyReleaseProvenance(provenance({ previousWorkerVersionId: "previous" }))).toEqual({
+      accepted: false,
+      refusal: "previous_worker_version_not_a_uuid",
+    });
   });
 
   it("ACCEPTS a server-only release: identical client assets, different Worker", () => {
@@ -249,9 +252,9 @@ describe("a rollback target is a retained Worker version UUID and nothing else",
 
   it("REFUSES the known invalid pre-R2 Worker", () => {
     const preR2 = `${INVALID_PRE_R2_WORKER_VERSION_PREFIX}-1111-4111-8111-111111111111`;
-    expect(
-      verifyRollbackTarget({ target: preR2, retainedPreviousWorkerVersionId: preR2 }),
-    ).toEqual({ accepted: false, refusal: "target_is_the_known_invalid_pre_r2_worker" });
+    expect(verifyRollbackTarget({ target: preR2, retainedPreviousWorkerVersionId: preR2 })).toEqual(
+      { accepted: false, refusal: "target_is_the_known_invalid_pre_r2_worker" },
+    );
   });
 
   it("REFUSES anything that is not a UUID at all", () => {

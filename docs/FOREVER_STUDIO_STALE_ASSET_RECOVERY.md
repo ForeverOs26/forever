@@ -463,3 +463,47 @@ A later, separately authorized task may obtain true version affinity through a
 custom domain plus a Transform Rule, or through an approved upstream router.
 Until then, the release sequence in
 `docs/FOREVER_PRODUCTION_RELEASE_RUNBOOK.md` is the protection.
+
+---
+
+## 8. Current verification evidence, and what supersedes what
+
+This section exists because a verification claim that is stale is worse than no
+claim at all. Two independent reviews and two corrections have run against this
+work, and each round replaced the previous numbers. **Only the values below are
+current.** Everything from the original implementation report — including
+`149 passed`, `9/9 browser scenarios`, `14/14 mutation controls`,
+`24 failed / 5114 passed` and any head SHA before this one — is
+**SUPERSEDED BY INDEPENDENT REVIEW AND CORRECTION** and must not be repeated as
+present-tense evidence anywhere.
+
+| Evidence                      | Current value                                                                        |
+| ----------------------------- | ------------------------------------------------------------------------------------ |
+| Focused stale-asset suite     | reported separately as passed / failed / skipped / not-run, with zero skips required |
+| Committed browser scenarios   | 21, executed in Chromium and in real WebKit                                          |
+| Browser document status       | HTTP 200 with a real application bootstrap, asserted as a precondition               |
+| Adversarial mutation controls | 37                                                                                   |
+| Release identity              | `CLIENT_ASSET_ID` and the immutable Worker version UUID, separated                   |
+
+The machine-produced counts live in `.forever-build/focused-suite-counts.json`
+and `.stale-asset-harness/browser-<engine>-results.json`; those files are the
+authority for the exact numbers of any given run, and this table states the
+shape rather than restating figures that can drift.
+
+### Process disclosure — the protected tree
+
+Recorded permanently, because a scope statement known to be false is worse than
+a disclosed exception. An earlier correction session published
+`` `C:\forever` never accessed ``, and that statement was **false as written**.
+The accurate wording, which replaces it everywhere:
+
+- process rule violated in the prior correction session: **YES**;
+- one directory listing occurred;
+- one filename was returned;
+- no file was opened, read, copied, modified or used as a Git source;
+- source contamination demonstrated: **NO**;
+- the final correction session did not access the protected tree.
+
+The independent re-review examined this directly and recommended recording the
+violation, not failing the technical review for it, and correcting the published
+claim before the PR is marked Ready. That is what this section does.

@@ -45,6 +45,24 @@
  * The five outcomes the harness now distinguishes by name are in
  * `FAILURE_KINDS` below.
  *
+ * ---------------------------------------------------------------------------
+ * ONE MEASURED ENGINE DIFFERENCE, STATED RATHER THAN AVERAGED AWAY
+ * ---------------------------------------------------------------------------
+ *
+ * A refusal decided on the FIRST confirmed stale failure — an unproven write,
+ * a denied route, storage unavailable, an unreadable client-assets endpoint, an
+ * already-spent transition — renders the recovery screen identically in
+ * Chromium and in WebKit, and the scenarios assert exactly that.
+ *
+ * A refusal that would depend on a SECOND failure AFTER the automatic reload
+ * does not. Measured: with the /studio route chunk blocked, the Chromium
+ * recovered page re-requests it and fails again, while the WebKit recovered
+ * page does not re-request it at all, so no second failure occurs and no screen
+ * is required. Scenario 3 therefore asserts what is engine-independent and
+ * load-bearing — a real 404, exactly one reload, no loop however long it waits,
+ * and one spent ledger entry — and does not claim a screen the evidence does
+ * not support in both engines.
+ *
  * WHAT MAKES IT REAL, and not an imitation:
  *   - two REAL production builds of this repository, with genuinely different
  *     content-hashed chunks (the `StudioDashboard` chunk above all);
@@ -116,6 +134,19 @@ const FAILURE_KINDS = {
 /** The stale-asset recovery screen, identified by its committed test id. */
 const RECOVERY_SCREEN = '[data-testid="stale-asset-recovery-screen"]';
 const GENERIC_SCREEN_TEXT = "This page didn't load";
+
+/**
+ * The chunk blocked to construct "the new version is still broken for this
+ * client".
+ *
+ * It is the /studio ROUTE chunk, not a component chunk deeper inside it: a
+ * component chunk is only fetched once the route decides to render it, and the
+ * two engines differ on when that happens. The route chunk is required by both
+ * before /studio can render at all, so the FIRST failure is deterministic in
+ * each. What happens on the recovered page afterwards is not — see the engine
+ * note in the header.
+ */
+const BLOCKED_ROUTE_CHUNK = "studio.index";
 
 // ---------------------------------------------------------------------------
 // Preconditions — every one of these is a FAILURE, never a skip
@@ -583,27 +614,53 @@ const SCENARIOS = [
   },
   {
     id: 3,
-    name: "B still broken — one reload, then the SPECIFIC screen, and never a loop",
+    name: "B still broken for this client — one reload, and never a loop",
     document: { status: 200, routeId: "/" },
-    errorScenario: { boundary: "stale_asset_recovery_screen" },
+    errorScenario: { boundary: "stale_content_hashed_chunk_then_bounded_refusal" },
     async run(context, assert) {
       await control.fullReset();
-      const page = await loadThenCutOver(context, { to: "b", blockOn: "StudioDashboard" });
-      await page.waitForTimeout(1500);
-      const documents = await documentRequests();
+      const page = await openHealthyHome(context);
+      // Watch the wire, so "a stale chunk really 404'd" is observed rather than
+      // assumed. A scenario that produced no 404 did not reproduce anything.
+      const assetFailures = [];
+      page.on("response", (response) => {
+        if (response.url().includes("/assets/") && response.status() >= 400) {
+          assetFailures.push(response.status());
+        }
+      });
+      await control.activate("b");
+      await control.block(BLOCKED_ROUTE_CHUNK);
+      await control.reset();
+      await clientNavigate(page, "/studio");
+      await page.waitForTimeout(4000);
+
       assert(
-        documents.length === 1,
-        "exactly one automatic reload, and no loop",
-        JSON.stringify(documents),
+        assetFailures.length > 0,
+        "a content-hashed chunk genuinely failed to load",
+        JSON.stringify(assetFailures),
       );
+      const afterFirst = await documentRequests();
       assert(
-        await hasRecoveryScreen(page),
-        "the visitor is left on the SPECIFIC recovery screen",
-        ((await page.textContent("body")) ?? "").slice(0, 120),
+        afterFirst.length === 1,
+        "exactly one automatic reload followed",
+        JSON.stringify(afterFirst),
       );
-      assert(!(await hasGenericScreen(page)), "and never on the generic failure screen");
-      const reload = page.locator('[data-testid="stale-asset-recovery-reload"]');
-      assert((await reload.count()) === 1, "with a manual reload control");
+
+      // Give it far longer than a reload cycle. A loop would show up here.
+      await page.waitForTimeout(4000);
+      const afterWaiting = await documentRequests();
+      assert(
+        afterWaiting.length === 1,
+        "and no further reload EVER — the attempt is spent, not retried",
+        JSON.stringify(afterWaiting),
+      );
+      assert(!(await hasGenericScreen(page)), "the visitor is never shown the generic screen");
+      const ledger = await ledgerOf(page);
+      assert(
+        (ledger?.history ?? []).length === 1,
+        "the ledger holds exactly one spent transition",
+        JSON.stringify(ledger?.history),
+      );
       await page.close();
     },
   },
@@ -700,7 +757,11 @@ const SCENARIOS = [
 
       const ledger = await ledgerOf(page);
       const pairs = (ledger?.history ?? []).map((entry) => `${entry.from}->${entry.to}`);
-      assert(pairs.length === 2, "exactly two attempted transitions are remembered", pairs.join(","));
+      assert(
+        pairs.length === 2,
+        "exactly two attempted transitions are remembered",
+        pairs.join(","),
+      );
       assert(
         new Set(pairs).size === pairs.length,
         "and no transition is recorded twice",
@@ -1102,13 +1163,24 @@ const SCENARIOS = [
         try {
           await control.fullReset();
           const page = await openHealthyHome(sized);
+          // A CONFIRMED stale asset whose automatic reload is REFUSED, which is
+          // the state the recovery screen exists for. The refusal used here is
+          // an unproven consequential write: it is decided on the FIRST failure,
+          // before any reload, so it renders the screen identically in Chromium
+          // and in WebKit. See the engine note in the header — a refusal that
+          // depends on a SECOND failure after a reload does not.
+          await page.evaluate(() => {
+            window.__foreverStaleAssetHarness.beginConsequentialAction("publication");
+          });
           await control.activate("b");
-          // The new version is still broken for this client, which is the state
-          // that genuinely renders the recovery screen after its one attempt.
-          await control.block("StudioDashboard");
+          await control.reset();
           await clientNavigate(page, "/studio");
           await page.waitForSelector(RECOVERY_SCREEN, { timeout: 12_000 }).catch(() => undefined);
           await page.waitForTimeout(500);
+          assert(
+            (await documentRequests()).length === 0,
+            `no automatic reload happened at ${width}px, so the screen is the outcome`,
+          );
           // Positive requirement. "No recovery screen was required" is no
           // longer an accepted outcome (RR2-P2-2): the scenario is ABOUT the
           // recovery screen at mobile widths.
@@ -1126,7 +1198,6 @@ const SCENARIOS = [
           await page.close();
         } finally {
           await sized.close();
-          await control.unblock();
           await control.activate("a");
         }
       }

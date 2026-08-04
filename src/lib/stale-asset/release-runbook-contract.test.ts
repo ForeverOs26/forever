@@ -301,9 +301,7 @@ describe("the runbook keeps client asset identity out of the release gate", () =
   it("makes the deployed Worker version UUID the release gate, not the endpoint", () => {
     expect(runbookFlat).toContain("Verify the deployed WORKER VERSION, by UUID");
     expect(runbookFlat).toContain("This is the release gate");
-    expect(runbookFlat).toContain(
-      "This checks client asset compatibility, not the release",
-    );
+    expect(runbookFlat).toContain("This checks client asset compatibility, not the release");
     expect(runbookFlat).toContain(
       "it will report the SAME value as before the cutover, and that is the expected, correct " +
         "answer",
@@ -391,5 +389,68 @@ describe("the release documents are Prettier-clean", () => {
     // formatting defect in the committed content.
     const source = readFileSync(absolute, "utf8").split("\r\n").join("\n");
     await expect(check(source, { ...options, filepath: absolute })).resolves.toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RR2-P2-1 / RR2-P2-3 — the published evidence and the published scope
+// statement are both current and both true
+// ---------------------------------------------------------------------------
+
+describe("no superseded verification figure is presented as current", () => {
+  /**
+   * The PR body carried the original implementation's table — `149 passed`,
+   * `9/9`, `14/14`, `5114`, `4965` and a stale head SHA — unmarked, about 220
+   * lines above the corrected one, so the document asserted both sets of
+   * numbers as its own verification. The incident history is kept; the numbers
+   * are labelled.
+   */
+  const OBSOLETE = ["149 passed", "9/9 scenarios", "14/14 detected", "5114", "4965", "f7f53e2"];
+
+  it("labels the superseded evidence rather than deleting the history", () => {
+    expect(contract).toContain("SUPERSEDED BY INDEPENDENT REVIEW AND CORRECTION");
+    expect(contractFlat).toContain("Only the values below are current");
+  });
+
+  it("repeats no obsolete figure as present-tense evidence", () => {
+    // They may appear once, inside the sentence that declares them superseded.
+    const superseded = contract.slice(
+      contract.indexOf("SUPERSEDED BY INDEPENDENT REVIEW AND CORRECTION") - 600,
+      contract.indexOf("SUPERSEDED BY INDEPENDENT REVIEW AND CORRECTION") + 200,
+    );
+    for (const figure of OBSOLETE) {
+      const occurrences = contract.split(figure).length - 1;
+      expect(occurrences, `${figure} appears ${occurrences} time(s)`).toBeLessThanOrEqual(1);
+      if (occurrences === 1) expect(superseded, figure).toContain(figure);
+    }
+  });
+
+  it("points at the machine-produced counts as the authority", () => {
+    expect(contract).toContain(".forever-build/focused-suite-counts.json");
+    expect(contract).toContain("browser-<engine>-results.json");
+  });
+});
+
+describe("the protected-tree disclosure is accurate and preserved", () => {
+  it("never publishes the false absolute claim", () => {
+    // RR2-P2-3. The claim was false as written for the prior session.
+    expect(contract).not.toContain("`C:\forever` never accessed");
+    expect(contract).not.toContain("never accessed in any way");
+    expect(contract).not.toContain("untouched in every sense");
+  });
+
+  it("states the violation, the exact extent, and the absence of contamination", () => {
+    expect(contractFlat).toContain(
+      "process rule violated in the prior correction session: **YES**",
+    );
+    expect(contractFlat).toContain("one directory listing occurred");
+    expect(contractFlat).toContain("one filename was returned");
+    expect(contractFlat).toContain(
+      "no file was opened, read, copied, modified or used as a Git source",
+    );
+    expect(contractFlat).toContain("source contamination demonstrated: **NO**");
+    expect(contractFlat).toContain(
+      "the final correction session did not access the protected tree",
+    );
   });
 });

@@ -35,8 +35,10 @@ const REPORT = resolve(REPO_ROOT, ".forever-build/focused-suite.json");
 
 /** The focused stale-asset acceptance suite, enumerated. */
 export const FOCUSED_SUITE = [
+  "src/lib/stale-asset/acceptance-reporting.test.ts",
   "src/lib/stale-asset/client-asset-identity.test.ts",
   "src/lib/stale-asset/global-capture.test.ts",
+  "src/lib/stale-asset/release-identity-separation.test.ts",
   "src/lib/stale-asset/release-runbook-contract.test.ts",
   "src/lib/stale-asset/root-boundary.test.tsx",
   "src/lib/stale-asset/stale-asset-classifier.test.ts",

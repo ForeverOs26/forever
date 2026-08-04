@@ -2,7 +2,7 @@
 /**
  * FOREVER-STUDIO-STALE-ASSET-RECOVERY-001 — mutation controls.
  *
- * Twenty-eight edits to REAL source and REAL documentation, each of which must make
+ * Thirty-seven edits to REAL source and REAL documentation, each of which must make
  * a NAMED assertion fail. A process that could not start, a run that collected
  * no tests, or a failure for some other reason is rejected as evidence rather
  * than counted as a detection — that classification lives in
@@ -48,6 +48,8 @@ const BROWSER_RUNNER = resolve(
   "scripts/studio/stale-asset-harness/run-browser-scenarios.mjs",
 );
 const FOCUSED_RUNNER = resolve(REPO, "scripts/studio/run-focused-stale-asset-suite.mjs");
+const WORKER_RELEASE = resolve(REPO, "src/lib/stale-asset/worker-release-identity.ts");
+const CONTRACT_DOC = resolve(REPO, "docs/FOREVER_STUDIO_STALE_ASSET_RECOVERY.md");
 
 const CLASSIFIER_TEST = "src/lib/stale-asset/stale-asset-classifier.test.ts";
 const RECOVERY_TEST = "src/lib/stale-asset/stale-asset-recovery.test.ts";
@@ -60,6 +62,7 @@ const WRITE_CONTRACT_TEST = "src/lib/stale-asset/studio-write-contract.test.ts";
 const BUILD_IDENTITY_TEST = "src/lib/stale-asset/client-asset-identity.test.ts";
 const TANSTACK_TEST = "src/lib/stale-asset/tanstack-reload-ownership.test.ts";
 const REPORTING_TEST = "src/lib/stale-asset/acceptance-reporting.test.ts";
+const SEPARATION_TEST = "src/lib/stale-asset/release-identity-separation.test.ts";
 
 const ALL_TESTS = [
   CLASSIFIER_TEST,
@@ -73,6 +76,7 @@ const ALL_TESTS = [
   BUILD_IDENTITY_TEST,
   TANSTACK_TEST,
   REPORTING_TEST,
+  SEPARATION_TEST,
 ];
 
 const VITEST = resolve(
@@ -99,6 +103,8 @@ const originals = new Map(
     WORKER_CONFIG_TEST_FILE,
     BROWSER_RUNNER,
     FOCUSED_RUNNER,
+    WORKER_RELEASE,
+    CONTRACT_DOC,
   ].map((file) => [file, readFileSync(file)]),
 );
 
@@ -448,6 +454,171 @@ const mutations = [
     to: "7. **Proceed.** No Owner hold is required.",
     tests: [RUNBOOK_TEST],
     reason: /keeps the full corrected sequence, in order/,
+  },
+
+  // -------------------------------------------------------------------------
+  // NARROW-RE-REVIEW CONTROLS (RR2-P1-1, RR2-P2-1/2/3, RR2-P3-4/5)
+  //
+  // Each one restores, as closely as an edit can, the exact defect the
+  // re-review measured. If any of these survives, the correction it belongs to
+  // is not enforced by anything.
+  // -------------------------------------------------------------------------
+
+  /**
+   * RR2 CONTROL 1 — the runbook spends the CLIENT asset identity as the Worker
+   * release gate. This is the measured defect verbatim: for a server-only
+   * release the endpoint reports the same value before and after, so the step
+   * cannot distinguish the deployment it exists to verify.
+   */
+  {
+    name: "runbook uses CLIENT_ASSET_ID as the Worker release identity",
+    file: RUNBOOK,
+    from:
+      "11. **Verify the deployed WORKER VERSION, by UUID.** `wrangler deployments list`\n" +
+      "    must show the candidate Worker version UUID recorded in step 2 holding 100%\n" +
+      "    of traffic. **This is the release gate.** It is the only step that proves\n" +
+      "    which Worker is deployed, and no client-side value can stand in for it.",
+    to:
+      "11. **Verify the release.** Confirm `/forever-client-assets.json` reports the new\n" +
+      "    build id. **This is the release gate.**",
+    tests: [RUNBOOK_TEST],
+    reason: /makes the deployed Worker version UUID the release gate, not the endpoint/,
+  },
+
+  /**
+   * RR2 CONTROL 2 — a server-only release recorded with no NEW Worker version.
+   * The candidate equals the previous version, which means no upload happened,
+   * which is exactly the release the client identity cannot see.
+   */
+  {
+    name: "server-only release accepted without a new Worker version UUID",
+    file: WORKER_RELEASE,
+    from:
+      "  if (candidate === previous) {\n" +
+      '    return { accepted: false, refusal: "candidate_worker_version_not_new" };\n' +
+      "  }",
+    to: "  void previous;",
+    tests: [SEPARATION_TEST],
+    reason: /REFUSES a candidate Worker version equal to the previous one/,
+  },
+
+  /**
+   * RR2 CONTROL 3 — the rollback target chosen by client identity. For a
+   * server-only release the previous and current client identities are equal,
+   * so this does not identify a version at all.
+   */
+  {
+    name: "rollback target selected by client asset identity",
+    file: WORKER_RELEASE,
+    from:
+      "  if (input.clientAssetId && target === input.clientAssetId) {\n" +
+      '    return { accepted: false, refusal: "target_is_a_client_asset_id" };\n' +
+      "  }",
+    to: "  if (input.clientAssetId && target === input.clientAssetId) return { accepted: true };",
+    tests: [SEPARATION_TEST],
+    reason: /REFUSES a client asset identity as the rollback target/,
+  },
+
+  /**
+   * RR2 CONTROL 4 — the harness accepts whatever document it is given. This is
+   * the state in which every scenario ran against an HTTP 500 page.
+   */
+  {
+    name: "browser harness accepts a document with an unexpected status",
+    file: BROWSER_RUNNER,
+    from:
+      "  if (status !== expected.status) {\n" +
+      "    await page.close();\n" +
+      "    throw new ScenarioFailure(\n" +
+      "      `document ${path} returned HTTP ${status}, expected ${expected.status}`,\n" +
+      "      FAILURE_KINDS.DOCUMENT,\n" +
+      "    );\n" +
+      "  }",
+    to: "  void status;",
+    tests: [REPORTING_TEST],
+    reason: /makes EVERY scenario declare the document status it requires/,
+  },
+
+  /**
+   * RR2 CONTROL 5 — scenarios reported as passing without the real application
+   * ever bootstrapping. The precondition is what makes a pass mean anything.
+   */
+  {
+    name: "browser harness runs scenarios without an application bootstrap",
+    file: BROWSER_RUNNER,
+    from:
+      '    if (boot.appMarker !== "mounted") {\n' +
+      "      throw new BootstrapFailure(\n" +
+      '        "the real application bootstrap marker never appeared — the root component of the real " +\n' +
+      '          "route tree did not execute in this browser",\n' +
+      "        evidence,\n" +
+      "      );\n" +
+      "    }",
+    to: "    void boot;",
+    tests: [REPORTING_TEST],
+    reason: /REQUIRES a healthy application document before any scenario runs/,
+  },
+
+  /**
+   * RR2 CONTROL 6 — the superseded verification table restored as current
+   * evidence in the committed contract document.
+   */
+  {
+    name: "obsolete test counts restored as current evidence",
+    file: CONTRACT_DOC,
+    from: "| Committed browser scenarios",
+    to: "| Committed browser scenarios | 9/9 scenarios pass, 149 passed, 14/14 detected |\n| (restored obsolete row)",
+    tests: [RUNBOOK_TEST],
+    reason: /repeats no obsolete figure as present-tense evidence/,
+  },
+
+  /**
+   * RR2 CONTROL 7 — the false absolute scope claim restored.
+   */
+  {
+    name: "false protected-tree claim restored",
+    file: CONTRACT_DOC,
+    from: "- process rule violated in the prior correction session: **YES**;",
+    to: "- `C:\\forever` never accessed;",
+    tests: [RUNBOOK_TEST],
+    reason: /states the violation, the exact extent, and the absence of contamination/,
+  },
+
+  /**
+   * RR2 CONTROL 8 — a clear reported before stabilization has completed.
+   */
+  {
+    name: "cleared reported before stabilization completes",
+    file: RECOVERY,
+    from:
+      "  const settled = readRecoveryLedger((options.now ?? Date.now)(), options.storage);\n" +
+      '  const stillPending = settled.status === "ok" && settled.ledger.pending !== null;\n' +
+      "  return {\n" +
+      "    accepted: true,\n" +
+      '    outcome: stillPending ? "scheduled" : "cleared",\n' +
+      "    historyRetained: ledger.history.length,\n" +
+      "  };",
+    to:
+      "  return {\n" +
+      "    accepted: true,\n" +
+      '    outcome: "cleared",\n' +
+      "    historyRetained: ledger.history.length,\n" +
+      "  };",
+    tests: [RECOVERY_TEST],
+    reason: /reports SCHEDULED, not cleared, while the stabilization window is running/,
+  },
+
+  /**
+   * RR2 CONTROL 9 — the byte cap put back where the declared maximum history
+   * is unreachable, so the documented bound is not the effective one.
+   */
+  {
+    name: "MAX_HISTORY made unreachable under the byte cap again",
+    file: RECOVERY_CONTRACT,
+    from: "export const STALE_ASSET_RECOVERY_MAX_SERIALIZED_BYTES = 1024;",
+    to: "export const STALE_ASSET_RECOVERY_MAX_SERIALIZED_BYTES = 512;",
+    tests: [RECOVERY_TEST],
+    reason: /a FULL history at production identifier length fits inside the byte cap/,
   },
 ];
 

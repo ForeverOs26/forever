@@ -93,9 +93,9 @@ describe("the identifier is bounded", () => {
 
 describe("resolution is fail-closed and never reuses an identity", () => {
   it("returns the derived identity the orchestrator feeds back in", () => {
-    expect(resolveForeverClientAssetId({ [FOREVER_CLIENT_ASSET_ID_DERIVED_ENV]: "0123456789abcdef" })).toBe(
-      "0123456789abcdef",
-    );
+    expect(
+      resolveForeverClientAssetId({ [FOREVER_CLIENT_ASSET_ID_DERIVED_ENV]: "0123456789abcdef" }),
+    ).toBe("0123456789abcdef");
   });
 
   it("refuses a derived value that is not bounded", () => {
@@ -223,11 +223,17 @@ describe("the probe fails closed", () => {
   });
 
   it.each([
-    ["a non-OK status", async () => jsonResponse({ clientAssetId: "bbbbbbbbbbbb" }, { status: 500 })],
+    [
+      "a non-OK status",
+      async () => jsonResponse({ clientAssetId: "bbbbbbbbbbbb" }, { status: 500 }),
+    ],
     ["an HTML page", async () => new Response("<!doctype html><html></html>", { status: 200 })],
     ["a malformed body", async () => new Response("{", { status: 200 })],
     ["a missing field", async () => jsonResponse({})],
-    ["an unbounded identifier", async () => jsonResponse({ clientAssetId: "not a client asset id" })],
+    [
+      "an unbounded identifier",
+      async () => jsonResponse({ clientAssetId: "not a client asset id" }),
+    ],
     ["a non-string identifier", async () => jsonResponse({ clientAssetId: 42 })],
     ["an array payload", async () => jsonResponse(["bbbbbbbbbbbb"])],
     ["a null payload", async () => jsonResponse(null)],
@@ -281,8 +287,10 @@ describe("the output digest covers the whole emitted runtime graph", () => {
     "server/wrangler.json": '{"name":"forever"}',
   };
 
-  const digestOf = (files: Record<string, string>, identity = FOREVER_CLIENT_ASSET_ID_PLACEHOLDER) =>
-    digestEmittedClientAssets(emit(files), identity);
+  const digestOf = (
+    files: Record<string, string>,
+    identity = FOREVER_CLIENT_ASSET_ID_PLACEHOLDER,
+  ) => digestEmittedClientAssets(emit(files), identity);
 
   it("hashes something at all — an empty digest would prove nothing", () => {
     const result = digestOf(BASE);
@@ -443,7 +451,9 @@ describe("the derived identity is bounded and 128 bits", () => {
   });
 
   it("different digests give different identities", () => {
-    expect(deriveForeverClientAssetId("a".repeat(64))).not.toBe(deriveForeverClientAssetId("b".repeat(64)));
+    expect(deriveForeverClientAssetId("a".repeat(64))).not.toBe(
+      deriveForeverClientAssetId("b".repeat(64)),
+    );
   });
 });
 
@@ -472,7 +482,9 @@ describe("the identity is wired into the build", () => {
   it("vite.config.ts defines the constant for client and server output", () => {
     const config = read("vite.config.ts");
     expect(config).toContain("resolveForeverClientAssetId");
-    expect(config).toContain("__FOREVER_CLIENT_ASSET_ID__: JSON.stringify(FOREVER_CLIENT_ASSET_ID)");
+    expect(config).toContain(
+      "__FOREVER_CLIENT_ASSET_ID__: JSON.stringify(FOREVER_CLIENT_ASSET_ID)",
+    );
   });
 
   it("the capture layer is installed by a call the bundler cannot drop", () => {

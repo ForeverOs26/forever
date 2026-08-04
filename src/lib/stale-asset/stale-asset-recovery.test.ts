@@ -546,7 +546,12 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
   it("the recovery screen's own 'Go to site' does NOT clear anything", async () => {
     const storage = await withPending(memoryStorage());
     const result = attestStaleAssetRecovery(
-      { ...fullEvidence, pathname: "/", clientAssetId: "bbbbbbbbbbbb", studioAuthenticatedReady: false },
+      {
+        ...fullEvidence,
+        pathname: "/",
+        clientAssetId: "bbbbbbbbbbbb",
+        studioAuthenticatedReady: false,
+      },
       { now: () => NOW + 10, storage, schedule: runNow },
     );
     expect(result.accepted).toBe(false);
@@ -558,7 +563,12 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
   it("and the same transition is still refused afterwards", async () => {
     const storage = await withPending(memoryStorage());
     attestStaleAssetRecovery(
-      { ...fullEvidence, pathname: "/", clientAssetId: "bbbbbbbbbbbb", studioAuthenticatedReady: false },
+      {
+        ...fullEvidence,
+        pathname: "/",
+        clientAssetId: "bbbbbbbbbbbb",
+        studioAuthenticatedReady: false,
+      },
       { now: () => NOW + 10, storage, schedule: runNow },
     );
     const env = environment({ storage, now: () => NOW + 20 });
@@ -587,13 +597,21 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
       { ...fullEvidence, pathname: "/studio", clientAssetId: "aaaaaaaaaaaa" },
       { now: () => NOW + 10, storage, schedule: runNow },
     );
-    expect(result).toMatchObject({ accepted: false, refusal: "client_assets_are_not_the_recovery_target" });
+    expect(result).toMatchObject({
+      accepted: false,
+      refusal: "client_assets_are_not_the_recovery_target",
+    });
   });
 
   it("a leaf that did not load proves nothing", async () => {
     const storage = await withPending(memoryStorage());
     const result = attestStaleAssetRecovery(
-      { ...fullEvidence, leafRouteLoaded: false, pathname: "/studio", clientAssetId: "bbbbbbbbbbbb" },
+      {
+        ...fullEvidence,
+        leafRouteLoaded: false,
+        pathname: "/studio",
+        clientAssetId: "bbbbbbbbbbbb",
+      },
       { now: () => NOW + 10, storage, schedule: runNow },
     );
     expect(result).toMatchObject({ accepted: false, refusal: "leaf_route_not_loaded" });
@@ -602,7 +620,12 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
   it("a nested module that did not load proves nothing", async () => {
     const storage = await withPending(memoryStorage());
     const result = attestStaleAssetRecovery(
-      { ...fullEvidence, nestedModulesLoaded: false, pathname: "/studio", clientAssetId: "bbbbbbbbbbbb" },
+      {
+        ...fullEvidence,
+        nestedModulesLoaded: false,
+        pathname: "/studio",
+        clientAssetId: "bbbbbbbbbbbb",
+      },
       { now: () => NOW + 10, storage, schedule: runNow },
     );
     expect(result).toMatchObject({ accepted: false, refusal: "nested_modules_not_loaded" });
@@ -611,7 +634,12 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
   it("an error boundary mounting proves nothing", async () => {
     const storage = await withPending(memoryStorage());
     const result = attestStaleAssetRecovery(
-      { ...fullEvidence, errorBoundaryActive: true, pathname: "/studio", clientAssetId: "bbbbbbbbbbbb" },
+      {
+        ...fullEvidence,
+        errorBoundaryActive: true,
+        pathname: "/studio",
+        clientAssetId: "bbbbbbbbbbbb",
+      },
       { now: () => NOW + 10, storage, schedule: runNow },
     );
     expect(result).toMatchObject({ accepted: false, refusal: "error_boundary_active" });
@@ -624,7 +652,74 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
       { now: () => NOW + 10, storage, schedule: runNow },
     );
     expect(result.accepted).toBe(true);
+    // Reported as CLEARED only because the injected scheduler already ran the
+    // stabilization callback (RR2-P3-5).
+    expect(result.outcome).toBe("cleared");
     expect(ledgerOf(storage).pending).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // RR2-P3-5 — `scheduled` and `cleared` are different answers, and the
+  // difference is TIMING, not intent
+  // -------------------------------------------------------------------------
+
+  it("reports SCHEDULED, not cleared, while the stabilization window is running", async () => {
+    const storage = await withPending(memoryStorage());
+    let scheduled: (() => void) | null = null;
+    let scheduledMs = -1;
+    const result = attestStaleAssetRecovery(
+      { ...fullEvidence, pathname: "/studio", clientAssetId: "bbbbbbbbbbbb" },
+      {
+        now: () => NOW + 10,
+        storage,
+        schedule: (run, ms) => {
+          scheduled = run;
+          scheduledMs = ms;
+        },
+      },
+    );
+    // The evidence was accepted, and NOTHING has been cleared yet.
+    expect(result.accepted).toBe(true);
+    expect(result.outcome).toBe("scheduled");
+    expect(ledgerOf(storage).pending).not.toBeNull();
+    expect(scheduledMs).toBe(STALE_ASSET_RECOVERY_STABILIZATION_MS);
+
+    // Only when the window elapses quietly does the clear actually happen.
+    scheduled!();
+    expect(ledgerOf(storage).pending).toBeNull();
+  });
+
+  it("a scheduled clear that never stabilizes never becomes a clear", async () => {
+    const storage = await withPending(memoryStorage());
+    let scheduled: (() => void) | null = null;
+    const result = attestStaleAssetRecovery(
+      { ...fullEvidence, pathname: "/studio", clientAssetId: "bbbbbbbbbbbb" },
+      {
+        now: () => NOW + 10,
+        storage,
+        schedule: (run) => {
+          scheduled = run;
+        },
+      },
+    );
+    expect(result.outcome).toBe("scheduled");
+    // Another confirmed stale signal arrives inside the window.
+    await handleStaleAssetSignal(staleSignal, environment({ storage, now: () => NOW + 11 }));
+    scheduled!();
+    expect(ledgerOf(storage).pending).not.toBeNull();
+  });
+
+  it("every reported outcome is inside the closed vocabulary, and never a bare boolean", () => {
+    const storage = memoryStorage();
+    const refused = attestStaleAssetRecovery(
+      { ...fullEvidence, pathname: "/studio", clientAssetId: "bbbbbbbbbbbb" },
+      { now: () => NOW, storage, schedule: runNow },
+    );
+    expect(STALE_ASSET_ATTESTATION_OUTCOMES).toContain(refused.outcome);
+    expect(refused.outcome).toBe("refused");
+    // The old boolean is gone: nothing may report a clear as a bare `true`.
+    expect("cleared" in refused).toBe(false);
+    expect([...STALE_ASSET_ATTESTATION_OUTCOMES]).toEqual(["refused", "scheduled", "cleared"]);
   });
 
   it("but the attempted-transition HISTORY survives success", async () => {
@@ -781,10 +876,8 @@ describe("ledger validation is strict and refuses anything unexpected", () => {
     expect(parseStaleAssetRecoveryLedger("not json", NOW).status).toBe("malformed");
     expect(parseStaleAssetRecoveryLedger("[]", NOW).status).toBe("malformed");
     expect(
-      parseStaleAssetRecoveryLedger(
-        "x".repeat(STALE_ASSET_RECOVERY_MAX_SERIALIZED_BYTES + 1),
-        NOW,
-      ).status,
+      parseStaleAssetRecoveryLedger("x".repeat(STALE_ASSET_RECOVERY_MAX_SERIALIZED_BYTES + 1), NOW)
+        .status,
     ).toBe("malformed");
   });
 
@@ -988,12 +1081,14 @@ describe("P2-1 — a confirmed stale failure never falls through to the generic 
       ["storage_unavailable", async () => (await drive(environment({ storage: null }))).outcome],
       [
         "active_client_assets_unknown",
-        async () => (await drive(environment({ readActiveClientAssetId: async () => null }))).outcome,
+        async () =>
+          (await drive(environment({ readActiveClientAssetId: async () => null }))).outcome,
       ],
       [
         "same_client_assets",
         async () =>
-          (await drive(environment({ readActiveClientAssetId: async () => "aaaaaaaaaaaa" }))).outcome,
+          (await drive(environment({ readActiveClientAssetId: async () => "aaaaaaaaaaaa" })))
+            .outcome,
       ],
       [
         "route_denied",

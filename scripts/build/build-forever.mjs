@@ -198,7 +198,9 @@ function main() {
   if (before.fileCount === 0) {
     throw new Error("the build emitted no files — refusing to derive an identity from nothing");
   }
-  log(`normalised client asset digest ${before.digest.slice(0, 16)}… over ${before.fileCount} files`);
+  log(
+    `normalised client asset digest ${before.digest.slice(0, 16)}… over ${before.fileCount} files`,
+  );
 
   const identity = deriveForeverClientAssetId(before.digest);
   log(`derived FOREVER_CLIENT_ASSET_ID = ${identity}`);

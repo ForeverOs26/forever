@@ -118,7 +118,11 @@ export type ReleaseProvenanceRefusal =
 
 export type ReleaseProvenanceVerdict =
   | { readonly accepted: true }
-  | { readonly accepted: false; readonly refusal: ReleaseProvenanceRefusal; readonly field?: string };
+  | {
+      readonly accepted: false;
+      readonly refusal: ReleaseProvenanceRefusal;
+      readonly field?: string;
+    };
 
 /**
  * Checks a release record against the separation this module exists to enforce.
@@ -210,7 +214,7 @@ export function verifyRollbackTarget(input: {
   if (target.startsWith(INVALID_PRE_R2_WORKER_VERSION_PREFIX)) {
     return { accepted: false, refusal: "target_is_the_known_invalid_pre_r2_worker" };
   }
-  if (!isWorkerVersionId(input.retainedPreviousWorkerVersionId) ) {
+  if (!isWorkerVersionId(input.retainedPreviousWorkerVersionId)) {
     return { accepted: false, refusal: "target_not_the_retained_previous_version" };
   }
   if (target !== input.retainedPreviousWorkerVersionId) {
@@ -246,9 +250,7 @@ export type ForeverLocalReleaseManifest = {
   readonly workerVersionIdSource: "cloudflare-versions-upload";
 };
 
-export function isLocalReleaseManifest(
-  value: unknown,
-): value is ForeverLocalReleaseManifest {
+export function isLocalReleaseManifest(value: unknown): value is ForeverLocalReleaseManifest {
   if (typeof value !== "object" || value === null) return false;
   const manifest = value as Partial<ForeverLocalReleaseManifest>;
   return (
