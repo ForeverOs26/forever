@@ -15,9 +15,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   beginConsequentialAction,
   hasUnprovenConsequentialAction,
+  markConsequentialActionUnreconciled,
   openConsequentialActions,
+  reconcileConsequentialAction,
   resetConsequentialActionsForTest,
+  runStudioWriteAction,
   STALE_ASSET_CONSEQUENTIAL_ACTIONS,
+  studioWriteRejectionIsServerProven,
+  unreconciledConsequentialActions,
 } from "./write-safety";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
@@ -58,14 +63,142 @@ describe("consequential action registry", () => {
 
   it("keeps a closed vocabulary of exactly the audited write kinds", () => {
     expect([...STALE_ASSET_CONSEQUENTIAL_ACTIONS].sort()).toEqual([
+      "job_processing",
       "member_change",
       "owner_retry_observe",
       "owner_retry_submit",
       "password_update",
+      "project_amenities",
+      "project_facts",
+      "project_hero",
       "publication",
+      "resale_facts",
+      "resume_pending",
       "upload_confirm",
       "upload_start",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The canonical boundary (independent-review P1-3)
+// ---------------------------------------------------------------------------
+
+describe("runStudioWriteAction — the canonical Studio write boundary", () => {
+  it("registers SYNCHRONOUSLY, before the operation can dispatch", async () => {
+    let openAtDispatch: string[] = [];
+    await runStudioWriteAction("publication", async () => {
+      openAtDispatch = openConsequentialActions();
+      return "ok";
+    });
+    expect(openAtDispatch).toEqual(["publication"]);
+  });
+
+  it("releases on resolve and returns the value unchanged", async () => {
+    await expect(runStudioWriteAction("project_facts", async () => 42)).resolves.toBe(42);
+    expect(hasUnprovenConsequentialAction()).toBe(false);
+  });
+
+  it("releases on a SERVER-PROVEN rejection and rethrows unchanged", async () => {
+    const refusal = new Error("not allowed");
+    refusal.name = "studio_membership_required";
+    await expect(
+      runStudioWriteAction("member_change", async () => {
+        throw refusal;
+      }),
+    ).rejects.toBe(refusal);
+    expect(hasUnprovenConsequentialAction()).toBe(false);
+    expect(unreconciledConsequentialActions()).toEqual([]);
+  });
+
+  it("a LOST response stays unsafe until a read-only path reconciles it", async () => {
+    await expect(
+      runStudioWriteAction("publication", async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    ).rejects.toBeInstanceOf(TypeError);
+    // The browser stopped waiting; the server may already have applied it.
+    expect(hasUnprovenConsequentialAction()).toBe(true);
+    expect(unreconciledConsequentialActions()).toEqual(["publication"]);
+    reconcileConsequentialAction("publication");
+    expect(hasUnprovenConsequentialAction()).toBe(false);
+  });
+
+  it("an ABORT is a lost response, not proof of anything", async () => {
+    const aborted = new Error("aborted");
+    aborted.name = "AbortError";
+    await expect(
+      runStudioWriteAction("job_processing", async () => {
+        throw aborted;
+      }),
+    ).rejects.toBe(aborted);
+    expect(unreconciledConsequentialActions()).toEqual(["job_processing"]);
+  });
+
+  it("a bare Error is a lost response", async () => {
+    await expect(
+      runStudioWriteAction("resume_pending", async () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toBeInstanceOf(Error);
+    expect(unreconciledConsequentialActions()).toEqual(["resume_pending"]);
+  });
+
+  it("classifies server-assigned names as proven and transport failures as unknown", () => {
+    const named = new Error("x");
+    named.name = "job_already_published";
+    expect(studioWriteRejectionIsServerProven(named)).toBe(true);
+    expect(studioWriteRejectionIsServerProven(new TypeError("Failed to fetch"))).toBe(false);
+    expect(studioWriteRejectionIsServerProven(new Error("boom"))).toBe(false);
+    expect(studioWriteRejectionIsServerProven("a string")).toBe(false);
+    expect(studioWriteRejectionIsServerProven(null)).toBe(false);
+  });
+
+  it("two concurrent writes stay unsafe until BOTH settle", async () => {
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    const first = runStudioWriteAction(
+      "publication",
+      () =>
+        new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        }),
+    );
+    const second = runStudioWriteAction(
+      "project_hero",
+      () =>
+        new Promise<void>((resolve) => {
+          releaseSecond = resolve;
+        }),
+    );
+    expect(openConsequentialActions()).toEqual(["project_hero", "publication"]);
+    releaseFirst();
+    await first;
+    expect(hasUnprovenConsequentialAction()).toBe(true);
+    releaseSecond();
+    await second;
+    expect(hasUnprovenConsequentialAction()).toBe(false);
+  });
+
+  it("nested writes are reference-counted", async () => {
+    await runStudioWriteAction("upload_start", async () => {
+      await runStudioWriteAction("upload_start", async () => {
+        expect(hasUnprovenConsequentialAction()).toBe(true);
+      });
+      // The inner write settled; the outer one has not.
+      expect(hasUnprovenConsequentialAction()).toBe(true);
+    });
+    expect(hasUnprovenConsequentialAction()).toBe(false);
+  });
+
+  it("an unreconciled action is cleared by nothing except reconciliation", () => {
+    markConsequentialActionUnreconciled("upload_confirm");
+    expect(hasUnprovenConsequentialAction()).toBe(true);
+    // Opening and closing an unrelated action changes nothing.
+    beginConsequentialAction("publication")();
+    expect(hasUnprovenConsequentialAction()).toBe(true);
+    reconcileConsequentialAction("upload_confirm");
+    expect(hasUnprovenConsequentialAction()).toBe(false);
   });
 });
 
@@ -90,9 +223,9 @@ describe("every Studio write site participates", () => {
     expect(observation).toContain("totalTimeoutMs: 14 * 60 * 1_000");
   });
 
-  it("both publication mutations register", () => {
+  it("both publication mutations run through the canonical boundary", () => {
     const dashboard = read("src/features/forever-studio/components/StudioDashboard.tsx");
-    const matches = dashboard.match(/beginConsequentialAction\("publication"\)/g) ?? [];
+    const matches = dashboard.match(/runStudioWriteAction\("publication"/g) ?? [];
     expect(matches).toHaveLength(2);
   });
 
@@ -103,9 +236,9 @@ describe("every Studio write site participates", () => {
     expect(uploader).toMatch(/} finally \{\s*releaseUpload\(\);/);
   });
 
-  it("both membership mutations register", () => {
+  it("both membership mutations run through the canonical boundary", () => {
     const members = read("src/features/forever-studio/components/StudioMembers.tsx");
-    const matches = members.match(/beginConsequentialAction\("member_change"\)/g) ?? [];
+    const matches = members.match(/runStudioWriteAction\("member_change"/g) ?? [];
     expect(matches).toHaveLength(2);
   });
 

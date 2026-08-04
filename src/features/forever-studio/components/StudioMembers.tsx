@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useStaleAssetRecoveryAttestation } from "@/lib/stale-asset/useStaleAssetAttestation";
-import { beginConsequentialAction } from "@/lib/stale-asset/write-safety";
+import { runStudioWriteAction } from "@/lib/stale-asset/write-safety";
 
 import { studioGetOverview, studioInviteMember, studioSetMemberActive } from "../studio.functions";
 import { STUDIO_OVERVIEW_KEY } from "./StudioDashboard";
@@ -44,16 +44,10 @@ export function StudioMembers() {
   // an automatic reload mid-invitation must never be able to produce a second
   // invitation or a second role change.
   const invite = useMutation({
-    mutationFn: async () => {
-      const release = beginConsequentialAction("member_change");
-      try {
-        return await studioInviteMember({
-          data: { email, password: password || undefined, displayName },
-        });
-      } finally {
-        release();
-      }
-    },
+    mutationFn: () =>
+      runStudioWriteAction("member_change", () =>
+        studioInviteMember({ data: { email, password: password || undefined, displayName } }),
+      ),
     onSuccess: (result) => {
       // Never echo the password back. Confirm the outcome only.
       setMessage(
@@ -69,14 +63,8 @@ export function StudioMembers() {
     onError: (error) => setMessage(error instanceof Error ? error.message : "Invitation failed."),
   });
   const setActive = useMutation({
-    mutationFn: async (input: { userId: string; isActive: boolean }) => {
-      const release = beginConsequentialAction("member_change");
-      try {
-        return await studioSetMemberActive({ data: input });
-      } finally {
-        release();
-      }
-    },
+    mutationFn: (input: { userId: string; isActive: boolean }) =>
+      runStudioWriteAction("member_change", () => studioSetMemberActive({ data: input })),
     onSettled: () => queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY }),
     onError: (error) => setMessage(error instanceof Error ? error.message : "Update failed."),
   });

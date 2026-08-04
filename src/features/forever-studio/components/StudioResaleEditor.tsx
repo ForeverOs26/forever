@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useStaleAssetRecoveryAttestation } from "@/lib/stale-asset/useStaleAssetAttestation";
+import { runStudioWriteAction } from "@/lib/stale-asset/write-safety";
 
 import {
   studioGetListingDetail,
@@ -56,7 +57,9 @@ export function StudioResaleEditor(props: { listingId: string }) {
 
   const save = useMutation({
     mutationFn: () =>
-      studioUpdateResale({ data: { listingId: props.listingId, facts: facts ?? {} } }),
+      runStudioWriteAction("resale_facts", () =>
+        studioUpdateResale({ data: { listingId: props.listingId, facts: facts ?? {} } }),
+      ),
     onSuccess: (result) => {
       // Precedence conflicts are truthful, visible, and never a gate: the
       // stronger existing value was kept and the attempt was recorded.
@@ -70,7 +73,9 @@ export function StudioResaleEditor(props: { listingId: string }) {
   });
   const publication = useMutation({
     mutationFn: (publish: boolean) =>
-      studioSetListingPublication({ data: { listingId: props.listingId, publish } }),
+      runStudioWriteAction("publication", () =>
+        studioSetListingPublication({ data: { listingId: props.listingId, publish } }),
+      ),
     onSettled: invalidate,
   });
 

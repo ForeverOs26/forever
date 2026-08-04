@@ -33,6 +33,11 @@ const CAPTURE = resolve(REPO, "src/lib/stale-asset/global-capture.ts");
 const ROOT_ROUTE = resolve(REPO, "src/routes/__root.tsx");
 const WRANGLER = resolve(REPO, "wrangler.jsonc");
 const RUNBOOK = resolve(REPO, "docs/FOREVER_PRODUCTION_RELEASE_RUNBOOK.md");
+const PROJECT_EDITOR = resolve(
+  REPO,
+  "src/features/forever-studio/components/StudioProjectEditor.tsx",
+);
+const DASHBOARD = resolve(REPO, "src/features/forever-studio/components/StudioDashboard.tsx");
 
 const CLASSIFIER_TEST = "src/lib/stale-asset/stale-asset-classifier.test.ts";
 const RECOVERY_TEST = "src/lib/stale-asset/stale-asset-recovery.test.ts";
@@ -41,6 +46,7 @@ const BOUNDARY_TEST = "src/lib/stale-asset/root-boundary.test.tsx";
 const WRITE_TEST = "src/lib/stale-asset/write-safety.test.ts";
 const CONFIG_TEST = "src/lib/stale-asset/worker-config-contract.test.ts";
 const RUNBOOK_TEST = "src/lib/stale-asset/release-runbook-contract.test.ts";
+const WRITE_CONTRACT_TEST = "src/lib/stale-asset/studio-write-contract.test.ts";
 
 const ALL_TESTS = [
   CLASSIFIER_TEST,
@@ -50,6 +56,7 @@ const ALL_TESTS = [
   WRITE_TEST,
   CONFIG_TEST,
   RUNBOOK_TEST,
+  WRITE_CONTRACT_TEST,
 ];
 
 const VITEST = resolve(
@@ -59,7 +66,17 @@ const VITEST = resolve(
 );
 
 const originals = new Map(
-  [CONTRACT, RECOVERY, RECOVERY_CONTRACT, CAPTURE, ROOT_ROUTE, WRANGLER, RUNBOOK].map((file) => [
+  [
+    CONTRACT,
+    RECOVERY,
+    RECOVERY_CONTRACT,
+    CAPTURE,
+    ROOT_ROUTE,
+    WRANGLER,
+    RUNBOOK,
+    PROJECT_EDITOR,
+    DASHBOARD,
+  ].map((file) => [
     file,
     readFileSync(file),
   ]),
@@ -169,6 +186,38 @@ const mutations = [
     tests: [BOUNDARY_TEST],
     reason:
       /B — a confirmed stale failure renders the specific screen from the MACHINE, not the message/,
+  },
+  /**
+   * ADVERSARIAL CONTROL 3 (independent-review P1-3) — one of the previously
+   * missing mutations bypasses the central write boundary. The AST contract
+   * test must catch it; a hand-maintained list could not.
+   */
+  {
+    name: "studioSaveProjectFacts bypasses the central write boundary",
+    file: PROJECT_EDITOR,
+    from:
+      "    mutationFn: () =>\n" +
+      '      runStudioWriteAction("project_facts", () =>\n' +
+      "        studioSaveProjectFacts({ data: { slug: props.slug, facts: facts ?? {} } }),\n" +
+      "      ),",
+    to:
+      "    mutationFn: () =>\n" +
+      "      studioSaveProjectFacts({ data: { slug: props.slug, facts: facts ?? {} } }),",
+    tests: [WRITE_CONTRACT_TEST],
+    reason: /no mutation is dispatched outside runStudioWriteAction/,
+  },
+  /**
+   * ADVERSARIAL CONTROL 4 (independent-review P1-3) — `studioResumePending`
+   * auto-fires after a recovered reload. This is the write that genuinely does
+   * re-execute on its own, so the gate is the whole protection.
+   */
+  {
+    name: "studioResumePending auto-fires after a recovered reload",
+    file: DASHBOARD,
+    from: "    if (!resumeIsSafe) return;\n",
+    to: "",
+    tests: [WRITE_CONTRACT_TEST],
+    reason: /is gated on a resolved READ-ONLY overview/,
   },
   {
     name: "Auth storage cleared during recovery",

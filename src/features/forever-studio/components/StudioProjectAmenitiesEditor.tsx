@@ -50,6 +50,8 @@ import {
   suggestAmenitySlug,
   toSavePayload,
 } from "../amenity-editor-state";
+import { runStudioWriteAction } from "@/lib/stale-asset/write-safety";
+
 import { studioGetProjectAmenities, studioSaveProjectAmenities } from "../studio.functions";
 import {
   isStudioAmenityCategory,
@@ -127,18 +129,20 @@ export function StudioProjectAmenitiesEditor(props: { slug: string }) {
 
   const save = useMutation({
     mutationFn: (payload: { selected: StudioProjectAmenity[]; created: StudioCreatedAmenity[] }) =>
-      studioSaveProjectAmenities({
-        data: {
-          slug: props.slug,
-          amenities: payload.selected.map((entry) => ({
-            slug: entry.slug,
-            note: entry.note,
-            isFeatured: entry.isFeatured,
-            sortOrder: entry.sortOrder,
-          })),
-          createdAmenities: payload.created,
-        },
-      }),
+      runStudioWriteAction("project_amenities", () =>
+        studioSaveProjectAmenities({
+          data: {
+            slug: props.slug,
+            amenities: payload.selected.map((entry) => ({
+              slug: entry.slug,
+              note: entry.note,
+              isFeatured: entry.isFeatured,
+              sortOrder: entry.sortOrder,
+            })),
+            createdAmenities: payload.created,
+          },
+        }),
+      ),
     onSuccess: (result) => {
       // The canonical committed state — trimmed notes, resolved slugs, public
       // order — replaces the optimistic local copy. Staged creations are now

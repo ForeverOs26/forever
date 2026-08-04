@@ -5,12 +5,22 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  getStaleAssetRecoveryState,
+  subscribeStaleAssetRecoveryState,
+} from "@/lib/stale-asset/stale-asset-recovery";
 import { useStaleAssetRecoveryAttestation } from "@/lib/stale-asset/useStaleAssetAttestation";
-import { beginConsequentialAction } from "@/lib/stale-asset/write-safety";
+import {
+  beginConsequentialAction,
+  hasUnprovenConsequentialAction,
+  markConsequentialActionUnreconciled,
+  reconcileConsequentialAction,
+  runStudioWriteAction,
+} from "@/lib/stale-asset/write-safety";
 
 import {
   studioGetJobStatus,
@@ -92,13 +102,41 @@ export function StudioDashboard() {
    */
   useStaleAssetRecoveryAttestation(session.status === "signed_in" && overview.isSuccess);
 
-  // Automatic durable resume: on each poll, ask the server to pick up only
-  // explicitly-ready received / retryable-failed / stale-processing jobs.
+  /**
+   * Automatic durable resume: on each poll, ask the server to pick up only
+   * explicitly-ready received / retryable-failed / stale-processing jobs.
+   *
+   * THE ONE WRITE THAT FIRES BY ITSELF (independent-review P1-3).
+   *
+   * This is a `POST` that runs on dashboard mount whenever `activeJobs > 0`,
+   * which makes it the one mutation that genuinely DOES re-execute after an
+   * automatic reload — contradicting the stated invariant that no action
+   * automatically resubmits. It is therefore gated three ways, and every gate
+   * is a refusal:
+   *
+   *   1. it never fires while this page is recovering or deciding, so a
+   *      recovered page does not resume anything on the way in;
+   *   2. it never fires while ANY write outcome is unproven, including one left
+   *      unreconciled by a lost response;
+   *   3. it fires only from a READ-ONLY overview that resolved after those two
+   *      held — the overview is what establishes that resuming is safe.
+   *
+   * Server-side resume remains idempotent and bounded by the retry policy;
+   * this is the browser refusing to be the thing that triggers it.
+   */
   const activeJobs = overview.data?.activeJobs ?? 0;
+  const recoveryState = useSyncExternalStore(
+    subscribeStaleAssetRecoveryState,
+    getStaleAssetRecoveryState,
+    () => "idle" as const,
+  );
+  const resumeIsSafe =
+    recoveryState === "idle" && overview.isSuccess && !hasUnprovenConsequentialAction();
   useEffect(() => {
     if (activeJobs <= 0) return;
+    if (!resumeIsSafe) return;
     let cancelled = false;
-    void studioResumePending({ data: undefined })
+    void runStudioWriteAction("resume_pending", () => studioResumePending({ data: undefined }))
       .then(() => {
         if (!cancelled) void queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY });
       })
@@ -106,7 +144,7 @@ export function StudioDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [activeJobs, overview.dataUpdatedAt, queryClient]);
+  }, [activeJobs, overview.dataUpdatedAt, queryClient, resumeIsSafe]);
 
   /**
    * One local record and one bounded timer pair per Retry the Owner explicitly
@@ -395,7 +433,11 @@ export function StudioDashboard() {
         markOwnerRetryMissing(job.id);
       } else {
         // The mutation may have reached the server even if its response did
-        // not reach the browser. Never submit it again automatically.
+        // not reach the browser. Never submit it again automatically, and keep
+        // this page unsafe for an automatic reload until the read-only Refresh
+        // path establishes what the server actually did
+        // (independent-review P1-3).
+        markConsequentialActionUnreconciled("owner_retry_submit");
         markOwnerRetryTimeout(job.id);
       }
     }
@@ -411,6 +453,10 @@ export function StudioDashboard() {
     });
     try {
       const result = await studioGetJobStatus({ data: { jobId } });
+      // READ-ONLY RECONCILIATION (independent-review P1-3). This path reads the
+      // server's actual state and never writes, so it — and only it — may
+      // clear an Owner Retry whose submit response was lost.
+      reconcileConsequentialAction("owner_retry_submit");
       if (!settleOwnerRetry(result)) markOwnerRetryTimeout(jobId);
     } catch (error) {
       if (error instanceof Error && error.name === "job_not_found") markOwnerRetryMissing(jobId);
@@ -422,25 +468,13 @@ export function StudioDashboard() {
   // one is in flight an automatic stale-asset reload is refused, and after a
   // manual reload nothing republishes on its own.
   const projectPublication = useMutation({
-    mutationFn: async (input: { slug: string; publish: boolean }) => {
-      const release = beginConsequentialAction("publication");
-      try {
-        return await studioSetProjectPublication({ data: input });
-      } finally {
-        release();
-      }
-    },
+    mutationFn: (input: { slug: string; publish: boolean }) =>
+      runStudioWriteAction("publication", () => studioSetProjectPublication({ data: input })),
     onSettled: () => queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY }),
   });
   const listingPublication = useMutation({
-    mutationFn: async (input: { listingId: string; publish: boolean }) => {
-      const release = beginConsequentialAction("publication");
-      try {
-        return await studioSetListingPublication({ data: input });
-      } finally {
-        release();
-      }
-    },
+    mutationFn: (input: { listingId: string; publish: boolean }) =>
+      runStudioWriteAction("publication", () => studioSetListingPublication({ data: input })),
     onSettled: () => queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY }),
   });
 

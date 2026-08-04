@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { useStaleAssetRecoveryAttestation } from "@/lib/stale-asset/useStaleAssetAttestation";
-import { beginConsequentialAction } from "@/lib/stale-asset/write-safety";
+import { beginConsequentialAction, runStudioWriteAction } from "@/lib/stale-asset/write-safety";
 import {
   ARCHIVE_UPLOAD_UNAVAILABLE_MESSAGE,
   ARCHIVE_UPLOAD_UNAVAILABLE_WINDOW_NOTE,
@@ -279,8 +279,9 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
         return;
       }
       if (!id) {
-        const started = await studioStartJob({
-          data: {
+        const started = await runStudioWriteAction("upload_start", () =>
+          studioStartJob({
+            data: {
             workflow,
             projectSlug: projectSlug.trim() || undefined,
             projectFacts: isResale ? undefined : projectFacts,
@@ -305,8 +306,9 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
                   })),
                 }
               : {}),
-          },
-        });
+            },
+          }),
+        );
         id = started.jobId;
         // Resolve the WHOLE mapping before a single byte is sent. Bytes are
         // paired to signed targets by the SERVER-ASSIGNED fileIndex, never by
@@ -362,7 +364,9 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
       // unreadable poll — the page keeps its current processing view and
       // polls again — never a crash and never a fake failure.
       const pollProcessing = async (): Promise<StudioJobResult | null> => {
-        const polled: unknown = await studioProcessJob({ data: { jobId: id! } });
+        const polled: unknown = await runStudioWriteAction("job_processing", () =>
+          studioProcessJob({ data: { jobId: id! } }),
+        );
         return isJobResult(polled) ? polled : null;
       };
       let result = await pollProcessing();
