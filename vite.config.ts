@@ -4,9 +4,6 @@
 //     componentTagger (dev-only), VITE_* env injection, @ path alias, React/TanStack dedupe,
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
-import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
-
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import type { NitroConfig } from "nitro/types";
 import type { Plugin } from "vite";
@@ -29,7 +26,7 @@ const PARTNER_DEMO_HEALTH_PATH = "/__forever_partner_demo_health";
  * the `compatibility_date` reasoning in wrangler.jsonc). A release may pin the
  * value explicitly with `FOREVER_BUILD_ID`.
  */
-const FOREVER_BUILD_ID = resolveForeverBuildId(dirname(fileURLToPath(import.meta.url)));
+const FOREVER_BUILD_ID = resolveForeverBuildId();
 
 function partnerDemoHealthPlugin(): Plugin {
   return {

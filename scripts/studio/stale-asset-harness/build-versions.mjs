@@ -43,6 +43,12 @@ const HARNESS_ENV = {
   SUPABASE_URL: "https://staleassetharness.supabase.co",
   SUPABASE_PUBLISHABLE_KEY: "sb_publishable_staleassetharness",
   NITRO_PRESET: "node-server",
+  // The two-version harness pins each version's identity ON PURPOSE, so the
+  // switchable origin can prove a specific transition. That is a manual
+  // override, which a PRODUCTION build now refuses outright
+  // (independent-review P3-3), so the harness must state the explicitly
+  // non-production guard. `npm run build` never sets it.
+  FOREVER_ALLOW_TEST_BUILD_ID: "1",
 };
 
 function log(message) {

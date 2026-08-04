@@ -38,6 +38,8 @@ const PROJECT_EDITOR = resolve(
   "src/features/forever-studio/components/StudioProjectEditor.tsx",
 );
 const DASHBOARD = resolve(REPO, "src/features/forever-studio/components/StudioDashboard.tsx");
+const BUILD_ID = resolve(REPO, "scripts/build/forever-build-id.ts");
+const BUILD_ORCHESTRATOR = resolve(REPO, "scripts/build/build-forever.mjs");
 
 const CLASSIFIER_TEST = "src/lib/stale-asset/stale-asset-classifier.test.ts";
 const RECOVERY_TEST = "src/lib/stale-asset/stale-asset-recovery.test.ts";
@@ -47,6 +49,7 @@ const WRITE_TEST = "src/lib/stale-asset/write-safety.test.ts";
 const CONFIG_TEST = "src/lib/stale-asset/worker-config-contract.test.ts";
 const RUNBOOK_TEST = "src/lib/stale-asset/release-runbook-contract.test.ts";
 const WRITE_CONTRACT_TEST = "src/lib/stale-asset/studio-write-contract.test.ts";
+const BUILD_IDENTITY_TEST = "src/lib/stale-asset/build-identity.test.ts";
 
 const ALL_TESTS = [
   CLASSIFIER_TEST,
@@ -57,6 +60,7 @@ const ALL_TESTS = [
   CONFIG_TEST,
   RUNBOOK_TEST,
   WRITE_CONTRACT_TEST,
+  BUILD_IDENTITY_TEST,
 ];
 
 const VITEST = resolve(
@@ -76,6 +80,8 @@ const originals = new Map(
     RUNBOOK,
     PROJECT_EDITOR,
     DASHBOARD,
+    BUILD_ID,
+    BUILD_ORCHESTRATOR,
   ].map((file) => [
     file,
     readFileSync(file),
@@ -218,6 +224,35 @@ const mutations = [
     to: "",
     tests: [WRITE_CONTRACT_TEST],
     reason: /is gated on a resolved READ-ONLY overview/,
+  },
+  /**
+   * ADVERSARIAL CONTROL 5 (independent-review P1-4) — an output-changing input
+   * stops changing the identity. Dropping the client runtime graph from the
+   * digest reproduces the reviewed defect exactly: two builds that emit fifty
+   * different chunks share one identifier.
+   */
+  {
+    name: "output-changing input retains the same build identity",
+    file: BUILD_ID,
+    from:
+      '  if (path === "server/wrangler.json") return true;\n' +
+      '  return path === "public" || path.startsWith("public/");',
+    to: '  return path === "server/wrangler.json";',
+    tests: [BUILD_IDENTITY_TEST],
+    reason: /the whole client runtime graph contributes, and nothing under public is excluded/,
+  },
+  /**
+   * ADVERSARIAL CONTROL 6 (independent-review P1-4) — the final-pass identity
+   * self-verification is removed, so an identity that does not describe the
+   * shipped bytes can ship.
+   */
+  {
+    name: "final-pass build identity self-verification removed",
+    file: BUILD_ORCHESTRATOR,
+    from: "  if (after.digest !== before.digest) {",
+    to: "  if (false) {",
+    tests: [BUILD_IDENTITY_TEST],
+    reason: /recomputes the digest after the final pass and requires exact equality/,
   },
   {
     name: "Auth storage cleared during recovery",

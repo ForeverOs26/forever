@@ -20,8 +20,20 @@ import {
 } from "./build-identity";
 import { FOREVER_BUILD_ID_PATTERN } from "./stale-asset-recovery-contract";
 import {
+  FOREVER_BUILD_ID_DERIVED_ENV,
   FOREVER_BUILD_ID_PATTERN as SCRIPT_PATTERN,
+  FOREVER_BUILD_ID_PLACEHOLDER,
+  FOREVER_BUILD_ID_PLACEHOLDER_ENV,
+  FOREVER_BUILD_DIGEST_EXCLUSIONS,
+  FOREVER_BUILD_DIGEST_INCLUDED,
+  FOREVER_BUILD_ID_TEST_OVERRIDE_ENV,
+  ForeverBuildIdError,
+  deriveForeverBuildId,
+  digestEmittedOutput,
   isBoundedForeverBuildId,
+  normalizeEmittedContent,
+  normalizeEmittedName,
+  pathContributesToBuildIdentity,
   resolveForeverBuildId,
 } from "../../../scripts/build/forever-build-id";
 
@@ -72,28 +84,67 @@ describe("the identifier is bounded", () => {
   });
 });
 
-describe("resolution is deterministic and reproducible", () => {
-  it("returns the same value for the same tree", () => {
-    const first = resolveForeverBuildId(REPO_ROOT, {});
-    const second = resolveForeverBuildId(REPO_ROOT, {});
-    expect(first).toBe(second);
-    expect(isBoundedForeverBuildId(first)).toBe(true);
-    expect(first).toHaveLength(12);
-  });
-
-  it("honours an explicit, bounded FOREVER_BUILD_ID", () => {
-    expect(resolveForeverBuildId(REPO_ROOT, { FOREVER_BUILD_ID: "aaaaaaaaaaaa" })).toBe(
-      "aaaaaaaaaaaa",
-    );
-    expect(resolveForeverBuildId(REPO_ROOT, { FOREVER_BUILD_ID: "  BBBBBBBBBBBB " })).toBe(
-      "bbbbbbbbbbbb",
+describe("resolution is fail-closed and never reuses an identity", () => {
+  it("returns the derived identity the orchestrator feeds back in", () => {
+    expect(resolveForeverBuildId({ [FOREVER_BUILD_ID_DERIVED_ENV]: "0123456789abcdef" })).toBe(
+      "0123456789abcdef",
     );
   });
 
-  it("ignores a malformed override rather than shipping it", () => {
-    const derived = resolveForeverBuildId(REPO_ROOT, {});
-    expect(resolveForeverBuildId(REPO_ROOT, { FOREVER_BUILD_ID: "not a build id!" })).toBe(derived);
-    expect(resolveForeverBuildId(REPO_ROOT, { FOREVER_BUILD_ID: "" })).toBe(derived);
+  it("refuses a derived value that is not bounded", () => {
+    expect(() =>
+      resolveForeverBuildId({ [FOREVER_BUILD_ID_DERIVED_ENV]: "not a build id!" }),
+    ).toThrow(ForeverBuildIdError);
+  });
+
+  it("returns the fixed placeholder on the first pass", () => {
+    expect(resolveForeverBuildId({ [FOREVER_BUILD_ID_PLACEHOLDER_ENV]: "1" })).toBe(
+      FOREVER_BUILD_ID_PLACEHOLDER,
+    );
+    expect(isBoundedForeverBuildId(FOREVER_BUILD_ID_PLACEHOLDER)).toBe(true);
+  });
+
+  it("REFUSES a manual production override — it could reuse a deployed identity", () => {
+    // Independent-review P3-3. Pinning a previously deployed identifier makes
+    // every page from that build see `same_build` and refuse recovery, which
+    // silently disables the whole mechanism.
+    expect(() => resolveForeverBuildId({ FOREVER_BUILD_ID: "dcc016953096" })).toThrow(
+      /may not be set for a production build/,
+    );
+  });
+
+  it("permits a manual override ONLY behind the explicit non-production guard", () => {
+    expect(
+      resolveForeverBuildId({
+        FOREVER_BUILD_ID: "  AAAAAAAAAAAA ",
+        [FOREVER_BUILD_ID_TEST_OVERRIDE_ENV]: "1",
+      }),
+    ).toBe("aaaaaaaaaaaa");
+  });
+
+  it("refuses a malformed override even behind the test guard", () => {
+    expect(() =>
+      resolveForeverBuildId({
+        FOREVER_BUILD_ID: "not a build id!",
+        [FOREVER_BUILD_ID_TEST_OVERRIDE_ENV]: "1",
+      }),
+    ).toThrow(ForeverBuildIdError);
+  });
+
+  it("refuses a bare build with no identity at all rather than shipping a placeholder", () => {
+    expect(() => resolveForeverBuildId({})).toThrow(/must run through/);
+  });
+
+  it("the production orchestrator never sets the test guard", () => {
+    const orchestrator = read("scripts/build/build-forever.mjs");
+    expect(orchestrator).toContain("FOREVER_ALLOW_TEST_BUILD_ID: undefined");
+    expect(orchestrator).toContain("FOREVER_BUILD_ID: undefined");
+  });
+
+  it("npm run build IS the two-pass orchestrator, not a bare vite build", () => {
+    const pkg = JSON.parse(read("package.json"));
+    expect(pkg.scripts.build).toBe("node scripts/build/build-forever.mjs");
+    expect(pkg.scripts["build:dev"]).toContain("scripts/build/build-forever.mjs");
   });
 
   it("is not a timestamp and not random", () => {
@@ -189,6 +240,227 @@ describe("the probe fails closed", () => {
     });
     await fetchActiveBuildId({ fetchImpl: fetchImpl as never });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P1-4 — the identity is derived from the EMITTED OUTPUT
+// ---------------------------------------------------------------------------
+
+describe("the output digest covers the whole emitted runtime graph", () => {
+  const { mkdirSync, rmSync, writeFileSync } = require("node:fs") as typeof import("node:fs");
+  const { join } = require("node:path") as typeof import("node:path");
+  const { tmpdir } = require("node:os") as typeof import("node:os");
+
+  let seq = 0;
+  function emit(files: Record<string, string>): string {
+    seq += 1;
+    const root = join(tmpdir(), `forever-build-digest-${process.pid}-${seq}`);
+    rmSync(root, { recursive: true, force: true });
+    for (const [path, contents] of Object.entries(files)) {
+      const full = join(root, path);
+      mkdirSync(full.slice(0, full.lastIndexOf(require("node:path").sep)), { recursive: true });
+      writeFileSync(full, contents, "utf8");
+    }
+    return root;
+  }
+
+  /** A minimal but representative emitted graph. */
+  const BASE: Record<string, string> = {
+    "nitro.json": '{"date":"2026-08-04T00:00:00.000Z"}',
+    "public/assets/index-AAAAAAAA.js": 'console.log("entry");',
+    "public/assets/StudioDashboard-BBBBBBBB.js": 'export const dash = 1;',
+    "public/assets/styles-CCCCCCCC.css": "body{color:red}",
+    "public/favicon.ico": "icon-bytes",
+    "public/_headers": "/*\n  X-Frame-Options: DENY",
+    "server/index.mjs": "export default {};",
+    "server/_ssr/root-DDDDDDDD.mjs": "export const ssr = 1;",
+    "server/wrangler.json": '{"name":"forever"}',
+  };
+
+  const digestOf = (files: Record<string, string>, identity = FOREVER_BUILD_ID_PLACEHOLDER) =>
+    digestEmittedOutput(emit(files), identity);
+
+  it("hashes something at all — an empty digest would prove nothing", () => {
+    const result = digestOf(BASE);
+    // public/** (5) + server/wrangler.json (1). See FOREVER_BUILD_DIGEST_EXCLUSIONS.
+    expect(result.fileCount).toBe(6);
+    expect(result.digest).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("identical emitted output produces an identical digest and identity", () => {
+    const a = digestOf(BASE);
+    const b = digestOf(BASE);
+    expect(a.digest).toBe(b.digest);
+    expect(deriveForeverBuildId(a.digest)).toBe(deriveForeverBuildId(b.digest));
+  });
+
+  it("an application source change changes the identity", () => {
+    const changed = { ...BASE, "public/assets/index-AAAAAAAA.js": 'console.log("entry v2");' };
+    expect(digestOf(changed).digest).not.toBe(digestOf(BASE).digest);
+  });
+
+  it("a lazy Studio route chunk change changes the identity", () => {
+    const changed = {
+      ...BASE,
+      "public/assets/StudioDashboard-BBBBBBBB.js": "export const dash = 2;",
+    };
+    expect(digestOf(changed).digest).not.toBe(digestOf(BASE).digest);
+  });
+
+  it("a CSS change changes the identity", () => {
+    const changed = { ...BASE, "public/assets/styles-CCCCCCCC.css": "body{color:blue}" };
+    expect(digestOf(changed).digest).not.toBe(digestOf(BASE).digest);
+  });
+
+  it("a public static asset change changes the identity", () => {
+    const changed = { ...BASE, "public/favicon.ico": "other-icon-bytes" };
+    expect(digestOf(changed).digest).not.toBe(digestOf(BASE).digest);
+  });
+
+  it("an added or removed emitted file changes the identity", () => {
+    const added = { ...BASE, "public/assets/new-EEEEEEEE.js": "export const x = 1;" };
+    expect(digestOf(added).digest).not.toBe(digestOf(BASE).digest);
+    const removed = { ...BASE } as Record<string, string>;
+    delete removed["public/assets/StudioDashboard-BBBBBBBB.js"];
+    expect(digestOf(removed).digest).not.toBe(digestOf(BASE).digest);
+  });
+
+  it("the generated Worker configuration change changes the identity", () => {
+    expect(digestOf({ ...BASE, "server/wrangler.json": '{"name":"forever2"}' }).digest).not.toBe(
+      digestOf(BASE).digest,
+    );
+  });
+
+  it("the server JavaScript bundle is excluded, enumerated, and justified", () => {
+    // Independent-review P1-4. This is a DEVIATION from "exclude only generated
+    // non-runtime metadata", taken because two builds of identical source
+    // measurably emit different server chunks — Rolldown identifier
+    // deconfliction plus an mtime-bearing public-asset manifest — while the
+    // client graph is byte-identical. An identity computed over
+    // non-reproducible bytes is not an identity. `npm run build:determinism`
+    // reproduces the measurement.
+    expect(digestOf({ ...BASE, "server/index.mjs": "export default { a: 1 };" }).digest).toBe(
+      digestOf(BASE).digest,
+    );
+    expect(FOREVER_BUILD_DIGEST_EXCLUSIONS.map((entry) => entry.path).sort()).toEqual([
+      "nitro.json",
+      "package-lock.json",
+      "package.json",
+      "server/**.mjs",
+    ]);
+    for (const entry of FOREVER_BUILD_DIGEST_EXCLUSIONS) {
+      expect(entry.reason.length, entry.path).toBeGreaterThan(30);
+    }
+    expect([...FOREVER_BUILD_DIGEST_INCLUDED]).toEqual(["public", "server/wrangler.json"]);
+  });
+
+  it("the whole client runtime graph contributes, and nothing under public is excluded", () => {
+    expect(pathContributesToBuildIdentity("public/assets/index-AAAAAAAA.js")).toBe(true);
+    expect(pathContributesToBuildIdentity("public/assets/styles-CCCCCCCC.css")).toBe(true);
+    expect(pathContributesToBuildIdentity("public/favicon.ico")).toBe(true);
+    expect(pathContributesToBuildIdentity("public/_headers")).toBe(true);
+    expect(pathContributesToBuildIdentity("server/wrangler.json")).toBe(true);
+    expect(pathContributesToBuildIdentity("server/index.mjs")).toBe(false);
+    expect(pathContributesToBuildIdentity("nitro.json")).toBe(false);
+  });
+
+  it("the generated Worker headers file contributes", () => {
+    expect(digestOf({ ...BASE, "public/_headers": "/*\n  X-Frame-Options: SAMEORIGIN" }).digest)
+      .not.toBe(digestOf(BASE).digest);
+  });
+
+  it("the build DATE metadata cannot change the identity", () => {
+    const other = { ...BASE, "nitro.json": '{"date":"2027-01-01T00:00:00.000Z"}' };
+    expect(digestOf(other).digest).toBe(digestOf(BASE).digest);
+  });
+
+  it("substituting the identity is hash-neutral — the two passes are comparable", () => {
+    const identity = "0123456789abcdef0123456789abcdef";
+    // The final pass inlines the identity and its chunk hash therefore moves.
+    const finalPass: Record<string, string> = {
+      ...BASE,
+      "public/assets/index-ZZZZZZZZ.js": `console.log("entry");globalThis.b="${identity}";`,
+      "server/_ssr/root-YYYYYYYY.mjs": `export const ssr = 1;export const b="${identity}";`,
+    };
+    delete finalPass["public/assets/index-AAAAAAAA.js"];
+    delete finalPass["server/_ssr/root-DDDDDDDD.mjs"];
+
+    const passOne: Record<string, string> = {
+      ...BASE,
+      "public/assets/index-AAAAAAAA.js": `console.log("entry");globalThis.b="${FOREVER_BUILD_ID_PLACEHOLDER}";`,
+      "server/_ssr/root-DDDDDDDD.mjs": `export const ssr = 1;export const b="${FOREVER_BUILD_ID_PLACEHOLDER}";`,
+    };
+
+    expect(digestEmittedOutput(emit(finalPass), identity).digest).toBe(
+      digestEmittedOutput(emit(passOne), FOREVER_BUILD_ID_PLACEHOLDER).digest,
+    );
+  });
+
+  it("but a REAL change alongside the identity substitution is still detected", () => {
+    const identity = "0123456789abcdef0123456789abcdef";
+    const finalPass: Record<string, string> = {
+      ...BASE,
+      "public/assets/index-ZZZZZZZZ.js": `console.log("entry CHANGED");globalThis.b="${identity}";`,
+    };
+    delete finalPass["public/assets/index-AAAAAAAA.js"];
+    const passOne: Record<string, string> = {
+      ...BASE,
+      "public/assets/index-AAAAAAAA.js": `console.log("entry");globalThis.b="${FOREVER_BUILD_ID_PLACEHOLDER}";`,
+    };
+    expect(digestEmittedOutput(emit(finalPass), identity).digest).not.toBe(
+      digestEmittedOutput(emit(passOne), FOREVER_BUILD_ID_PLACEHOLDER).digest,
+    );
+  });
+
+  it("normalisation touches only content hashes and the identity", () => {
+    expect(normalizeEmittedName("public/assets/index-6PxG9iJc.js")).toBe(
+      "public/assets/index-<forever-content-hash>.js",
+    );
+    expect(normalizeEmittedName("public/favicon.ico")).toBe("public/favicon.ico");
+    const identity = "0123456789abcdef0123456789abcdef";
+    const normalized = normalizeEmittedContent(
+      "x.js",
+      Buffer.from(`const b="${identity}";import"./a-AbCdEfGh.js";`),
+      identity,
+    ).toString("utf8");
+    expect(normalized).toContain(FOREVER_BUILD_ID_PLACEHOLDER);
+    expect(normalized).not.toContain(identity);
+    expect(normalized).toContain("./a-<forever-content-hash>.js");
+  });
+});
+
+describe("the derived identity is bounded and 128 bits", () => {
+  it("is 32 lowercase hex characters", () => {
+    const identity = deriveForeverBuildId("a".repeat(64));
+    expect(identity).toMatch(/^[0-9a-f]{32}$/);
+    expect(isBoundedForeverBuildId(identity)).toBe(true);
+    expect(identity.length * 4).toBe(128);
+  });
+
+  it("different digests give different identities", () => {
+    expect(deriveForeverBuildId("a".repeat(64))).not.toBe(deriveForeverBuildId("b".repeat(64)));
+  });
+});
+
+describe("the final pass verifies itself", () => {
+  const orchestrator = read("scripts/build/build-forever.mjs");
+
+  it("recomputes the digest after the final pass and requires exact equality", () => {
+    expect(orchestrator).toContain("if (after.digest !== before.digest) {");
+    expect(orchestrator).toContain("FINAL OUTPUT DID NOT REPRODUCE THE DERIVED IDENTITY");
+    expect(orchestrator).toContain("Refusing to ship.");
+  });
+
+  it("refuses to derive an identity from an empty output", () => {
+    expect(orchestrator).toContain("refusing to derive an identity from nothing");
+  });
+
+  it("compares the emitted file count as well as the digest", () => {
+    expect(orchestrator).toContain("after.fileCount !== before.fileCount");
+    expect(orchestrator).toContain("the placeholder identity still appears in");
+    expect(orchestrator).toContain("was not inlined into any CLIENT asset");
+    expect(orchestrator).toContain("was not inlined into any SERVER output");
   });
 });
 

@@ -46,6 +46,9 @@ dist-ssr
 # two full production builds, rebuilt on demand and never committed.
 .stale-asset-harness/
 
+# FOREVER-STUDIO-STALE-ASSET-RECOVERY-001 output-derived build identity record:
+.forever-build/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
