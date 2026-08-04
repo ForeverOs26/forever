@@ -286,16 +286,12 @@ describe("the runbook keeps client asset identity out of the release gate", () =
 
   it("requires a NEW immutable Worker version UUID for every uploaded candidate", () => {
     expect(runbookFlat).toContain(
-      "Record the immutable Worker version UUID this upload returns, and require it to be NEW",
+      "The wrapper records the immutable Worker version UUID mechanically and requires it to be NEW",
     );
     expect(runbookFlat).toContain(
-      "Every authorized upload produces a new Worker version UUID, including an upload whose " +
-        "client asset graph did not move",
+      "Wrangler's documented structured `version-upload` result is consumed in memory",
     );
-    expect(runbookFlat).toContain(
-      "If the recorded candidate UUID equals the currently deployed one, no new Worker was " +
-        "uploaded and the release STOPS",
-    );
+    expect(runbookFlat).toContain("candidate_worker_version_not_new` STOPS the release");
   });
 
   it("makes the deployed Worker version UUID the release gate, not the endpoint", () => {
@@ -536,7 +532,7 @@ describe("the runbook preserves deployment-managed Worker variables", () => {
  */
 describe("the runbook prescribes the MECHANICAL release sequence", () => {
   it("captures the live binding snapshot with a tool, before any upload", () => {
-    expect(runbookFlat).toContain("Capture the LIVE Worker's binding snapshot, mechanically");
+    expect(runbookFlat).toContain("Discover and capture the LIVE Worker UUID, mechanically");
     expect(runbook).toContain("npm run release:capture-bindings");
     expect(runbookFlat).toContain(
       "GET /accounts/{account_id}/workers/scripts/{script_name}/versions/{version_id}",
@@ -559,7 +555,7 @@ describe("the runbook prescribes the MECHANICAL release sequence", () => {
     const sequence = runbook.slice(runbook.indexOf("## 2. The release sequence"));
     const capture = sequence.indexOf("Capture the CANDIDATE's binding snapshot");
     const verify = sequence.indexOf("Run the strict EXACT-fingerprint preflight");
-    const reject = sequence.indexOf("Reject any mismatch");
+    const reject = sequence.indexOf("Reject any identity or binding mismatch");
     const preview = sequence.indexOf("Verify the candidate on its own version preview URL");
     for (const index of [capture, verify, reject, preview]) expect(index).toBeGreaterThan(-1);
     expect(verify).toBeGreaterThan(capture);
@@ -571,6 +567,26 @@ describe("the runbook prescribes the MECHANICAL release sequence", () => {
     expect(runbookFlat).toContain("**the two fingerprints are EQUAL**");
     expect(runbookFlat).toContain("no name is duplicated");
     expect(runbookFlat).toContain("no binding was added");
+  });
+
+  it("pins PREUPLOAD to the exact deployment-discovery UUID", () => {
+    expect(runbook).toContain("--live-version-id <exact-discovered-live-worker-version-uuid>");
+    expect(runbook).toContain(
+      "--expected-live-version <exact-discovered-live-worker-version-uuid>",
+    );
+    expect(runbookFlat).toContain("liveSnapshot.workerVersionId");
+    expect(runbookFlat).toContain("omitted, malformed, older or substituted UUID is a named STOP");
+  });
+
+  it("pins POSTUPLOAD to the mechanical candidate receipt before preview acceptance", () => {
+    expect(runbook).toContain("--receipt .forever-build/worker-version-provenance.json");
+    expect(runbook).toContain(
+      "--candidate-release-provenance .forever-build/worker-version-provenance.json",
+    );
+    expect(runbook).toContain("--release-provenance .forever-build/worker-version-provenance.json");
+    expect(runbookFlat).toContain("An operator never retypes the candidate UUID");
+    expect(runbookFlat).toContain("workerVersionIdentityOk: true");
+    expect(runbookFlat).toContain("BINDINGS_PRESERVED");
   });
 
   it("states that a substring test is NOT proof, and lists what it accepted", () => {

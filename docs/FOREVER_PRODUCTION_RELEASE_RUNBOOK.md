@@ -150,12 +150,13 @@ uploaded. Those are the two facts that make such a release verifiable at all.
    from that build read `same_client_assets` and refuse the recovery this identity
    exists to enable. The build refuses it outright.
 
-2. **Capture the LIVE Worker's binding snapshot, mechanically, before anything
-   is uploaded.** Read the currently deployed Worker version UUID, then:
+2. **Discover and capture the LIVE Worker UUID, mechanically, before anything
+   is uploaded.** Use the authorized read-only deployment discovery result as
+   the exact previous Worker UUID, then capture only that immutable version:
 
    ```
    npm run release:capture-bindings -- --authorize-release \
-     --worker forever --version-id <live-worker-version-uuid> \
+     --worker forever --live-version-id <exact-discovered-live-worker-version-uuid> \
      --out .forever-build/live-bindings.json
    ```
 
@@ -174,13 +175,21 @@ uploaded. Those are the two facts that make such a release verifiable at all.
    step 4 runs `npm run release:verify-bindings -- --preupload` for you: the live
    snapshot must satisfy the closed schema, `.output/server/wrangler.json` must
    carry `keep_vars: true` and must declare **no** `vars` block, and the upload
-   specification must be canonical. Anything else STOPS before Wrangler starts.
+   specification must be canonical. It also requires
+   `--expected-live-version <exact-discovered-live-worker-version-uuid>` and
+   refuses unless `liveSnapshot.workerVersionId` equals that exact discovery
+   result. An omitted, malformed, older or substituted UUID is a named STOP.
+   Anything else STOPS before Wrangler starts.
 
 4. **Upload the candidate at 0% traffic, through the structured wrapper**, which
    preserves deployment-managed variables:
 
    ```
-   npm run release:upload-version -- --live .forever-build/live-bindings.json --authorize-upload
+   npm run release:upload-version -- \
+     --live .forever-build/live-bindings.json \
+     --expected-live-version <exact-discovered-live-worker-version-uuid> \
+     --receipt .forever-build/worker-version-provenance.json \
+     --authorize-upload
    ```
 
    The wrapper first proves the resolved Wrangler is exactly the supported
@@ -200,21 +209,24 @@ uploaded. Those are the two facts that make such a release verifiable at all.
    earlier contract used one and accepted every command in that list. No traffic
    moves. Nothing about the live site changes.
 
-   **Record the immutable Worker version UUID this upload returns, and require
-   it to be NEW.** Every authorized upload produces a new Worker version UUID,
-   including an upload whose client asset graph did not move. If the recorded
-   candidate UUID equals the currently deployed one, no new Worker was uploaded
-   and the release STOPS — that is not a release, it is a record of one that did
-   not happen. **Record the currently deployed Worker version UUID at the same
-   time**: it is the rollback target, and it must be captured before anything
-   moves, not reconstructed afterwards.
+   **The wrapper records the immutable Worker version UUID mechanically and
+   requires it to be NEW.** Wrangler's documented structured `version-upload`
+   result is consumed in memory; only `version_id` is retained. The wrapper
+   writes exactly the three sanitized fields `schemaVersion`,
+   `previousWorkerVersionId` and `candidateWorkerVersionId` to the immutable
+   receipt path, never stdout, stderr, a preview URL, a credential or any raw
+   Wrangler result. It refuses
+   an existing receipt rather than overwriting it. If the candidate UUID equals
+   the discovered currently deployed UUID, `candidate_worker_version_not_new`
+   STOPS the release. An operator never retypes the candidate UUID.
 
 5. **Capture the CANDIDATE's binding snapshot the same mechanical way**, from
    the Worker version UUID the upload just returned:
 
    ```
    npm run release:capture-bindings -- --authorize-release \
-     --worker forever --version-id <candidate-worker-version-uuid> \
+     --worker forever \
+     --candidate-release-provenance .forever-build/worker-version-provenance.json \
      --out .forever-build/candidate-bindings.json
    ```
 
@@ -224,18 +236,24 @@ uploaded. Those are the two facts that make such a release verifiable at all.
    ```
    npm run release:verify-bindings -- \
      --live .forever-build/live-bindings.json \
-     --candidate .forever-build/candidate-bindings.json
+     --candidate .forever-build/candidate-bindings.json \
+     --release-provenance .forever-build/worker-version-provenance.json
    ```
 
-   It passes only when both snapshots satisfy the closed schema, every live
-   binding is present, no binding was added, no class changed, no name is
-   duplicated, the counts are equal, and **the two fingerprints are EQUAL** —
-   name and class for every binding, values never read.
+   It passes only when both snapshots satisfy the closed schema, the live
+   snapshot UUID equals `previousWorkerVersionId`, the candidate snapshot UUID
+   equals `candidateWorkerVersionId`, the canonical release-identity validator
+   proves the candidate differs from the previous Worker, every live binding is
+   present, no binding was added, no class changed, no name is duplicated, the
+   counts are equal, and **the two fingerprints are EQUAL** — name and class for
+   every binding, values never read.
 
-7. **Reject any mismatch.** A candidate missing any binding, carrying any extra
-   binding, or whose fingerprint differs by a single name or class is REJECTED
-   here, at 0%, and the release STOPS. Surviving secrets do not prove the
-   plain-text variables survived; see §2a. Only when step 6 PASSES does preview
+7. **Reject any identity or binding mismatch.** A reused snapshot, a retained
+   older Worker, a candidate missing any binding, carrying any extra binding,
+   or whose fingerprint differs by a single name or class is REJECTED here, at
+   0%, and the release STOPS. Surviving secrets do not prove the plain-text
+   variables survived; see §2a. Only when step 6 reports both
+   `workerVersionIdentityOk: true` and `BINDINGS_PRESERVED` does preview
    acceptance begin.
 
 8. **Verify the candidate on its own version preview URL.** The preview URL
