@@ -35,12 +35,31 @@ import { attestStaleAssetRecovery } from "./stale-asset-recovery";
  * something". A loading placeholder, a denial screen and an unavailable screen
  * are all `false`.
  */
+/**
+ * The router, or `null` when there is no router context to read.
+ *
+ * A leaf must not CRASH because the attestation could not find a router — the
+ * attestation is a safety check, and a safety check that breaks the page it
+ * protects is worse than the hazard. Without router evidence nothing can be
+ * proved, so the attestation is refused: fail-closed, not fail-open.
+ *
+ * The call is unconditional, so hook order is stable; only its failure is
+ * absorbed.
+ */
+function useOptionalRouter(): RouterStateLike | null {
+  try {
+    return (useRouter as unknown as () => RouterStateLike)() ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function useStaleAssetRecoveryAttestation(ready: boolean): void {
-  const router = useRouter();
+  const router = useOptionalRouter();
   useEffect(() => {
     if (!ready) return;
     if (typeof window === "undefined") return;
-    const evidence = routeLoadEvidence(router as unknown as RouterStateLike);
+    const evidence = routeLoadEvidence(router);
     attestStaleAssetRecovery({
       pathname: window.location.pathname,
       leafRouteLoaded: evidence.leafRouteLoaded,
