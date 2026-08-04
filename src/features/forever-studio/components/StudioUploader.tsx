@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
+import { useStaleAssetRecoveryAttestation } from "@/lib/stale-asset/useStaleAssetAttestation";
 import { beginConsequentialAction } from "@/lib/stale-asset/write-safety";
 import {
   ARCHIVE_UPLOAD_UNAVAILABLE_MESSAGE,
@@ -194,6 +195,16 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
   const archiveCapability = overview.data?.capabilities?.archiveUpload;
   const archiveWindowUnavailable = isArchiveUploadDisplayedUnavailable(archiveCapability);
   const archiveLaneOpen = isArchiveUploadAvailable(archiveCapability);
+
+  /**
+   * Exact-route success attestation for `/studio/upload`
+   * (independent-review P1-2).
+   *
+   * The upload route is proved by the ACTUAL uploader leaf reaching a usable
+   * state — this component mounted and its overview resolved — never by the
+   * Studio shell mounting and never by the router resolving some other route.
+   */
+  useStaleAssetRecoveryAttestation(overview.isSuccess);
 
   if (overview.isError) {
     // Only a server-proven denial settles as denied; a transient fetch or

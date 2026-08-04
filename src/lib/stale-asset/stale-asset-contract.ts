@@ -154,6 +154,12 @@ function parseSameOriginAsset(raw: string, origin: string): URL | null {
     return null;
   }
   if (url.origin !== origin) return null;
+  // A production content-hashed chunk request never carries a query or a
+  // fragment (independent-review P3-1). The hash test below reads only
+  // `pathname`, so without this a hashed path with an arbitrary `?…` or `#…`
+  // attached would still classify as one of ours. Refusing the whole candidate
+  // is strictly safer than testing a path while ignoring what follows it.
+  if (url.search !== "" || url.hash !== "") return null;
   if (!url.pathname.startsWith(STALE_ASSET_DIRECTORY)) return null;
   if (!CONTENT_HASHED_ASSET.test(url.pathname)) return null;
   return url;

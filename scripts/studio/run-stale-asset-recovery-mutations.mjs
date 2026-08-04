@@ -2,7 +2,7 @@
 /**
  * FOREVER-STUDIO-STALE-ASSET-RECOVERY-001 — mutation controls.
  *
- * Fourteen edits to REAL source and REAL documentation, each of which must make
+ * Twenty-one edits to REAL source and REAL documentation, each of which must make
  * a NAMED assertion fail. A process that could not start, a run that collected
  * no tests, or a failure for some other reason is rejected as evidence rather
  * than counted as a detection — that classification lives in
@@ -88,40 +88,87 @@ const mutations = [
   {
     name: "external URL accepted",
     file: CONTRACT,
-    from: "  if (url.origin !== origin) return null;\n  if (!url.pathname.startsWith(STALE_ASSET_DIRECTORY)) return null;",
-    to: "  if (!url.pathname.startsWith(STALE_ASSET_DIRECTORY)) return null;",
+    from: "  if (url.origin !== origin) return null;\n",
+    to: "",
     tests: [CLASSIFIER_TEST],
     reason: /refuses an external URL — the same-origin requirement/,
+  },
+  {
+    name: "hashed asset carrying a query is accepted",
+    file: CONTRACT,
+    from: '  if (url.search !== "" || url.hash !== "") return null;\n',
+    to: "",
+    tests: [CLASSIFIER_TEST],
+    reason: /refuses a hashed asset path carrying a query or a fragment/,
   },
   {
     name: "reload guard removed",
     file: RECOVERY,
     from:
-      "  const existing = readRecoveryMarker(now, storage);\n" +
-      "  if (markerBlocksTransition(existing, ownBuildId, activeBuildId)) {\n" +
-      '    return refuse("attempt_already_used");\n' +
-      "  }",
-    to: "  void readRecoveryMarker;\n  void markerBlocksTransition;",
+      "  const denial = ledgerBlocksTransition(ledger, ownBuildId, activeBuildId);\n" +
+      "  if (denial) return refuse(denial);",
+    to: "  void ledgerBlocksTransition;",
     tests: [RECOVERY_TEST],
     reason: /REFUSES a second reload for the same transition and shows the recovery screen/,
   },
   {
     name: "second failure reloads again",
     file: RECOVERY_CONTRACT,
-    from: "  return marker.attempt >= STALE_ASSET_RECOVERY_MAX_ATTEMPTS;",
-    to: "  return false;",
+    from:
+      "  if (spentOnThisTransition >= STALE_ASSET_RECOVERY_MAX_TRANSITION_ATTEMPTS) {\n" +
+      '    return "attempt_already_used";\n' +
+      "  }",
+    to: "  void spentOnThisTransition;",
     tests: [RECOVERY_TEST],
     reason: /never loops: N further failures produce N refusals and zero reloads/,
   },
+  /**
+   * ADVERSARIAL CONTROL 1 (independent-review P1-1) — transition history
+   * replaced by one slot. This is the EXACT reviewed defect: a ledger that
+   * keeps only the most recent attempt lets an alternating origin reload
+   * without bound.
+   */
   {
-    name: "marker cleared at root mount",
-    file: RECOVERY,
+    name: "transition history replaced by one slot",
+    file: RECOVERY_CONTRACT,
     from:
-      "  const needsShell = routeRequiresStudioShellProof(input.pathname);\n" +
-      '  if (needsShell && input.proof !== "studio_shell_mounted") return false;',
-    to: "  void routeRequiresStudioShellProof;",
+      "  const history = [...ledger.history, { from: attempt.from, to: attempt.to, at: attempt.at }].slice(\n" +
+      "    -STALE_ASSET_RECOVERY_MAX_HISTORY,\n" +
+      "  );",
+    to: "  const history = [{ from: attempt.from, to: attempt.to, at: attempt.at }];",
     tests: [RECOVERY_TEST],
-    reason: /the root component mounting alone never clears the marker/,
+    reason: /A → B → A → B repeated 20 times issues at most two automatic reloads/,
+  },
+  /**
+   * ADVERSARIAL CONTROL 2 (independent-review P1-2) — non-Studio navigation
+   * clears history. Restores the reviewed defect where the recovery screen's
+   * own "Go to site" control erased the guard it exists to enforce.
+   */
+  {
+    name: "non-Studio navigation clears the attempted-transition history",
+    file: RECOVERY_CONTRACT,
+    from:
+      "  if (!pending) return { accepted: false, refusal: \"no_pending_recovery\" };\n" +
+      "  if (attestation.buildId !== pending.to) {",
+    to:
+      "  if (!pending) return { accepted: true };\n" +
+      "  if (false && attestation.buildId !== pending.to) {",
+    tests: [RECOVERY_TEST],
+    reason: /the recovery screen's own 'Go to site' does NOT clear anything/,
+  },
+  /**
+   * ADVERSARIAL CONTROL 9 (independent-review P2-1) — outcome B falls through
+   * to the generic root boundary.
+   */
+  {
+    name: "outcome B falls through to the generic boundary",
+    file: ROOT_ROUTE,
+    from:
+      "  const staleAsset = stateRendersRecoveryScreen(recoveryState) || isConfirmedStaleAssetError(error);",
+    to: "  const staleAsset = isConfirmedStaleAssetError(error);",
+    tests: [BOUNDARY_TEST],
+    reason:
+      /B — a confirmed stale failure renders the specific screen from the MACHINE, not the message/,
   },
   {
     name: "Auth storage cleared during recovery",

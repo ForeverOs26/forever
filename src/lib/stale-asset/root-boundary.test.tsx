@@ -58,12 +58,42 @@ describe("the root boundary keeps three outcomes", () => {
     expect(root).not.toContain("error.stack");
   });
 
-  it("clears the one-attempt marker only on proof, never on root mount", () => {
-    expect(root).toContain('proof: "router_resolved"');
+  it("B — a confirmed stale failure renders the specific screen from the MACHINE, not the message", () => {
+    // Independent-review P2-1. After `preventDefault()`, the error that reaches
+    // this boundary is a bare TypeError carrying no asset evidence, so a
+    // message-only test would render the generic screen in every refusal path.
+    expect(root).toContain("stateRendersRecoveryScreen(recoveryState)");
+    expect(root).toContain("stateRendersRecoveryScreen(recoveryState) || isConfirmedStaleAssetError");
+  });
+
+  it("clears NOTHING generically — success needs an exact-route attestation", () => {
+    // Independent-review P1-2. The generic clear is gone entirely.
+    expect(root).not.toContain("noteStaleAssetRouteGraphLoaded");
+    expect(root).not.toContain('proof: "router_resolved"');
     expect(root).toContain('router.subscribe("onResolved"');
-    // The Studio proof lives where the Studio shell actually mounts.
+    expect(root).toContain("attestStaleAssetRecovery");
+    // An authenticated Studio route is never attested from the root.
+    expect(root).toContain("routeKindRequiresAuthenticatedStudio(routeKindOf(pathname))) return;");
+    expect(root).toContain("studioAuthenticatedReady: false");
+
+    // The shell mount is no longer proof of anything.
     const shell = read("src/features/forever-studio/components/StudioShell.tsx");
-    expect(shell).toContain('proof: "studio_shell_mounted"');
+    expect(shell).not.toContain('proof: "studio_shell_mounted"');
+    expect(shell).not.toContain("noteStaleAssetRouteGraphLoaded");
+
+    // Each authenticated leaf attests its own usable state instead.
+    const leaves: Array<[string, string]> = [
+      ["src/features/forever-studio/components/StudioDashboard.tsx", "overview.isSuccess"],
+      ["src/features/forever-studio/components/StudioUploader.tsx", "overview.isSuccess"],
+      ["src/features/forever-studio/components/StudioMembers.tsx", "overview.isSuccess"],
+      ["src/features/forever-studio/components/StudioProjectEditor.tsx", "detailQuery.isSuccess"],
+      ["src/features/forever-studio/components/StudioResaleEditor.tsx", "detailQuery.isSuccess"],
+    ];
+    for (const [file, readiness] of leaves) {
+      const source = read(file);
+      expect(source, file).toContain("useStaleAssetRecoveryAttestation(");
+      expect(source, file).toContain(readiness);
+    }
   });
 
   it("stays safe for public routes — it reveals nothing about Studio", () => {
@@ -146,5 +176,16 @@ describe("the recovery screen", () => {
     expect(source).not.toContain("lazy(");
     expect(source).not.toContain("import(");
     expect(source).not.toContain("@tanstack/react-router");
+  });
+
+  it("announces itself and moves focus (independent-review P3-6)", () => {
+    render(<StaleAssetRecoveryScreen />);
+    const container = screen.getByTestId("stale-asset-recovery-screen");
+    expect(container).toHaveAttribute("role", "alert");
+    expect(container).toHaveAttribute("aria-live", "assertive");
+    const heading = screen.getByText(STALE_ASSET_RECOVERY_HEADING);
+    expect(heading.tagName).toBe("H1");
+    expect(heading).toHaveAttribute("tabindex", "-1");
+    expect(document.activeElement).toBe(heading);
   });
 });

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useStaleAssetRecoveryAttestation } from "@/lib/stale-asset/useStaleAssetAttestation";
 
 import {
   studioGetListingDetail,
@@ -40,6 +41,13 @@ export function StudioResaleEditor(props: { listingId: string }) {
   useEffect(() => {
     if (detail && facts === null) setFacts({ ...detail.facts });
   }, [detail, facts]);
+
+  /**
+   * Exact-route success attestation for `/studio/resale/$id`
+   * (independent-review P1-2). Proved by this leaf reaching a usable state,
+   * never by the shell mounting and never by a route merely resolving.
+   */
+  useStaleAssetRecoveryAttestation(detailQuery.isSuccess);
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["studio", "listing", props.listingId] });

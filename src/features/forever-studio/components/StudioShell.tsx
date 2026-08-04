@@ -5,30 +5,23 @@
  */
 
 import { Link } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
-import { noteStaleAssetRouteGraphLoaded } from "@/lib/stale-asset/stale-asset-recovery";
 
 import { studioSignOut } from "./useStudioSession";
 
+/**
+ * THE SHELL DELIBERATELY ATTESTS NOTHING (independent-review P1-2).
+ *
+ * An earlier revision cleared the recovery guard here, on shell mount. That is
+ * too weak: the shell renders as soon as the session resolves, while the
+ * dashboard, uploader and members chunks — the ones a stale deployment actually
+ * breaks — may still be missing. Each authenticated leaf now attests its own
+ * usable state through `useStaleAssetRecoveryAttestation`, and a shell mount
+ * clears nothing at all.
+ */
 export function StudioShell(props: { email?: string | null; children: ReactNode }) {
-  /**
-   * The ONLY proof that a recovered Studio route is usable
-   * (FOREVER-STUDIO-STALE-ASSET-RECOVERY-001).
-   *
-   * This shell mounts once the authenticated Studio chunk graph has actually
-   * loaded — which is precisely what a stale deployment breaks. Reaching here
-   * is therefore the earliest honest moment to release the one-attempt marker.
-   * The root component mounting is NOT proof and never clears it.
-   */
-  useEffect(() => {
-    noteStaleAssetRouteGraphLoaded({
-      pathname: window.location.pathname,
-      proof: "studio_shell_mounted",
-    });
-  }, []);
-
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-30 border-b border-border/60 bg-background/95 backdrop-blur">

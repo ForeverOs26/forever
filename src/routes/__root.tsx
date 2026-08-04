@@ -14,11 +14,20 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { StaleAssetRecoveryScreen } from "../lib/stale-asset/StaleAssetRecoveryScreen";
 import { classifyStaleAssetError, verdictIsStale } from "../lib/stale-asset/stale-asset-contract";
 import {
+  routeLoadEvidence,
+  type RouterStateLike,
+} from "../lib/stale-asset/route-load-evidence";
+import {
+  attestStaleAssetRecovery,
   getStaleAssetRecoveryState,
-  noteStaleAssetRouteGraphLoaded,
   requireManualStaleAssetRecovery,
   subscribeStaleAssetRecoveryState,
 } from "../lib/stale-asset/stale-asset-recovery";
+import {
+  routeKindOf,
+  routeKindRequiresAuthenticatedStudio,
+  stateRendersRecoveryScreen,
+} from "../lib/stale-asset/stale-asset-recovery-contract";
 
 function NotFoundComponent() {
   return (
@@ -70,7 +79,28 @@ function isConfirmedStaleAssetError(error: unknown): boolean {
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
-  const staleAsset = isConfirmedStaleAssetError(error);
+  /**
+   * OUTCOME B MUST NEVER FALL THROUGH TO THE GENERIC SCREEN
+   * (independent-review P2-1).
+   *
+   * The raw message is not a sufficient signal here. Once the capture layer
+   * calls `preventDefault()` on `vite:preloadError`, Vite resolves the preload
+   * promise with `undefined`, and the error that finally reaches this boundary
+   * is a bare `TypeError` about reading `'default'` of undefined — it carries
+   * no asset evidence at all. Classifying only the message therefore renders
+   * the generic "This page didn't load" screen for a failure the application
+   * has already CONFIRMED is a version change, in every refusal path.
+   *
+   * So the recovery MACHINE is authoritative, and the message is only a second
+   * way in. `deciding` is a first-class state precisely so the window between
+   * synchronous ownership and the asynchronous decision is covered.
+   */
+  const recoveryState = useSyncExternalStore(
+    subscribeStaleAssetRecoveryState,
+    getStaleAssetRecoveryState,
+    () => "idle" as const,
+  );
+  const staleAsset = stateRendersRecoveryScreen(recoveryState) || isConfirmedStaleAssetError(error);
 
   useEffect(() => {
     if (staleAsset) {
@@ -185,18 +215,35 @@ function RootComponent() {
   );
 
   /**
-   * Clearing the one-attempt marker requires PROOF that the intended route
-   * graph loaded — never merely that this component mounted. `onResolved`
-   * fires after a route's modules have loaded and its match is settled, so it
-   * is proof for ordinary routes. Studio routes need more: `StudioShell`
-   * reports its own mount, because the shell and its dashboard chunks are
-   * exactly what failed.
+   * EXACT-ROUTE SUCCESS ATTESTATION (independent-review P1-2).
+   *
+   * The generic clearing this replaced fired on `router_resolved` for ANY
+   * non-Studio pathname and cleared the guard unconditionally, so the recovery
+   * screen's own "Go to site" control (`<a href="/">`) re-armed the identical
+   * broken transition. Measured before the correction: outcome `reload_issued`,
+   * clear, outcome `reload_issued` again.
+   *
+   * What runs now attests nothing on its own. It supplies the router's real
+   * load evidence for the route that actually resolved, and
+   * `attestStaleAssetRecovery` refuses unless that evidence matches the pending
+   * recovery's build AND its route kind. An authenticated Studio route is not
+   * attested from here at all — its leaf does that itself, because a shell
+   * mount is not proof that the dashboard, uploader or members chunks loaded.
+   *
+   * Whatever happens, the attempted-transition HISTORY is never touched.
    */
   useEffect(() => {
     const unsubscribe = router.subscribe("onResolved", () => {
-      noteStaleAssetRouteGraphLoaded({
-        pathname: window.location.pathname,
-        proof: "router_resolved",
+      const pathname = window.location.pathname;
+      if (routeKindRequiresAuthenticatedStudio(routeKindOf(pathname))) return;
+      const evidence = routeLoadEvidence(router as unknown as RouterStateLike);
+      attestStaleAssetRecovery({
+        pathname,
+        leafRouteLoaded: evidence.leafRouteLoaded,
+        nestedModulesLoaded: evidence.nestedModulesLoaded,
+        errorBoundaryActive: evidence.errorBoundaryActive,
+        // No public route can attest an authenticated Studio recovery.
+        studioAuthenticatedReady: false,
       });
     });
     return () => {
@@ -204,7 +251,7 @@ function RootComponent() {
     };
   }, [router]);
 
-  if (recoveryState === "recovery_required") return <StaleAssetRecoveryScreen />;
+  if (stateRendersRecoveryScreen(recoveryState)) return <StaleAssetRecoveryScreen />;
 
   return (
     <QueryClientProvider client={queryClient}>

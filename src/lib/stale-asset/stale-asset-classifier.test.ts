@@ -100,6 +100,26 @@ describe("stale asset classifier — accepted shapes", () => {
 });
 
 describe("stale asset classifier — refused shapes", () => {
+  it("refuses a hashed asset path carrying a query or a fragment", () => {
+    // Independent-review P3-1. The hash test reads only `pathname`, so without
+    // an explicit refusal a hashed path with an arbitrary `?…` or `#…` attached
+    // would classify as one of ours. A production chunk request never carries
+    // either.
+    expect(
+      classify({
+        kind: "dynamic_import",
+        message: `Failed to fetch dynamically imported module: ${HASHED}?token=abc123`,
+      }),
+    ).toBe("not_stale_asset");
+    expect(
+      classify({
+        kind: "dynamic_import",
+        message: `Failed to fetch dynamically imported module: ${HASHED}#fragment`,
+      }),
+    ).toBe("not_stale_asset");
+    expect(classify({ kind: "module_script", assetUrl: `${HASHED}?v=2` })).toBe("not_stale_asset");
+  });
+
   it("refuses an arbitrary React rendering exception", () => {
     expect(
       classify({

@@ -21,6 +21,8 @@
  * graph and must not import a component that might itself be a missing chunk.
  */
 
+import { useEffect, useRef } from "react";
+
 import { safeRecoveryTarget } from "./stale-asset-recovery-contract";
 
 export const STALE_ASSET_RECOVERY_HEADING = "Forever was updated";
@@ -28,6 +30,22 @@ export const STALE_ASSET_RECOVERY_BODY =
   "This page was open while a new version was released, so it could not finish loading the latest version. Reloading picks up the current version. You stay signed in, and nothing you have already submitted is repeated.";
 
 export function StaleAssetRecoveryScreen() {
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+
+  /**
+   * Announce the view change (independent-review P3-6).
+   *
+   * This screen REPLACES the route the visitor was on without a navigation, so
+   * a keyboard or screen-reader user gets no signal that anything changed:
+   * focus stays wherever it was, on an element that no longer exists in the
+   * accessible tree. Moving focus to the heading and marking the container as
+   * an assertive live region is the smallest correct fix; `tabIndex={-1}` makes
+   * the heading programmatically focusable without adding it to the tab order.
+   */
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
+
   const reloadCurrentVersion = () => {
     if (typeof window === "undefined") return;
     window.location.replace(safeRecoveryTarget(window.location.pathname, window.location.search));
@@ -36,10 +54,16 @@ export function StaleAssetRecoveryScreen() {
   return (
     <div
       data-testid="stale-asset-recovery-screen"
+      role="alert"
+      aria-live="assertive"
       className="flex min-h-screen w-full items-center justify-center bg-background px-4 py-12"
     >
       <div className="w-full max-w-md text-center">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
+        <h1
+          ref={headingRef}
+          tabIndex={-1}
+          className="text-xl font-semibold tracking-tight text-foreground outline-none"
+        >
           {STALE_ASSET_RECOVERY_HEADING}
         </h1>
         <p className="mt-2 break-words text-sm text-muted-foreground">

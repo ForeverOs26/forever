@@ -1,28 +1,38 @@
 /**
  * FOREVER-STUDIO-STALE-ASSET-RECOVERY-001 — the bounded recovery machine.
  *
- * ONE automatic reload, for ONE proven version transition, in ONE tab, and only
- * when nothing consequential is in flight. Every other path refuses and hands
- * the visitor a specific, honest screen with a manual reload button.
+ * A BOUNDED number of automatic reloads per tab, at most ONE per ordered
+ * version transition, and only when nothing consequential is in flight. Every
+ * other path refuses and hands the visitor a specific, honest screen with a
+ * manual reload button.
  *
  * ORDER OF THE DECISION — each step can only ever REFUSE:
  *   1. the failure must classify as a stale versioned asset;
  *   2. the current route must permit an automatic reload at all;
  *   3. no consequential action may be unproven in this page;
- *   4. `sessionStorage` must be writable, or a second reload could not be
- *      prevented and therefore a first one must not happen;
- *   5. the origin must report a build identifier, and it must DIFFER from the
+ *   4. `sessionStorage` must be readable and writable, or a further reload
+ *      could not be prevented and therefore this one must not happen;
+ *   5. whatever storage holds must be a VALID ledger; a malformed one refuses;
+ *   6. the origin must report a build identifier, and it must DIFFER from the
  *      one this page is running;
- *   6. this tab must not already have spent its attempt on that exact
- *      transition.
+ *   7. the ledger must not already have spent an attempt on that exact
+ *      transition, and the tab must not have spent its whole budget.
  *
- * Only after all six does the marker get written — before the reload, never
- * after, so a reload that begins is already accounted for.
+ * Only after all seven is the attempt recorded — before the reload, never
+ * after, and into BOTH the pending slot and the bounded history in one write,
+ * so a reload that begins is already accounted for even if the page never
+ * comes back.
  *
- * SUCCESS IS NOT "REACT MOUNTED". The marker is cleared only when the intended
- * route graph has actually loaded: for Studio, when the authenticated shell has
- * mounted. Clearing it at root mount would hand the next failure a fresh
- * attempt it has not earned, which is precisely how a reload loop starts.
+ * SUCCESS IS NOT "REACT MOUNTED", AND IT IS NOT "A ROUTE RESOLVED"
+ * (independent-review P1-2). The reviewed design cleared its marker whenever
+ * any non-Studio route resolved, so the recovery screen's own "Go to site"
+ * control cleared the guard and re-armed the identical broken transition. Here
+ * the only thing that clears anything is an explicit exact-route attestation
+ * that proves the recovered build, the recovered route kind, the leaf module,
+ * its nested modules, the absence of an error boundary, authenticated Studio
+ * readiness where applicable, and a quiet stabilization window. And even then
+ * it clears ONLY the pending recovery. The attempted-transition history is
+ * never erased by navigation, by Back, by a redirect or by success.
  */
 
 import {
@@ -33,18 +43,23 @@ import {
 } from "./stale-asset-contract";
 import { FOREVER_BUILD_ID, fetchActiveBuildId } from "./build-identity";
 import {
-  markerBlocksTransition,
-  parseStaleAssetRecoveryMarker,
+  attestationClearsPending,
+  clearPendingRecovery,
+  emptyLedger,
+  ledgerBlocksTransition,
+  parseStaleAssetRecoveryLedger,
+  recordStaleAssetAttempt,
   routeForbidsAutomaticRecovery,
-  routeRequiresStudioShellProof,
+  routeKindOf,
   safeRecoveryTarget,
-  serializeStaleAssetRecoveryMarker,
-  STALE_ASSET_RECOVERY_MARKER_KEY,
-  STALE_ASSET_RECOVERY_MARKER_SCHEMA,
-  type StaleAssetLoadProof,
-  type StaleAssetRecoveryMarker,
+  serializeStaleAssetRecoveryLedger,
+  STALE_ASSET_RECOVERY_LEDGER_KEY,
+  STALE_ASSET_RECOVERY_STABILIZATION_MS,
+  type StaleAssetAttestationVerdict,
+  type StaleAssetRecoveryLedger,
   type StaleAssetRecoveryOutcome,
   type StaleAssetRecoveryState,
+  type StaleAssetSuccessAttestation,
 } from "./stale-asset-recovery-contract";
 import { hasUnprovenConsequentialAction } from "./write-safety";
 
@@ -67,6 +82,17 @@ let state: StaleAssetRecoveryState = "idle";
  */
 let decisionInFlight = false;
 
+/**
+ * Monotonic count of confirmed stale signals seen in this page.
+ *
+ * The stabilization window compares this before and after, which is how "no
+ * immediate stale-asset event occurred while the recovered page settled" is
+ * proved rather than assumed.
+ */
+let confirmedStaleSignals = 0;
+
+let stabilizationTimer: ReturnType<typeof setTimeout> | null = null;
+
 function setState(next: StaleAssetRecoveryState): void {
   if (state === next) return;
   state = next;
@@ -88,11 +114,19 @@ export function subscribeStaleAssetRecoveryState(listener: Listener): () => void
 export function resetStaleAssetRecoveryStateForTest(): void {
   state = "idle";
   decisionInFlight = false;
+  confirmedStaleSignals = 0;
+  if (stabilizationTimer !== null) clearTimeout(stabilizationTimer);
+  stabilizationTimer = null;
   listeners.clear();
 }
 
+/** Test-only view of the confirmed-signal counter. */
+export function confirmedStaleSignalCountForTest(): number {
+  return confirmedStaleSignals;
+}
+
 // ---------------------------------------------------------------------------
-// Marker storage
+// Ledger storage
 // ---------------------------------------------------------------------------
 
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -100,7 +134,7 @@ type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 function resolveStorage(supplied?: StorageLike | null): StorageLike | null {
   // `undefined` means "not supplied — use the ambient store". An explicit
   // `null` means "there is no store", and must NOT silently fall back to one:
-  // the caller is stating the condition under which a second reload could not
+  // the caller is stating the condition under which a further reload could not
   // be prevented, which is a refusal, not a default.
   if (supplied !== undefined) return supplied;
   try {
@@ -112,49 +146,61 @@ function resolveStorage(supplied?: StorageLike | null): StorageLike | null {
   }
 }
 
-export function readRecoveryMarker(
-  now: number,
-  storage?: StorageLike | null,
-): StaleAssetRecoveryMarker | null {
+export type LedgerRead =
+  | { status: "unavailable" }
+  | { status: "malformed" }
+  | { status: "ok"; ledger: StaleAssetRecoveryLedger };
+
+export function readRecoveryLedger(now: number, storage?: StorageLike | null): LedgerRead {
   const store = resolveStorage(storage);
-  if (!store) return null;
+  if (!store) return { status: "unavailable" };
   let raw: string | null;
   try {
-    raw = store.getItem(STALE_ASSET_RECOVERY_MARKER_KEY);
+    raw = store.getItem(STALE_ASSET_RECOVERY_LEDGER_KEY);
   } catch {
-    return null;
+    return { status: "unavailable" };
   }
-  const marker = parseStaleAssetRecoveryMarker(raw, now);
-  if (!marker && raw !== null) {
-    // An unreadable marker is deleted rather than left to be re-parsed for ever.
+  const parsed = parseStaleAssetRecoveryLedger(raw, now);
+  if (parsed.status === "malformed") {
+    // Removed so the tab is not stuck refusing for ever on one bad value. The
+    // refusal below still stands for THIS signal: a malformed ledger never
+    // silently becomes a fresh reload budget in the same decision.
     try {
-      store.removeItem(STALE_ASSET_RECOVERY_MARKER_KEY);
+      store.removeItem(STALE_ASSET_RECOVERY_LEDGER_KEY);
     } catch {
       /* nothing further to do */
     }
+    return { status: "malformed" };
   }
-  return marker;
+  return { status: "ok", ledger: parsed.ledger };
 }
 
-function writeRecoveryMarker(
-  marker: StaleAssetRecoveryMarker,
+function writeRecoveryLedger(
+  ledger: StaleAssetRecoveryLedger,
   storage?: StorageLike | null,
 ): boolean {
   const store = resolveStorage(storage);
   if (!store) return false;
   try {
-    store.setItem(STALE_ASSET_RECOVERY_MARKER_KEY, serializeStaleAssetRecoveryMarker(marker));
+    store.setItem(STALE_ASSET_RECOVERY_LEDGER_KEY, serializeStaleAssetRecoveryLedger(ledger));
     return true;
   } catch {
     return false;
   }
 }
 
-export function clearRecoveryMarker(storage?: StorageLike | null): void {
+/**
+ * Removes the WHOLE ledger. Test-only and reset-only.
+ *
+ * Application code never calls this: erasing the history is exactly the defect
+ * independent-review P1-2 recorded. Success clears the pending recovery through
+ * `attestStaleAssetRecovery`, and nothing else clears anything.
+ */
+export function resetRecoveryLedgerForTest(storage?: StorageLike | null): void {
   const store = resolveStorage(storage);
   if (!store) return;
   try {
-    store.removeItem(STALE_ASSET_RECOVERY_MARKER_KEY);
+    store.removeItem(STALE_ASSET_RECOVERY_LEDGER_KEY);
   } catch {
     /* nothing further to do */
   }
@@ -183,7 +229,8 @@ export type StaleAssetRecoveryDecision = {
 };
 
 /**
- * Classifies one failure and, at most once, recovers from it.
+ * Classifies one failure and, at most once per transition and within the tab's
+ * bounded budget, recovers from it.
  *
  * Returns a closed verdict/outcome pair and nothing else — no message, no URL,
  * no stack, nothing that could carry an identifier out of this module.
@@ -195,10 +242,18 @@ export async function handleStaleAssetSignal(
   const verdict = classifyStaleAssetError(signal, { origin: environment.origin });
   if (!verdictIsStale(verdict)) return { verdict, outcome: "not_stale" };
 
+  confirmedStaleSignals += 1;
+
   // A second channel reporting the SAME failure must not become a second
   // decision, a second build probe or a second reload.
   if (decisionInFlight) return { verdict, outcome: "already_handling" };
   decisionInFlight = true;
+
+  // Ownership is taken synchronously the moment the classifier confirms, but
+  // the decision below is asynchronous. `deciding` is what the root boundary
+  // renders in between, so a confirmed stale failure never shows the generic
+  // screen while its outcome is still being worked out (P2-1).
+  setState("deciding");
 
   const refuse = (outcome: StaleAssetRecoveryOutcome): StaleAssetRecoveryDecision => {
     // Every refusal is still a CONFIRMED version problem, so the visitor gets
@@ -219,29 +274,31 @@ export async function handleStaleAssetSignal(
   const storage = resolveStorage(environment.storage);
   if (!storage) return refuse("storage_unavailable");
 
+  const read = readRecoveryLedger(now, storage);
+  if (read.status === "unavailable") return refuse("storage_unavailable");
+  if (read.status === "malformed") return refuse("malformed_state");
+  const ledger = read.ledger;
+
   const ownBuildId = environment.ownBuildId ?? FOREVER_BUILD_ID;
   const readActive = environment.readActiveBuildId ?? (() => fetchActiveBuildId());
   const activeBuildId = await readActive();
   if (activeBuildId === null) return refuse("active_build_unknown");
   if (activeBuildId === ownBuildId) return refuse("same_build");
 
-  const existing = readRecoveryMarker(now, storage);
-  if (markerBlocksTransition(existing, ownBuildId, activeBuildId)) {
-    return refuse("attempt_already_used");
-  }
+  const denial = ledgerBlocksTransition(ledger, ownBuildId, activeBuildId);
+  if (denial) return refuse(denial);
 
-  const wrote = writeRecoveryMarker(
-    {
-      v: STALE_ASSET_RECOVERY_MARKER_SCHEMA,
+  const wrote = writeRecoveryLedger(
+    recordStaleAssetAttempt(ledger, {
       from: ownBuildId,
       to: activeBuildId,
-      attempt: 1,
       at: now,
-    },
+      route: routeKindOf(environment.pathname),
+    }),
     storage,
   );
-  // The marker is the ONLY thing preventing a second reload. If it could not be
-  // written, the reload does not happen.
+  // The ledger is the ONLY thing preventing a further reload. If it could not
+  // be written, the reload does not happen.
   if (!wrote) return refuse("storage_unavailable");
 
   // `decisionInFlight` deliberately stays set: the page is being replaced, and
@@ -253,29 +310,98 @@ export async function handleStaleAssetSignal(
 }
 
 // ---------------------------------------------------------------------------
-// Success — the only thing allowed to clear the marker
+// Success attestation — the only thing allowed to clear a pending recovery
 // ---------------------------------------------------------------------------
 
+export type StaleAssetAttestationInput = Omit<
+  StaleAssetSuccessAttestation,
+  "buildId" | "stabilizedWithoutStaleSignal"
+> & {
+  buildId?: string;
+};
+
+export type StaleAssetAttestationResult = StaleAssetAttestationVerdict & {
+  /** True when the pending recovery was cleared as a result. */
+  cleared: boolean;
+  /** How many attempted transitions the ledger still remembers. */
+  historyRetained: number;
+};
+
 /**
- * Records that a route graph finished loading, and clears the marker when that
- * is genuine proof the recovered route is usable.
+ * Records an explicit, exact-route success attestation.
  *
- * A Studio route is proved ONLY by the authenticated shell mounting; the
- * router merely resolving is not enough there, because the shell and its
- * dashboard chunk graph are exactly what failed to load. Every other route is
- * proved by the router resolving it.
+ * Nothing generic reaches this function. `router_resolved` is not an argument
+ * it accepts, a root mount is not evidence it recognises, and a pathname that
+ * does not match the pending recovery's route kind is refused outright — which
+ * is what makes "Go to site", Back, an ordinary public navigation and a
+ * redirect unable to erase anything.
  *
- * The root component mounting proves nothing anywhere and is never a caller.
+ * The stabilization clause is proved, not assumed: the confirmed-stale-signal
+ * counter is sampled now and again after the bounded window, and the pending
+ * recovery is cleared only if it did not move.
  */
-export function noteStaleAssetRouteGraphLoaded(
-  input: { pathname: string; proof: StaleAssetLoadProof },
+export function attestStaleAssetRecovery(
+  input: StaleAssetAttestationInput,
+  options: {
+    now?: () => number;
+    storage?: StorageLike | null;
+    /** Injected so the stabilization window is testable without real time. */
+    schedule?: (run: () => void, ms: number) => void;
+    stabilizationMs?: number;
+  } = {},
+): StaleAssetAttestationResult {
+  const now = (options.now ?? Date.now)();
+  const read = readRecoveryLedger(now, options.storage);
+  if (read.status !== "ok") {
+    return {
+      accepted: false,
+      refusal: "no_pending_recovery",
+      cleared: false,
+      historyRetained: 0,
+    };
+  }
+  const ledger = read.ledger;
+
+  const attestation: StaleAssetSuccessAttestation = {
+    ...input,
+    buildId: input.buildId ?? FOREVER_BUILD_ID,
+    // Sampled below. Assumed false here so a caller cannot assert it.
+    stabilizedWithoutStaleSignal: true,
+  };
+
+  const verdict = attestationClearsPending(ledger.pending, attestation);
+  if (!verdict.accepted) {
+    return { ...verdict, cleared: false, historyRetained: ledger.history.length };
+  }
+
+  const signalsAtStart = confirmedStaleSignals;
+  const finish = () => {
+    stabilizationTimer = null;
+    if (confirmedStaleSignals !== signalsAtStart) return;
+    const later = readRecoveryLedger((options.now ?? Date.now)(), options.storage);
+    if (later.status !== "ok" || !later.ledger.pending) return;
+    writeRecoveryLedger(clearPendingRecovery(later.ledger), options.storage);
+    setState("idle");
+  };
+
+  const schedule =
+    options.schedule ??
+    ((run: () => void, ms: number) => {
+      if (stabilizationTimer !== null) clearTimeout(stabilizationTimer);
+      stabilizationTimer = setTimeout(run, ms);
+    });
+  schedule(finish, options.stabilizationMs ?? STALE_ASSET_RECOVERY_STABILIZATION_MS);
+
+  return { accepted: true, cleared: true, historyRetained: ledger.history.length };
+}
+
+/** Read-only view of the ledger, for tests and for the harness. */
+export function currentRecoveryLedger(
+  now: number,
   storage?: StorageLike | null,
-): boolean {
-  const needsShell = routeRequiresStudioShellProof(input.pathname);
-  if (needsShell && input.proof !== "studio_shell_mounted") return false;
-  clearRecoveryMarker(storage);
-  setState("idle");
-  return true;
+): StaleAssetRecoveryLedger {
+  const read = readRecoveryLedger(now, storage);
+  return read.status === "ok" ? read.ledger : emptyLedger();
 }
 
 /**

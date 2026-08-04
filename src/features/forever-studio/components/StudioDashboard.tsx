@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useStaleAssetRecoveryAttestation } from "@/lib/stale-asset/useStaleAssetAttestation";
 import { beginConsequentialAction } from "@/lib/stale-asset/write-safety";
 
 import {
@@ -79,6 +80,17 @@ export function StudioDashboard() {
     refetchInterval: (query) =>
       query.state.data && query.state.data.activeJobs > 0 ? 5000 : false,
   });
+
+  /**
+   * Exact-route success attestation for the Studio dashboard
+   * (independent-review P1-2).
+   *
+   * Proved by AUTHENTICATED OVERVIEW READINESS — a signed-in session plus a
+   * resolved overview. A shell mount, a root mount, the sign-in screen, the
+   * password-recovery interstitial and the error boundary are all explicitly
+   * not this, and none of them clears anything.
+   */
+  useStaleAssetRecoveryAttestation(session.status === "signed_in" && overview.isSuccess);
 
   // Automatic durable resume: on each poll, ask the server to pick up only
   // explicitly-ready received / retryable-failed / stale-processing jobs.

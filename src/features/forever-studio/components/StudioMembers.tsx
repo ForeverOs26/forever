@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useStaleAssetRecoveryAttestation } from "@/lib/stale-asset/useStaleAssetAttestation";
 import { beginConsequentialAction } from "@/lib/stale-asset/write-safety";
 
 import { studioGetOverview, studioInviteMember, studioSetMemberActive } from "../studio.functions";
@@ -28,6 +29,16 @@ export function StudioMembers() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+
+  /**
+   * Exact-route success attestation for `/studio/members`
+   * (independent-review P1-2).
+   *
+   * The members route is proved by its ACTUAL leaf mounting AND its data
+   * boundary resolving — never by the shell mounting, never by the router
+   * resolving, and never by the denial or unavailable screens below.
+   */
+  useStaleAssetRecoveryAttestation(overview.isSuccess);
 
   // Membership changes are consequential (FOREVER-STUDIO-STALE-ASSET-RECOVERY-001):
   // an automatic reload mid-invitation must never be able to produce a second
