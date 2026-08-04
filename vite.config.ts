@@ -8,7 +8,32 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import type { NitroConfig } from "nitro/types";
 import type { Plugin } from "vite";
 
+import { resolveForeverClientAssetId } from "./scripts/build/forever-client-asset-id";
+import { foreverTanstackReloadOwnership } from "./scripts/build/tanstack-reload-ownership.mjs";
+
 const PARTNER_DEMO_HEALTH_PATH = "/__forever_partner_demo_health";
+
+/**
+ * Public CLIENT ASSET identity (FOREVER-STUDIO-STALE-ASSET-RECOVERY-001).
+ *
+ * Inlined into BOTH the client and the server output of this build, so the
+ * constant compiled into a running page and the constant served by
+ * `/forever-client-assets.json` are the same value for one client asset graph
+ * and differ whenever that graph moves. That single comparison is what makes
+ * the stale-asset recovery a decision rather than a guess.
+ *
+ * NOT A RELEASE IDENTITY (narrow-re-review RR2-P1-1). It proves client asset
+ * compatibility and nothing else; a server-only release legitimately keeps the
+ * same value. Which Worker is deployed is proved by the immutable Cloudflare
+ * Worker version UUID — see `src/lib/stale-asset/worker-release-identity.ts`,
+ * which is never inlined into any bundle.
+ *
+ * Deterministic by construction — never a timestamp, never random — because a
+ * build this repository cannot reproduce is already treated as a defect (see
+ * the `compatibility_date` reasoning in wrangler.jsonc). A production build
+ * cannot pin this value; only the two-version test harness may.
+ */
+const FOREVER_CLIENT_ASSET_ID = resolveForeverClientAssetId();
 
 function partnerDemoHealthPlugin(): Plugin {
   return {
@@ -53,7 +78,19 @@ const nitroRuntimeOptions = {
 
 export default defineConfig({
   vite: {
-    plugins: [partnerDemoHealthPlugin()],
+    plugins: [
+      // Exactly ONE recovery authority (independent-review P1-5). Substitutes
+      // a repository-controlled lazy route-component loader for TanStack
+      // Router's, whose built-in reload is identity-blind, write-unsafe and
+      // stores the complete failing asset URL in sessionStorage. The plugin
+      // refuses to build if the upstream module is not the pinned shape it was
+      // written against.
+      foreverTanstackReloadOwnership(),
+      partnerDemoHealthPlugin(),
+    ],
+    define: {
+      __FOREVER_CLIENT_ASSET_ID__: JSON.stringify(FOREVER_CLIENT_ASSET_ID),
+    },
   },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).

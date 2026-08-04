@@ -13,6 +13,8 @@
  * only — no server-only imports.
  */
 
+import { runStudioWriteAction } from "@/lib/stale-asset/write-safety";
+
 import { studioConfirmArchiveUpload, studioPlanArchiveUpload } from "../studio.functions";
 import {
   ARCHIVE_PART_BYTES,
@@ -227,10 +229,15 @@ export async function uploadLargeArchive(
     state: "preparing",
   });
   const partSha256 = await computeUploadPartManifest(file);
+  // The canonical write boundary (independent-review P1-3). Planning and
+  // confirming are both consequential: each can create or complete a durable
+  // archive server-side, so an automatic reload must never happen across them.
   const requestPlan = () =>
-    studioPlanArchiveUpload({
-      data: { jobId, fileName: file.name, declaredSize: file.size, materialPurpose, partSha256 },
-    });
+    runStudioWriteAction("upload_start", () =>
+      studioPlanArchiveUpload({
+        data: { jobId, fileName: file.name, declaredSize: file.size, materialPurpose, partSha256 },
+      }),
+    );
   let plan = await requestPlan();
   // Per-part receipts, keyed by part index. Kept across replans: a resumed
   // upload must still be able to name every part the storage system holds.
@@ -282,9 +289,11 @@ export async function uploadLargeArchive(
   // server can prove the confirming client still holds the SAME archive.
   report("confirming", done);
   for (let round = 0; round < CONFIRM_ROUNDS; round += 1) {
-    const confirm = await studioConfirmArchiveUpload({
-      data: { jobId, archiveId: plan.archiveId, partSha256, partEtags: partReceipts(receipts) },
-    });
+    const confirm = await runStudioWriteAction("upload_confirm", () =>
+      studioConfirmArchiveUpload({
+        data: { jobId, archiveId: plan.archiveId, partSha256, partEtags: partReceipts(receipts) },
+      }),
+    );
     if (confirm.accepted) {
       report("stored", plan.partCount);
       return { archiveId: plan.archiveId };

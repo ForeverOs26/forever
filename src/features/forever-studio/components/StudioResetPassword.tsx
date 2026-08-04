@@ -32,6 +32,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { beginConsequentialAction } from "@/lib/stale-asset/write-safety";
 import { supabase } from "@/integrations/supabase/client";
 
 import {
@@ -290,6 +291,11 @@ export function StudioResetPassword() {
     }
 
     setPhase("updating_password");
+    // FOREVER-STUDIO-STALE-ASSET-RECOVERY-001. A password update is the most
+    // consequential action in the application, and this route is additionally
+    // on the automatic-recovery deny list, so a stale-asset reload can never
+    // interrupt or replay it. Registered before the request leaves.
+    const releasePasswordUpdate = beginConsequentialAction("password_update");
     try {
       const { error: updateError } = await recoveryClient.auth.updateUser({ password });
       if (updateError) {
@@ -301,6 +307,8 @@ export function StudioResetPassword() {
       setPhase("ready");
       setError(studioRecoveryErrorMessage(caught));
       return;
+    } finally {
+      releasePasswordUpdate();
     }
 
     // Password changed. Discard the values immediately, and record that a

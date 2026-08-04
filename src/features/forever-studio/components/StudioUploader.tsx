@@ -19,6 +19,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
+import { useStaleAssetRecoveryAttestation } from "@/lib/stale-asset/useStaleAssetAttestation";
+import { beginConsequentialAction, runStudioWriteAction } from "@/lib/stale-asset/write-safety";
 import {
   ARCHIVE_UPLOAD_UNAVAILABLE_MESSAGE,
   ARCHIVE_UPLOAD_UNAVAILABLE_WINDOW_NOTE,
@@ -194,6 +196,16 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
   const archiveWindowUnavailable = isArchiveUploadDisplayedUnavailable(archiveCapability);
   const archiveLaneOpen = isArchiveUploadAvailable(archiveCapability);
 
+  /**
+   * Exact-route success attestation for `/studio/upload`
+   * (independent-review P1-2).
+   *
+   * The upload route is proved by the ACTUAL uploader leaf reaching a usable
+   * state — this component mounted and its overview resolved — never by the
+   * Studio shell mounting and never by the router resolving some other route.
+   */
+  useStaleAssetRecoveryAttestation(overview.isSuccess);
+
   if (overview.isError) {
     // Only a server-proven denial settles as denied; a transient fetch or
     // lookup failure (offline, flaky reconnect) stays retryable.
@@ -226,6 +238,12 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
     // must offer "Resume upload" (replan + missing parts only), never a
     // processing request against an archive with parts still missing.
     let stage: "upload" | "processing" = "upload";
+    // FOREVER-STUDIO-STALE-ASSET-RECOVERY-001. From job creation through the
+    // processing confirmation this action is consequential, so an automatic
+    // stale-asset reload is refused for its whole duration. After a MANUAL
+    // reload nothing restarts on its own: the job is durable server-side and
+    // the dashboard's read-only status view reports what actually happened.
+    const releaseUpload = beginConsequentialAction("upload_start");
     try {
       const failedUploads: string[] = [];
       // Which transport lane a file takes is a SIZE decision, never a purpose
@@ -261,34 +279,36 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
         return;
       }
       if (!id) {
-        const started = await studioStartJob({
-          data: {
-            workflow,
-            projectSlug: projectSlug.trim() || undefined,
-            projectFacts: isResale ? undefined : projectFacts,
-            resaleFacts: isResale ? resaleFacts : undefined,
-            // The Owner's chosen window crosses the wire with every file.
-            files: ordinary.map((selection) => ({
-              name: selection.file.name,
-              size: selection.file.size,
-              contentType: selection.file.type || undefined,
-              materialPurpose: selection.purpose,
-            })),
-            // Declared, not created. The archives are planned after this call
-            // on their own endpoint; naming them here is what lets the server
-            // refuse a mixed submission as ONE thing instead of creating the
-            // ordinary job and failing afterwards.
-            ...(largeArchives.length
-              ? {
-                  archives: largeArchives.map((selection) => ({
-                    name: selection.file.name,
-                    size: selection.file.size,
-                    materialPurpose: selection.purpose,
-                  })),
-                }
-              : {}),
-          },
-        });
+        const started = await runStudioWriteAction("upload_start", () =>
+          studioStartJob({
+            data: {
+              workflow,
+              projectSlug: projectSlug.trim() || undefined,
+              projectFacts: isResale ? undefined : projectFacts,
+              resaleFacts: isResale ? resaleFacts : undefined,
+              // The Owner's chosen window crosses the wire with every file.
+              files: ordinary.map((selection) => ({
+                name: selection.file.name,
+                size: selection.file.size,
+                contentType: selection.file.type || undefined,
+                materialPurpose: selection.purpose,
+              })),
+              // Declared, not created. The archives are planned after this call
+              // on their own endpoint; naming them here is what lets the server
+              // refuse a mixed submission as ONE thing instead of creating the
+              // ordinary job and failing afterwards.
+              ...(largeArchives.length
+                ? {
+                    archives: largeArchives.map((selection) => ({
+                      name: selection.file.name,
+                      size: selection.file.size,
+                      materialPurpose: selection.purpose,
+                    })),
+                  }
+                : {}),
+            },
+          }),
+        );
         id = started.jobId;
         // Resolve the WHOLE mapping before a single byte is sent. Bytes are
         // paired to signed targets by the SERVER-ASSIGNED fileIndex, never by
@@ -344,7 +364,9 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
       // unreadable poll — the page keeps its current processing view and
       // polls again — never a crash and never a fake failure.
       const pollProcessing = async (): Promise<StudioJobResult | null> => {
-        const polled: unknown = await studioProcessJob({ data: { jobId: id! } });
+        const polled: unknown = await runStudioWriteAction("job_processing", () =>
+          studioProcessJob({ data: { jobId: id! } }),
+        );
         return isJobResult(polled) ? polled : null;
       };
       let result = await pollProcessing();
@@ -391,6 +413,8 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
         jobId: id,
         stage,
       });
+    } finally {
+      releaseUpload();
     }
   };
 

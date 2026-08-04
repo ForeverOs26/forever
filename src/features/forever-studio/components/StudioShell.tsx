@@ -11,6 +11,16 @@ import { Button } from "@/components/ui/button";
 
 import { studioSignOut } from "./useStudioSession";
 
+/**
+ * THE SHELL DELIBERATELY ATTESTS NOTHING (independent-review P1-2).
+ *
+ * An earlier revision cleared the recovery guard here, on shell mount. That is
+ * too weak: the shell renders as soon as the session resolves, while the
+ * dashboard, uploader and members chunks — the ones a stale deployment actually
+ * breaks — may still be missing. Each authenticated leaf now attests its own
+ * usable state through `useStaleAssetRecoveryAttestation`, and a shell mount
+ * clears nothing at all.
+ */
 export function StudioShell(props: { email?: string | null; children: ReactNode }) {
   return (
     <div className="min-h-screen bg-background">

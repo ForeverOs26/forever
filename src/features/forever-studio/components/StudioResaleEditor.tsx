@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useStaleAssetRecoveryAttestation } from "@/lib/stale-asset/useStaleAssetAttestation";
+import { runStudioWriteAction } from "@/lib/stale-asset/write-safety";
 
 import {
   studioGetListingDetail,
@@ -41,6 +43,13 @@ export function StudioResaleEditor(props: { listingId: string }) {
     if (detail && facts === null) setFacts({ ...detail.facts });
   }, [detail, facts]);
 
+  /**
+   * Exact-route success attestation for `/studio/resale/$id`
+   * (independent-review P1-2). Proved by this leaf reaching a usable state,
+   * never by the shell mounting and never by a route merely resolving.
+   */
+  useStaleAssetRecoveryAttestation(detailQuery.isSuccess);
+
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["studio", "listing", props.listingId] });
     void queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY });
@@ -48,7 +57,9 @@ export function StudioResaleEditor(props: { listingId: string }) {
 
   const save = useMutation({
     mutationFn: () =>
-      studioUpdateResale({ data: { listingId: props.listingId, facts: facts ?? {} } }),
+      runStudioWriteAction("resale_facts", () =>
+        studioUpdateResale({ data: { listingId: props.listingId, facts: facts ?? {} } }),
+      ),
     onSuccess: (result) => {
       // Precedence conflicts are truthful, visible, and never a gate: the
       // stronger existing value was kept and the attempt was recorded.
@@ -62,7 +73,9 @@ export function StudioResaleEditor(props: { listingId: string }) {
   });
   const publication = useMutation({
     mutationFn: (publish: boolean) =>
-      studioSetListingPublication({ data: { listingId: props.listingId, publish } }),
+      runStudioWriteAction("publication", () =>
+        studioSetListingPublication({ data: { listingId: props.listingId, publish } }),
+      ),
     onSettled: invalidate,
   });
 

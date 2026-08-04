@@ -5,10 +5,22 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  getStaleAssetRecoveryState,
+  subscribeStaleAssetRecoveryState,
+} from "@/lib/stale-asset/stale-asset-recovery";
+import { useStaleAssetRecoveryAttestation } from "@/lib/stale-asset/useStaleAssetAttestation";
+import {
+  beginConsequentialAction,
+  hasUnprovenConsequentialAction,
+  markConsequentialActionUnreconciled,
+  reconcileConsequentialAction,
+  runStudioWriteAction,
+} from "@/lib/stale-asset/write-safety";
 
 import {
   studioGetJobStatus,
@@ -79,13 +91,52 @@ export function StudioDashboard() {
       query.state.data && query.state.data.activeJobs > 0 ? 5000 : false,
   });
 
-  // Automatic durable resume: on each poll, ask the server to pick up only
-  // explicitly-ready received / retryable-failed / stale-processing jobs.
+  /**
+   * Exact-route success attestation for the Studio dashboard
+   * (independent-review P1-2).
+   *
+   * Proved by AUTHENTICATED OVERVIEW READINESS — a signed-in session plus a
+   * resolved overview. A shell mount, a root mount, the sign-in screen, the
+   * password-recovery interstitial and the error boundary are all explicitly
+   * not this, and none of them clears anything.
+   */
+  useStaleAssetRecoveryAttestation(session.status === "signed_in" && overview.isSuccess);
+
+  /**
+   * Automatic durable resume: on each poll, ask the server to pick up only
+   * explicitly-ready received / retryable-failed / stale-processing jobs.
+   *
+   * THE ONE WRITE THAT FIRES BY ITSELF (independent-review P1-3).
+   *
+   * This is a `POST` that runs on dashboard mount whenever `activeJobs > 0`,
+   * which makes it the one mutation that genuinely DOES re-execute after an
+   * automatic reload — contradicting the stated invariant that no action
+   * automatically resubmits. It is therefore gated three ways, and every gate
+   * is a refusal:
+   *
+   *   1. it never fires while this page is recovering or deciding, so a
+   *      recovered page does not resume anything on the way in;
+   *   2. it never fires while ANY write outcome is unproven, including one left
+   *      unreconciled by a lost response;
+   *   3. it fires only from a READ-ONLY overview that resolved after those two
+   *      held — the overview is what establishes that resuming is safe.
+   *
+   * Server-side resume remains idempotent and bounded by the retry policy;
+   * this is the browser refusing to be the thing that triggers it.
+   */
   const activeJobs = overview.data?.activeJobs ?? 0;
+  const recoveryState = useSyncExternalStore(
+    subscribeStaleAssetRecoveryState,
+    getStaleAssetRecoveryState,
+    () => "idle" as const,
+  );
+  const resumeIsSafe =
+    recoveryState === "idle" && overview.isSuccess && !hasUnprovenConsequentialAction();
   useEffect(() => {
     if (activeJobs <= 0) return;
+    if (!resumeIsSafe) return;
     let cancelled = false;
-    void studioResumePending({ data: undefined })
+    void runStudioWriteAction("resume_pending", () => studioResumePending({ data: undefined }))
       .then(() => {
         if (!cancelled) void queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY });
       })
@@ -93,7 +144,7 @@ export function StudioDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [activeJobs, overview.dataUpdatedAt, queryClient]);
+  }, [activeJobs, overview.dataUpdatedAt, queryClient, resumeIsSafe]);
 
   /**
    * One local record and one bounded timer pair per Retry the Owner explicitly
@@ -115,6 +166,14 @@ export function StudioDashboard() {
     expired: boolean;
     /** Stops the browser waiting locally. Never proof the server did not run. */
     abort: AbortController | null;
+    /**
+     * Consequential-action registrations (FOREVER-STUDIO-STALE-ASSET-RECOVERY-001).
+     * While either is held, an automatic stale-asset reload is REFUSED — a
+     * reload during an unconfirmed Retry could become a second Retry, which
+     * this lane exists to make impossible.
+     */
+    releaseSubmit: (() => void) | null;
+    releaseObserve: (() => void) | null;
   };
 
   const [ownerRetries, setOwnerRetries] = useState<Record<string, StudioOwnerRetryView>>({});
@@ -133,6 +192,10 @@ export function StudioDashboard() {
     if (!timers) return;
     if (timers.pollTimer) clearTimeout(timers.pollTimer);
     clearTimeout(timers.deadlineTimer);
+    // Every terminal path funnels through here, so this is the one place the
+    // consequential-action registrations are released.
+    timers.releaseSubmit?.();
+    timers.releaseObserve?.();
     retryTimersRef.current.delete(jobId);
   };
 
@@ -262,6 +325,10 @@ export function StudioDashboard() {
   };
 
   const observeOwnerRetry = (jobId: string, initial: StudioJobResult, timers: OwnerRetryTimers) => {
+    // The submission is settled but the JOB is not, so the action stays
+    // consequential: an automatic reload here would abandon an observation
+    // whose outcome nothing else is watching.
+    timers.releaseObserve ??= beginConsequentialAction("owner_retry_observe");
     putOwnerRetry(jobId, {
       phase: "observing",
       status: initial.status,
@@ -339,6 +406,11 @@ export function StudioDashboard() {
       nextIntervalMs: STUDIO_OWNER_RETRY_OBSERVATION.initialIntervalMs,
       expired: false,
       abort: typeof AbortController === "function" ? new AbortController() : null,
+      // Registered BEFORE the request leaves. The dangerous window opens the
+      // moment the browser might have sent something, not when a response
+      // arrives.
+      releaseSubmit: beginConsequentialAction("owner_retry_submit"),
+      releaseObserve: null,
     };
     retryTimersRef.current.set(job.id, timers);
 
@@ -347,15 +419,25 @@ export function StudioDashboard() {
       // A response that arrives after the deadline is a stale action response.
       // It does not restart polling, unlock Retry, or navigate; only the
       // read-only Refresh path may establish current truth.
+      // The submit itself has settled; observation (registered below) carries
+      // the action from here.
+      timers.releaseSubmit?.();
+      timers.releaseSubmit = null;
       if (retryTimersRef.current.get(job.id) !== timers || timers.expired) return;
       if (!settleOwnerRetry(result)) observeOwnerRetry(job.id, result, timers);
     } catch (error) {
+      timers.releaseSubmit?.();
+      timers.releaseSubmit = null;
       if (retryTimersRef.current.get(job.id) !== timers || timers.expired) return;
       if (error instanceof Error && error.name === "job_not_found") {
         markOwnerRetryMissing(job.id);
       } else {
         // The mutation may have reached the server even if its response did
-        // not reach the browser. Never submit it again automatically.
+        // not reach the browser. Never submit it again automatically, and keep
+        // this page unsafe for an automatic reload until the read-only Refresh
+        // path establishes what the server actually did
+        // (independent-review P1-3).
+        markConsequentialActionUnreconciled("owner_retry_submit");
         markOwnerRetryTimeout(job.id);
       }
     }
@@ -371,6 +453,10 @@ export function StudioDashboard() {
     });
     try {
       const result = await studioGetJobStatus({ data: { jobId } });
+      // READ-ONLY RECONCILIATION (independent-review P1-3). This path reads the
+      // server's actual state and never writes, so it — and only it — may
+      // clear an Owner Retry whose submit response was lost.
+      reconcileConsequentialAction("owner_retry_submit");
       if (!settleOwnerRetry(result)) markOwnerRetryTimeout(jobId);
     } catch (error) {
       if (error instanceof Error && error.name === "job_not_found") markOwnerRetryMissing(jobId);
@@ -378,14 +464,17 @@ export function StudioDashboard() {
     }
   };
 
+  // Publication is consequential: it changes what the public site shows. While
+  // one is in flight an automatic stale-asset reload is refused, and after a
+  // manual reload nothing republishes on its own.
   const projectPublication = useMutation({
     mutationFn: (input: { slug: string; publish: boolean }) =>
-      studioSetProjectPublication({ data: input }),
+      runStudioWriteAction("publication", () => studioSetProjectPublication({ data: input })),
     onSettled: () => queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY }),
   });
   const listingPublication = useMutation({
     mutationFn: (input: { listingId: string; publish: boolean }) =>
-      studioSetListingPublication({ data: input }),
+      runStudioWriteAction("publication", () => studioSetListingPublication({ data: input })),
     onSettled: () => queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY }),
   });
 

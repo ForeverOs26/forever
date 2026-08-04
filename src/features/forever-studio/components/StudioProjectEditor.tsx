@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useStaleAssetRecoveryAttestation } from "@/lib/stale-asset/useStaleAssetAttestation";
+import { runStudioWriteAction } from "@/lib/stale-asset/write-safety";
 
 import {
   studioGetProjectDetail,
@@ -45,13 +47,27 @@ export function StudioProjectEditor(props: { slug: string }) {
     if (detail && facts === null) setFacts({ ...detail.facts });
   }, [detail, facts]);
 
+  /**
+   * Exact-route success attestation for `/studio/project/$slug`
+   * (independent-review P1-2). Proved by this leaf reaching a usable state,
+   * never by the shell mounting and never by a route merely resolving.
+   */
+  useStaleAssetRecoveryAttestation(detailQuery.isSuccess);
+
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["studio", "project", props.slug] });
     void queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY });
   };
 
+  // Every Studio write goes through the canonical boundary
+  // (FOREVER-STUDIO-STALE-ASSET-RECOVERY-001, independent-review P1-3): the
+  // registration is synchronous, before the request can leave, and a lost
+  // response leaves the action unreconciled rather than silently safe.
   const save = useMutation({
-    mutationFn: () => studioSaveProjectFacts({ data: { slug: props.slug, facts: facts ?? {} } }),
+    mutationFn: () =>
+      runStudioWriteAction("project_facts", () =>
+        studioSaveProjectFacts({ data: { slug: props.slug, facts: facts ?? {} } }),
+      ),
     onSuccess: (result) => {
       setMessage(
         result.warnings.length
@@ -64,11 +80,16 @@ export function StudioProjectEditor(props: { slug: string }) {
   });
   const publication = useMutation({
     mutationFn: (publish: boolean) =>
-      studioSetProjectPublication({ data: { slug: props.slug, publish } }),
+      runStudioWriteAction("publication", () =>
+        studioSetProjectPublication({ data: { slug: props.slug, publish } }),
+      ),
     onSettled: invalidate,
   });
   const hero = useMutation({
-    mutationFn: (url: string) => studioSetHeroImage({ data: { slug: props.slug, url } }),
+    mutationFn: (url: string) =>
+      runStudioWriteAction("project_hero", () =>
+        studioSetHeroImage({ data: { slug: props.slug, url } }),
+      ),
     onSettled: invalidate,
   });
 
