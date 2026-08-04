@@ -1,5 +1,6 @@
 {
-  "_note": "FOREVER-WRANGLER-KEEP-VARS-CORRECTION-001 fixture. A candidate uploaded WITH --keep-vars: all twelve bindings preserved. Names and classes only.",
+  "schemaVersion": 1,
+  "workerVersionId": "22222222-2222-4222-8222-222222222222",
   "bindings": [
     {
       "name": "ASSETS",

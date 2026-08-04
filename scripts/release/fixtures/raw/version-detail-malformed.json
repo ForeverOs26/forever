@@ -1,0 +1,11 @@
+{
+  "errors": [
+    {
+      "code": 10007,
+      "message": "workers.api.error.script_not_found"
+    }
+  ],
+  "messages": [],
+  "result": null,
+  "success": false
+}

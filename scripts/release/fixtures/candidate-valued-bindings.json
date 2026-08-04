@@ -1,7 +1,15 @@
 {
-  "_note": "FOREVER-WRANGLER-KEEP-VARS-CORRECTION-001 fixture. A capture that recorded MORE than name and class. The preflight must refuse it outright rather than read it. The extra key below is an empty placeholder — no real value is present in this repository.",
+  "schemaVersion": 1,
+  "workerVersionId": "44444444-4444-4444-8444-444444444444",
   "bindings": [
-    { "name": "ASSETS", "type": "assets" },
-    { "name": "SUPABASE_URL", "type": "plain_text", "text": "" }
+    {
+      "name": "ASSETS",
+      "type": "assets"
+    },
+    {
+      "name": "SUPABASE_URL",
+      "type": "plain_text",
+      "text": ""
+    }
   ]
 }
