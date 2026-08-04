@@ -1,37 +1,48 @@
 #!/usr/bin/env node
 /**
  * FOREVER-WRANGLER-KEEP-VARS-CORRECTION-001 — fail-closed release preflight.
+ * Corrected by FOREVER-PR138-MERGE-BLOCKER-CORRECTION-002.
  *
  * Run BEFORE any future candidate is promoted. It answers one question:
  *
- *   does the candidate carry every binding the live Worker carries?
+ *   does the candidate carry EXACTLY the bindings the live Worker carries?
  *
  * Candidate `ae4cae19` did not. It lost SUPABASE_URL and
  * STUDIO_STORAGE_WRITE_PROVIDER because Wrangler deletes deployment-managed
  * vars unless the upload passes `--keep-vars`, and it returned HTTP 500 on its
- * preview. It was caught at 0% and no traffic moved. This script makes that
- * check mechanical instead of remembered.
+ * preview. It was caught at 0% and no traffic moved.
  *
- * THIS SCRIPT CONTACTS NOTHING. It reads two sanitized metadata files captured
- * by an authorized release task plus the local generated deploy configuration.
- * It performs no network call, reads no credential, and holds no production
- * access of its own. That is deliberate: the correction task that introduced it
- * had no production authorization, and the script must be runnable — and
- * testable — without any.
+ * WHAT THE PR138 REVIEW CHANGED HERE
+ * ----------------------------------
+ * P1-1. `--command` accepted arbitrary operator text and the contract checked it
+ *   with `includes("--keep-vars")`. That flag is now supplied as a STRUCTURED
+ *   specification validated token-by-token, and the free-text path is gone.
+ * P2-1. The loader read `parsed?.bindings` and ignored every other top-level
+ *   key, so a capture storing values beside the array passed. Both inputs are
+ *   now validated against a CLOSED, versioned schema.
+ * P2-2. Duplicate names passed, and fingerprint equality was computed, printed
+ *   and then left out of the pass condition. Both are refusals now.
  *
- * SECRET VALUES ARE NEVER READ, PRINTED OR PERSISTED. The metadata format is
- * name plus class only. A value appearing in an input file is itself a STOP:
- * see `refuseIfValued`.
+ * THIS SCRIPT CONTACTS NOTHING. It reads two sanitized snapshots produced by
+ * `capture-worker-version-bindings.mjs` plus the local generated deploy
+ * configuration. It performs no network call and reads no credential.
+ *
+ * SECRET VALUES ARE NEVER READ, PRINTED OR PERSISTED. The snapshot format is
+ * name plus class only. A value appearing in an input is itself a STOP.
  *
  * USAGE
  *   node scripts/release/verify-binding-preservation.mjs \
- *     --live <live-bindings.json> --candidate <candidate-bindings.json> \
+ *     --live <live-snapshot.json> --candidate <candidate-snapshot.json> \
  *     [--generated .output/server/wrangler.json] \
- *     [--command "wrangler versions upload --keep-vars ..."] \
- *     [--json <report-out.json>]
+ *     [--upload-spec <upload-spec.json>] [--json <report-out.json>]
  *
- * INPUT SHAPE (both files)
- *   { "bindings": [ { "name": "SUPABASE_URL", "type": "plain_text" }, ... ] }
+ *   node scripts/release/verify-binding-preservation.mjs --preupload \
+ *     --live <live-snapshot.json>        # before a candidate exists
+ *
+ * INPUT SHAPE (both snapshots, exactly — no other key is accepted)
+ *   { "schemaVersion": 1,
+ *     "workerVersionId": "<worker-version-uuid>",
+ *     "bindings": [ { "name": "SUPABASE_URL", "type": "plain_text" } ] }
  *
  * EXIT CODES
  *   0  every binding preserved and the keep-vars contract holds
@@ -50,18 +61,24 @@ const jiti = createJiti(import.meta.url);
 const contract = await jiti.import(
   resolve(REPO, "src/lib/stale-asset/worker-variable-preservation.ts"),
 );
+const capture = await jiti.import(resolve(REPO, "src/lib/stale-asset/worker-binding-capture.ts"));
 
 const {
   DEPLOYMENT_MANAGED_PLAIN_TEXT_BINDINGS,
   DEPLOYMENT_MANAGED_SECRET_BINDINGS,
   EXPECTED_PRODUCTION_BINDING_COUNT,
-  KEEP_VARS_FLAG,
-  PRODUCTION_VERSION_UPLOAD_COMMAND,
+  PRODUCTION_VERSION_UPLOAD_SPEC,
+  expectedProductionBindings,
   verifyBindingPreservation,
   verifyKeepVarsContract,
+  verifyUploadSpec,
 } = contract;
 
+const { validateBindingSnapshot } = capture;
+
 const log = (message) => process.stdout.write(`[release-preflight] ${message}\n`);
+
+const schemaViolations = [];
 
 function fail(message) {
   process.stderr.write(`[release-preflight] STOP: ${message}\n`);
@@ -73,62 +90,76 @@ function arg(flag) {
   const index = process.argv.indexOf(flag);
   return index === -1 ? undefined : process.argv[index + 1];
 }
+const has = (flag) => process.argv.includes(flag);
 
 /**
- * A binding descriptor may carry a NAME and a CLASS and nothing else.
+ * The free-text escape path, refused loudly rather than silently ignored.
  *
- * Rejecting any extra key is what keeps a value from ever reaching this
- * script's inputs, its output, or an evidence file — including by accident,
- * when a future capture script starts recording more than it should.
+ * A runbook or script still passing `--command "wrangler versions upload …"`
+ * would otherwise be accepted with the flag simply unread, which is exactly the
+ * silent weakening this correction exists to prevent.
  */
-const ALLOWED_KEYS = new Set(["name", "type"]);
-const ALLOWED_TYPES = new Set(["assets", "r2_bucket", "plain_text", "secret_text"]);
-
-function refuseIfValued(bindings, label) {
-  for (const binding of bindings) {
-    const extra = Object.keys(binding).filter((key) => !ALLOWED_KEYS.has(key));
-    if (extra.length > 0) {
-      return `${label} carries disallowed key(s) ${extra.join(", ")} on "${binding.name}". This preflight accepts NAME and CLASS only — a captured value must never reach it.`;
-    }
-    if (typeof binding.name !== "string" || binding.name.length === 0) {
-      return `${label} contains a binding with no name.`;
-    }
-    if (!ALLOWED_TYPES.has(binding.type)) {
-      return `${label} binding "${binding.name}" has unknown class "${binding.type}".`;
-    }
-  }
-  return null;
+if (has("--command")) {
+  process.stderr.write(
+    "[release-preflight] STOP: `--command` no longer exists. A shell command STRING cannot be " +
+      "validated — `--keep-vars=false`, `--keep-vars-disabled`, a `#` comment and text after a " +
+      "`--` terminator all contain the substring and all DELETE deployment-managed variables. " +
+      "Use --upload-spec <json> carrying { executable, args }.\n",
+  );
+  process.exit(1);
 }
 
-function loadBindings(path, label) {
-  if (!path) return fail(`${label} metadata path not supplied.`);
+/**
+ * Loads one sanitized snapshot and validates it against the CLOSED schema.
+ *
+ * Every refusal names a violation category and a position. A rejected value is
+ * never echoed — a capture that stored a token beside the array must not have
+ * it reprinted into an evidence file by the guard that caught it.
+ */
+function loadSnapshot(path, label) {
+  if (!path) return fail(`${label} snapshot path not supplied.`);
   const absolute = resolve(REPO, path);
-  if (!existsSync(absolute)) return fail(`${label} metadata not found at ${path}.`);
+  if (!existsSync(absolute)) return fail(`${label} snapshot not found at ${path}.`);
 
   let parsed;
   try {
     parsed = JSON.parse(readFileSync(absolute, "utf8"));
-  } catch (error) {
-    return fail(`${label} metadata is not valid JSON: ${error.message}`);
+  } catch {
+    schemaViolations.push({
+      code: "snapshot_schema_invalid",
+      binding: `(${label})`,
+      detail: `${label} snapshot is not valid JSON. The document is not echoed.`,
+    });
+    return fail(`${label} snapshot is not valid JSON.`);
   }
 
-  const bindings = parsed?.bindings;
-  if (!Array.isArray(bindings) || bindings.length === 0) {
-    return fail(`${label} metadata has no bindings array — an empty capture is never a pass.`);
+  const verdict = validateBindingSnapshot(parsed);
+  if (!verdict.ok) {
+    for (const problem of verdict.problems) {
+      schemaViolations.push({
+        code: "snapshot_schema_invalid",
+        binding: `(${label})`,
+        detail: `${problem.code}: ${problem.detail}`,
+      });
+      log(`  snapshot_schema_invalid [${label}] ${problem.code}: ${problem.detail}`);
+    }
+    return fail(`${label} snapshot does not satisfy the closed binding-snapshot schema.`);
   }
-
-  const valued = refuseIfValued(bindings, label);
-  if (valued) return fail(valued);
-
-  return bindings.map((binding) => ({ name: binding.name, type: binding.type }));
+  return verdict.snapshot;
 }
 
-const live = loadBindings(arg("--live"), "live");
-const candidate = loadBindings(arg("--candidate"), "candidate");
-if (!live || !candidate) {
+const preuploadOnly = has("--preupload");
+
+const liveSnapshot = loadSnapshot(arg("--live"), "live");
+const candidateSnapshot = preuploadOnly ? null : loadSnapshot(arg("--candidate"), "candidate");
+if (!liveSnapshot || (!preuploadOnly && !candidateSnapshot)) {
   log("refusing to report a verdict on untrusted or missing input.");
   process.exit(1);
 }
+
+/** Descriptors only. The version id is provenance, never a comparison input. */
+const live = liveSnapshot.bindings;
+const candidate = candidateSnapshot ? candidateSnapshot.bindings : null;
 
 // ---- the keep-vars contract, checked against what would actually be run -----
 
@@ -138,8 +169,8 @@ let generatedConfig = null;
 if (existsSync(generatedAbsolute)) {
   try {
     generatedConfig = JSON.parse(readFileSync(generatedAbsolute, "utf8"));
-  } catch (error) {
-    fail(`generated deploy configuration is not valid JSON: ${error.message}`);
+  } catch {
+    fail("generated deploy configuration is not valid JSON.");
   }
 } else {
   fail(
@@ -147,55 +178,140 @@ if (existsSync(generatedAbsolute)) {
   );
 }
 
-const uploadCommand = arg("--command") ?? PRODUCTION_VERSION_UPLOAD_COMMAND;
+/**
+ * The upload specification, as DATA.
+ *
+ * Defaults to the canonical one. An operator may pass a file to have their
+ * proposed upload checked, but it is validated token-by-token against the
+ * canonical argv, so the only file that passes is the canonical upload.
+ */
+let uploadSpec = PRODUCTION_VERSION_UPLOAD_SPEC;
+const specPath = arg("--upload-spec");
+if (specPath) {
+  const specAbsolute = resolve(REPO, specPath);
+  if (!existsSync(specAbsolute)) {
+    fail(`upload specification not found at ${specPath}.`);
+    uploadSpec = null;
+  } else {
+    try {
+      uploadSpec = JSON.parse(readFileSync(specAbsolute, "utf8"));
+    } catch {
+      fail("upload specification is not valid JSON. The document is not echoed.");
+      uploadSpec = null;
+    }
+  }
+}
+
+const specVerdict = verifyUploadSpec(uploadSpec);
 const keepVars = generatedConfig
-  ? verifyKeepVarsContract({ generatedConfig, uploadCommand })
-  : { ok: false, reasons: ["generated deploy configuration unavailable"] };
+  ? verifyKeepVarsContract({ generatedConfig, uploadSpec })
+  : { ok: false, reasons: ["generated deploy configuration unavailable"], specViolations: [] };
 
 // ---- the binding comparison ------------------------------------------------
 
-const verdict = verifyBindingPreservation(live, candidate);
+const verdict = candidate
+  ? verifyBindingPreservation(live, candidate)
+  : {
+      ok: true,
+      violations: [],
+      liveFingerprint: "",
+      candidateFingerprint: "",
+      liveBindingCount: live.length,
+      candidateBindingCount: 0,
+    };
 
+/** Required expected bindings, checked against the enumerated contract. */
+const expectedMissing = candidate
+  ? expectedProductionBindings()
+      .filter(
+        (expected) =>
+          !candidate.some(
+            (binding) => binding.name === expected.name && binding.type === expected.type,
+          ),
+      )
+      .map((expected) => expected.name)
+  : [];
+
+const fingerprintsEqual = candidate
+  ? verdict.liveFingerprint === verdict.candidateFingerprint
+  : null;
+
+log(`mode               : ${preuploadOnly ? "PRE-UPLOAD CONTRACT" : "LIVE vs CANDIDATE"}`);
 log(`live bindings      : ${verdict.liveBindingCount}`);
-log(`candidate bindings : ${verdict.candidateBindingCount}`);
+if (candidate) log(`candidate bindings : ${verdict.candidateBindingCount}`);
 log(`expected total     : ${EXPECTED_PRODUCTION_BINDING_COUNT}`);
-log(`fingerprints equal : ${verdict.liveFingerprint === verdict.candidateFingerprint}`);
+if (candidate) log(`fingerprints equal : ${fingerprintsEqual}`);
+log(`upload spec        : ${specVerdict.ok ? "CANONICAL" : "REFUSED"}`);
 log(`keep-vars contract : ${keepVars.ok ? "OK" : "VIOLATED"}`);
 
 for (const reason of keepVars.reasons) log(`  keep-vars: ${reason}`);
 for (const violation of verdict.violations) {
   log(`  ${violation.code}: ${violation.binding} — ${violation.detail}`);
 }
-
-// The one false negative this script exists to refuse.
-const secretsAllPresent = DEPLOYMENT_MANAGED_SECRET_BINDINGS.every((name) =>
-  candidate.some((binding) => binding.name === name),
-);
-const plainTextMissing = DEPLOYMENT_MANAGED_PLAIN_TEXT_BINDINGS.filter(
-  (name) => !candidate.some((binding) => binding.name === name),
-);
-if (secretsAllPresent && plainTextMissing.length > 0) {
-  log(
-    `NOTE: all ${DEPLOYMENT_MANAGED_SECRET_BINDINGS.length} secret bindings are present and ${plainTextMissing.length} plain-text variable(s) are NOT. ` +
-      `Cloudflare never deletes secrets, so their survival proves nothing about vars. This is the ae4cae19 shape.`,
-  );
+for (const name of expectedMissing) {
+  log(`  expected_binding_absent: ${name} — the enumerated production contract requires it.`);
 }
 
-const ok = verdict.ok && keepVars.ok;
+// The one false negative this script exists to refuse.
+if (candidate) {
+  const secretsAllPresent = DEPLOYMENT_MANAGED_SECRET_BINDINGS.every((name) =>
+    candidate.some((binding) => binding.name === name),
+  );
+  const plainTextMissing = DEPLOYMENT_MANAGED_PLAIN_TEXT_BINDINGS.filter(
+    (name) => !candidate.some((binding) => binding.name === name),
+  );
+  if (secretsAllPresent && plainTextMissing.length > 0) {
+    log(
+      `NOTE: all ${DEPLOYMENT_MANAGED_SECRET_BINDINGS.length} secret bindings are present and ${plainTextMissing.length} plain-text variable(s) are NOT. ` +
+        `Cloudflare never deletes secrets, so their survival proves nothing about vars. This is the ae4cae19 shape.`,
+    );
+  }
+}
+
+/**
+ * Fingerprint equality is REQUIRED for a pass. Stated once, so the pass
+ * condition and the reported contract cannot disagree: the previous script
+ * computed equality, printed it, and then omitted it from the condition, which
+ * is how PASS came to be printed in the same run as `fingerprintsEqual: false`.
+ */
+const FINGERPRINT_EQUALITY_REQUIRED = true;
+
+/**
+ * THE PASS CONDITION, in full.
+ *
+ * Every clause is required, including the fingerprint.
+ */
+const ok =
+  schemaViolations.length === 0 &&
+  verdict.ok &&
+  keepVars.ok &&
+  specVerdict.ok &&
+  expectedMissing.length === 0 &&
+  (preuploadOnly || !FINGERPRINT_EQUALITY_REQUIRED || fingerprintsEqual === true) &&
+  (preuploadOnly || verdict.candidateBindingCount === verdict.liveBindingCount);
 
 const report = {
-  task: "FOREVER-WRANGLER-KEEP-VARS-CORRECTION-001",
+  task: "FOREVER-PR138-MERGE-BLOCKER-CORRECTION-002",
   contactedProduction: false,
   secretValuesRead: 0,
+  mode: preuploadOnly ? "PREUPLOAD" : "LIVE_VS_CANDIDATE",
+  // Version ids are release provenance, recorded so a snapshot can never be
+  // attributed to the wrong immutable Worker version.
+  liveWorkerVersionId: liveSnapshot.workerVersionId,
+  candidateWorkerVersionId: candidateSnapshot ? candidateSnapshot.workerVersionId : null,
   liveBindingCount: verdict.liveBindingCount,
   candidateBindingCount: verdict.candidateBindingCount,
   expectedBindingCount: EXPECTED_PRODUCTION_BINDING_COUNT,
-  fingerprintsEqual: verdict.liveFingerprint === verdict.candidateFingerprint,
+  snapshotSchemaValid: schemaViolations.length === 0,
+  fingerprintsEqual,
+  fingerprintEqualityRequiredForPass: FINGERPRINT_EQUALITY_REQUIRED,
+  uploadSpecCanonical: specVerdict.ok,
+  uploadSpecViolations: specVerdict.violations,
   keepVarsContractOk: keepVars.ok,
   keepVarsReasons: keepVars.reasons,
-  uploadCommandCarriesFlag: uploadCommand.includes(KEEP_VARS_FLAG),
-  violations: verdict.violations,
-  verdict: ok ? "BINDINGS_PRESERVED" : "STOP",
+  expectedBindingsAbsent: expectedMissing,
+  violations: [...schemaViolations, ...verdict.violations],
+  verdict: ok ? (preuploadOnly ? "PREUPLOAD_CONTRACT_OK" : "BINDINGS_PRESERVED") : "STOP",
 };
 
 const jsonOut = arg("--json");
@@ -206,10 +322,16 @@ if (jsonOut) {
 
 if (!ok) {
   process.stderr.write(
-    "[release-preflight] STOP — candidate REJECTED. A candidate with fewer bindings than the live " +
-      "Worker is rejected even while it holds 0% of traffic. Do not move traffic.\n",
+    "[release-preflight] STOP — candidate REJECTED. A candidate whose binding set is not EXACTLY " +
+      "the live Worker's is rejected even while it holds 0% of traffic. Do not move traffic.\n",
   );
   process.exit(1);
 }
 
-log("PASS — every live binding is preserved and the keep-vars contract holds.");
+log(
+  preuploadOnly
+    ? "PASS (PREUPLOAD_CONTRACT_OK) — the live snapshot, the generated configuration and the " +
+        "canonical upload specification all hold. Upload may proceed."
+    : "PASS — every live binding is preserved, the fingerprints are EQUAL and the keep-vars " +
+        "contract holds.",
+);
