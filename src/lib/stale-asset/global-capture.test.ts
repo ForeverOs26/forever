@@ -6,6 +6,9 @@
  * existing error path still needs to see.
  */
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -123,6 +126,22 @@ describe("cancellation is precise, never blanket", () => {
     event.reason = new Error(`Failed to fetch dynamically imported module: ${HASHED}`);
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("documents the rejection channel as best-effort, not as equal across engines", () => {
+    // RR2-P3-2. WebKit was measured NOT delivering a router chunk failure to
+    // `unhandledrejection` once the authoritative channels had owned it. The
+    // module must say so rather than implying the three channels behave
+    // identically, and nothing may be built on this one firing.
+    const source = readFileSync(
+      resolve(process.cwd(), "src/lib/stale-asset/global-capture.ts"),
+      "utf8",
+    );
+    expect(source).toContain("BEST-EFFORT SECONDARY channel");
+    expect(source).toContain("MEASURED BROWSER LIMITATION");
+    expect(source).toContain("In WebKit it does NOT");
+    expect(source).toContain("no behaviour depends on it firing");
+    expect(source).not.toContain("the backstop for a dynamic import rejection that");
   });
 
   it("never cancels a resource error", () => {

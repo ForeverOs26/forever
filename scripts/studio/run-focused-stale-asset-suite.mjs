@@ -35,7 +35,7 @@ const REPORT = resolve(REPO_ROOT, ".forever-build/focused-suite.json");
 
 /** The focused stale-asset acceptance suite, enumerated. */
 export const FOCUSED_SUITE = [
-  "src/lib/stale-asset/build-identity.test.ts",
+  "src/lib/stale-asset/client-asset-identity.test.ts",
   "src/lib/stale-asset/global-capture.test.ts",
   "src/lib/stale-asset/release-runbook-contract.test.ts",
   "src/lib/stale-asset/root-boundary.test.tsx",
@@ -73,16 +73,16 @@ function requireProductionBuild() {
   if (!existsSync(record)) {
     throw new Error(`no output-derived identity record. ${RUN_BUILD_FIRST}`);
   }
-  const { foreverBuildId, selfVerified } = JSON.parse(readFileSync(record, "utf8"));
+  const { foreverClientAssetId, selfVerified } = JSON.parse(readFileSync(record, "utf8"));
   if (!selfVerified) throw new Error(`the recorded build did not self-verify. ${RUN_BUILD_FIRST}`);
 
   const { readdirSync } = require("node:fs");
   const present = readdirSync(assets)
     .filter((name) => name.endsWith(".js"))
-    .some((name) => readFileSync(resolve(assets, name), "utf8").includes(foreverBuildId));
+    .some((name) => readFileSync(resolve(assets, name), "utf8").includes(foreverClientAssetId));
   if (!present) {
     throw new Error(
-      `.output does not carry the recorded production identity ${foreverBuildId} — it is a ` +
+      `.output does not carry the recorded production identity ${foreverClientAssetId} — it is a ` +
         `different build (the two-version harness also writes .output). ${RUN_BUILD_FIRST}`,
     );
   }

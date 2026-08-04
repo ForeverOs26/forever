@@ -11,8 +11,20 @@
  *   - `error` in the capture phase — a `<script type="module">` or
  *     `<link rel="modulepreload">` element that failed to load. Resource errors
  *     do not bubble, so capture is required.
- *   - `unhandledrejection` — the backstop for a dynamic import rejection that
- *     no one else handled.
+ *   - `unhandledrejection` — a BEST-EFFORT SECONDARY channel for a dynamic
+ *     import rejection that no one else handled.
+ *
+ *     MEASURED BROWSER LIMITATION, stated rather than assumed equal
+ *     (narrow-re-review RR2-P3-2). In Chromium a failed route-chunk import that
+ *     nothing else handles does surface here. In WebKit it does NOT: the two
+ *     authoritative channels above fire first and take ownership, and WebKit
+ *     does not then deliver the same failure to `unhandledrejection`. This
+ *     listener is therefore kept as a genuine backstop — an application-level
+ *     dynamic `import()` that the router never sees still reaches it in both
+ *     engines, and the harness drives exactly that case — but it is NOT a
+ *     substitute for `vite:preloadError` or the capture-phase `error` listener,
+ *     and no behaviour depends on it firing. The engines are not claimed to
+ *     behave identically here, because the evidence says they do not.
  *
  * EXACTLY ONE RECOVERY AUTHORITY (independent-review P1-5).
  *
@@ -132,6 +144,10 @@ export function installStaleAssetCapture(): void {
     // Deliberately NOT prevented. Swallowing rejections here would hide
     // unrelated application failures from the console and from the existing
     // error boundary, which stays authoritative for everything non-stale.
+    //
+    // Best-effort only, and engine-dependent: see the header. WebKit does not
+    // deliver a router chunk failure here once the authoritative channels have
+    // owned it, so nothing may be built on this firing.
   };
 
   installHarnessSeam();

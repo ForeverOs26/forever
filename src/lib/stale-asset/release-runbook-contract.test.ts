@@ -15,6 +15,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { check, resolveConfig } from "prettier";
 import { describe, expect, it } from "vitest";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
@@ -63,6 +64,7 @@ describe("percentage rollout is prohibited without version affinity", () => {
       "closes or refreshes the existing Studio tab",
       "Atomic cutover",
       "Verify public routes",
+      "Verify the deployed WORKER VERSION, by UUID",
       "Verify the full current asset graph",
       "confirms the authenticated dashboard",
       "Roll back immediately",
@@ -251,5 +253,143 @@ describe("the release cannot pin or reuse a build identity", () => {
   it("states that a manual identity may not be pinned for production", () => {
     expect(runbookFlat).toContain("may NOT be pinned for a production release");
     expect(runbookFlat).toContain("The build refuses it outright");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RR2-P1-1 — the runbook separates CLIENT ASSET COMPATIBILITY from the
+// IMMUTABLE WORKER RELEASE IDENTITY, in both directions
+// ---------------------------------------------------------------------------
+
+describe("the runbook keeps client asset identity out of the release gate", () => {
+  it("declares the two identities and what each is allowed to prove", () => {
+    expect(runbookFlat).toContain("TWO IDENTITIES, AND WHAT EACH ONE IS ALLOWED TO PROVE");
+    expect(runbookFlat).toContain("`CLIENT_ASSET_ID` proves client asset compatibility only");
+    expect(runbookFlat).toContain(
+      "The Cloudflare Worker version UUID proves the immutable deployed Worker",
+    );
+  });
+
+  it("forbids the client asset identity as proof of the release, by name", () => {
+    // The five things RR2-P1-1 found it being spent on.
+    for (const forbidden of [
+      "the exact Worker release",
+      "the server runtime identity",
+      "the production traffic allocation",
+      "the rollback target",
+      "complete release equality",
+    ]) {
+      expect(runbookFlat, forbidden).toContain(forbidden);
+    }
+    expect(runbookFlat).toContain("It may never be used to prove");
+  });
+
+  it("requires a NEW immutable Worker version UUID for every uploaded candidate", () => {
+    expect(runbookFlat).toContain(
+      "Record the immutable Worker version UUID this upload returns, and require it to be NEW",
+    );
+    expect(runbookFlat).toContain(
+      "Every authorized upload produces a new Worker version UUID, including an upload whose " +
+        "client asset graph did not move",
+    );
+    expect(runbookFlat).toContain(
+      "If the recorded candidate UUID equals the currently deployed one, no new Worker was " +
+        "uploaded and the release STOPS",
+    );
+  });
+
+  it("makes the deployed Worker version UUID the release gate, not the endpoint", () => {
+    expect(runbookFlat).toContain("Verify the deployed WORKER VERSION, by UUID");
+    expect(runbookFlat).toContain("This is the release gate");
+    expect(runbookFlat).toContain(
+      "This checks client asset compatibility, not the release",
+    );
+    expect(runbookFlat).toContain(
+      "it will report the SAME value as before the cutover, and that is the expected, correct " +
+        "answer",
+    );
+  });
+
+  it("selects and confirms the rollback target by Worker version UUID only", () => {
+    expect(runbookFlat).toContain("The rollback target is verified BY WORKER VERSION UUID");
+    expect(runbookFlat).toContain(
+      "The rollback target is never selected or confirmed by `CLIENT_ASSET_ID`",
+    );
+    expect(runbookFlat).toContain(
+      "If the previous Worker version UUID was not retained, the rollback STOPS",
+    );
+    expect(runbookFlat).toContain("Verify the rolled-back WORKER VERSION, by UUID");
+    expect(runbookFlat).toContain("This is the rollback gate");
+  });
+
+  it("never claims the client asset endpoint proves a build or a release", () => {
+    // The two exact sentences RR2-P1-1 named, in either wording.
+    expect(runbookFlat).not.toContain("reports the new build id");
+    expect(runbookFlat).not.toContain("reports the previous build identity");
+    expect(runbookFlat).not.toContain("reports the new release");
+  });
+
+  it("records all eight release provenance facts together", () => {
+    expect(runbookFlat).toContain("The release provenance record");
+    for (const fact of [
+      "exact Git commit SHA",
+      "exact Git tree SHA",
+      "`CLIENT_ASSET_ID`",
+      "immutable candidate Worker version UUID",
+      "immutable previous Worker version UUID",
+      "compatibility date",
+      "canonical binding/config fingerprint",
+      "migration ledger state",
+    ]) {
+      expect(runbookFlat, fact).toContain(fact);
+    }
+  });
+
+  it("states that the local manifest is not a Worker release identity", () => {
+    expect(runbookFlat).toContain("`.forever-build/release-manifest.json`");
+    expect(runbookFlat).toContain("Its `workerVersionId` is **always `null`**");
+    expect(runbookFlat).toContain(
+      "Fields 4 and 5 are added to the release evidence **after** the authorized upload",
+    );
+  });
+
+  it("states the server-only case explicitly, in both directions", () => {
+    expect(runbookFlat).toContain(
+      "A server-only source change may keep the same `CLIENT_ASSET_ID`; it always moves the Git " +
+        "tree SHA, and it always produces a new Worker version UUID when uploaded",
+    );
+    expect(runbookFlat).toContain("May legitimately NOT change");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RR2-P3-3 — the documents this task owns are Prettier-clean, and something
+// enforces it
+// ---------------------------------------------------------------------------
+
+describe("the release documents are Prettier-clean", () => {
+  /**
+   * The PR states that its changed scope is Prettier-clean. It was not: the
+   * runbook failed `prettier --check`, and nothing in the repository checked
+   * markdown formatting, so the claim rested on nobody looking.
+   *
+   * The scope here is deliberately the two documents this task introduces, not
+   * `docs/**`. Seventy-six unrelated documents on `main` are also unformatted,
+   * and reformatting them would be an unrelated change hidden inside a release
+   * correction. This asserts what this PR is responsible for.
+   */
+  const OWNED = [
+    "docs/FOREVER_PRODUCTION_RELEASE_RUNBOOK.md",
+    "docs/FOREVER_STUDIO_STALE_ASSET_RECOVERY.md",
+  ];
+
+  it.each(OWNED)("%s passes prettier --check with the repository config", async (path) => {
+    const absolute = resolve(process.cwd(), path);
+    const options = await resolveConfig(absolute);
+    // Line endings are normalised first: this checkout is `core.autocrlf`
+    // Windows, and a CRLF working copy is a checkout artefact rather than a
+    // formatting defect in the committed content.
+    const source = readFileSync(absolute, "utf8").split("\r\n").join("\n");
+    await expect(check(source, { ...options, filepath: absolute })).resolves.toBe(true);
   });
 });

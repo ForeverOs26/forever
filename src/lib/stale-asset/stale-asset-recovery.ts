@@ -41,7 +41,7 @@ import {
   type StaleAssetVerdict,
   verdictIsStale,
 } from "./stale-asset-contract";
-import { FOREVER_BUILD_ID, fetchActiveBuildId } from "./build-identity";
+import { FOREVER_CLIENT_ASSET_ID, fetchActiveClientAssetId } from "./client-asset-identity";
 import {
   attestationClearsPending,
   clearPendingRecovery,
@@ -218,8 +218,8 @@ export type StaleAssetRecoveryEnvironment = {
   reload: (target: string) => void;
   now?: () => number;
   storage?: StorageLike | null;
-  ownBuildId?: string;
-  readActiveBuildId?: () => Promise<string | null>;
+  ownClientAssetId?: string;
+  readActiveClientAssetId?: () => Promise<string | null>;
   hasUnprovenWrite?: () => boolean;
 };
 
@@ -279,18 +279,18 @@ export async function handleStaleAssetSignal(
   if (read.status === "malformed") return refuse("malformed_state");
   const ledger = read.ledger;
 
-  const ownBuildId = environment.ownBuildId ?? FOREVER_BUILD_ID;
-  const readActive = environment.readActiveBuildId ?? (() => fetchActiveBuildId());
+  const ownClientAssetId = environment.ownClientAssetId ?? FOREVER_CLIENT_ASSET_ID;
+  const readActive = environment.readActiveClientAssetId ?? (() => fetchActiveClientAssetId());
   const activeBuildId = await readActive();
-  if (activeBuildId === null) return refuse("active_build_unknown");
-  if (activeBuildId === ownBuildId) return refuse("same_build");
+  if (activeBuildId === null) return refuse("active_client_assets_unknown");
+  if (activeBuildId === ownClientAssetId) return refuse("same_client_assets");
 
-  const denial = ledgerBlocksTransition(ledger, ownBuildId, activeBuildId);
+  const denial = ledgerBlocksTransition(ledger, ownClientAssetId, activeBuildId);
   if (denial) return refuse(denial);
 
   const wrote = writeRecoveryLedger(
     recordStaleAssetAttempt(ledger, {
-      from: ownBuildId,
+      from: ownClientAssetId,
       to: activeBuildId,
       at: now,
       route: routeKindOf(environment.pathname),
@@ -315,14 +315,35 @@ export async function handleStaleAssetSignal(
 
 export type StaleAssetAttestationInput = Omit<
   StaleAssetSuccessAttestation,
-  "buildId" | "stabilizedWithoutStaleSignal"
+  "clientAssetId" | "stabilizedWithoutStaleSignal"
 > & {
-  buildId?: string;
+  clientAssetId?: string;
 };
 
+/**
+ * What actually happened, closed and honest (narrow-re-review RR2-P3-5).
+ *
+ *   refused    the attestation did not prove the pending recovery succeeded.
+ *              Nothing was scheduled and nothing was cleared.
+ *   scheduled  the attestation was accepted and the stabilization window is now
+ *              running. The pending recovery is STILL SET, and it will only be
+ *              cleared if the window passes with no further confirmed stale
+ *              signal. It may legitimately never be cleared.
+ *   cleared    the pending recovery is gone, verified by re-reading the ledger.
+ *
+ * The previous shape returned `cleared: true` the moment the window was
+ * scheduled, which described an outcome that had not happened yet and could
+ * still fail to happen. Enforcement was always real — the clear genuinely
+ * waited — so this is a reporting correction, and the timing test below is what
+ * keeps the two states distinguishable.
+ */
+export const STALE_ASSET_ATTESTATION_OUTCOMES = ["refused", "scheduled", "cleared"] as const;
+
+export type StaleAssetAttestationOutcome = (typeof STALE_ASSET_ATTESTATION_OUTCOMES)[number];
+
 export type StaleAssetAttestationResult = StaleAssetAttestationVerdict & {
-  /** True when the pending recovery was cleared as a result. */
-  cleared: boolean;
+  /** What happened. Never claims a clear that has not been observed. */
+  outcome: StaleAssetAttestationOutcome;
   /** How many attempted transitions the ledger still remembers. */
   historyRetained: number;
 };
@@ -339,6 +360,14 @@ export type StaleAssetAttestationResult = StaleAssetAttestationVerdict & {
  * The stabilization clause is proved, not assumed: the confirmed-stale-signal
  * counter is sampled now and again after the bounded window, and the pending
  * recovery is cleared only if it did not move.
+ *
+ * THE RETURN VALUE REPORTS WHAT HAPPENED, NOT WHAT WAS INTENDED (RR2-P3-5).
+ * Accepting the evidence only SCHEDULES the clear. Whether it happened is
+ * established by re-reading the ledger after the window has been handed to the
+ * scheduler — which is immediate for an injected synchronous scheduler, and is
+ * one stabilization window later in a browser. `scheduled` and `cleared` are
+ * therefore genuinely different answers, and a caller can no longer be told the
+ * pending recovery is gone while it is still set.
  */
 export function attestStaleAssetRecovery(
   input: StaleAssetAttestationInput,
@@ -356,7 +385,7 @@ export function attestStaleAssetRecovery(
     return {
       accepted: false,
       refusal: "no_pending_recovery",
-      cleared: false,
+      outcome: "refused",
       historyRetained: 0,
     };
   }
@@ -364,14 +393,14 @@ export function attestStaleAssetRecovery(
 
   const attestation: StaleAssetSuccessAttestation = {
     ...input,
-    buildId: input.buildId ?? FOREVER_BUILD_ID,
+    clientAssetId: input.clientAssetId ?? FOREVER_CLIENT_ASSET_ID,
     // Sampled below. Assumed false here so a caller cannot assert it.
     stabilizedWithoutStaleSignal: true,
   };
 
   const verdict = attestationClearsPending(ledger.pending, attestation);
   if (!verdict.accepted) {
-    return { ...verdict, cleared: false, historyRetained: ledger.history.length };
+    return { ...verdict, outcome: "refused", historyRetained: ledger.history.length };
   }
 
   const signalsAtStart = confirmedStaleSignals;
@@ -392,7 +421,16 @@ export function attestStaleAssetRecovery(
     });
   schedule(finish, options.stabilizationMs ?? STALE_ASSET_RECOVERY_STABILIZATION_MS);
 
-  return { accepted: true, cleared: true, historyRetained: ledger.history.length };
+  // Observed, never assumed. A synchronous scheduler has already run `finish`
+  // by this line, so the pending slot is genuinely gone and `cleared` is true.
+  // A real browser timer has not, so the honest answer is `scheduled`.
+  const settled = readRecoveryLedger((options.now ?? Date.now)(), options.storage);
+  const stillPending = settled.status === "ok" && settled.ledger.pending !== null;
+  return {
+    accepted: true,
+    outcome: stillPending ? "scheduled" : "cleared",
+    historyRetained: ledger.history.length,
+  };
 }
 
 /** Read-only view of the ledger, for tests and for the harness. */

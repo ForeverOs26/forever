@@ -65,26 +65,107 @@ release that carries it.
 
 ---
 
+## 1a. TWO IDENTITIES, AND WHAT EACH ONE IS ALLOWED TO PROVE
+
+This release depends on two different identifiers. They answer different
+questions, and the earlier revision of this runbook conflated them. That
+conflation was measured, so it is written down here before the sequence rather
+than as a footnote inside it.
+
+|                             | `CLIENT_ASSET_ID`                                                                        | `WORKER_RELEASE_ID`                                                                      |
+| --------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| What it is                  | 128-bit digest of the emitted client asset graph plus the generated Worker configuration | The immutable Cloudflare Worker **version UUID**                                         |
+| Assigned by                 | this repository's build (`npm run build`)                                                | **Cloudflare**, on `wrangler versions upload`                                            |
+| Where it is readable        | `/forever-client-assets.json`, and inside the client bundle                              | `wrangler versions upload` output, `wrangler versions list`, `wrangler deployments list` |
+| Proves                      | that an already-running page's content-hashed chunks still exist at the origin           | **which Worker artefact is deployed**                                                    |
+| Changes when                | any emitted client byte or the generated Worker configuration changes                    | **every** upload, without exception                                                      |
+| May legitimately NOT change | for a **server-only** release                                                            | never                                                                                    |
+
+**The measured reason this table exists.** Appending one executable statement to
+a Nitro server plugin — server code that never reaches a browser — produced a
+different deployable Worker with a **byte-identical client asset graph** and
+therefore an identical `CLIENT_ASSET_ID`. The previous steps 11 and 5 spent that
+identifier as the verification gate for the cutover and for the rollback. For a
+server-only release both were satisfied before the change, by the change, and by
+its reversal. Neither could distinguish the deployment it existed to verify.
+
+Therefore, and without exception:
+
+- **`CLIENT_ASSET_ID` proves client asset compatibility only.** It may never be
+  used to prove the exact Worker release, the server runtime identity, the
+  production traffic allocation, the rollback target, or complete release
+  equality.
+- **The Cloudflare Worker version UUID proves the immutable deployed Worker.**
+  Every uploaded candidate has a new one. A release step that needs to know
+  _which Worker_ asks that, and only that.
+- **The Worker version UUID is never manufactured locally.** No build computes
+  it, no bundle carries it, no public endpoint serves it. It enters the release
+  evidence only by being read back from an authorized upload or listing.
+
+### The release provenance record
+
+One release is described by all of the following, recorded **together**. Any one
+of them alone has been shown capable of proving the wrong thing.
+
+1. exact Git commit SHA;
+2. exact Git tree SHA;
+3. `CLIENT_ASSET_ID`;
+4. immutable candidate Worker version UUID;
+5. immutable previous Worker version UUID (the rollback target);
+6. compatibility date;
+7. canonical binding/config fingerprint;
+8. migration ledger state.
+
+`npm run build` writes the LOCAL, sanitized half of this to
+`.forever-build/release-manifest.json`: source commit, source tree,
+`CLIENT_ASSET_ID`, compatibility date and the non-secret config digest. Its
+`workerVersionId` is **always `null`**, and it says so in the document itself,
+because no local process can know that value. Fields 4 and 5 are added to the
+release evidence **after** the authorized upload, from Cloudflare's own output.
+
+A server-only source change may keep the same `CLIENT_ASSET_ID`; it always moves
+the Git tree SHA, and it always produces a new Worker version UUID when
+uploaded. Those are the two facts that make such a release verifiable at all.
+
+---
+
 ## 2. The release sequence
 
 1. **Build the candidate with `npm run build`.** That is the output-derived build,
    not a bare `vite build`: it emits the runtime graph with a placeholder identity,
-   derives `FOREVER_BUILD_ID` from a digest of the emitted client graph plus the
+   derives `FOREVER_CLIENT_ASSET_ID` from a digest of the emitted client graph plus the
    generated Worker configuration, seals the identity in place, and then
    RE-VERIFIES that the sealed output reproduces that digest. A build that does
    not self-verify fails and must not ship. Record the identity it prints — it
    is what the recovery path compares, and it is also written to
-   `.forever-build/identity.json`.
+   `.forever-build/identity.json` and `.forever-build/release-manifest.json`.
 
-   **`FOREVER_BUILD_ID` may NOT be pinned for a production release.** A manual
+   **This identity is client asset compatibility, not a release identity.** It
+   may be **identical** to the previously deployed one for a server-only change,
+   and that is correct rather than a fault. It is never a substitute for the
+   Worker version UUID — see §1a.
+
+   **`FOREVER_CLIENT_ASSET_ID` may NOT be pinned for a production release.** A manual
    override can reuse a previously deployed identifier, which makes every page
-   from that build read `same_build` and refuse the recovery this identity
+   from that build read `same_client_assets` and refuse the recovery this identity
    exists to enable. The build refuses it outright.
+
 2. **Upload the candidate at 0% traffic.** `wrangler versions upload`. No traffic
    moves. Nothing about the live site changes.
+
+   **Record the immutable Worker version UUID this upload returns, and require
+   it to be NEW.** Every authorized upload produces a new Worker version UUID,
+   including an upload whose client asset graph did not move. If the recorded
+   candidate UUID equals the currently deployed one, no new Worker was uploaded
+   and the release STOPS — that is not a release, it is a record of one that did
+   not happen. **Record the currently deployed Worker version UUID at the same
+   time**: it is the rollback target, and it must be captured before anything
+   moves, not reconstructed afterwards.
+
 3. **Verify the candidate on its own version preview URL.** The preview URL
    (`<version-prefix>-<worker-name>.<subdomain>.workers.dev`) exercises that
-   specific version, including its own asset set.
+   specific version, including its own asset set. Confirm the version-prefix in
+   that URL belongs to the candidate UUID recorded in step 2.
 4. **Validate the full transitive route-chunk graph** on the candidate: crawl the
    documents, collect every `/assets/*` reference transitively, and require
    HTTP 200 for all of them. A single 404 here is a stop.
@@ -104,27 +185,37 @@ release that carries it.
    change.
 9. **Atomic cutover.** Move from old 100% / new 0% to old 0% / new 100% in ONE
    `wrangler versions deploy` invocation. No intermediate percentage. Run
-   `--dry-run` first and confirm the exact source and target version ids.
-9a. **Watch the asset-404 rate for the first minutes after cutover.**
-    Cloudflare's own gradual-rollout guidance names an increased 404 rate on
-    asset files as the signal that clients are requesting assets the active
-    version does not have. It is the one cheap server-side signal that would
-    have surfaced the PR #134 incident, and it is checked here, on the Worker's
-    analytics, before the acceptance gate. A rising asset-404 rate is a
-    rollback trigger, not a curiosity.
+   `--dry-run` first and confirm the exact source and target **Worker version
+   UUIDs** — the target must be the candidate UUID recorded in step 2, and the
+   source must be the previous UUID recorded in step 2.
+   9a. **Watch the asset-404 rate for the first minutes after cutover.**
+   Cloudflare's own gradual-rollout guidance names an increased 404 rate on
+   asset files as the signal that clients are requesting assets the active
+   version does not have. It is the one cheap server-side signal that would
+   have surfaced the PR #134 incident, and it is checked here, on the Worker's
+   analytics, before the acceptance gate. A rising asset-404 rate is a
+   rollback trigger, not a curiosity.
 
 10. **Verify public routes.** The full public probe set: `/`, `/projects`,
     `/sitemap.xml`, `/robots.txt`, the deleted-legacy-route 404 contract and the
     `/media/*` generic 404 contract. Zero 5xx.
-11. **Verify the full current asset graph** on the live origin, transitively,
+11. **Verify the deployed WORKER VERSION, by UUID.** `wrangler deployments list`
+    must show the candidate Worker version UUID recorded in step 2 holding 100%
+    of traffic. **This is the release gate.** It is the only step that proves
+    which Worker is deployed, and no client-side value can stand in for it.
+    11a. **Verify the full current asset graph** on the live origin, transitively,
     including the authenticated Studio chunk graph reachable from `/studio`.
-    Also confirm `/forever-build.json` reports the new build id.
+    Also confirm `/forever-client-assets.json` reports the `CLIENT_ASSET_ID`
+    this candidate was built with. **This checks client asset compatibility, not
+    the release.** For a server-only release it will report the SAME value as
+    before the cutover, and that is the expected, correct answer — it is
+    therefore never treated as evidence that the cutover happened. Step 11 is.
 12. **The Owner opens Studio fresh and confirms the authenticated dashboard
     renders.** This is the acceptance gate. Asset-level checks cannot replace it.
 13. **Roll back immediately if the authenticated check fails.** Reallocate
-    traffic to the previous version at 100% — an existing immutable version, no
-    rebuild, no new version. Verify public routes and the asset graph again
-    afterwards.
+    traffic to the previous Worker version UUID recorded in step 2 at 100% — an
+    existing immutable version, no rebuild, no new version. Verify public routes
+    and the asset graph again afterwards.
 
 **Do not begin Coralina repair or any Retry in the release task.** Both require
 their own Owner authorization and their own task.
@@ -196,14 +287,26 @@ upload, no new version, no rebuild.
    unable to prove what the server did.
 3. **Every current-version Studio tab is closed or refreshed as directed**, and
    the Owner confirms it.
-4. **The rollback target is verified**: an existing immutable version, the
-   intended one, and **not** the invalid pre-R2 Worker `9919f28c`.
+4. **The rollback target is verified BY WORKER VERSION UUID**: it is the exact
+   immutable previous Worker version UUID recorded in step 2 of §2, it is an
+   existing version in `wrangler versions list`, and it is **not** the invalid
+   pre-R2 Worker `9919f28c`.
+
+   **The rollback target is never selected or confirmed by `CLIENT_ASSET_ID`.**
+   For a server-only release the previous and current client asset identities
+   are EQUAL, so "roll back to the version whose client asset identity is X"
+   does not identify a version at all — it identifies two of them, or none. If
+   the previous Worker version UUID was not retained, the rollback STOPS and the
+   version is re-established from `wrangler versions list` before anything
+   moves. A rollback aimed at a version that was inferred rather than recorded
+   is not a rollback.
 
 ```
-wrangler versions deploy --name forever --version-id <previous> --percentage 100
+wrangler versions deploy --name forever --version-id <previous-worker-version-uuid> --percentage 100
 ```
 
-Run `--dry-run` first and confirm the exact source and target version ids.
+Run `--dry-run` first and confirm the exact source and target Worker version
+UUIDs.
 
 **The rollback itself is ATOMIC.** One invocation, old 0% / previous 100%. No
 intermediate percentage, no partial rollback, no 5% → 25% step — the
@@ -211,9 +314,14 @@ version-affinity prohibition in §0 applies identically in this direction.
 
 **After the rollback:**
 
-5. **Verify the full old asset graph** on the live origin, transitively,
-   including the authenticated Studio chunk graph reachable from `/studio`, and
-   confirm `/forever-build.json` reports the previous build identity.
+5. **Verify the rolled-back WORKER VERSION, by UUID.** `wrangler deployments
+list` must show the exact previous Worker version UUID from step 4 holding
+   100% of traffic. **This is the rollback gate.**
+   5a. **Verify the full old asset graph** on the live origin, transitively,
+   including the authenticated Studio chunk graph reachable from `/studio`.
+   `/forever-client-assets.json` is checked for client asset compatibility only;
+   for a server-only release it reports the SAME value in both directions, so it
+   can never confirm that the rollback happened. Step 5 does.
 6. **Verify public routes**, the migration ledger and Coralina containment.
 7. **The Owner opens Studio FRESH and confirms the authenticated dashboard
    renders.** This is the rollback acceptance gate, exactly as it is the forward

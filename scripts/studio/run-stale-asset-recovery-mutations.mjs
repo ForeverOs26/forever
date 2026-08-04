@@ -38,7 +38,7 @@ const PROJECT_EDITOR = resolve(
   "src/features/forever-studio/components/StudioProjectEditor.tsx",
 );
 const DASHBOARD = resolve(REPO, "src/features/forever-studio/components/StudioDashboard.tsx");
-const BUILD_ID = resolve(REPO, "scripts/build/forever-build-id.ts");
+const BUILD_ID = resolve(REPO, "scripts/build/forever-client-asset-id.ts");
 const BUILD_ORCHESTRATOR = resolve(REPO, "scripts/build/build-forever.mjs");
 const VITE_CONFIG = resolve(REPO, "vite.config.ts");
 const LAZY_LOADER = resolve(REPO, "scripts/build/forever-lazy-route-component.js");
@@ -57,7 +57,7 @@ const WRITE_TEST = "src/lib/stale-asset/write-safety.test.ts";
 const CONFIG_TEST = "src/lib/stale-asset/worker-config-contract.test.ts";
 const RUNBOOK_TEST = "src/lib/stale-asset/release-runbook-contract.test.ts";
 const WRITE_CONTRACT_TEST = "src/lib/stale-asset/studio-write-contract.test.ts";
-const BUILD_IDENTITY_TEST = "src/lib/stale-asset/build-identity.test.ts";
+const BUILD_IDENTITY_TEST = "src/lib/stale-asset/client-asset-identity.test.ts";
 const TANSTACK_TEST = "src/lib/stale-asset/tanstack-reload-ownership.test.ts";
 const REPORTING_TEST = "src/lib/stale-asset/acceptance-reporting.test.ts";
 
@@ -142,7 +142,7 @@ const mutations = [
     name: "reload guard removed",
     file: RECOVERY,
     from:
-      "  const denial = ledgerBlocksTransition(ledger, ownBuildId, activeBuildId);\n" +
+      "  const denial = ledgerBlocksTransition(ledger, ownClientAssetId, activeBuildId);\n" +
       "  if (denial) return refuse(denial);",
     to: "  void ledgerBlocksTransition;",
     tests: [RECOVERY_TEST],
@@ -186,10 +186,10 @@ const mutations = [
     file: RECOVERY_CONTRACT,
     from:
       '  if (!pending) return { accepted: false, refusal: "no_pending_recovery" };\n' +
-      "  if (attestation.buildId !== pending.to) {",
+      "  if (attestation.clientAssetId !== pending.to) {",
     to:
       "  if (!pending) return { accepted: true };\n" +
-      "  if (false && attestation.buildId !== pending.to) {",
+      "  if (false && attestation.clientAssetId !== pending.to) {",
     tests: [RECOVERY_TEST],
     reason: /the recovery screen's own 'Go to site' does NOT clear anything/,
   },

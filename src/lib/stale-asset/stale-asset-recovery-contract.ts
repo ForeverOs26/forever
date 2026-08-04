@@ -74,9 +74,9 @@
  * proven build difference, a permitted route, and no unproven write.
  */
 
-import { FOREVER_BUILD_ID_PATTERN } from "./forever-build-id-contract";
+import { FOREVER_CLIENT_ASSET_ID_PATTERN } from "./client-asset-id-contract";
 
-export { FOREVER_BUILD_ID_PATTERN };
+export { FOREVER_CLIENT_ASSET_ID_PATTERN };
 
 /** sessionStorage key for the deny-only recovery ledger. */
 export const STALE_ASSET_RECOVERY_LEDGER_KEY = "forever.app.stale-asset.recovery";
@@ -110,8 +110,29 @@ export const STALE_ASSET_RECOVERY_MAX_TAB_ATTEMPTS = 3;
  */
 export const STALE_ASSET_RECOVERY_MAX_HISTORY = 8;
 
-/** The maximum serialized length accepted from storage. */
-export const STALE_ASSET_RECOVERY_MAX_SERIALIZED_BYTES = 512;
+/**
+ * The maximum serialized length accepted from storage.
+ *
+ * RECONCILED WITH `STALE_ASSET_RECOVERY_MAX_HISTORY` (narrow-re-review
+ * RR2-P3-4). The previous value was 512, and at production identifier length a
+ * full history could not fit inside it: one history entry
+ * (`{"from":"<32>","to":"<32>","at":<13>}`) serializes to 102 bytes, so eight
+ * entries plus a pending record plus the wrapper reach 983. The declared
+ * maximum of eight was therefore unreachable, and the REAL bound was the byte
+ * cap at four entries — a limit nothing documented.
+ *
+ * Two honest fixes existed: lower the declared maximum to what the cap allows,
+ * or raise the cap so the declared maximum is reachable. The second is chosen
+ * because the history's whole purpose is to remember MORE attempted transitions
+ * than a tab is ever allowed to spend, and shrinking it would weaken the
+ * deny-only guarantee to save bytes in a store measured in megabytes.
+ *
+ * 1024 is the worst case (983) plus headroom, and it is still a hard bound: a
+ * value longer than this is malformed and the whole ledger is refused.
+ * `stale-asset-recovery.test.ts` constructs the exact worst case and asserts
+ * both that it fits and that one byte more is refused.
+ */
+export const STALE_ASSET_RECOVERY_MAX_SERIALIZED_BYTES = 1024;
 
 /**
  * How long a history entry stays meaningful.
@@ -185,13 +206,13 @@ export const STALE_ASSET_RECOVERY_OUTCOMES = [
    * has already issued the reload. One failure reaches the page on more than
    * one channel — `vite:preloadError` and the modulepreload element's own
    * `error` both fire for the same missing chunk — and each must not become its
-   * own decision, its own build probe and its own reload.
+   * own decision, its own client asset probe and its own reload.
    */
   "already_handling",
-  /** Confirmed stale, but the origin reports the SAME build. A reload would prove nothing. */
-  "same_build",
-  /** Confirmed stale, but the active build could not be read. Refuse rather than guess. */
-  "active_build_unknown",
+  /** Confirmed stale, but the origin reports the SAME client assets. A reload would prove nothing. */
+  "same_client_assets",
+  /** Confirmed stale, but the active client asset identity could not be read. Refuse rather than guess. */
+  "active_client_assets_unknown",
   /** Confirmed stale, but a consequential action's outcome is unproven. Never reload. */
   "write_in_flight",
   /** Confirmed stale on a route where an automatic reload is never permitted. */
@@ -208,8 +229,8 @@ export type StaleAssetRecoveryOutcome = (typeof STALE_ASSET_RECOVERY_OUTCOMES)[n
 export const STALE_ASSET_RECOVERY_DENIALS: readonly StaleAssetRecoveryOutcome[] = [
   "attempt_already_used",
   "recovery_budget_spent",
-  "same_build",
-  "active_build_unknown",
+  "same_client_assets",
+  "active_client_assets_unknown",
   "write_in_flight",
   "route_denied",
   "storage_unavailable",
@@ -396,8 +417,8 @@ function parseAttempt(value: unknown, now: number): StaleAssetTransitionAttempt 
   const candidate = value as Record<string, unknown>;
   if (!hasOnlyKeys(candidate, ATTEMPT_KEYS)) return null;
   const { from, to } = candidate;
-  if (typeof from !== "string" || !FOREVER_BUILD_ID_PATTERN.test(from)) return null;
-  if (typeof to !== "string" || !FOREVER_BUILD_ID_PATTERN.test(to)) return null;
+  if (typeof from !== "string" || !FOREVER_CLIENT_ASSET_ID_PATTERN.test(from)) return null;
+  if (typeof to !== "string" || !FOREVER_CLIENT_ASSET_ID_PATTERN.test(to)) return null;
   const at = boundedTimestamp(candidate.at, now);
   if (at === null) return null;
   return { from, to, at };
@@ -568,8 +589,8 @@ export function clearPendingRecovery(ledger: StaleAssetRecoveryLedger): StaleAss
  * resolution is not success. This is.
  */
 export type StaleAssetSuccessAttestation = {
-  /** The build identifier this page is actually running. */
-  buildId: string;
+  /** The CLIENT ASSET identifier this page is actually running. */
+  clientAssetId: string;
   /** The live pathname, read from the document and never stored. */
   pathname: string;
   /** The intended leaf route module for this pathname finished loading. */
@@ -591,7 +612,7 @@ export type StaleAssetSuccessAttestation = {
 
 export const STALE_ASSET_ATTESTATION_REFUSALS = [
   "no_pending_recovery",
-  "build_is_not_the_recovery_target",
+  "client_assets_are_not_the_recovery_target",
   "route_is_not_the_recovery_target",
   "leaf_route_not_loaded",
   "nested_modules_not_loaded",
@@ -618,8 +639,8 @@ export function attestationClearsPending(
   attestation: StaleAssetSuccessAttestation,
 ): StaleAssetAttestationVerdict {
   if (!pending) return { accepted: false, refusal: "no_pending_recovery" };
-  if (attestation.buildId !== pending.to) {
-    return { accepted: false, refusal: "build_is_not_the_recovery_target" };
+  if (attestation.clientAssetId !== pending.to) {
+    return { accepted: false, refusal: "client_assets_are_not_the_recovery_target" };
   }
   const observed = routeKindOf(attestation.pathname);
   if (!routeKindSatisfiesTarget(pending.route, observed)) {

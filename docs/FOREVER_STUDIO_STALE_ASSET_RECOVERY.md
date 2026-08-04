@@ -138,9 +138,9 @@ returns, stores, logs or renders the complete asset URL, a query string, a stack
 trace, an error message, a JWT, an access token, a user id, an email, a job id,
 an object key, a filename, a Supabase project ref or a credential.
 
-### 2.2 Build/release identity — `src/lib/stale-asset/build-identity.ts`
+### 2.2 Build/release identity — `src/lib/stale-asset/client-asset-identity.ts`
 
-`FOREVER_BUILD_ID` is a bounded identifier — lowercase alphanumerics, at most 32
+`FOREVER_CLIENT_ASSET_ID` is a bounded identifier — lowercase alphanumerics, at most 32
 characters — inlined into **both** the client and the server output of the same
 build. It is never a timestamp and never random.
 
@@ -150,7 +150,7 @@ hashed no `VITE_*` value, nothing in `public/` and nothing in `scripts/`. The
 review built this repository five times and measured two builds emitting **50
 different content-hashed chunks — including the `StudioDashboard` chunk from the
 incident — under the SAME identifier**. In production that means the chunk 404s,
-the probe returns the same identifier, the decision reaches `same_build`, and
+the probe returns the same identifier, the decision reaches `same_client_assets`, and
 automatic recovery silently does not fire.
 
 `npm run build` (`scripts/build/build-forever.mjs`) therefore:
@@ -172,7 +172,7 @@ byte-identical, the generated Worker configuration is byte-identical, and the
 server JavaScript bundle is NOT — 17 files differed, from Rolldown identifier
 deconfliction and an mtime-bearing public-asset manifest. The digest therefore
 covers `.output/public/**` and `.output/server/wrangler.json`. The exclusions are
-enumerated with reasons in `scripts/build/forever-build-id.ts` and a test fails
+enumerated with reasons in `scripts/build/forever-client-asset-id.ts` and a test fails
 if that list grows.
 
 This is a deliberate deviation from "exclude only generated non-runtime
@@ -183,16 +183,16 @@ stale-asset failure is by construction a browser failing to fetch a CLIENT
 chunk, and every input that can change the client graph is inside the digest.
 **What is lost, stated plainly:** a release that changes only server code ships
 the same identity, and a page from the previous build correctly reads
-`same_build` — its chunks all still exist.
+`same_client_assets` — its chunks all still exist.
 
-**A manual `FOREVER_BUILD_ID` is REFUSED for a production build**
+**A manual `FOREVER_CLIENT_ASSET_ID` is REFUSED for a production build**
 (independent-review P3-3): it could pin a previously deployed identifier and
 make every page from that build refuse recovery. It is honoured only behind an
 explicitly non-production guard, which the two-version harness sets and
 `npm run build` never does. A bare `vite build` with no identity throws rather
 than shipping a placeholder.
 
-`GET /forever-build.json` returns `{"build": "<id>"}` with `no-store`, `nosniff`
+`GET /forever-client-assets.json` returns `{"build": "<id>"}` with `no-store`, `nosniff`
 and `noindex`. The handler takes no argument and reads nothing at request time.
 
 The comparison is therefore: _the constant compiled into this page_ versus _the

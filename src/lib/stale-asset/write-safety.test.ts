@@ -271,8 +271,8 @@ describe("recovery never resubmits anything", () => {
   });
 
   it("the only network call the recovery path makes is the build probe", () => {
-    const identity = read("src/lib/stale-asset/build-identity.ts");
-    expect(identity).toContain("FOREVER_BUILD_ENDPOINT");
+    const identity = read("src/lib/stale-asset/client-asset-identity.ts");
+    expect(identity).toContain("FOREVER_CLIENT_ASSETS_ENDPOINT");
     expect(identity).toContain('cache: "no-store"');
     expect(identity).toContain('credentials: "omit"');
     // No method is specified, so it is a GET; and no body is ever sent.

@@ -5,7 +5,7 @@
  *
  * Runs TWO builds with identical source and identical environment and reports,
  * per output area, how many emitted files differ. The claim it exists to keep
- * honest is in `scripts/build/forever-build-id.ts`:
+ * honest is in `scripts/build/forever-client-asset-id.ts`:
  *
  *   - the whole CLIENT runtime graph is byte-identical across builds;
  *   - the generated Worker configuration is byte-identical across builds;
@@ -45,10 +45,10 @@ function build(label, extraEnv = {}) {
       stdio: "ignore",
       env: {
         ...process.env,
-        FOREVER_BUILD_ID: undefined,
-        FOREVER_ALLOW_TEST_BUILD_ID: undefined,
-        FOREVER_BUILD_ID_DERIVED: undefined,
-        FOREVER_BUILD_ID_PLACEHOLDER_PASS: "1",
+        FOREVER_CLIENT_ASSET_ID: undefined,
+        FOREVER_ALLOW_TEST_CLIENT_ASSET_ID: undefined,
+        FOREVER_CLIENT_ASSET_ID_DERIVED: undefined,
+        FOREVER_CLIENT_ASSET_ID_PLACEHOLDER_PASS: "1",
         ...extraEnv,
       },
     },

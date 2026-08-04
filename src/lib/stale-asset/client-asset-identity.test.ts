@@ -1,10 +1,16 @@
 /**
- * FOREVER-STUDIO-STALE-ASSET-RECOVERY-001 — build/release identity.
+ * FOREVER-STUDIO-STALE-ASSET-RECOVERY-001 — CLIENT ASSET identity.
  *
- * The identity must be bounded, deterministic, different across two builds that
- * differ, identical for one immutable build, and unable to become a place to
- * hide anything. The probe must fail closed on every unexpected answer, because
- * "cannot prove a version change" has to mean "do not reload".
+ * The identity must be bounded, deterministic, different across two builds
+ * whose CLIENT output differs, identical for one client asset graph, and unable
+ * to become a place to hide anything. The probe must fail closed on every
+ * unexpected answer, because "cannot prove a client asset change" has to mean
+ * "do not reload".
+ *
+ * WHAT THIS FILE DELIBERATELY DOES NOT TEST (narrow-re-review RR2-P1-1). That
+ * this value identifies a release. It does not, it never did, and the release
+ * contract that used to assume it does is pinned in
+ * `release-identity-separation.test.ts` instead.
  */
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -14,29 +20,29 @@ import { join, resolve, sep } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  FOREVER_BUILD_ENDPOINT,
-  FOREVER_BUILD_ID,
-  fetchActiveBuildId,
-  isBoundedBuildId,
-} from "./build-identity";
-import { FOREVER_BUILD_ID_PATTERN } from "./stale-asset-recovery-contract";
+  FOREVER_CLIENT_ASSETS_ENDPOINT,
+  FOREVER_CLIENT_ASSET_ID,
+  fetchActiveClientAssetId,
+  isBoundedClientAssetId,
+} from "./client-asset-identity";
+import { FOREVER_CLIENT_ASSET_ID_PATTERN } from "./stale-asset-recovery-contract";
 import {
-  FOREVER_BUILD_ID_DERIVED_ENV,
-  FOREVER_BUILD_ID_PATTERN as SCRIPT_PATTERN,
-  FOREVER_BUILD_ID_PLACEHOLDER,
-  FOREVER_BUILD_ID_PLACEHOLDER_ENV,
-  FOREVER_BUILD_DIGEST_EXCLUSIONS,
-  FOREVER_BUILD_DIGEST_INCLUDED,
-  FOREVER_BUILD_ID_TEST_OVERRIDE_ENV,
-  ForeverBuildIdError,
-  deriveForeverBuildId,
-  digestEmittedOutput,
-  isBoundedForeverBuildId,
+  FOREVER_CLIENT_ASSET_ID_DERIVED_ENV,
+  FOREVER_CLIENT_ASSET_ID_PATTERN as SCRIPT_PATTERN,
+  FOREVER_CLIENT_ASSET_ID_PLACEHOLDER,
+  FOREVER_CLIENT_ASSET_ID_PLACEHOLDER_ENV,
+  FOREVER_CLIENT_ASSET_DIGEST_EXCLUSIONS,
+  FOREVER_CLIENT_ASSET_DIGEST_INCLUDED,
+  FOREVER_CLIENT_ASSET_ID_TEST_OVERRIDE_ENV,
+  ForeverClientAssetIdError,
+  deriveForeverClientAssetId,
+  digestEmittedClientAssets,
+  isBoundedForeverClientAssetId,
   normalizeEmittedContent,
   normalizeEmittedName,
-  pathContributesToBuildIdentity,
-  resolveForeverBuildId,
-} from "../../../scripts/build/forever-build-id";
+  pathContributesToClientAssetIdentity,
+  resolveForeverClientAssetId,
+} from "../../../scripts/build/forever-client-asset-id";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 const REPO_ROOT = process.cwd();
@@ -51,13 +57,13 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
 
 describe("the identifier is bounded", () => {
   it("uses one pattern in the build and in the browser", () => {
-    expect(SCRIPT_PATTERN.source).toBe(FOREVER_BUILD_ID_PATTERN.source);
+    expect(SCRIPT_PATTERN.source).toBe(FOREVER_CLIENT_ASSET_ID_PATTERN.source);
   });
 
   it("accepts only lowercase alphanumerics up to 32 characters", () => {
     for (const good of ["a", "aaaaaaaaaaaa", "0123456789ab", "z".repeat(32)]) {
-      expect(isBoundedBuildId(good)).toBe(true);
-      expect(isBoundedForeverBuildId(good)).toBe(true);
+      expect(isBoundedClientAssetId(good)).toBe(true);
+      expect(isBoundedForeverClientAssetId(good)).toBe(true);
     }
     for (const bad of [
       "",
@@ -74,72 +80,72 @@ describe("the identifier is bounded", () => {
       undefined,
       {},
     ]) {
-      expect(isBoundedBuildId(bad)).toBe(false);
+      expect(isBoundedClientAssetId(bad)).toBe(false);
     }
   });
 
   it("the compiled-in identifier is itself bounded", () => {
-    expect(FOREVER_BUILD_ID.length).toBeGreaterThan(0);
+    expect(FOREVER_CLIENT_ASSET_ID.length).toBeGreaterThan(0);
     // Under vitest there is no `define`, so the documented fallback applies.
-    expect(FOREVER_BUILD_ID).toBe("development");
+    expect(FOREVER_CLIENT_ASSET_ID).toBe("development");
   });
 });
 
 describe("resolution is fail-closed and never reuses an identity", () => {
   it("returns the derived identity the orchestrator feeds back in", () => {
-    expect(resolveForeverBuildId({ [FOREVER_BUILD_ID_DERIVED_ENV]: "0123456789abcdef" })).toBe(
+    expect(resolveForeverClientAssetId({ [FOREVER_CLIENT_ASSET_ID_DERIVED_ENV]: "0123456789abcdef" })).toBe(
       "0123456789abcdef",
     );
   });
 
   it("refuses a derived value that is not bounded", () => {
     expect(() =>
-      resolveForeverBuildId({ [FOREVER_BUILD_ID_DERIVED_ENV]: "not a build id!" }),
-    ).toThrow(ForeverBuildIdError);
+      resolveForeverClientAssetId({ [FOREVER_CLIENT_ASSET_ID_DERIVED_ENV]: "not a build id!" }),
+    ).toThrow(ForeverClientAssetIdError);
   });
 
   it("returns the fixed placeholder on the first pass", () => {
-    expect(resolveForeverBuildId({ [FOREVER_BUILD_ID_PLACEHOLDER_ENV]: "1" })).toBe(
-      FOREVER_BUILD_ID_PLACEHOLDER,
+    expect(resolveForeverClientAssetId({ [FOREVER_CLIENT_ASSET_ID_PLACEHOLDER_ENV]: "1" })).toBe(
+      FOREVER_CLIENT_ASSET_ID_PLACEHOLDER,
     );
-    expect(isBoundedForeverBuildId(FOREVER_BUILD_ID_PLACEHOLDER)).toBe(true);
+    expect(isBoundedForeverClientAssetId(FOREVER_CLIENT_ASSET_ID_PLACEHOLDER)).toBe(true);
   });
 
   it("REFUSES a manual production override — it could reuse a deployed identity", () => {
     // Independent-review P3-3. Pinning a previously deployed identifier makes
-    // every page from that build see `same_build` and refuse recovery, which
+    // every page from that build see `same_client_assets` and refuse recovery, which
     // silently disables the whole mechanism.
-    expect(() => resolveForeverBuildId({ FOREVER_BUILD_ID: "dcc016953096" })).toThrow(
+    expect(() => resolveForeverClientAssetId({ FOREVER_CLIENT_ASSET_ID: "dcc016953096" })).toThrow(
       /may not be set for a production build/,
     );
   });
 
   it("permits a manual override ONLY behind the explicit non-production guard", () => {
     expect(
-      resolveForeverBuildId({
-        FOREVER_BUILD_ID: "  AAAAAAAAAAAA ",
-        [FOREVER_BUILD_ID_TEST_OVERRIDE_ENV]: "1",
+      resolveForeverClientAssetId({
+        FOREVER_CLIENT_ASSET_ID: "  AAAAAAAAAAAA ",
+        [FOREVER_CLIENT_ASSET_ID_TEST_OVERRIDE_ENV]: "1",
       }),
     ).toBe("aaaaaaaaaaaa");
   });
 
   it("refuses a malformed override even behind the test guard", () => {
     expect(() =>
-      resolveForeverBuildId({
-        FOREVER_BUILD_ID: "not a build id!",
-        [FOREVER_BUILD_ID_TEST_OVERRIDE_ENV]: "1",
+      resolveForeverClientAssetId({
+        FOREVER_CLIENT_ASSET_ID: "not a build id!",
+        [FOREVER_CLIENT_ASSET_ID_TEST_OVERRIDE_ENV]: "1",
       }),
-    ).toThrow(ForeverBuildIdError);
+    ).toThrow(ForeverClientAssetIdError);
   });
 
   it("refuses a bare build with no identity at all rather than shipping a placeholder", () => {
-    expect(() => resolveForeverBuildId({})).toThrow(/must run through/);
+    expect(() => resolveForeverClientAssetId({})).toThrow(/must run through/);
   });
 
   it("the production orchestrator never sets the test guard", () => {
     const orchestrator = read("scripts/build/build-forever.mjs");
-    expect(orchestrator).toContain("FOREVER_ALLOW_TEST_BUILD_ID: undefined");
-    expect(orchestrator).toContain("FOREVER_BUILD_ID: undefined");
+    expect(orchestrator).toContain("FOREVER_ALLOW_TEST_CLIENT_ASSET_ID: undefined");
+    expect(orchestrator).toContain("FOREVER_CLIENT_ASSET_ID: undefined");
   });
 
   it("npm run build IS the two-pass orchestrator, not a bare vite build", () => {
@@ -149,7 +155,7 @@ describe("resolution is fail-closed and never reuses an identity", () => {
   });
 
   it("is not a timestamp and not random", () => {
-    const source = read("scripts/build/forever-build-id.ts");
+    const source = read("scripts/build/forever-client-asset-id.ts");
     expect(source).not.toContain("Date.now");
     expect(source).not.toContain("Math.random");
     expect(source).not.toContain("new Date");
@@ -157,7 +163,7 @@ describe("resolution is fail-closed and never reuses an identity", () => {
   });
 
   it("carries no secret, credential or private reference", () => {
-    const source = read("scripts/build/forever-build-id.ts");
+    const source = read("scripts/build/forever-client-asset-id.ts");
     for (const forbidden of [
       "SERVICE_ROLE",
       "R2_SECRET",
@@ -174,18 +180,18 @@ describe("resolution is fail-closed and never reuses an identity", () => {
 
 describe("the endpoint is same-origin, unparameterised and safe", () => {
   it("is a fixed same-origin path with no query", () => {
-    expect(FOREVER_BUILD_ENDPOINT).toBe("/forever-build.json");
-    expect(FOREVER_BUILD_ENDPOINT.startsWith("/")).toBe(true);
-    expect(FOREVER_BUILD_ENDPOINT).not.toContain("?");
-    expect(FOREVER_BUILD_ENDPOINT).not.toContain("//");
+    expect(FOREVER_CLIENT_ASSETS_ENDPOINT).toBe("/forever-client-assets.json");
+    expect(FOREVER_CLIENT_ASSETS_ENDPOINT.startsWith("/")).toBe(true);
+    expect(FOREVER_CLIENT_ASSETS_ENDPOINT).not.toContain("?");
+    expect(FOREVER_CLIENT_ASSETS_ENDPOINT).not.toContain("//");
   });
 
   it("answers no-store, nosniff, noindex and exposes only the identifier", () => {
-    const route = read("src/routes/forever-build[.]json.ts");
+    const route = read("src/routes/forever-client-assets[.]json.ts");
     expect(route).toContain('"Cache-Control": "no-store"');
     expect(route).toContain('"X-Content-Type-Options": "nosniff"');
     expect(route).toContain('"X-Robots-Tag": "noindex, nofollow"');
-    expect(route).toContain("JSON.stringify({ build: FOREVER_BUILD_ID })");
+    expect(route).toContain("JSON.stringify({ clientAssetId: FOREVER_CLIENT_ASSET_ID })");
     // The handler takes no argument at all, so it cannot read request state.
     expect(route).toContain("GET: () =>");
     for (const forbidden of [
@@ -206,23 +212,23 @@ describe("the endpoint is same-origin, unparameterised and safe", () => {
 
 describe("the probe fails closed", () => {
   it("returns the identifier for a well-formed answer", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse({ build: "bbbbbbbbbbbb" }));
-    await expect(fetchActiveBuildId({ fetchImpl })).resolves.toBe("bbbbbbbbbbbb");
+    const fetchImpl = vi.fn(async () => jsonResponse({ clientAssetId: "bbbbbbbbbbbb" }));
+    await expect(fetchActiveClientAssetId({ fetchImpl })).resolves.toBe("bbbbbbbbbbbb");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("/forever-build.json");
+    expect(url).toBe("/forever-client-assets.json");
     expect(init.cache).toBe("no-store");
     expect(init.credentials).toBe("omit");
     expect(init.body).toBeUndefined();
   });
 
   it.each([
-    ["a non-OK status", async () => jsonResponse({ build: "bbbbbbbbbbbb" }, { status: 500 })],
+    ["a non-OK status", async () => jsonResponse({ clientAssetId: "bbbbbbbbbbbb" }, { status: 500 })],
     ["an HTML page", async () => new Response("<!doctype html><html></html>", { status: 200 })],
     ["a malformed body", async () => new Response("{", { status: 200 })],
     ["a missing field", async () => jsonResponse({})],
-    ["an unbounded identifier", async () => jsonResponse({ build: "not a build id" })],
-    ["a non-string identifier", async () => jsonResponse({ build: 42 })],
+    ["an unbounded identifier", async () => jsonResponse({ clientAssetId: "not a client asset id" })],
+    ["a non-string identifier", async () => jsonResponse({ clientAssetId: 42 })],
     ["an array payload", async () => jsonResponse(["bbbbbbbbbbbb"])],
     ["a null payload", async () => jsonResponse(null)],
     [
@@ -232,14 +238,14 @@ describe("the probe fails closed", () => {
       },
     ],
   ])("returns null for %s", async (_label, impl) => {
-    await expect(fetchActiveBuildId({ fetchImpl: impl as never })).resolves.toBeNull();
+    await expect(fetchActiveClientAssetId({ fetchImpl: impl as never })).resolves.toBeNull();
   });
 
   it("never retries", async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error("network down");
     });
-    await fetchActiveBuildId({ fetchImpl: fetchImpl as never });
+    await fetchActiveClientAssetId({ fetchImpl: fetchImpl as never });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
@@ -252,7 +258,7 @@ describe("the output digest covers the whole emitted runtime graph", () => {
   let seq = 0;
   function emit(files: Record<string, string>): string {
     seq += 1;
-    const root = join(tmpdir(), `forever-build-digest-${process.pid}-${seq}`);
+    const root = join(tmpdir(), `forever-client-asset-digest-${process.pid}-${seq}`);
     rmSync(root, { recursive: true, force: true });
     for (const [path, contents] of Object.entries(files)) {
       const full = join(root, path);
@@ -275,12 +281,12 @@ describe("the output digest covers the whole emitted runtime graph", () => {
     "server/wrangler.json": '{"name":"forever"}',
   };
 
-  const digestOf = (files: Record<string, string>, identity = FOREVER_BUILD_ID_PLACEHOLDER) =>
-    digestEmittedOutput(emit(files), identity);
+  const digestOf = (files: Record<string, string>, identity = FOREVER_CLIENT_ASSET_ID_PLACEHOLDER) =>
+    digestEmittedClientAssets(emit(files), identity);
 
   it("hashes something at all — an empty digest would prove nothing", () => {
     const result = digestOf(BASE);
-    // public/** (5) + server/wrangler.json (1). See FOREVER_BUILD_DIGEST_EXCLUSIONS.
+    // public/** (5) + server/wrangler.json (1). See FOREVER_CLIENT_ASSET_DIGEST_EXCLUSIONS.
     expect(result.fileCount).toBe(6);
     expect(result.digest).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -289,7 +295,7 @@ describe("the output digest covers the whole emitted runtime graph", () => {
     const a = digestOf(BASE);
     const b = digestOf(BASE);
     expect(a.digest).toBe(b.digest);
-    expect(deriveForeverBuildId(a.digest)).toBe(deriveForeverBuildId(b.digest));
+    expect(deriveForeverClientAssetId(a.digest)).toBe(deriveForeverClientAssetId(b.digest));
   });
 
   it("an application source change changes the identity", () => {
@@ -340,26 +346,26 @@ describe("the output digest covers the whole emitted runtime graph", () => {
     expect(digestOf({ ...BASE, "server/index.mjs": "export default { a: 1 };" }).digest).toBe(
       digestOf(BASE).digest,
     );
-    expect(FOREVER_BUILD_DIGEST_EXCLUSIONS.map((entry) => entry.path).sort()).toEqual([
+    expect(FOREVER_CLIENT_ASSET_DIGEST_EXCLUSIONS.map((entry) => entry.path).sort()).toEqual([
       "nitro.json",
       "package-lock.json",
       "package.json",
       "server/**.mjs",
     ]);
-    for (const entry of FOREVER_BUILD_DIGEST_EXCLUSIONS) {
+    for (const entry of FOREVER_CLIENT_ASSET_DIGEST_EXCLUSIONS) {
       expect(entry.reason.length, entry.path).toBeGreaterThan(30);
     }
-    expect([...FOREVER_BUILD_DIGEST_INCLUDED]).toEqual(["public", "server/wrangler.json"]);
+    expect([...FOREVER_CLIENT_ASSET_DIGEST_INCLUDED]).toEqual(["public", "server/wrangler.json"]);
   });
 
   it("the whole client runtime graph contributes, and nothing under public is excluded", () => {
-    expect(pathContributesToBuildIdentity("public/assets/index-AAAAAAAA.js")).toBe(true);
-    expect(pathContributesToBuildIdentity("public/assets/styles-CCCCCCCC.css")).toBe(true);
-    expect(pathContributesToBuildIdentity("public/favicon.ico")).toBe(true);
-    expect(pathContributesToBuildIdentity("public/_headers")).toBe(true);
-    expect(pathContributesToBuildIdentity("server/wrangler.json")).toBe(true);
-    expect(pathContributesToBuildIdentity("server/index.mjs")).toBe(false);
-    expect(pathContributesToBuildIdentity("nitro.json")).toBe(false);
+    expect(pathContributesToClientAssetIdentity("public/assets/index-AAAAAAAA.js")).toBe(true);
+    expect(pathContributesToClientAssetIdentity("public/assets/styles-CCCCCCCC.css")).toBe(true);
+    expect(pathContributesToClientAssetIdentity("public/favicon.ico")).toBe(true);
+    expect(pathContributesToClientAssetIdentity("public/_headers")).toBe(true);
+    expect(pathContributesToClientAssetIdentity("server/wrangler.json")).toBe(true);
+    expect(pathContributesToClientAssetIdentity("server/index.mjs")).toBe(false);
+    expect(pathContributesToClientAssetIdentity("nitro.json")).toBe(false);
   });
 
   it("the generated Worker headers file contributes", () => {
@@ -386,12 +392,12 @@ describe("the output digest covers the whole emitted runtime graph", () => {
 
     const passOne: Record<string, string> = {
       ...BASE,
-      "public/assets/index-AAAAAAAA.js": `console.log("entry");globalThis.b="${FOREVER_BUILD_ID_PLACEHOLDER}";`,
-      "server/_ssr/root-DDDDDDDD.mjs": `export const ssr = 1;export const b="${FOREVER_BUILD_ID_PLACEHOLDER}";`,
+      "public/assets/index-AAAAAAAA.js": `console.log("entry");globalThis.b="${FOREVER_CLIENT_ASSET_ID_PLACEHOLDER}";`,
+      "server/_ssr/root-DDDDDDDD.mjs": `export const ssr = 1;export const b="${FOREVER_CLIENT_ASSET_ID_PLACEHOLDER}";`,
     };
 
-    expect(digestEmittedOutput(emit(finalPass), identity).digest).toBe(
-      digestEmittedOutput(emit(passOne), FOREVER_BUILD_ID_PLACEHOLDER).digest,
+    expect(digestEmittedClientAssets(emit(finalPass), identity).digest).toBe(
+      digestEmittedClientAssets(emit(passOne), FOREVER_CLIENT_ASSET_ID_PLACEHOLDER).digest,
     );
   });
 
@@ -404,10 +410,10 @@ describe("the output digest covers the whole emitted runtime graph", () => {
     delete finalPass["public/assets/index-AAAAAAAA.js"];
     const passOne: Record<string, string> = {
       ...BASE,
-      "public/assets/index-AAAAAAAA.js": `console.log("entry");globalThis.b="${FOREVER_BUILD_ID_PLACEHOLDER}";`,
+      "public/assets/index-AAAAAAAA.js": `console.log("entry");globalThis.b="${FOREVER_CLIENT_ASSET_ID_PLACEHOLDER}";`,
     };
-    expect(digestEmittedOutput(emit(finalPass), identity).digest).not.toBe(
-      digestEmittedOutput(emit(passOne), FOREVER_BUILD_ID_PLACEHOLDER).digest,
+    expect(digestEmittedClientAssets(emit(finalPass), identity).digest).not.toBe(
+      digestEmittedClientAssets(emit(passOne), FOREVER_CLIENT_ASSET_ID_PLACEHOLDER).digest,
     );
   });
 
@@ -422,7 +428,7 @@ describe("the output digest covers the whole emitted runtime graph", () => {
       Buffer.from(`const b="${identity}";import"./a-AbCdEfGh.js";`),
       identity,
     ).toString("utf8");
-    expect(normalized).toContain(FOREVER_BUILD_ID_PLACEHOLDER);
+    expect(normalized).toContain(FOREVER_CLIENT_ASSET_ID_PLACEHOLDER);
     expect(normalized).not.toContain(identity);
     expect(normalized).toContain("./a-<forever-content-hash>.js");
   });
@@ -430,14 +436,14 @@ describe("the output digest covers the whole emitted runtime graph", () => {
 
 describe("the derived identity is bounded and 128 bits", () => {
   it("is 32 lowercase hex characters", () => {
-    const identity = deriveForeverBuildId("a".repeat(64));
+    const identity = deriveForeverClientAssetId("a".repeat(64));
     expect(identity).toMatch(/^[0-9a-f]{32}$/);
-    expect(isBoundedForeverBuildId(identity)).toBe(true);
+    expect(isBoundedForeverClientAssetId(identity)).toBe(true);
     expect(identity.length * 4).toBe(128);
   });
 
   it("different digests give different identities", () => {
-    expect(deriveForeverBuildId("a".repeat(64))).not.toBe(deriveForeverBuildId("b".repeat(64)));
+    expect(deriveForeverClientAssetId("a".repeat(64))).not.toBe(deriveForeverClientAssetId("b".repeat(64)));
   });
 });
 
@@ -465,8 +471,8 @@ describe("the final pass verifies itself", () => {
 describe("the identity is wired into the build", () => {
   it("vite.config.ts defines the constant for client and server output", () => {
     const config = read("vite.config.ts");
-    expect(config).toContain("resolveForeverBuildId");
-    expect(config).toContain("__FOREVER_BUILD_ID__: JSON.stringify(FOREVER_BUILD_ID)");
+    expect(config).toContain("resolveForeverClientAssetId");
+    expect(config).toContain("__FOREVER_CLIENT_ASSET_ID__: JSON.stringify(FOREVER_CLIENT_ASSET_ID)");
   });
 
   it("the capture layer is installed by a call the bundler cannot drop", () => {

@@ -26,6 +26,7 @@ import {
   resetRecoveryLedgerForTest,
   resetStaleAssetRecoveryStateForTest,
   getStaleAssetRecoveryState,
+  STALE_ASSET_ATTESTATION_OUTCOMES,
   type StaleAssetRecoveryEnvironment,
 } from "./stale-asset-recovery";
 import {
@@ -40,8 +41,11 @@ import {
   STALE_ASSET_RECOVERY_LEDGER_KEY,
   STALE_ASSET_RECOVERY_LEDGER_SCHEMA,
   STALE_ASSET_RECOVERY_MAX_HISTORY,
+  STALE_ASSET_RECOVERY_MAX_SERIALIZED_BYTES,
   STALE_ASSET_RECOVERY_MAX_TAB_ATTEMPTS,
   STALE_ASSET_RECOVERY_OUTCOMES,
+  STALE_ASSET_RECOVERY_STABILIZATION_MS,
+  STALE_ASSET_ROUTE_KINDS,
   STALE_ASSET_RECOVERY_PENDING_TTL_MS,
   type StaleAssetRecoveryLedger,
   type StaleAssetRecoveryOutcome,
@@ -76,8 +80,8 @@ function environment(
     reload,
     now: () => NOW,
     storage: memoryStorage(),
-    ownBuildId: "aaaaaaaaaaaa",
-    readActiveBuildId: async () => "bbbbbbbbbbbb",
+    ownClientAssetId: "aaaaaaaaaaaa",
+    readActiveClientAssetId: async () => "bbbbbbbbbbbb",
     hasUnprovenWrite: () => false,
     ...overrides,
     // The spy must survive an override that did not supply one.
@@ -182,8 +186,8 @@ describe("P1-1 — alternating and progressing transitions are bounded", () => {
       const env = environment({
         storage,
         now: () => NOW + i * 1000,
-        ownBuildId: page,
-        readActiveBuildId: async () => active,
+        ownClientAssetId: page,
+        readActiveClientAssetId: async () => active,
         reload: vi.fn(() => void (reloads += 1)),
       });
       const decision = await drive(env);
@@ -215,15 +219,15 @@ describe("P1-1 — alternating and progressing transitions are bounded", () => {
   it("release followed by rollback: the rollback does NOT re-arm the original pair", async () => {
     // This is the runbook's own rollback step (independent-review P2-5).
     const storage = memoryStorage();
-    const release = environment({ storage, ownBuildId: "aaaaaaaaaaaa" });
+    const release = environment({ storage, ownClientAssetId: "aaaaaaaaaaaa" });
     expect((await drive(release)).outcome).toBe("reload_issued");
 
     // The tab is now running B. The origin rolls back to A.
     const rollback = environment({
       storage,
       now: () => NOW + 1000,
-      ownBuildId: "bbbbbbbbbbbb",
-      readActiveBuildId: async () => "aaaaaaaaaaaa",
+      ownClientAssetId: "bbbbbbbbbbbb",
+      readActiveClientAssetId: async () => "aaaaaaaaaaaa",
     });
     expect((await drive(rollback)).outcome).toBe("reload_issued");
 
@@ -236,22 +240,22 @@ describe("P1-1 — alternating and progressing transitions are bounded", () => {
 
   it("A → B → C: genuinely later builds each get an attempt, up to the tab ceiling", async () => {
     const storage = memoryStorage();
-    const first = environment({ storage, ownBuildId: "aaaaaaaaaaaa" });
+    const first = environment({ storage, ownClientAssetId: "aaaaaaaaaaaa" });
     expect((await drive(first)).outcome).toBe("reload_issued");
 
     const second = environment({
       storage,
       now: () => NOW + 1000,
-      ownBuildId: "bbbbbbbbbbbb",
-      readActiveBuildId: async () => "cccccccccccc",
+      ownClientAssetId: "bbbbbbbbbbbb",
+      readActiveClientAssetId: async () => "cccccccccccc",
     });
     expect((await drive(second)).outcome).toBe("reload_issued");
 
     const third = environment({
       storage,
       now: () => NOW + 2000,
-      ownBuildId: "cccccccccccc",
-      readActiveBuildId: async () => "dddddddddddd",
+      ownClientAssetId: "cccccccccccc",
+      readActiveClientAssetId: async () => "dddddddddddd",
     });
     expect((await drive(third)).outcome).toBe("reload_issued");
 
@@ -260,8 +264,8 @@ describe("P1-1 — alternating and progressing transitions are bounded", () => {
     const fourth = environment({
       storage,
       now: () => NOW + 3000,
-      ownBuildId: "dddddddddddd",
-      readActiveBuildId: async () => "eeeeeeeeeeee",
+      ownClientAssetId: "dddddddddddd",
+      readActiveClientAssetId: async () => "eeeeeeeeeeee",
     });
     expect((await drive(fourth)).outcome).toBe("recovery_budget_spent");
     expect(fourth.reload).not.toHaveBeenCalled();
@@ -275,8 +279,8 @@ describe("P1-1 — alternating and progressing transitions are bounded", () => {
       const env = environment({
         storage,
         now: () => NOW + i * 1000,
-        ownBuildId: builds[i],
-        readActiveBuildId: async () => builds[i + 1],
+        ownClientAssetId: builds[i],
+        readActiveClientAssetId: async () => builds[i + 1],
         reload: vi.fn(() => void (reloads += 1)),
       });
       await drive(env);
@@ -396,14 +400,14 @@ describe("P1-1 — alternating and progressing transitions are bounded", () => {
 
 describe("refusals that are not about the ledger", () => {
   it("refuses when the origin reports the SAME build — a reload would prove nothing", async () => {
-    const env = environment({ readActiveBuildId: async () => "aaaaaaaaaaaa" });
-    expect((await drive(env)).outcome).toBe("same_build");
+    const env = environment({ readActiveClientAssetId: async () => "aaaaaaaaaaaa" });
+    expect((await drive(env)).outcome).toBe("same_client_assets");
     expect(env.reload).not.toHaveBeenCalled();
   });
 
   it("refuses when the active build cannot be read", async () => {
-    const env = environment({ readActiveBuildId: async () => null });
-    expect((await drive(env)).outcome).toBe("active_build_unknown");
+    const env = environment({ readActiveClientAssetId: async () => null });
+    expect((await drive(env)).outcome).toBe("active_client_assets_unknown");
     expect(env.reload).not.toHaveBeenCalled();
   });
 
@@ -460,7 +464,7 @@ describe("write-action safety — no automatic resubmission, ever", () => {
   it("issues no request other than the build probe — nothing is resubmitted", async () => {
     const calls: string[] = [];
     const env = environment({
-      readActiveBuildId: async () => {
+      readActiveClientAssetId: async () => {
         calls.push("build-probe");
         return "bbbbbbbbbbbb";
       },
@@ -542,11 +546,11 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
   it("the recovery screen's own 'Go to site' does NOT clear anything", async () => {
     const storage = await withPending(memoryStorage());
     const result = attestStaleAssetRecovery(
-      { ...fullEvidence, pathname: "/", buildId: "bbbbbbbbbbbb", studioAuthenticatedReady: false },
+      { ...fullEvidence, pathname: "/", clientAssetId: "bbbbbbbbbbbb", studioAuthenticatedReady: false },
       { now: () => NOW + 10, storage, schedule: runNow },
     );
     expect(result.accepted).toBe(false);
-    expect(result.cleared).toBe(false);
+    expect(result.outcome).toBe("refused");
     expect(ledgerOf(storage).pending).not.toBeNull();
     expect(ledgerOf(storage).history).toHaveLength(1);
   });
@@ -554,7 +558,7 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
   it("and the same transition is still refused afterwards", async () => {
     const storage = await withPending(memoryStorage());
     attestStaleAssetRecovery(
-      { ...fullEvidence, pathname: "/", buildId: "bbbbbbbbbbbb", studioAuthenticatedReady: false },
+      { ...fullEvidence, pathname: "/", clientAssetId: "bbbbbbbbbbbb", studioAuthenticatedReady: false },
       { now: () => NOW + 10, storage, schedule: runNow },
     );
     const env = environment({ storage, now: () => NOW + 20 });
@@ -568,7 +572,7 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
       {
         ...fullEvidence,
         pathname: "/studio",
-        buildId: "bbbbbbbbbbbb",
+        clientAssetId: "bbbbbbbbbbbb",
         studioAuthenticatedReady: false,
       },
       { now: () => NOW + 10, storage, schedule: runNow },
@@ -580,16 +584,16 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
   it("a build that is not the recovery target proves nothing", async () => {
     const storage = await withPending(memoryStorage());
     const result = attestStaleAssetRecovery(
-      { ...fullEvidence, pathname: "/studio", buildId: "aaaaaaaaaaaa" },
+      { ...fullEvidence, pathname: "/studio", clientAssetId: "aaaaaaaaaaaa" },
       { now: () => NOW + 10, storage, schedule: runNow },
     );
-    expect(result).toMatchObject({ accepted: false, refusal: "build_is_not_the_recovery_target" });
+    expect(result).toMatchObject({ accepted: false, refusal: "client_assets_are_not_the_recovery_target" });
   });
 
   it("a leaf that did not load proves nothing", async () => {
     const storage = await withPending(memoryStorage());
     const result = attestStaleAssetRecovery(
-      { ...fullEvidence, leafRouteLoaded: false, pathname: "/studio", buildId: "bbbbbbbbbbbb" },
+      { ...fullEvidence, leafRouteLoaded: false, pathname: "/studio", clientAssetId: "bbbbbbbbbbbb" },
       { now: () => NOW + 10, storage, schedule: runNow },
     );
     expect(result).toMatchObject({ accepted: false, refusal: "leaf_route_not_loaded" });
@@ -598,7 +602,7 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
   it("a nested module that did not load proves nothing", async () => {
     const storage = await withPending(memoryStorage());
     const result = attestStaleAssetRecovery(
-      { ...fullEvidence, nestedModulesLoaded: false, pathname: "/studio", buildId: "bbbbbbbbbbbb" },
+      { ...fullEvidence, nestedModulesLoaded: false, pathname: "/studio", clientAssetId: "bbbbbbbbbbbb" },
       { now: () => NOW + 10, storage, schedule: runNow },
     );
     expect(result).toMatchObject({ accepted: false, refusal: "nested_modules_not_loaded" });
@@ -607,7 +611,7 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
   it("an error boundary mounting proves nothing", async () => {
     const storage = await withPending(memoryStorage());
     const result = attestStaleAssetRecovery(
-      { ...fullEvidence, errorBoundaryActive: true, pathname: "/studio", buildId: "bbbbbbbbbbbb" },
+      { ...fullEvidence, errorBoundaryActive: true, pathname: "/studio", clientAssetId: "bbbbbbbbbbbb" },
       { now: () => NOW + 10, storage, schedule: runNow },
     );
     expect(result).toMatchObject({ accepted: false, refusal: "error_boundary_active" });
@@ -616,7 +620,7 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
   it("a full attestation on the recovered route DOES clear the pending recovery", async () => {
     const storage = await withPending(memoryStorage());
     const result = attestStaleAssetRecovery(
-      { ...fullEvidence, pathname: "/studio", buildId: "bbbbbbbbbbbb" },
+      { ...fullEvidence, pathname: "/studio", clientAssetId: "bbbbbbbbbbbb" },
       { now: () => NOW + 10, storage, schedule: runNow },
     );
     expect(result.accepted).toBe(true);
@@ -626,7 +630,7 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
   it("but the attempted-transition HISTORY survives success", async () => {
     const storage = await withPending(memoryStorage());
     attestStaleAssetRecovery(
-      { ...fullEvidence, pathname: "/studio", buildId: "bbbbbbbbbbbb" },
+      { ...fullEvidence, pathname: "/studio", clientAssetId: "bbbbbbbbbbbb" },
       { now: () => NOW + 10, storage, schedule: runNow },
     );
     expect(ledgerOf(storage).history).toEqual([
@@ -636,8 +640,8 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
     const back = environment({
       storage,
       now: () => NOW + 20,
-      ownBuildId: "bbbbbbbbbbbb",
-      readActiveBuildId: async () => "aaaaaaaaaaaa",
+      ownClientAssetId: "bbbbbbbbbbbb",
+      readActiveClientAssetId: async () => "aaaaaaaaaaaa",
     });
     expect((await drive(back)).outcome).toBe("reload_issued");
     const again = environment({ storage, now: () => NOW + 30 });
@@ -648,7 +652,7 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
     const storage = await withPending(memoryStorage());
     let scheduled: (() => void) | null = null;
     const result = attestStaleAssetRecovery(
-      { ...fullEvidence, pathname: "/studio", buildId: "bbbbbbbbbbbb" },
+      { ...fullEvidence, pathname: "/studio", clientAssetId: "bbbbbbbbbbbb" },
       {
         now: () => NOW + 10,
         storage,
@@ -667,7 +671,7 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
   it("attesting with no pending recovery is a refusal, not an error", () => {
     const storage = memoryStorage();
     const result = attestStaleAssetRecovery(
-      { ...fullEvidence, pathname: "/studio", buildId: "bbbbbbbbbbbb" },
+      { ...fullEvidence, pathname: "/studio", clientAssetId: "bbbbbbbbbbbb" },
       { now: () => NOW, storage, schedule: runNow },
     );
     expect(result).toMatchObject({ accepted: false, refusal: "no_pending_recovery" });
@@ -675,7 +679,7 @@ describe("P1-2 — only an exact-route success attestation clears a pending reco
 
   it("the ONE documented safe redirect is honoured and nothing else is", () => {
     const base: StaleAssetSuccessAttestation = {
-      buildId: "bbbbbbbbbbbb",
+      clientAssetId: "bbbbbbbbbbbb",
       pathname: "/studio",
       leafRouteLoaded: true,
       nestedModulesLoaded: true,
@@ -776,7 +780,77 @@ describe("ledger validation is strict and refuses anything unexpected", () => {
   it("refuses non-JSON, oversized and non-object values", () => {
     expect(parseStaleAssetRecoveryLedger("not json", NOW).status).toBe("malformed");
     expect(parseStaleAssetRecoveryLedger("[]", NOW).status).toBe("malformed");
-    expect(parseStaleAssetRecoveryLedger("x".repeat(600), NOW).status).toBe("malformed");
+    expect(
+      parseStaleAssetRecoveryLedger(
+        "x".repeat(STALE_ASSET_RECOVERY_MAX_SERIALIZED_BYTES + 1),
+        NOW,
+      ).status,
+    ).toBe("malformed");
+  });
+
+  // -------------------------------------------------------------------------
+  // RR2-P3-4 — the declared maximum history is REACHABLE under the byte cap
+  // -------------------------------------------------------------------------
+
+  it("a FULL history at production identifier length fits inside the byte cap", () => {
+    // The exact worst case: MAX_HISTORY entries plus a pending record, every
+    // identifier at the maximum bounded length (32) and every timestamp at 13
+    // digits, on the longest route kind in the vocabulary. Before the cap was
+    // reconciled this serialized to 983 bytes against a 512-byte limit, so the
+    // documented maximum of 8 was unreachable and the real limit was 4.
+    const identifier = "f".repeat(32);
+    const at = 9_999_999_999_999;
+    const longestRoute = [...STALE_ASSET_ROUTE_KINDS].sort((a, b) => b.length - a.length)[0];
+    const worstCase = {
+      v: STALE_ASSET_RECOVERY_LEDGER_SCHEMA,
+      pending: { from: identifier, to: identifier, at, route: longestRoute },
+      history: Array.from({ length: STALE_ASSET_RECOVERY_MAX_HISTORY }, () => ({
+        from: identifier,
+        to: identifier,
+        at,
+      })),
+    };
+    const raw = JSON.stringify(worstCase);
+    expect(raw.length).toBeLessThanOrEqual(STALE_ASSET_RECOVERY_MAX_SERIALIZED_BYTES);
+
+    const parsed = parseStaleAssetRecoveryLedger(raw, at);
+    expect(parsed.status).toBe("ok");
+    expect(parsed.ledger.history).toHaveLength(STALE_ASSET_RECOVERY_MAX_HISTORY);
+    expect(parsed.ledger.pending).not.toBeNull();
+  });
+
+  it("and the byte cap is still a hard bound one byte further out", () => {
+    const identifier = "f".repeat(32);
+    const at = 9_999_999_999_999;
+    const base = {
+      v: STALE_ASSET_RECOVERY_LEDGER_SCHEMA,
+      pending: { from: identifier, to: identifier, at, route: "studio_reset_password" },
+      history: Array.from({ length: STALE_ASSET_RECOVERY_MAX_HISTORY }, () => ({
+        from: identifier,
+        to: identifier,
+        at,
+      })),
+    };
+    const raw = JSON.stringify(base);
+    const padded = `${" ".repeat(STALE_ASSET_RECOVERY_MAX_SERIALIZED_BYTES + 1 - raw.length)}${raw}`;
+    expect(padded.length).toBe(STALE_ASSET_RECOVERY_MAX_SERIALIZED_BYTES + 1);
+    expect(parseStaleAssetRecoveryLedger(padded, at).status).toBe("malformed");
+  });
+
+  it("the serializer never writes more than the cap allows", () => {
+    const identifier = "f".repeat(32);
+    const at = 9_999_999_999_999;
+    const serialized = serializeStaleAssetRecoveryLedger({
+      v: STALE_ASSET_RECOVERY_LEDGER_SCHEMA,
+      pending: { from: identifier, to: identifier, at, route: "studio_reset_password" },
+      history: Array.from({ length: STALE_ASSET_RECOVERY_MAX_HISTORY + 4 }, () => ({
+        from: identifier,
+        to: identifier,
+        at,
+      })),
+    });
+    expect(serialized.length).toBeLessThanOrEqual(STALE_ASSET_RECOVERY_MAX_SERIALIZED_BYTES);
+    expect(parseStaleAssetRecoveryLedger(serialized, at).status).toBe("ok");
   });
 
   it("treats an absent value as absent, not malformed", () => {
@@ -898,8 +972,8 @@ describe("P2-1 — a confirmed stale failure never falls through to the generic 
                 environment({
                   storage,
                   now: () => NOW + i,
-                  ownBuildId: builds[i],
-                  readActiveBuildId: async () => builds[i + 1],
+                  ownClientAssetId: builds[i],
+                  readActiveClientAssetId: async () => builds[i + 1],
                 }),
               )
             ).outcome;
@@ -913,13 +987,13 @@ describe("P2-1 — a confirmed stale failure never falls through to the generic 
       ],
       ["storage_unavailable", async () => (await drive(environment({ storage: null }))).outcome],
       [
-        "active_build_unknown",
-        async () => (await drive(environment({ readActiveBuildId: async () => null }))).outcome,
+        "active_client_assets_unknown",
+        async () => (await drive(environment({ readActiveClientAssetId: async () => null }))).outcome,
       ],
       [
-        "same_build",
+        "same_client_assets",
         async () =>
-          (await drive(environment({ readActiveBuildId: async () => "aaaaaaaaaaaa" }))).outcome,
+          (await drive(environment({ readActiveClientAssetId: async () => "aaaaaaaaaaaa" }))).outcome,
       ],
       [
         "route_denied",
@@ -944,12 +1018,12 @@ describe("P2-1 — a confirmed stale failure never falls through to the generic 
     // Every declared denial reason is covered by this table.
     expect(cases.map(([name]) => name).sort()).toEqual(
       [
-        "active_build_unknown",
+        "active_client_assets_unknown",
         "attempt_already_used",
         "malformed_state",
         "recovery_budget_spent",
         "route_denied",
-        "same_build",
+        "same_client_assets",
         "storage_unavailable",
         "write_in_flight",
       ].sort(),
@@ -961,7 +1035,7 @@ describe("P2-1 — a confirmed stale failure never falls through to the generic 
     const probe = new Promise<string | null>((resolve) => {
       release = resolve;
     });
-    const env = environment({ readActiveBuildId: () => probe });
+    const env = environment({ readActiveClientAssetId: () => probe });
     resetStaleAssetRecoveryStateForTest();
     const pendingDecision = handleStaleAssetSignal(staleSignal, env);
     // The decision has not resolved, but the boundary already knows.
@@ -980,7 +1054,7 @@ describe("one failure, one decision — concurrent channels do not multiply", ()
       release = resolve;
     });
     const env = environment({
-      readActiveBuildId: () => {
+      readActiveClientAssetId: () => {
         probes += 1;
         return gate;
       },
@@ -997,8 +1071,8 @@ describe("one failure, one decision — concurrent channels do not multiply", ()
 
   it("a refusal releases the gate so a later transition can still decide", async () => {
     const storage = memoryStorage();
-    const refused = environment({ storage, readActiveBuildId: async () => null });
-    expect((await drive(refused)).outcome).toBe("active_build_unknown");
+    const refused = environment({ storage, readActiveClientAssetId: async () => null });
+    expect((await drive(refused)).outcome).toBe("active_client_assets_unknown");
     const later = environment({ storage, now: () => NOW + 1 });
     expect((await drive(later)).outcome).toBe("reload_issued");
   });

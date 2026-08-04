@@ -1,11 +1,18 @@
 /**
- * FOREVER-STUDIO-STALE-ASSET-RECOVERY-001 — public build identity, derived from
- * the EMITTED OUTPUT.
+ * FOREVER-STUDIO-STALE-ASSET-RECOVERY-001 — the public CLIENT ASSET identity,
+ * derived from the EMITTED CLIENT OUTPUT.
  *
  * The recovery path has to answer one question before it is allowed to reload a
- * page under someone: "is the build serving this origin RIGHT NOW a different
- * build from the one this page is running?" Without that answer, a reload is a
- * guess — and a guess that is wrong reloads a page for an ordinary error.
+ * page under someone: "is the CLIENT ASSET GRAPH this origin serves RIGHT NOW a
+ * different graph from the one this page is running?" Without that answer, a
+ * reload is a guess — and a guess that is wrong reloads a page for an ordinary
+ * error.
+ *
+ * That question is about client assets, and this identity answers exactly it.
+ * It is NOT a release identity: see
+ * `src/lib/stale-asset/worker-release-identity.ts` and the header of
+ * `client-asset-id-contract.ts` for the measured reason the two were split
+ * (narrow-re-review RR2-P1-1).
  *
  * ---------------------------------------------------------------------------
  * WHY SOURCE ENUMERATION WAS NOT AN IDENTITY (independent-review P1-4)
@@ -20,11 +27,11 @@
  *
  * In production that is not a cosmetic error. The chunk 404s exactly as in the
  * PR #134 incident, the probe returns the same identifier, the decision reaches
- * `same_build`, and automatic recovery is refused. The PR's central deliverable
+ * `same_client_assets`, and automatic recovery is refused. The PR's central deliverable
  * silently does not fire.
  *
  * An identity of the inputs can only ever be as complete as the list. So the
- * identity is now a digest of the OUTPUT — the bytes that actually ship.
+ * identity is now a digest of the OUTPUT — the client bytes that actually ship.
  *
  * ---------------------------------------------------------------------------
  * THE OUTPUT-DERIVED CONTRACT (`scripts/build/build-forever.mjs`)
@@ -34,9 +41,10 @@
  *
  *   BUILD         emit the whole runtime graph with the fixed canonical
  *                 PLACEHOLDER identity inlined.
- *   DIGEST        hash the emitted graph in deterministic sorted order,
- *                 normalising the placeholder identity bytes and the
- *                 content-hash segments they would move.
+ *   DIGEST        hash the emitted CLIENT graph plus the generated Worker
+ *                 configuration in deterministic sorted order, normalising the
+ *                 placeholder identity bytes and the content-hash segments they
+ *                 would move.
  *   DERIVE        identity = 128 bits of SHA-256 of that digest.
  *   SEAL          substitute the derived identity for the placeholder IN
  *                 PLACE, byte-for-byte and same-length, in the emitted files.
@@ -65,9 +73,10 @@
  * ---------------------------------------------------------------------------
  *
  * Not a secret, not a credential, not a token, not a GitHub reference, not a
- * path, and not derived from any production system. It is a short digest of
- * this repository's own emitted bytes — publishable by construction, because it
- * is exactly as public as the asset filenames it accompanies.
+ * path, not a Cloudflare Worker version, and not derived from any production
+ * system. It is a short digest of this repository's own emitted client bytes —
+ * publishable by construction, because it is exactly as public as the asset
+ * filenames it accompanies.
  */
 
 import { createHash } from "node:crypto";
@@ -75,53 +84,51 @@ import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 
 import {
-  FOREVER_BUILD_ID_FALLBACK,
-  FOREVER_BUILD_ID_HEX_LENGTH,
-  FOREVER_BUILD_ID_PATTERN,
-  FOREVER_BUILD_ID_PLACEHOLDER,
-  isBoundedForeverBuildId,
-} from "../../src/lib/stale-asset/forever-build-id-contract";
+  FOREVER_CLIENT_ASSET_ID_FALLBACK,
+  FOREVER_CLIENT_ASSET_ID_HEX_LENGTH,
+  FOREVER_CLIENT_ASSET_ID_PATTERN,
+  FOREVER_CLIENT_ASSET_ID_PLACEHOLDER,
+  isBoundedForeverClientAssetId,
+} from "../../src/lib/stale-asset/client-asset-id-contract";
 
 export {
-  FOREVER_BUILD_ID_FALLBACK,
-  FOREVER_BUILD_ID_PATTERN,
-  FOREVER_BUILD_ID_PLACEHOLDER,
-  isBoundedForeverBuildId,
+  FOREVER_CLIENT_ASSET_ID_FALLBACK,
+  FOREVER_CLIENT_ASSET_ID_PATTERN,
+  FOREVER_CLIENT_ASSET_ID_PLACEHOLDER,
+  isBoundedForeverClientAssetId,
 };
 
 /**
  * Environment variable the orchestrator sets on the FINAL pass only.
  *
- * Deliberately distinct from `FOREVER_BUILD_ID`: this one is not a manual
- * override, it is the derived value being fed back in, and the orchestrator is
- * the only thing that sets it.
+ * Deliberately distinct from `FOREVER_CLIENT_ASSET_ID`: this one is not a
+ * manual override, it is the derived value being fed back in, and the
+ * orchestrator is the only thing that sets it.
  */
-export const FOREVER_BUILD_ID_DERIVED_ENV = "FOREVER_BUILD_ID_DERIVED";
+export const FOREVER_CLIENT_ASSET_ID_DERIVED_ENV = "FOREVER_CLIENT_ASSET_ID_DERIVED";
 
 /** Environment variable the orchestrator sets on the FIRST pass only. */
-export const FOREVER_BUILD_ID_PLACEHOLDER_ENV = "FOREVER_BUILD_ID_PLACEHOLDER_PASS";
+export const FOREVER_CLIENT_ASSET_ID_PLACEHOLDER_ENV = "FOREVER_CLIENT_ASSET_ID_PLACEHOLDER_PASS";
 
 /**
- * The ONLY guard under which a manual `FOREVER_BUILD_ID` is honoured.
+ * The ONLY guard under which a manual `FOREVER_CLIENT_ASSET_ID` is honoured.
  *
  * Independent-review P3-3: the previous override was validated for shape only,
  * so pinning a previously deployed identifier made every page from that build
- * see `same_build` and refuse recovery. A production build must not be able to
+ * see `same_client_assets` and refuse recovery. A production build must not be able to
  * reuse an old identity, so a manual override is now refused outright unless
  * this explicitly non-production guard is set — which the production
  * orchestrator never sets, and which the two-version test harness does.
  */
-export const FOREVER_BUILD_ID_TEST_OVERRIDE_ENV = "FOREVER_ALLOW_TEST_BUILD_ID";
+export const FOREVER_CLIENT_ASSET_ID_TEST_OVERRIDE_ENV = "FOREVER_ALLOW_TEST_CLIENT_ASSET_ID";
 
 /**
  * WHAT THE DIGEST COVERS, AND THE MEASURED REASON FOR EVERY EXCLUSION.
  *
- * The rule is "hash the emitted runtime graph, exclude only generated
- * non-runtime metadata". Applying that rule to this toolchain required
- * measuring what is actually reproducible, because an identity computed over
- * non-reproducible bytes is not an identity — the same artefact could not be
- * re-derived, and the runbook's "record `FOREVER_BUILD_ID`" step would be
- * meaningless.
+ * The rule is "hash the emitted CLIENT asset graph plus the generated Worker
+ * configuration". Applying that rule to this toolchain required measuring what
+ * is actually reproducible, because an identity computed over non-reproducible
+ * bytes is not an identity — the same artefact could not be re-derived.
  *
  * MEASURED, in this repository, twice, with identical source and identical
  * environment (`scripts/build/measure-output-determinism.mjs` reproduces it):
@@ -140,14 +147,14 @@ export const FOREVER_BUILD_ID_TEST_OVERRIDE_ENV = "FOREVER_ALLOW_TEST_BUILD_ID";
  *          `import processModule from "node:process"` in the other) inside
  *          chunks whose content-hashed FILENAMES were identical;
  *       2. `server/index.mjs` embeds a public-asset manifest carrying file
- *          `mtime` values, and its entry set raced with asset emission.
+ *          `mtime` values.
  *   - `.output/nitro.json` records the build DATE.
  *
  * So the digest covers the whole client runtime graph plus the generated Worker
  * configuration, and excludes the server JavaScript bundle and `nitro.json`.
  *
  * WHY THAT EXCLUSION IS SAFE FOR THIS MECHANISM, precisely. A stale-asset
- * failure is by construction a BROWSER failing to fetch a CLIENT chunk. The
+ * failure is by construction a BROWSER failing to fetch a CLIENT chunk. This
  * identity exists to answer one question: has the origin moved to a different
  * client asset graph? Every input that can change that graph — application
  * source, a lazy Studio route, CSS, a public static asset, the route tree, a
@@ -156,15 +163,19 @@ export const FOREVER_BUILD_ID_TEST_OVERRIDE_ENV = "FOREVER_ALLOW_TEST_BUILD_ID";
  * cannot make a client chunk 404, so it cannot produce the failure this
  * identity gates.
  *
- * WHAT IS LOST, stated plainly. A release that changes ONLY server code ships
- * with the same identity. A page from the previous build then reads
- * `same_build` — and correctly so: its chunks all still exist.
+ * WHAT THIS IDENTITY THEREFORE MUST NEVER BE USED FOR (RR2-P1-1). A release
+ * that changes ONLY server code ships with the SAME client asset identity, and
+ * that is correct: a page from the previous build reads `same_client_assets` because
+ * its chunks all still exist. It follows immediately that this value cannot
+ * verify a Worker deployment, a traffic allocation or a rollback target. The
+ * immutable Cloudflare Worker version UUID does that, and only it —
+ * `src/lib/stale-asset/worker-release-identity.ts`.
  *
- * `build-identity.test.ts` fails if this list grows.
+ * `client-asset-identity.test.ts` fails if this list grows.
  */
-export const FOREVER_BUILD_DIGEST_INCLUDED = ["public", "server/wrangler.json"] as const;
+export const FOREVER_CLIENT_ASSET_DIGEST_INCLUDED = ["public", "server/wrangler.json"] as const;
 
-export const FOREVER_BUILD_DIGEST_EXCLUSIONS: ReadonlyArray<{
+export const FOREVER_CLIENT_ASSET_DIGEST_EXCLUSIONS: ReadonlyArray<{
   readonly path: string;
   readonly reason: string;
 }> = [
@@ -183,14 +194,16 @@ export const FOREVER_BUILD_DIGEST_EXCLUSIONS: ReadonlyArray<{
   {
     path: "server/**.mjs",
     reason:
-      "MEASURED non-reproducible in this toolchain: Rolldown identifier deconfliction and an " +
-      "mtime-bearing public-asset manifest made 17 files differ between two builds of identical " +
-      "source whose client output was byte-identical",
+      "not part of the CLIENT asset graph, and MEASURED non-reproducible in this toolchain: " +
+      "Rolldown identifier deconfliction and an mtime-bearing public-asset manifest made 17 " +
+      "files differ between two builds of identical source whose client output was " +
+      "byte-identical. The deployed server artefact is identified by the immutable Cloudflare " +
+      "Worker version UUID instead, never by this digest",
   },
 ] as const;
 
-/** Whether a path under the output root contributes to the identity digest. */
-export function pathContributesToBuildIdentity(relativePath: string): boolean {
+/** Whether a path under the output root contributes to the client asset digest. */
+export function pathContributesToClientAssetIdentity(relativePath: string): boolean {
   const path = relativePath.split(sep).join("/");
   if (path === "server/wrangler.json") return true;
   return path === "public" || path.startsWith("public/");
@@ -246,8 +259,8 @@ export function normalizeEmittedContent(
 ): Buffer {
   if (!TEXT_EXTENSIONS.has(extensionOf(relativePath))) return contents;
   let text = contents.toString("utf8");
-  if (identity && identity !== FOREVER_BUILD_ID_PLACEHOLDER) {
-    text = text.split(identity).join(FOREVER_BUILD_ID_PLACEHOLDER);
+  if (identity && identity !== FOREVER_CLIENT_ASSET_ID_PLACEHOLDER) {
+    text = text.split(identity).join(FOREVER_CLIENT_ASSET_ID_PLACEHOLDER);
   }
   text = text.replace(CONTENT_HASH_IN_NAME, CONTENT_HASH_TOKEN);
   return Buffer.from(text, "utf8");
@@ -273,8 +286,8 @@ function collectEmittedFiles(root: string, directory: string, into: string[]): v
   }
 }
 
-export type EmittedOutputDigest = {
-  /** The digest itself — hex SHA-256 of the whole normalised graph. */
+export type EmittedClientAssetDigest = {
+  /** The digest itself — hex SHA-256 of the whole normalised client graph. */
   digest: string;
   /** How many files contributed. Zero is always an error, never an empty graph. */
   fileCount: number;
@@ -283,20 +296,23 @@ export type EmittedOutputDigest = {
 };
 
 /**
- * Hashes the complete emitted runtime graph, deterministically.
+ * Hashes the complete emitted client asset graph, deterministically.
  *
- * Every file under the output root contributes, in sorted canonical order, both
- * its canonical name and the SHA-256 of its normalised bytes. Sorting by
- * `(canonicalName, contentHash)` keeps the order total even when two chunks
- * normalise to the same canonical name.
+ * Every contributing file under the output root contributes, in sorted
+ * canonical order, both its canonical name and the SHA-256 of its normalised
+ * bytes. Sorting by `(canonicalName, contentHash)` keeps the order total even
+ * when two chunks normalise to the same canonical name.
  */
-export function digestEmittedOutput(outputRoot: string, identity: string): EmittedOutputDigest {
+export function digestEmittedClientAssets(
+  outputRoot: string,
+  identity: string,
+): EmittedClientAssetDigest {
   const files: string[] = [];
   collectEmittedFiles(outputRoot, outputRoot, files);
 
   const entries: Array<{ name: string; contentHash: string }> = [];
   for (const relativePath of files) {
-    if (!pathContributesToBuildIdentity(relativePath)) continue;
+    if (!pathContributesToClientAssetIdentity(relativePath)) continue;
     let contents: Buffer;
     try {
       contents = readFileSync(resolve(outputRoot, relativePath));
@@ -317,9 +333,9 @@ export function digestEmittedOutput(outputRoot: string, identity: string): Emitt
   const hash = createHash("sha256");
   for (const entry of entries) {
     hash.update(entry.name);
-    hash.update(" ");
+    hash.update(" ");
     hash.update(entry.contentHash);
-    hash.update(" ");
+    hash.update(" ");
   }
 
   return {
@@ -330,19 +346,19 @@ export function digestEmittedOutput(outputRoot: string, identity: string): Emitt
 }
 
 /**
- * Turns an output digest into the bounded public identity.
+ * Turns a client asset digest into the bounded public identity.
  *
  * 128 bits of SHA-256, which fits the bounded public-ID contract (at most 32
  * lowercase alphanumerics) with nothing to spare and nothing wasted.
  */
-export function deriveForeverBuildId(outputDigest: string): string {
+export function deriveForeverClientAssetId(clientAssetDigest: string): string {
   const derived = createHash("sha256")
-    .update("forever-build-identity-v2 ")
-    .update(outputDigest)
+    .update("forever-client-asset-identity-v3 ")
+    .update(clientAssetDigest)
     .digest("hex")
-    .slice(0, FOREVER_BUILD_ID_HEX_LENGTH);
-  if (!isBoundedForeverBuildId(derived)) {
-    throw new Error("derived FOREVER_BUILD_ID is not bounded — refusing to continue");
+    .slice(0, FOREVER_CLIENT_ASSET_ID_HEX_LENGTH);
+  if (!isBoundedForeverClientAssetId(derived)) {
+    throw new Error("derived FOREVER_CLIENT_ASSET_ID is not bounded — refusing to continue");
   }
   return derived;
 }
@@ -380,11 +396,12 @@ export type SealResult = {
  * no content hash moves, nothing is re-bundled, and nothing else can change.
  * That is precisely what makes the self-verification exact.
  */
-export function sealForeverBuildIdInPlace(outputRoot: string, identity: string): SealResult {
-  if (identity.length !== FOREVER_BUILD_ID_PLACEHOLDER.length) {
-    throw new ForeverBuildIdError(
+export function sealForeverClientAssetIdInPlace(outputRoot: string, identity: string): SealResult {
+  if (identity.length !== FOREVER_CLIENT_ASSET_ID_PLACEHOLDER.length) {
+    throw new ForeverClientAssetIdError(
       `derived identity is ${identity.length} characters but the placeholder is ` +
-        `${FOREVER_BUILD_ID_PLACEHOLDER.length}; an in-place seal must not change any byte offset`,
+        `${FOREVER_CLIENT_ASSET_ID_PLACEHOLDER.length}; an in-place seal must not change any ` +
+        "byte offset",
     );
   }
   const result: SealResult = {
@@ -394,7 +411,7 @@ export function sealForeverBuildIdInPlace(outputRoot: string, identity: string):
     filesTouched: 0,
   };
   for (const file of emittedTextFiles(outputRoot)) {
-    const parts = file.contents.split(FOREVER_BUILD_ID_PLACEHOLDER);
+    const parts = file.contents.split(FOREVER_CLIENT_ASSET_ID_PLACEHOLDER);
     const occurrences = parts.length - 1;
     if (occurrences === 0) continue;
     writeFileSync(resolve(outputRoot, file.relativePath), parts.join(identity), "utf8");
@@ -407,63 +424,65 @@ export function sealForeverBuildIdInPlace(outputRoot: string, identity: string):
   return result;
 }
 
-export class ForeverBuildIdError extends Error {
+export class ForeverClientAssetIdError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "forever_build_id_error";
+    this.name = "forever_client_asset_id_error";
   }
 }
 
 /**
- * Resolves the identifier for the build now starting.
+ * Resolves the client asset identifier for the build now starting.
  *
  * Fail-closed, in this exact order:
  *
  *   1. the orchestrator's DERIVED value, on the final pass;
  *   2. the orchestrator's PLACEHOLDER pass;
- *   3. a manual `FOREVER_BUILD_ID`, but ONLY behind the explicit
+ *   3. a manual `FOREVER_CLIENT_ASSET_ID`, but ONLY behind the explicit
  *      non-production test guard — otherwise refused, because a production
  *      build that can reuse a previously deployed identity can silently
  *      disable the recovery this identity exists to enable (P3-3);
  *   4. nothing else. A bare `vite build` throws rather than shipping a
  *      placeholder or an incomplete identity.
  */
-export function resolveForeverBuildId(
+export function resolveForeverClientAssetId(
   environment: Record<string, string | undefined> = process.env,
 ): string {
-  const derived = environment[FOREVER_BUILD_ID_DERIVED_ENV]?.trim().toLowerCase();
+  const derived = environment[FOREVER_CLIENT_ASSET_ID_DERIVED_ENV]?.trim().toLowerCase();
   if (derived) {
-    if (!isBoundedForeverBuildId(derived)) {
-      throw new ForeverBuildIdError(
-        `${FOREVER_BUILD_ID_DERIVED_ENV} is not a bounded build identifier`,
+    if (!isBoundedForeverClientAssetId(derived)) {
+      throw new ForeverClientAssetIdError(
+        `${FOREVER_CLIENT_ASSET_ID_DERIVED_ENV} is not a bounded client asset identifier`,
       );
     }
     return derived;
   }
 
-  if (environment[FOREVER_BUILD_ID_PLACEHOLDER_ENV] === "1") {
-    return FOREVER_BUILD_ID_PLACEHOLDER;
+  if (environment[FOREVER_CLIENT_ASSET_ID_PLACEHOLDER_ENV] === "1") {
+    return FOREVER_CLIENT_ASSET_ID_PLACEHOLDER;
   }
 
-  const manual = environment.FOREVER_BUILD_ID?.trim().toLowerCase();
+  const manual = environment.FOREVER_CLIENT_ASSET_ID?.trim().toLowerCase();
   if (manual) {
-    if (environment[FOREVER_BUILD_ID_TEST_OVERRIDE_ENV] !== "1") {
-      throw new ForeverBuildIdError(
-        "FOREVER_BUILD_ID may not be set for a production build: a manual identity can reuse a " +
-          "previously deployed value, which makes every page from that build see `same_build` " +
-          "and refuses the recovery this identity exists to enable. Run `npm run build`, which " +
-          "derives the identity from the emitted output.",
+    if (environment[FOREVER_CLIENT_ASSET_ID_TEST_OVERRIDE_ENV] !== "1") {
+      throw new ForeverClientAssetIdError(
+        "FOREVER_CLIENT_ASSET_ID may not be set for a production build: a manual identity can " +
+          "reuse a previously deployed value, which makes every page from that build see " +
+          "`same_client_assets` and refuses the recovery this identity exists to enable. Run " +
+          "`npm run build`, which derives the identity from the emitted client output.",
       );
     }
-    if (!isBoundedForeverBuildId(manual)) {
-      throw new ForeverBuildIdError("FOREVER_BUILD_ID is not a bounded build identifier");
+    if (!isBoundedForeverClientAssetId(manual)) {
+      throw new ForeverClientAssetIdError(
+        "FOREVER_CLIENT_ASSET_ID is not a bounded client asset identifier",
+      );
     }
     return manual;
   }
 
-  throw new ForeverBuildIdError(
-    "No FOREVER_BUILD_ID is available. A production build must run through " +
+  throw new ForeverClientAssetIdError(
+    "No FOREVER_CLIENT_ASSET_ID is available. A production build must run through " +
       "`npm run build` (scripts/build/build-forever.mjs), which derives the identity from the " +
-      "emitted runtime output in two passes and verifies that the final pass reproduces it.",
+      "emitted client output and verifies that the sealed output reproduces it.",
   );
 }

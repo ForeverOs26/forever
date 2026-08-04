@@ -15,7 +15,7 @@ import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as ReviewsRouteImport } from './routes/reviews'
 import { Route as OffersRouteImport } from './routes/offers'
 import { Route as NavigatorRouteImport } from './routes/navigator'
-import { Route as ForeverBuildDotjsonRouteImport } from './routes/forever-build[.]json'
+import { Route as ForeverClientAssetsDotjsonRouteImport } from './routes/forever-client-assets[.]json'
 import { Route as DiscoveryRouteImport } from './routes/discovery'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as BoothRouteImport } from './routes/booth'
@@ -68,11 +68,12 @@ const NavigatorRoute = NavigatorRouteImport.update({
   path: '/navigator',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ForeverBuildDotjsonRoute = ForeverBuildDotjsonRouteImport.update({
-  id: '/forever-build.json',
-  path: '/forever-build.json',
-  getParentRoute: () => rootRouteImport,
-} as any)
+const ForeverClientAssetsDotjsonRoute =
+  ForeverClientAssetsDotjsonRouteImport.update({
+    id: '/forever-client-assets.json',
+    path: '/forever-client-assets.json',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const DiscoveryRoute = DiscoveryRouteImport.update({
   id: '/discovery',
   path: '/discovery',
@@ -187,7 +188,7 @@ export interface FileRoutesByFullPath {
   '/booth': typeof BoothRoute
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
-  '/forever-build.json': typeof ForeverBuildDotjsonRoute
+  '/forever-client-assets.json': typeof ForeverClientAssetsDotjsonRoute
   '/navigator': typeof NavigatorRoute
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
@@ -217,7 +218,7 @@ export interface FileRoutesByTo {
   '/booth': typeof BoothRoute
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
-  '/forever-build.json': typeof ForeverBuildDotjsonRoute
+  '/forever-client-assets.json': typeof ForeverClientAssetsDotjsonRoute
   '/navigator': typeof NavigatorRoute
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
@@ -247,7 +248,7 @@ export interface FileRoutesById {
   '/booth': typeof BoothRoute
   '/contact': typeof ContactRoute
   '/discovery': typeof DiscoveryRoute
-  '/forever-build.json': typeof ForeverBuildDotjsonRoute
+  '/forever-client-assets.json': typeof ForeverClientAssetsDotjsonRoute
   '/navigator': typeof NavigatorRoute
   '/offers': typeof OffersRoute
   '/reviews': typeof ReviewsRoute
@@ -279,7 +280,7 @@ export interface FileRouteTypes {
     | '/booth'
     | '/contact'
     | '/discovery'
-    | '/forever-build.json'
+    | '/forever-client-assets.json'
     | '/navigator'
     | '/offers'
     | '/reviews'
@@ -309,7 +310,7 @@ export interface FileRouteTypes {
     | '/booth'
     | '/contact'
     | '/discovery'
-    | '/forever-build.json'
+    | '/forever-client-assets.json'
     | '/navigator'
     | '/offers'
     | '/reviews'
@@ -338,7 +339,7 @@ export interface FileRouteTypes {
     | '/booth'
     | '/contact'
     | '/discovery'
-    | '/forever-build.json'
+    | '/forever-client-assets.json'
     | '/navigator'
     | '/offers'
     | '/reviews'
@@ -369,7 +370,7 @@ export interface RootRouteChildren {
   BoothRoute: typeof BoothRoute
   ContactRoute: typeof ContactRoute
   DiscoveryRoute: typeof DiscoveryRoute
-  ForeverBuildDotjsonRoute: typeof ForeverBuildDotjsonRoute
+  ForeverClientAssetsDotjsonRoute: typeof ForeverClientAssetsDotjsonRoute
   NavigatorRoute: typeof NavigatorRoute
   OffersRoute: typeof OffersRoute
   ReviewsRoute: typeof ReviewsRoute
@@ -431,11 +432,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof NavigatorRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/forever-build.json': {
-      id: '/forever-build.json'
-      path: '/forever-build.json'
-      fullPath: '/forever-build.json'
-      preLoaderRoute: typeof ForeverBuildDotjsonRouteImport
+    '/forever-client-assets.json': {
+      id: '/forever-client-assets.json'
+      path: '/forever-client-assets.json'
+      fullPath: '/forever-client-assets.json'
+      preLoaderRoute: typeof ForeverClientAssetsDotjsonRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/discovery': {
@@ -615,7 +616,7 @@ const rootRouteChildren: RootRouteChildren = {
   BoothRoute: BoothRoute,
   ContactRoute: ContactRoute,
   DiscoveryRoute: DiscoveryRoute,
-  ForeverBuildDotjsonRoute: ForeverBuildDotjsonRoute,
+  ForeverClientAssetsDotjsonRoute: ForeverClientAssetsDotjsonRoute,
   NavigatorRoute: NavigatorRoute,
   OffersRoute: OffersRoute,
   ReviewsRoute: ReviewsRoute,

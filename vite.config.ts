@@ -8,26 +8,32 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import type { NitroConfig } from "nitro/types";
 import type { Plugin } from "vite";
 
-import { resolveForeverBuildId } from "./scripts/build/forever-build-id";
+import { resolveForeverClientAssetId } from "./scripts/build/forever-client-asset-id";
 import { foreverTanstackReloadOwnership } from "./scripts/build/tanstack-reload-ownership.mjs";
 
 const PARTNER_DEMO_HEALTH_PATH = "/__forever_partner_demo_health";
 
 /**
- * Public build identity (FOREVER-STUDIO-STALE-ASSET-RECOVERY-001).
+ * Public CLIENT ASSET identity (FOREVER-STUDIO-STALE-ASSET-RECOVERY-001).
  *
  * Inlined into BOTH the client and the server output of this build, so the
  * constant compiled into a running page and the constant served by
- * `/forever-build.json` are the same value for one immutable build and differ
- * across a release. That single comparison is what makes the stale-asset
- * recovery a decision rather than a guess.
+ * `/forever-client-assets.json` are the same value for one client asset graph
+ * and differ whenever that graph moves. That single comparison is what makes
+ * the stale-asset recovery a decision rather than a guess.
+ *
+ * NOT A RELEASE IDENTITY (narrow-re-review RR2-P1-1). It proves client asset
+ * compatibility and nothing else; a server-only release legitimately keeps the
+ * same value. Which Worker is deployed is proved by the immutable Cloudflare
+ * Worker version UUID — see `src/lib/stale-asset/worker-release-identity.ts`,
+ * which is never inlined into any bundle.
  *
  * Deterministic by construction — never a timestamp, never random — because a
  * build this repository cannot reproduce is already treated as a defect (see
- * the `compatibility_date` reasoning in wrangler.jsonc). A release may pin the
- * value explicitly with `FOREVER_BUILD_ID`.
+ * the `compatibility_date` reasoning in wrangler.jsonc). A production build
+ * cannot pin this value; only the two-version test harness may.
  */
-const FOREVER_BUILD_ID = resolveForeverBuildId();
+const FOREVER_CLIENT_ASSET_ID = resolveForeverClientAssetId();
 
 function partnerDemoHealthPlugin(): Plugin {
   return {
@@ -83,7 +89,7 @@ export default defineConfig({
       partnerDemoHealthPlugin(),
     ],
     define: {
-      __FOREVER_BUILD_ID__: JSON.stringify(FOREVER_BUILD_ID),
+      __FOREVER_CLIENT_ASSET_ID__: JSON.stringify(FOREVER_CLIENT_ASSET_ID),
     },
   },
   tanstackStart: {
