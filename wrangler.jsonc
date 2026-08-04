@@ -9,6 +9,42 @@
   // This name determines the workers.dev origin the site is served from, so it
   // must stay stable: changing it moves the public site to a different URL.
   "name": "forever",
+  // Preserve deployment-managed plain-text variables
+  // (FOREVER-WRANGLER-KEEP-VARS-CORRECTION-001).
+  //
+  // MEASURED INCIDENT. Candidate ae4cae19 was uploaded from exact merged main
+  // bbf698d2 and came back with TEN bindings where the live Worker had TWELVE.
+  // The two that vanished were the deployment-managed plain-text variables
+  // SUPABASE_URL and STUDIO_STORAGE_WRITE_PROVIDER. Its preview returned HTTP
+  // 500 — "Missing Supabase environment variable(s): SUPABASE_URL". The
+  // candidate was caught at 0% and production traffic never moved.
+  //
+  // WHY. Cloudflare documents `--keep-vars` identically for `versions upload`
+  // and `deploy`: "When not used (or set to false), Wrangler will delete all
+  // vars before setting those found in the Wrangler configuration. When used
+  // (and set to true), the environment variables are not deleted before the
+  // deployment. If you set variables via the dashboard you probably want to use
+  // this flag. Note that secrets are never deleted by deployments." The default
+  // is FALSE. This file declares no `vars` block, so "delete all vars, then
+  // apply the none I declared" removes every deployment-managed variable.
+  //
+  // The earlier reasoning — omit `vars` so a deploy cannot replace the
+  // deployment-set provider — was only half the contract. Omitting `vars`
+  // stops this file OVERWRITING those values; only `keep_vars` stops Wrangler
+  // DELETING them first. Both halves are required, and both are now present.
+  //
+  // THE TRAP THIS CLOSES. Secrets are never deleted, with or without this flag.
+  // So a candidate can show all six secrets intact and still have lost every
+  // plain-text variable. Secret survival is NOT evidence that vars survived —
+  // see docs/FOREVER_PRODUCTION_RELEASE_RUNBOOK.md §2a.
+  //
+  // The deployment plane remains the SOURCE OF TRUTH for those two values. This
+  // key does not introduce them, name them as data, or carry their values; it
+  // instructs Wrangler to leave what production already has alone. Declaring a
+  // `vars` block instead would replace them, which is the failure this file has
+  // always refused — see the `vars` assertions in
+  // src/lib/stale-asset/worker-config-contract.test.ts.
+  "keep_vars": true,
   // Production Worker runtime contract. Without this, Nitro's default
   // compatibilityDate ("latest") resolves to `new Date()` at BUILD time, so the
   // same commit builds a different compatibility date every day — which makes

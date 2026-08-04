@@ -143,11 +143,27 @@ describe("wrangler.jsonc — the reviewed source", () => {
     expect(sourceConfig.routes).toBeUndefined();
     expect(Object.keys(sourceConfig).sort()).toEqual([
       "compatibility_date",
+      "keep_vars",
       "name",
       "observability",
       "r2_buckets",
       "triggers",
     ]);
+  });
+
+  /**
+   * FOREVER-WRANGLER-KEEP-VARS-CORRECTION-001.
+   *
+   * The assertion directly above pins the key set, so adding `keep_vars` had to
+   * be a deliberate edit rather than a silent one. This states why the key is
+   * there, next to the `vars` assertion it completes: omitting `vars` prevents
+   * this file OVERWRITING the deployment-managed variables, and `keep_vars`
+   * prevents Wrangler DELETING them first. Candidate ae4cae19 proved that
+   * having only the first half loses SUPABASE_URL and
+   * STUDIO_STORAGE_WRITE_PROVIDER on upload.
+   */
+  it("instructs Wrangler to KEEP deployment-managed variables", () => {
+    expect(sourceConfig.keep_vars).toBe(true);
   });
 });
 
@@ -204,6 +220,17 @@ describe(".output/server/wrangler.json — what actually deploys", () => {
     for (const binding of DEPLOYMENT_PLANE_BINDINGS) {
       expect(generated, binding).not.toContain(binding);
     }
+  });
+
+  /**
+   * FOREVER-WRANGLER-KEEP-VARS-CORRECTION-001 — the assertion above proves the
+   * deployment-plane bindings are NOT declared here. That alone is what made
+   * candidate ae4cae19 lose them: an undeclared variable plus Wrangler's
+   * default `keep_vars: false` means "delete all vars, then apply none".
+   * Undeclared is only safe while the generated config also says KEEP.
+   */
+  it("retains keep_vars=true, so undeclared deployment variables are preserved", () => {
+    expect(requireGeneratedConfig().keep_vars).toBe(true);
   });
 });
 
