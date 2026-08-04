@@ -67,8 +67,19 @@ release that carries it.
 
 ## 2. The release sequence
 
-1. **Build the candidate.** Pin `FOREVER_BUILD_ID` for the release, or accept the
-   deterministic digest. Record the value — it is what the recovery path compares.
+1. **Build the candidate with `npm run build`.** That is the output-derived build,
+   not a bare `vite build`: it emits the runtime graph with a placeholder identity,
+   derives `FOREVER_BUILD_ID` from a digest of the emitted client graph plus the
+   generated Worker configuration, seals the identity in place, and then
+   RE-VERIFIES that the sealed output reproduces that digest. A build that does
+   not self-verify fails and must not ship. Record the identity it prints — it
+   is what the recovery path compares, and it is also written to
+   `.forever-build/identity.json`.
+
+   **`FOREVER_BUILD_ID` may NOT be pinned for a production release.** A manual
+   override can reuse a previously deployed identifier, which makes every page
+   from that build read `same_build` and refuse the recovery this identity
+   exists to enable. The build refuses it outright.
 2. **Upload the candidate at 0% traffic.** `wrangler versions upload`. No traffic
    moves. Nothing about the live site changes.
 3. **Verify the candidate on its own version preview URL.** The preview URL
@@ -83,7 +94,8 @@ release that carries it.
    errors, and no mutation resubmission.
 6. **Enable and verify Workers Logs.** `observability.enabled` is `true` with
    `head_sampling_rate: 1` in `wrangler.jsonc`; confirm it survived into
-   `.output/server/wrangler.json` and that logs appear for the candidate.
+   `.output/server/wrangler.json` and that logs appear for the candidate. The
+   sampling rate is a PERMANENT setting, not a temporary elevation — see §7.
 7. **Obtain an explicit, short Owner Studio hold.** Required for the first
    bootstrap release — see §4. The Owner is told the window and told to take no
    Studio action during it.
@@ -93,6 +105,14 @@ release that carries it.
 9. **Atomic cutover.** Move from old 100% / new 0% to old 0% / new 100% in ONE
    `wrangler versions deploy` invocation. No intermediate percentage. Run
    `--dry-run` first and confirm the exact source and target version ids.
+9a. **Watch the asset-404 rate for the first minutes after cutover.**
+    Cloudflare's own gradual-rollout guidance names an increased 404 rate on
+    asset files as the signal that clients are requesting assets the active
+    version does not have. It is the one cheap server-side signal that would
+    have surfaced the PR #134 incident, and it is checked here, on the Worker's
+    analytics, before the acceptance gate. A rising asset-404 rate is a
+    rollback trigger, not a curiosity.
+
 10. **Verify public routes.** The full public probe set: `/`, `/projects`,
     `/sitemap.xml`, `/robots.txt`, the deleted-legacy-route 404 contract and the
     `/media/*` generic 404 contract. Zero 5xx.
@@ -152,23 +172,98 @@ Owner hold, on the terms in §2.4 of
 
 ## 5. Rollback
 
+**A rollback is a release in the other direction, and it gets the SAME holds.**
+
+This corrects a real asymmetry: the forward cutover had a strong Owner hold and
+the rollback had none — while a rollback is exactly the case that sends an
+already-recovered tab back to the version it came from. Stale-asset recovery
+does not make an uncontrolled rollback safe; it bounds the damage, it does not
+remove it. The recovery ledger deliberately remembers the forward transition, so
+a tab that already spent its attempt on A → B gets one attempt for B → A and
+then nothing at all. A rollback performed while the Owner is mid-action is still
+a rollback performed under a live mutation.
+
 Rollback is a traffic reallocation between existing immutable versions: no code
 upload, no new version, no rebuild.
+
+**Before the rollback — every one of these, in order:**
+
+1. **The Owner is told to stop and take no Studio action.** Explicitly, before
+   anything moves. Same wording as the forward hold.
+2. **No mutation is in progress.** No upload, no publication, no Retry, no
+   member change, no password change, no facts or amenity save. If one is in
+   flight, the rollback WAITS for it to settle — a lost response leaves the page
+   unable to prove what the server did.
+3. **Every current-version Studio tab is closed or refreshed as directed**, and
+   the Owner confirms it.
+4. **The rollback target is verified**: an existing immutable version, the
+   intended one, and **not** the invalid pre-R2 Worker `9919f28c`.
 
 ```
 wrangler versions deploy --name forever --version-id <previous> --percentage 100
 ```
 
-Run `--dry-run` first. Assert the target is the intended previous version and is
-**not** the invalid pre-R2 Worker. Re-verify public routes, the asset graph, the
-migration ledger and Coralina containment afterwards.
+Run `--dry-run` first and confirm the exact source and target version ids.
+
+**The rollback itself is ATOMIC.** One invocation, old 0% / previous 100%. No
+intermediate percentage, no partial rollback, no 5% → 25% step — the
+version-affinity prohibition in §0 applies identically in this direction.
+
+**After the rollback:**
+
+5. **Verify the full old asset graph** on the live origin, transitively,
+   including the authenticated Studio chunk graph reachable from `/studio`, and
+   confirm `/forever-build.json` reports the previous build identity.
+6. **Verify public routes**, the migration ledger and Coralina containment.
+7. **The Owner opens Studio FRESH and confirms the authenticated dashboard
+   renders.** This is the rollback acceptance gate, exactly as it is the forward
+   one. Asset-level checks cannot replace it.
+
+**Never during a rollback:** no Coralina repair, no Retry, no re-upload, no
+migration, no `retryable` change, no credential rotation.
 
 The R2 rollback boundary in `docs/FOREVER_STUDIO_OWNER_RUNBOOK.md` still applies:
 once an R2 job exists, the pre-R2 Worker is not a valid rollback target.
 
 ---
 
-## 6. Deferred follow-up
+## 7. Observability lifecycle — the decision, not an implication
+
+`head_sampling_rate: 1` is **PERMANENT**, and this section exists so that is
+written down rather than implied.
+
+The earlier framing — "deliberate for a corrective release" — read as a
+temporary elevation that would later be reduced. It is not, on two counts.
+First, `1` is Cloudflare's documented DEFAULT for Workers Logs, and
+observability is enabled by default on new Workers, so there is nothing elevated
+about it. Second, reducing it would require **another deployment**, and a
+deployment that changes the asset graph is precisely the event this release
+exists to make safe. Trading a real risk for a logging saving is a poor bargain.
+
+- **Chosen setting:** `observability.enabled = true`,
+  `head_sampling_rate = 1`, indefinitely.
+- **Owner of the decision:** the release Owner.
+- **Volume and cost bound:** this Worker serves a single-Owner internal tool plus
+  a small public site. Cloudflare includes 20M log events per month on paid
+  plans and charges $0.60 per million beyond that, with 7-day retention. Full
+  sampling for this traffic profile stays inside the included allowance.
+- **Trigger to revisit:** sustained monthly log volume approaching the included
+  allowance, or a change in traffic profile that makes it plausible. Reducing
+  the rate is then a separately authorized configuration change with its own
+  deployment, planned as a release in its own right — never bundled into a
+  release that changes assets.
+- **Temporary deeper observation** during a release uses `wrangler tail`, which
+  needs no deployment and no configuration change.
+
+**Honest limit, restated:** Workers Logs record Worker INVOCATIONS. A 404 for a
+missing static asset is answered by the asset handler without raising a Worker
+exception, so Workers Logs cannot, on their own, prove a browser-only
+dynamic-import failure. Step 9a's asset-404 rate on Worker analytics is the
+signal that covers that gap.
+
+---
+
+## 8. Deferred follow-up
 
 `FOREVER-CLOUDFLARE-VERSION-AFFINITY-001` — obtain true version affinity through
 a custom domain plus a Transform Rule setting `Cloudflare-Workers-Version-Key`,

@@ -145,3 +145,111 @@ describe("the observability boundary is documented with its honest limit", () =>
     expect(contract).toContain("No public browser-error collection endpoint is introduced");
   });
 });
+
+// ---------------------------------------------------------------------------
+// P2-5 — the rollback gets the SAME holds as the forward cutover
+// ---------------------------------------------------------------------------
+
+describe("rollback is held as strictly as the cutover", () => {
+  it("says plainly that recovery does not make an uncontrolled rollback safe", () => {
+    expect(runbookFlat).toContain(
+      "Stale-asset recovery does not make an uncontrolled rollback safe",
+    );
+    expect(runbookFlat).toContain("A rollback is a release in the other direction");
+  });
+
+  it("instructs the Owner not to interact before the rollback", () => {
+    expect(runbookFlat).toContain("The Owner is told to stop and take no Studio action");
+  });
+
+  it("requires no mutation in progress, and waits if one is", () => {
+    expect(runbookFlat).toContain("No mutation is in progress");
+    expect(runbookFlat).toContain("the rollback WAITS for it to settle");
+  });
+
+  it("requires current-version Studio tabs to be closed or refreshed", () => {
+    expect(runbookFlat).toContain(
+      "Every current-version Studio tab is closed or refreshed as directed",
+    );
+  });
+
+  it("requires the rollback to be atomic, with no partial or percentage step", () => {
+    expect(runbookFlat).toContain("The rollback itself is ATOMIC");
+    expect(runbookFlat).toContain("No intermediate percentage, no partial rollback");
+  });
+
+  it("refuses the invalid pre-R2 Worker as a rollback target, by id", () => {
+    expect(runbookFlat).toContain("not** the invalid pre-R2 Worker `9919f28c`");
+  });
+
+  it("requires the full old asset graph and a FRESH authenticated Studio check after", () => {
+    expect(runbookFlat).toContain("Verify the full old asset graph");
+    expect(runbookFlat).toContain(
+      "The Owner opens Studio FRESH and confirms the authenticated dashboard renders",
+    );
+    expect(runbookFlat).toContain("This is the rollback acceptance gate");
+  });
+
+  it("refuses Coralina repair, Retry and re-upload during a rollback", () => {
+    expect(runbookFlat).toContain(
+      "Never during a rollback:** no Coralina repair, no Retry, no re-upload",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P2-4 — the observability lifecycle is a decision, not an implication
+// ---------------------------------------------------------------------------
+
+describe("the observability sampling lifecycle is defined", () => {
+  it("names the chosen post-release setting explicitly", () => {
+    expect(runbookFlat).toContain("head_sampling_rate: 1` is **PERMANENT**");
+    expect(runbookFlat).toContain("Chosen setting:** `observability.enabled = true`");
+    expect(runbookFlat).toContain("indefinitely");
+  });
+
+  it("corrects the framing: 1 is the documented default, not an elevation", () => {
+    expect(runbookFlat).toContain("is Cloudflare's documented DEFAULT for Workers Logs");
+    expect(runbookFlat).toContain("there is nothing elevated about it");
+  });
+
+  it("names an owner, a volume bound and a trigger to revisit", () => {
+    expect(runbookFlat).toContain("Owner of the decision:** the release Owner");
+    expect(runbookFlat).toContain("20M log events per month");
+    expect(runbookFlat).toContain("$0.60 per million");
+    expect(runbookFlat).toContain("Trigger to revisit:");
+  });
+
+  it("acknowledges that changing it needs another deployment, and how to observe without one", () => {
+    expect(runbookFlat).toContain("reducing it would require **another deployment**");
+    expect(runbookFlat).toContain("uses `wrangler tail`, which needs no deployment");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P3-7 — Cloudflare's recommended post-cutover 404 monitoring
+// ---------------------------------------------------------------------------
+
+describe("the post-cutover asset-404 signal is named", () => {
+  it("is a numbered step before the acceptance gate", () => {
+    expect(runbookFlat).toContain("Watch the asset-404 rate for the first minutes after cutover");
+    expect(runbookFlat).toContain("A rising asset-404 rate is a rollback trigger");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P1-4 / P3-3 — the release builds through the output-derived orchestrator
+// ---------------------------------------------------------------------------
+
+describe("the release cannot pin or reuse a build identity", () => {
+  it("builds through the output-derived orchestrator, not a bare vite build", () => {
+    expect(runbookFlat).toContain("Build the candidate with `npm run build`");
+    expect(runbookFlat).toContain("RE-VERIFIES that the sealed output reproduces that digest");
+    expect(runbookFlat).toContain("A build that does not self-verify fails and must not ship");
+  });
+
+  it("states that a manual identity may not be pinned for production", () => {
+    expect(runbookFlat).toContain("may NOT be pinned for a production release");
+    expect(runbookFlat).toContain("The build refuses it outright");
+  });
+});

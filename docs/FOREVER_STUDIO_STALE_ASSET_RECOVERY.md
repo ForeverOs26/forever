@@ -64,6 +64,27 @@ It fires at most once per distinct error message per tab. The Owner reached the
 root error boundary because that single allowance had already been spent for the
 same message. This was reproduced deterministically.
 
+### 1b. That mechanism no longer ships (independent-review P1-5)
+
+An earlier revision of this work COEXISTED with the framework reload, cancelling
+`vite:preloadError` only when the Forever classifier confirmed. The independent
+review then measured six real error shapes where `isModuleNotFoundError` is true
+while the classifier correctly returns `not_stale_asset` — a message naming a
+foreign URL, an asset on a sibling host, an unhashed asset path, an asset outside
+`/assets/`, a relative specifier, and a hash shorter than eight characters. On
+every one of those the framework reloaded anyway: identity-blind, write-unsafe,
+including on `/studio/reset-password`, and persisting the complete asset URL.
+
+Two independent recovery systems is not a design, it is a race. The pinned
+version offers no supported way to disable the built-in reload, so
+`scripts/build/tanstack-reload-ownership.mjs` substitutes a
+repository-controlled loader (`scripts/build/forever-lazy-route-component.js`)
+that preserves `preload()`, memoisation, the recorded error and `React.use`, and
+removes only the storage write and the reload. A fingerprint check FAILS THE
+BUILD if the upstream module is not the pinned shape it was written against, and
+a built-output scan asserts `tanstack_router_reload` is absent from every
+emitted file. There is now exactly one recovery authority.
+
 ---
 
 ## 2. What the recovery does
@@ -120,12 +141,56 @@ an object key, a filename, a Supabase project ref or a credential.
 ### 2.2 Build/release identity — `src/lib/stale-asset/build-identity.ts`
 
 `FOREVER_BUILD_ID` is a bounded identifier — lowercase alphanumerics, at most 32
-characters — inlined by the bundler into **both** the client and the server
-output of the same build. A release may pin it with `FOREVER_BUILD_ID`;
-otherwise it is a deterministic 12-character digest of the repository's build
-inputs (`src/**`, `package.json`, `package-lock.json`, `vite.config.ts`,
-`tsconfig.json`). It is never a timestamp and never random, because a build this
-repository cannot reproduce is already treated as a defect.
+characters — inlined into **both** the client and the server output of the same
+build. It is never a timestamp and never random.
+
+**It is derived from the EMITTED OUTPUT, not from a list of presumed inputs**
+(independent-review P1-4). The previous design hashed `src/**` plus four files and
+hashed no `VITE_*` value, nothing in `public/` and nothing in `scripts/`. The
+review built this repository five times and measured two builds emitting **50
+different content-hashed chunks — including the `StudioDashboard` chunk from the
+incident — under the SAME identifier**. In production that means the chunk 404s,
+the probe returns the same identifier, the decision reaches `same_build`, and
+automatic recovery silently does not fire.
+
+`npm run build` (`scripts/build/build-forever.mjs`) therefore:
+
+1. emits the runtime graph with a fixed canonical placeholder identity;
+2. hashes the emitted graph in deterministic sorted order, normalising the
+   placeholder bytes and the content-hash segments they would move;
+3. derives the identity as **128 bits** of SHA-256 of that digest;
+4. seals the identity over the placeholder IN PLACE — same length, same
+   positions, so no filename and no other byte can move;
+5. recomputes the digest over the sealed output and REQUIRES exact equality, an
+   unchanged file count, at least one client and one server occurrence, and no
+   surviving placeholder. Otherwise the build fails.
+
+**What the digest covers, and the measured reason for what it does not.**
+`npm run build:determinism` runs two builds of identical source and reports what
+differs. Measured in this repository: the whole client runtime graph is
+byte-identical, the generated Worker configuration is byte-identical, and the
+server JavaScript bundle is NOT — 17 files differed, from Rolldown identifier
+deconfliction and an mtime-bearing public-asset manifest. The digest therefore
+covers `.output/public/**` and `.output/server/wrangler.json`. The exclusions are
+enumerated with reasons in `scripts/build/forever-build-id.ts` and a test fails
+if that list grows.
+
+This is a deliberate deviation from "exclude only generated non-runtime
+metadata", taken because an identity computed over non-reproducible bytes is not
+an identity: the same artefact could not be re-derived and the runbook's "record
+the identity" step would be meaningless. It is safe for THIS mechanism because a
+stale-asset failure is by construction a browser failing to fetch a CLIENT
+chunk, and every input that can change the client graph is inside the digest.
+**What is lost, stated plainly:** a release that changes only server code ships
+the same identity, and a page from the previous build correctly reads
+`same_build` — its chunks all still exist.
+
+**A manual `FOREVER_BUILD_ID` is REFUSED for a production build**
+(independent-review P3-3): it could pin a previously deployed identifier and
+make every page from that build refuse recovery. It is honoured only behind an
+explicitly non-production guard, which the two-version harness sets and
+`npm run build` never does. A bare `vite build` with no identity throws rather
+than shipping a placeholder.
 
 `GET /forever-build.json` returns `{"build": "<id>"}` with `no-store`, `nosniff`
 and `noindex`. The handler takes no argument and reads nothing at request time.
@@ -139,53 +204,120 @@ distinguishes builds, and adding a binding would change the deploy binding set
 for no gain. The generated Worker configuration is unchanged apart from
 `observability`.
 
-### 2.3 One-attempt marker — `sessionStorage`
+### 2.3 The recovery LEDGER — `sessionStorage`
+
+An earlier revision stored ONE slot holding one ordered `from → to` transition,
+overwritten on every write. That bounds reloads per transition and bounds
+nothing else: a tab can observe an unbounded number of distinct transitions.
+The independent review measured **12 automatic reloads** on one tab; driving the
+same machine against a strictly alternating edge produced **40 from 40 signals**.
+A plain release-then-rollback — the runbook's own step — granted a second
+automatic reload to a tab that had already recovered (independent-review P1-1).
 
 Key `forever.app.stale-asset.recovery`, value:
 
 ```json
 {
-  "v": 1,
-  "from": "<public build id>",
-  "to": "<public build id>",
-  "attempt": 1,
-  "at": 1785774137088
+  "v": 2,
+  "pending": {
+    "from": "<public build id>",
+    "to": "<public build id>",
+    "at": 1785774137088,
+    "route": "studio_dashboard"
+  },
+  "history": [{ "from": "<public build id>", "to": "<public build id>", "at": 1785774137088 }]
 }
 ```
 
-Those five fields are the **entire** permitted content. The validator refuses any
-object carrying an unknown key, a wrong schema version, an unbounded identifier,
-an attempt count above 1, or a timestamp in the future — so "no token, no email,
-no user id, no job id, no filename, no asset URL, no stack, no error message, no
-route" is enforced rather than intended. An invalid marker is deleted and treated
-as absent.
+Two separate concepts:
 
-The marker is **deny-only**: its only power is to refuse a second automatic
-reload. A forged marker costs the visitor one button press.
+- **pending** — the one transition this tab issued a reload for and has not yet
+  proved successful. Zero or one, with its own 10-minute TTL.
+- **history** — the transitions this tab has already spent an attempt on. It
+  survives success, navigation, Back, "Go to site" and redirects, and is erased
+  by nothing except its own 12-hour TTL.
 
-### 2.4 The one-attempt rule
+`route` is a **closed-vocabulary route KIND**, never a pathname: `public`,
+`studio_dashboard`, `studio_upload`, `studio_members`, `studio_project`,
+`studio_resale`, `studio_reset_password`, `studio_forgot_password`,
+`studio_other`. A pathname would be stored route data, and
+`/studio/project/<slug>` carries a private identifier.
 
-For the same `from → to` transition in the same tab:
+Those fields are the **entire** permitted content. The validator refuses the
+WHOLE ledger — never partially salvages it — on an unknown key, a wrong schema
+version, an unbounded identifier, a route outside the vocabulary, a history
+longer than the strict maximum of 8, a non-integer timestamp, or an oversized
+value. So "no token, no email, no user id, no job id, no filename, no asset URL,
+no query, no stack, no error message, no route path" is enforced rather than
+intended. A malformed value produces the `malformed_state` refusal — it never
+silently becomes a fresh reload budget. A future timestamp is **clamped, never
+dropped**, so a backwards clock shift cannot erase history and re-arm a
+transition.
 
-- at most one automatic reload;
-- a second classified failure does **not** reload — it shows the specific
-  recovery screen with a manual `Reload current version` and a `Go to site`;
-- a genuinely different later transition earns its own single attempt;
-- a marker older than 12 hours expires, so a long-open tab is never permanently
-  barred.
+The ledger is **deny-only**: its only power is to refuse an automatic reload. A
+forged ledger costs the visitor one button press, and every reload still
+additionally requires a proven build difference, a permitted route and no
+unproven write.
+
+### 2.4 The bounded-attempt rule
+
+Two explicit policy bounds, and the maximum is set by policy — never by how long
+the origin flaps:
+
+- **one automatic reload per ordered `from → to` transition, ever**;
+- **at most three automatic reloads per tab per TTL window**, which is what makes
+  an endlessly progressing sequence of releases (`A → B → C → D …`) finite.
+
+Therefore:
+
+- A ↔ B alternating for ever costs at most **two** automatic reloads. Measured
+  after the correction: 40 rounds → 2 reloads; 400 rounds → 2 reloads.
+- release then rollback does not re-arm the original pair;
+- a fourth genuinely different transition returns `recovery_budget_spent`;
+- a second classified failure shows the specific recovery screen with a manual
+  `Reload current version` and a `Go to site`;
+- a history entry older than 12 hours expires, so a long-open tab is never
+  permanently barred;
+- no storage, unreadable storage or unwritable storage → **no automatic reload
+  at all**.
 
 A single missing chunk surfaces on more than one channel at once, so an
 in-flight gate ensures one failure produces one decision, one build probe and
 one reload.
 
-### 2.5 Success clearing
+### 2.5 Success attestation — the ONLY thing that clears anything
 
-The marker is **not** cleared because the root component mounted. It is cleared
-only when the intended route graph has loaded:
+The earlier revision cleared its marker whenever any non-Studio route resolved.
+The recovery screen's own **"Go to site"** control (`<a href="/">`) walked the
+visitor straight through that path, so the screen reset the guard it exists to
+enforce and re-armed the identical broken transition. Measured before the
+correction: `reload_issued`, clear, `reload_issued` again
+(independent-review P1-2).
 
-- ordinary routes — the router resolving the match (`onResolved`);
-- **Studio routes — only when `StudioShell` mounts**, because the authenticated
-  shell and its dashboard chunk graph are precisely what failed.
+Generic clearing is **deleted**. A pending recovery clears only through an
+explicit exact-route attestation that proves ALL of:
+
+1. the build this page is running equals the recovery target build;
+2. the live pathname normalises to the recovery target's route kind, or to the
+   one documented safe redirect (`studio_other → studio_dashboard`);
+3. the intended leaf route module loaded;
+4. every nested module in the match chain loaded;
+5. no match settled into an error boundary;
+6. for an authenticated Studio route, the route reached a genuinely usable
+   authenticated state;
+7. no further stale-asset signal arrived during a bounded stabilization window.
+
+For authenticated Studio, explicitly: a shell mount is **not** proof and no
+longer clears anything; a root mount is not proof; navigating to `/` is not
+proof and is actively refused; the sign-in screen is not proof; the
+password-recovery interstitial is not proof; an error boundary mounting is not
+proof. The **dashboard** is proved by a signed-in session plus a resolved
+overview; the **upload** route by the uploader leaf reaching a usable state; the
+**members** route by its leaf AND its data boundary resolving.
+
+**Only the pending recovery clears. The history is never erased** — not by
+success, not by "Go to site", not by Back, not by a redirect, not by ordinary
+public navigation.
 
 ---
 
