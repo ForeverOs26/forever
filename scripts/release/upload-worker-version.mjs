@@ -76,6 +76,9 @@ const releaseIdentity = await jiti.import(
 const pinned = await jiti.import(
   resolve(REPO, "src/lib/stale-asset/pinned-binding-inheritance.ts"),
 );
+const orchestration = await jiti.import(
+  resolve(REPO, "src/lib/stale-asset/release-upload-orchestration.ts"),
+);
 const {
   PRODUCTION_VERSION_UPLOAD_SPEC,
   PRODUCTION_VERSION_UPLOAD_COMMAND,
@@ -89,6 +92,7 @@ const {
   normalizeUploadSpecification,
 } = pinned;
 const { parseWranglerVersionUploadReceipt, serializeWorkerVersionProvenance } = releaseIdentity;
+const { verifyThenLaunchUpload } = orchestration;
 
 const log = (message) => process.stdout.write(`[upload-version] ${message}\n`);
 
@@ -279,54 +283,59 @@ if (existsSync(receiptAbsolute)) {
 // edit between PREUPLOAD and here invalidates the verification rather than
 // being silently uploaded — the gap this closes is precisely "checked one
 // artefact, uploaded another".
-
-if (!existsSync(specificationAbsolute)) {
-  stop("the verified upload specification no longer exists.");
-}
-const consumedDigest = createHash("sha256")
-  .update(readFileSync(specificationAbsolute, "utf8"))
-  .digest("hex");
-if (consumedDigest !== verifiedDigest) {
-  stop(
-    "the upload specification changed after it was verified. PREUPLOAD is invalidated by any " +
-      "later build or regeneration; re-run the whole gate rather than uploading these bytes.",
-  );
-}
-if (!readFileSync(generatedAbsolute).equals(generatedBytesBefore)) {
-  stop(
-    "the immutable generated configuration changed during the gate. The application build must be " +
-      "byte-identical from verification to upload.",
-  );
-}
-log(`upload spec re-verified: ${consumedDigest}`);
+//
+// The decision lives in `release-upload-orchestration.ts` so it can be proven
+// BEHAVIOURALLY: a unit test injects a launcher spy, tampers with the
+// specification, and observes both the named STOP and the fact that the spy was
+// never called. It used to be "protected" by asserting this file's source text,
+// which proved the characters existed and nothing about what the program did.
+// The launcher is an IMPORT-level argument — there is no flag or environment
+// variable that swaps it, so a production run always spawns the real, resolved,
+// repository-locked Wrangler.
 
 // Wrangler's documented output-file contract is ND-JSON. It is consumed from
 // one task-owned temporary directory and removed in `finally`; stdout/stderr
 // and the raw ND-JSON are never copied into release evidence or echoed.
 const outputDirectory = mkdtempSync(join(tmpdir(), "forever-wrangler-output-"));
 const outputPath = join(outputDirectory, "version-upload.ndjson");
+
+const uploadEnvironment = {
+  ...process.env,
+  WRANGLER_OUTPUT_FILE_PATH: outputPath,
+  FORCE_COLOR: "0",
+  NO_COLOR: "1",
+};
+delete uploadEnvironment.WRANGLER_OUTPUT_FILE_DIRECTORY;
+
+const decision = verifyThenLaunchUpload({
+  specificationPath: specificationAbsolute,
+  verifiedDigest,
+  generatedConfigPath: generatedAbsolute,
+  generatedBytesBefore,
+  launch: () =>
+    spawnSync(
+      wrangler.launcher.command,
+      [...wrangler.launcher.prefixArgs, ...PRODUCTION_VERSION_UPLOAD_SPEC.args],
+      {
+        cwd: REPO,
+        encoding: "utf8",
+        shell: false,
+        env: uploadEnvironment,
+      },
+    ),
+});
+
+if (!decision.launched) {
+  rmSync(outputDirectory, { recursive: true, force: true });
+  stop(`${decision.stop} — ${decision.message}`);
+}
+log(`upload spec re-verified: ${decision.consumedDigest}`);
+
 let uploadReceipt = null;
 let uploadFailure = null;
 
 try {
-  const uploadEnvironment = {
-    ...process.env,
-    WRANGLER_OUTPUT_FILE_PATH: outputPath,
-    FORCE_COLOR: "0",
-    NO_COLOR: "1",
-  };
-  delete uploadEnvironment.WRANGLER_OUTPUT_FILE_DIRECTORY;
-
-  const run = spawnSync(
-    wrangler.launcher.command,
-    [...wrangler.launcher.prefixArgs, ...PRODUCTION_VERSION_UPLOAD_SPEC.args],
-    {
-      cwd: REPO,
-      encoding: "utf8",
-      shell: false,
-      env: uploadEnvironment,
-    },
-  );
+  const run = decision.result;
   if (run.error || typeof run.status !== "number") {
     throw new Error("Wrangler could not be executed. Raw output is not echoed.");
   }

@@ -1,6 +1,7 @@
 /**
  * FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001 — EMPIRICAL
  * serialization proof.
+ * Containment corrected by FOREVER-PR139-REVIEW-CORRECTIONS-001 (P2-2, P2-3).
  *
  * ---------------------------------------------------------------------------
  * WHY CONFIGURATION INSPECTION IS NOT ENOUGH
@@ -20,12 +21,44 @@
  * is re-measured on every run instead of being remembered.
  *
  * ---------------------------------------------------------------------------
- * CONTAINMENT — this test cannot reach Cloudflare
+ * WHICH WRANGLER — THE SAME FILE THE PRODUCTION UPLOAD RUNS
  * ---------------------------------------------------------------------------
  *
- *   - `CLOUDFLARE_API_BASE_URL` points at a loopback server on 127.0.0.1;
- *   - the token, account id, Worker name and both version UUIDs are DUMMY;
- *   - every request is asserted to have gone to the loopback mock;
+ * The entry point is not a path this file composes. It is whatever
+ * `resolveRepositoryWrangler` authorizes — the same shared, fail-closed
+ * resolver `scripts/release/wrangler-version-gate.mjs` uses, and therefore the
+ * same resolver the production upload wrapper consumes. An external
+ * installation reporting the same version resolves to nothing here exactly as
+ * it resolves to nothing there, so this proof is about the executable that
+ * actually performs releases.
+ *
+ * ---------------------------------------------------------------------------
+ * CONTAINMENT — MEASURED, NOT ASSUMED
+ * ---------------------------------------------------------------------------
+ *
+ * The previous version of this file asserted `expect(request.url).not.toMatch(
+ * /api\.cloudflare\.com/)`. `request.url` is a PATH; it can never contain a
+ * host, and only requests that had already reached the loopback mock were
+ * inspected at all. What is enforced now:
+ *
+ *   - a PROCESS-LEVEL guard (`loopback-network-guard.cjs`) is preloaded into the
+ *     Wrangler child. Sockets, TLS, DNS, `http`/`https` and `fetch` are all
+ *     patched, and every destination that is not this test's loopback listener
+ *     is refused synchronously — before a connection is opened and before a name
+ *     is resolved. `release-network-containment.test.ts` proves that guard
+ *     blocks, proves it does not merely block everything, and proves the same
+ *     operation is NOT blocked when the guard is absent;
+ *   - the guard's sanitized log is asserted here: Wrangler's real network
+ *     activity appears in it, every record is the loopback listener, and no
+ *     record is a refusal. An empty log would mean the guard never observed the
+ *     run, which is itself a failure;
+ *   - the `Host` header the mock receives is asserted to be exactly the loopback
+ *     listener's `host:port`;
+ *   - the child environment is CONSTRUCTED, not inherited: minimal OS variables,
+ *     every configuration and cache root redirected into a throwaway directory,
+ *     synthetic Cloudflare credentials only, metrics and update checks off. The
+ *     operator's real Wrangler/OAuth configuration is unreachable rather than
+ *     merely unused;
  *   - no Worker version is created: the mock returns a synthetic response and
  *     nothing is uploaded anywhere.
  *
@@ -33,10 +66,14 @@
  * WHAT IS CAPTURED, AND WHAT IS DISCARDED
  * ---------------------------------------------------------------------------
  *
- * ONLY the `metadata` multipart part is parsed. The Worker code bytes, the
- * asset contents, every request header, the credential, the multipart
- * boundaries and all environment values are dropped unread — the body is never
- * retained, logged or asserted against as a whole.
+ * The multipart request body IS materialized in memory, because parsing a
+ * multipart document requires reading it. It is never persisted, never logged
+ * and never retained: `extractMetadataPart` returns the parsed `metadata` part
+ * and the body buffer goes out of scope with the request handler. Only that one
+ * part is kept. The Worker code bytes, the asset contents, the request headers
+ * other than `Host`, the credential and the multipart boundaries are all
+ * discarded unparsed — but this suite does not claim the body was "dropped
+ * unread", because it was read.
  */
 
 import { spawn } from "node:child_process";
@@ -48,36 +85,57 @@ import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
+  SYNTHETIC_CLOUDFLARE_ACCOUNT_ID,
+  SYNTHETIC_CLOUDFLARE_API_TOKEN,
+  buildContainedChildEnv,
+  createIsolatedConfigRoot,
+  type IsolatedConfigRoot,
+} from "./contained-child-environment";
+import {
+  allowedDestinations,
+  blockedDestinations,
+  loopbackGuardEnv,
+  loopbackGuardNodeArgs,
+  readLoopbackGuardLog,
+  type LoopbackGuardRecord,
+} from "./loopback-network-guard";
+import {
   INHERIT_BINDING_TYPE,
   PINNED_INHERITANCE_BINDINGS,
   buildPinnedInheritanceBindings,
 } from "./pinned-binding-inheritance";
 import { SUPPORTED_WRANGLER_VERSION } from "./worker-variable-preservation";
+import { CANONICAL_WRANGLER_ENTRY, resolveRepositoryWrangler } from "./wrangler-identity";
 
 /** Dummy. Not a production identifier, not a credential. */
-const DUMMY_ACCOUNT_ID = "00000000000000000000000000000000";
+const DUMMY_ACCOUNT_ID = SYNTHETIC_CLOUDFLARE_ACCOUNT_ID;
 const DUMMY_WORKER_NAME = "forever-offline-serialization-fixture";
-const DUMMY_API_TOKEN = "dummy-token-not-a-credential";
 /** Dummy stand-in for the verified 100% live version. */
 const DUMMY_LIVE_VERSION = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
 /** Dummy stand-in for the version the mock pretends to create. Never real. */
 const DUMMY_CREATED_VERSION = "2b3c4d5e-6f70-4b8c-9d0e-1f2a3b4c5d6e";
 
 const REPO = process.cwd();
-const WRANGLER_ENTRY = resolve(REPO, "node_modules/wrangler/bin/wrangler.js");
 const WRANGLER_MANIFEST = resolve(REPO, "node_modules/wrangler/package.json");
+
+/** The ONE authorized launcher — the shared, fail-closed release resolver. */
+const wranglerIdentity = resolveRepositoryWrangler({ repoRoot: REPO });
 
 interface Capture {
   readonly requests: string[];
+  readonly hostHeaders: string[];
   metadata: Record<string, unknown> | null;
 }
 
 /**
  * Extracts ONLY the `metadata` part from a multipart body.
  *
- * The boundary is used to split and then discarded. Every other part — the
- * Worker module, any asset — is skipped without being read into a value that
- * outlives this function.
+ * The body must be materialized to be parsed — a multipart document cannot be
+ * split without being read. It is read HERE and nowhere else: the buffer is a
+ * parameter, the boundary is used to split and then discarded, every part that
+ * is not `metadata` is skipped without being turned into a retained value, and
+ * nothing about the body is written to disk, logged or asserted against as a
+ * whole.
  */
 function extractMetadataPart(body: Buffer, contentType: string): Record<string, unknown> | null {
   const match = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType);
@@ -103,6 +161,9 @@ function startMock(capture: Capture): Promise<{ server: Server; port: number }> 
     request.on("data", (chunk: Buffer) => chunks.push(chunk));
     request.on("end", () => {
       capture.requests.push(`${request.method} ${request.url?.split("?")[0] ?? ""}`);
+      // The one header retained. It is the destination the client BELIEVED it
+      // was talking to, which is the fact a path-only assertion could not reach.
+      capture.hostHeaders.push(String(request.headers.host ?? ""));
       const json = (body: unknown) => {
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({ success: true, errors: [], messages: [], result: body }));
@@ -149,30 +210,48 @@ function startMock(capture: Capture): Promise<{ server: Server; port: number }> 
 }
 
 /**
- * Runs the repository-locked Wrangler against the loopback mock.
+ * Runs the repository-locked Wrangler against the loopback mock, under the
+ * process-level guard and a constructed environment.
  *
  * `spawn`, never `spawnSync`: a synchronous spawn blocks this process's event
  * loop, so the in-process mock could never accept the connection and the run
  * would fail with a misleading "connectivity" error.
+ *
+ * The guard is installed as a direct `--require` NODE ARGUMENT rather than
+ * through `NODE_OPTIONS`, so the child environment can keep `NODE_OPTIONS`
+ * absent entirely — the parent's must not travel, and an inherited one is
+ * exactly what P2-3 found.
  */
-function runWrangler(configPath: string, port: number): Promise<{ status: number | null }> {
+function runWrangler(input: {
+  readonly configPath: string;
+  readonly port: number;
+  readonly isolated: IsolatedConfigRoot;
+  readonly guardLogPath: string;
+  readonly cwd: string;
+}): Promise<{ status: number | null }> {
   return new Promise((done) => {
     const child = spawn(
-      process.execPath,
-      [WRANGLER_ENTRY, "versions", "upload", "--keep-vars", "--config", configPath],
+      wranglerIdentity.launcher?.command ?? process.execPath,
+      [
+        ...loopbackGuardNodeArgs(),
+        ...(wranglerIdentity.launcher?.prefixArgs ?? []),
+        "versions",
+        "upload",
+        "--keep-vars",
+        "--config",
+        input.configPath,
+      ],
       {
-        cwd: REPO,
+        cwd: input.cwd,
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
-        env: {
-          ...process.env,
-          CLOUDFLARE_API_BASE_URL: `http://127.0.0.1:${port}/client/v4`,
-          CLOUDFLARE_API_TOKEN: DUMMY_API_TOKEN,
-          CLOUDFLARE_ACCOUNT_ID: DUMMY_ACCOUNT_ID,
-          WRANGLER_SEND_METRICS: "false",
-          NO_COLOR: "1",
-          FORCE_COLOR: "0",
-        },
+        env: buildContainedChildEnv({
+          isolated: input.isolated,
+          extra: {
+            ...loopbackGuardEnv({ allowedPort: input.port, logPath: input.guardLogPath }),
+            CLOUDFLARE_API_BASE_URL: `http://127.0.0.1:${input.port}/client/v4`,
+          },
+        }),
       },
     );
     // stdout/stderr are drained so the child cannot block on a full pipe, and
@@ -183,12 +262,48 @@ function runWrangler(configPath: string, port: number): Promise<{ status: number
   });
 }
 
-const capture: Capture = { requests: [], metadata: null };
+/**
+ * Disables Wrangler's npm update check for the contained run.
+ *
+ * Wrangler 4.118.0 calls the `update-check` package, which fetches
+ * `registry.npmjs.org` unless a cache file inside `os.tmpdir()` is newer than
+ * its interval. Wrangler exposes no flag for it. The child's temporary
+ * directory is ours, so the cache is SEEDED as already-current and the request
+ * is never made.
+ *
+ * This was found by the guard, not by reading the source: the previous
+ * containment assertion could not see an outbound request to npm at all, and
+ * this run really did make one. Seeding is the disablement; the guard blocking
+ * it would have been a second line of defence, and the suite asserts BOTH — no
+ * blocked destination at all, which is only true if the check never fired.
+ */
+function seedWranglerUpdateCheckCache(isolatedRoot: IsolatedConfigRoot): void {
+  const cacheDirectory = join(isolatedRoot.tempDirectory, "update-check");
+  mkdirSync(cacheDirectory, { recursive: true });
+  const installed = JSON.parse(readFileSync(WRANGLER_MANIFEST, "utf8")) as { version: string };
+  writeFileSync(
+    join(cacheDirectory, "wrangler-latest.json"),
+    JSON.stringify({ latest: installed.version, lastUpdate: Date.now() }),
+    "utf8",
+  );
+}
+
+const capture: Capture = { requests: [], hostHeaders: [], metadata: null };
 let workspace = "";
+let isolated: IsolatedConfigRoot | null = null;
+let guardLogPath = "";
+let guardRecords: readonly LoopbackGuardRecord[] = [];
+let listenerPort = 0;
 
 beforeAll(async () => {
   const { server, port } = await startMock(capture);
+  listenerPort = port;
   workspace = mkdtempSync(join(tmpdir(), "forever-inherit-serialization-"));
+  isolated = createIsolatedConfigRoot("forever-inherit-serialization-home-");
+  seedWranglerUpdateCheckCache(isolated);
+  guardLogPath = join(workspace, "loopback-guard.jsonl");
+  writeFileSync(guardLogPath, "", "utf8");
+
   mkdirSync(join(workspace, "public"), { recursive: true });
   writeFileSync(
     join(workspace, "index.mjs"),
@@ -209,19 +324,40 @@ beforeAll(async () => {
   const configPath = join(workspace, "wrangler.json");
   writeFileSync(configPath, JSON.stringify(configuration, null, 2));
 
-  await runWrangler(configPath, port);
+  await runWrangler({
+    configPath,
+    port,
+    isolated,
+    guardLogPath,
+    // The child runs in the throwaway workspace, not in the repository, so a
+    // stray `.env`/`.dev.vars` in a developer's checkout cannot reach it.
+    cwd: workspace,
+  });
+  guardRecords = readLoopbackGuardLog(guardLogPath);
   server.close();
 }, 240_000);
 
 afterAll(() => {
+  isolated?.dispose();
   if (workspace) rmSync(workspace, { recursive: true, force: true });
 });
 
 describe("the Wrangler installation under test", () => {
-  it("is the one locked by this repository, at exactly the supported version", () => {
-    expect(existsSync(WRANGLER_ENTRY)).toBe(true);
+  it("is the one the SHARED release resolver authorizes, not a path this test composed", () => {
+    expect(wranglerIdentity.ok).toBe(true);
+    expect(wranglerIdentity.evidence.resolvedFromRepository).toBe(true);
+    expect(wranglerIdentity.launcher?.command).toBe(process.execPath);
+    expect(wranglerIdentity.canonicalPath).toBe(wranglerIdentity.launcher?.prefixArgs[0]);
+    expect(String(wranglerIdentity.canonicalPath).replace(/\\/g, "/")).toContain(
+      CANONICAL_WRANGLER_ENTRY,
+    );
+    expect(existsSync(String(wranglerIdentity.canonicalPath))).toBe(true);
+  });
+
+  it("is at exactly the supported version, in the installed tree", () => {
     const installed = JSON.parse(readFileSync(WRANGLER_MANIFEST, "utf8")) as { version: string };
     expect(installed.version).toBe(SUPPORTED_WRANGLER_VERSION);
+    expect(wranglerIdentity.evidence.packageVersion).toBe(SUPPORTED_WRANGLER_VERSION);
   });
 
   it("is pinned to an exact version in package.json, not a floating range", () => {
@@ -233,10 +369,29 @@ describe("the Wrangler installation under test", () => {
 });
 
 describe("containment", () => {
-  it("reached the loopback mock and nothing else", () => {
+  it("performed real network activity, and the guard OBSERVED all of it", () => {
+    // An empty log would mean the guard was never in the process that made the
+    // requests — which would make every assertion below vacuous.
     expect(capture.requests.length).toBeGreaterThan(0);
-    for (const request of capture.requests) {
-      expect(request).not.toMatch(/api\.cloudflare\.com/);
+    expect(guardRecords.length).toBeGreaterThan(0);
+  });
+
+  it("was refused nothing, because it attempted nothing but the loopback listener", () => {
+    expect(blockedDestinations(guardRecords)).toEqual([]);
+    expect(allowedDestinations(guardRecords).length).toBe(guardRecords.length);
+  });
+
+  it("reached ONLY 127.0.0.1 on the test listener's port", () => {
+    for (const record of guardRecords) {
+      expect(["127.0.0.1", "::1", "localhost"], record.api).toContain(record.host);
+      expect(record.port, record.api).toBe(listenerPort);
+    }
+  });
+
+  it("sent a Host header naming exactly the loopback listener", () => {
+    expect(capture.hostHeaders.length).toBeGreaterThan(0);
+    for (const host of capture.hostHeaders) {
+      expect(host).toBe(`127.0.0.1:${listenerPort}`);
     }
   });
 
@@ -247,6 +402,17 @@ describe("containment", () => {
     for (const request of capture.requests) {
       expect(request).not.toMatch(/\/deployments/);
     }
+  });
+
+  it("used only a synthetic token and a synthetic account, never an operator credential", () => {
+    expect(SYNTHETIC_CLOUDFLARE_API_TOKEN).toBe("dummy-token-not-a-credential");
+    expect(DUMMY_ACCOUNT_ID).toBe("00000000000000000000000000000000");
+    // The guard log is the only artefact this run writes, and it carries
+    // destination metadata only.
+    const raw = readFileSync(guardLogPath, "utf8");
+    expect(raw).not.toContain(SYNTHETIC_CLOUDFLARE_API_TOKEN);
+    expect(raw).not.toContain("authorization");
+    expect(raw).not.toContain("/client/v4");
   });
 });
 

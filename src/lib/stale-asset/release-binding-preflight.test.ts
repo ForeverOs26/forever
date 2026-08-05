@@ -542,20 +542,60 @@ describe("P1-1 — the free-text command surface is gone", () => {
 });
 
 describe("the upload wrapper refuses to spawn Wrangler unless every gate held", () => {
-  it("STOPS on the Wrangler version gate, before anything else, and says so", () => {
-    // Wrangler is not a dependency of this repository, so the gate cannot
-    // resolve one — and a release that cannot prove its Wrangler version does
-    // not happen. This is the fail-closed default, asserted rather than assumed.
+  it("STOPS without a complete invocation, and says Wrangler was not spawned", () => {
+    // The comment this replaces claimed the STOP came from Wrangler being
+    // unresolvable. It has not for some time: Wrangler is a locked
+    // devDependency, so the gate PASSES here and the refusal is the missing
+    // `--expected-live-version`. Corrected under
+    // FOREVER-PR139-REVIEW-CORRECTIONS-001 §6 — a comment must state what is
+    // proven, and the gate's own refusal is proven separately below.
     const result = run(WRAPPER, "--live", LIVE);
     expect(result.status).toBe(1);
     expect(output(result)).toContain("Wrangler was NOT spawned");
-  });
+    // Explicit, because this spawns a Node process that jiti-compiles the
+    // TypeScript release contracts before it can refuse anything. Vitest's 5s
+    // default is not a budget for that under a loaded full-suite run.
+  }, 120_000);
+
+  it("EXTERNAL_WRANGLER_REJECTED: STOPS before any upload-capable path on a foreign WRANGLER_BIN", () => {
+    // FOREVER-PR139-REVIEW-CORRECTIONS-001, P1-1, at the WRAPPER boundary. An
+    // external executable reporting exactly the supported version is refused by
+    // identity, and the wrapper never reaches the specification, the preflight
+    // or a spawn. The fixture records every execution of itself and records
+    // none.
+    const scratch = mkdtempSync(join(tmpdir(), "forever-foreign-wrangler-"));
+    const marker = join(scratch, "invocations.log");
+    const foreign = join(scratch, "wrangler.js");
+    writeFileSync(marker, "", "utf8");
+    writeFileSync(
+      foreign,
+      `require("node:fs").appendFileSync(${JSON.stringify(marker)}, "invoked\\n");\n` +
+        `process.stdout.write("4.118.0\\n");\n`,
+      "utf8",
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [WRAPPER, "--live", LIVE, "--expected-live-version", LIVE_ID],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1", WRANGLER_BIN: foreign },
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(output(result)).toContain("the Wrangler version gate refused");
+    expect(output(result)).toContain("Wrangler was NOT spawned");
+    expect(output(result)).toContain("NOT the repository-locked Wrangler");
+    expect(readFileSync(marker, "utf8")).toBe("");
+  }, 120_000);
 
   it("refuses any command or argument pass-through", () => {
     const result = run(WRAPPER, "--live", LIVE, "--command", "wrangler versions upload");
     expect(result.status).toBe(1);
     expect(output(result)).toContain("accepts no command, argument or flag pass-through");
-  });
+  }, 120_000);
 
   it("requires a live snapshot — the pre-upload capture is not optional", () => {
     expect(read(WRAPPER)).toContain("--live <live-snapshot.json> is required");
@@ -631,7 +671,7 @@ describe("the upload wrapper refuses to spawn Wrangler unless every gate held", 
     const result = run(GATE);
     expect(output(result)).toContain("supported version : 4.118.0");
     expect(output(result)).toContain("shell             : false");
-  });
+  }, 120_000);
 });
 
 describe("preflight fixtures carry no production value", () => {

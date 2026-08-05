@@ -449,8 +449,14 @@ export function parseWranglerVersionOutput(output: string): string | null {
  * Independent-review limitation 1: nothing in this repository pinned a Wrangler
  * version, so a release would have used whichever Wrangler happened to be on
  * the operator's PATH — including one whose `--keep-vars` handling nobody here
- * has verified. Resolution is repository-local or an explicit operator-supplied
- * path; the version it reports must equal `SUPPORTED_WRANGLER_VERSION` exactly.
+ * has verified.
+ *
+ * A REPORTED VERSION IS NOT AN IDENTITY (PR139 review, P1-1). Resolution is the
+ * exact repository-locked entry point and nothing else, proven by canonical
+ * real-path comparison in `wrangler-identity.ts`; an external installation is
+ * refused even when it reports this exact version. This function is the
+ * remaining, narrower question — whether what executed reports the one version
+ * everything here was verified against.
  */
 export function verifyWranglerVersion(found: string | null): {
   readonly ok: boolean;

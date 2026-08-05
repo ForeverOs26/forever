@@ -203,8 +203,13 @@ uploaded. Those are the two facts that make such a release verifiable at all.
      --authorize-upload
    ```
 
-   The wrapper first proves the resolved Wrangler is exactly the supported
-   version, then spawns — with **no shell** — exactly this and nothing else:
+   The wrapper first proves the Wrangler it will run is the **exact
+   repository-locked entry point** — `node_modules/wrangler/bin/wrangler.js`,
+   by canonical real-path comparison, with both the installed package manifest
+   and the CLI required to report the supported version. An external
+   installation is refused even when it reports that same version, and
+   `WRANGLER_BIN` cannot select one; see §2c.1. It then spawns — with **no
+   shell** — exactly this and nothing else:
 
    ```
    wrangler versions upload --keep-vars --config .output/server/wrangler.upload.json
@@ -590,13 +595,64 @@ bytes that left the machine.
 
 **The actual serialized metadata must be inspected offline.**
 `src/lib/stale-asset/wrangler-inherit-serialization.test.ts` runs the
-repository-locked Wrangler against a loopback mock with dummy credentials, a
-dummy account, a dummy Worker name and dummy version UUIDs, and asserts the
-multipart metadata Wrangler really emits. It creates no Worker version and
-cannot reach `api.cloudflare.com`. It fails if `version_id` is stripped,
-replaced with `"latest"`, if either binding is missing or duplicated, if a third
-inherit record appears, if any plain-text value is present, or if the resolved
-Wrangler is not the version locked by this repository.
+repository-locked Wrangler against a loopback mock with a synthetic token, a
+synthetic account, a dummy Worker name and dummy version UUIDs, and asserts the
+multipart metadata Wrangler really emits. It creates no Worker version. It fails
+if `version_id` is stripped, replaced with `"latest"`, if either binding is
+missing or duplicated, if a third inherit record appears, if any plain-text
+value is present, or if the resolved Wrangler is not the exact one locked by
+this repository.
+
+### 2c.1 What the offline proof does and does not claim
+
+Corrected by `FOREVER-PR139-REVIEW-CORRECTIONS-001`, whose independent review
+found the previous wording overstated containment.
+
+**The exact repository-local Wrangler entry point is enforced.** Resolution is
+`node_modules/wrangler/bin/wrangler.js` relative to the repository root, proven
+by canonical real-path comparison in `src/lib/stale-asset/wrangler-identity.ts`.
+The installed package manifest must report `4.118.0` and the CLI must report it
+too. The offline proof and the production upload wrapper call the **same
+resolver**, so the executable the proof measured is the executable a release
+runs.
+
+**A same-version external installation FAILS.** Matching the version string is
+not identity. A copy, a hard link, a repository-shaped path under a different
+root and any other external installation are refused even when they print
+`4.118.0` exactly. `WRANGLER_BIN` can no longer select anything: if it is set
+and is not canonically the locked entry point, the gate STOPS with
+`wrangler_override_not_identical` before any upload-capable path is reached, and
+the rejected executable is never invoked.
+
+**The child environment is minimal and synthetic.** It is constructed, not
+inherited. It carries a handful of operating-system variables, a PATH reduced to
+the system directory, every configuration and cache root (`HOME`,
+`USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `XDG_*`, the temporary directory)
+redirected into a throwaway directory that is deleted afterwards, synthetic
+Cloudflare credentials, and metrics, telemetry and update checks disabled.
+`CLOUDFLARE_API_KEY`, `CLOUDFLARE_EMAIL`, `CF_API_TOKEN`, unrelated
+`CLOUDFLARE_*`/`WRANGLER_*`, `HTTP_PROXY`/`HTTPS_PROXY`, the parent
+`NODE_OPTIONS`, npm authentication and every Supabase/R2 credential are absent.
+The operator's real Wrangler OAuth configuration is unreachable, not merely
+unused.
+
+**Process-level interception enforces loopback-only execution.** A Node preload
+guard patches sockets, TLS, DNS, `http`/`https` and `fetch` inside the Wrangler
+child; any destination that is not the test's own loopback listener is refused
+synchronously, before a connection is opened and before a name is resolved. The
+guard writes a sanitized decision log — API name, host, port, allowed — and the
+proof asserts that Wrangler's real activity appears in it, that every record is
+the loopback listener, and that nothing was refused.
+`src/lib/stale-asset/release-network-containment.test.ts` runs a deliberate
+non-loopback canary under the same guard and proves it is blocked, and runs the
+identical operation with the guard absent to prove the assertion is not vacuous.
+
+**The multipart request body may be materialized temporarily in memory for
+parsing.** A multipart document cannot be split without being read. The body is
+read in the mock's request handler, the `metadata` part is parsed out, and the
+buffer goes out of scope; it is never persisted, never logged and never retained
+after the test. The earlier claim that the body was "dropped unread" was
+inaccurate and has been withdrawn.
 
 ### This does not replace post-upload verification
 

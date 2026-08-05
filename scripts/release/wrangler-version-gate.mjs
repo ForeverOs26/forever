@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * FOREVER-PR138-MERGE-BLOCKER-CORRECTION-002 — the Wrangler version gate.
+ * Corrected by FOREVER-PR139-REVIEW-CORRECTIONS-001 (P1-1, P2-1).
  *
  * The independent review recorded, as a verified limitation, that nothing in
  * this repository pinned a Wrangler version: a release would have used whatever
@@ -10,29 +11,41 @@
  * here — and this correction exists precisely because an unverified assumption
  * was treated as a guarantee.
  *
+ * THE PR139 CORRECTION. Pinning the VERSION was not pinning the WRANGLER. This
+ * gate used to resolve `WRANGLER_BIN` ahead of the repository install and then
+ * accept whatever it was, provided it printed `4.118.0` — so any external
+ * executable that reported the right string was launched for a production
+ * candidate upload. It then wrote the evidence field `resolvedFromRepository`
+ * as a bare truthiness test over the resolved path, which asserted repository
+ * provenance for that external executable too.
+ *
+ * Identity now lives in ONE place — `src/lib/stale-asset/wrangler-identity.ts` —
+ * and is filesystem identity, not a version string. This gate is a thin CLI over
+ * it, and the offline serialization proof calls the same module, so "the version
+ * we proved things about" and "the version that uploads" are the same FILE.
+ *
  * This gate therefore does two things and refuses to do a third:
  *
- *   1. it RESOLVES Wrangler explicitly — a repository-local install, or an
- *      operator-supplied `WRANGLER_BIN`, and nothing else;
- *   2. it PROVES the resolved Wrangler reports exactly the supported version;
- *   3. it never falls back to a PATH lookup, so "whichever wrangler is
- *      installed" is not a reachable state.
+ *   1. it RESOLVES Wrangler to the exact repository-locked entry point, proven
+ *      by `realpathSync` comparison, with the installed package manifest
+ *      required to report the supported version;
+ *   2. it PROVES the resolved Wrangler reports exactly that version;
+ *   3. it never falls back to a PATH lookup and never SELECTS an alternative, so
+ *      "whichever wrangler is installed" is not a reachable state.
  *
- * A `.cmd`, `.bat` or `.ps1` shim is refused rather than resolved: launching one
- * requires a shell, and every spawn in this release path is `shell: false`. The
- * `.js` entry point Wrangler ships is launched with this Node instead, which is
- * both shell-free and identical across platforms.
+ * `WRANGLER_BIN` can no longer choose anything. If it is set, it is checked, and
+ * anything that is not canonically the repository entry point is a named STOP
+ * before an upload-capable path is reached.
  *
  * CLI
  *   node scripts/release/wrangler-version-gate.mjs [--json <out.json>]
  *
  * EXIT CODES
- *   0  the resolved Wrangler is exactly the supported version
- *   1  STOP — not resolvable, not launchable without a shell, or wrong version
+ *   0  the repository-locked Wrangler is present and is exactly the supported version
+ *   1  STOP — not the locked file, not installed, or the wrong version
  */
 
-import { spawnSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -44,90 +57,40 @@ const jiti = createJiti(import.meta.url);
 const contract = await jiti.import(
   resolve(REPO, "src/lib/stale-asset/worker-variable-preservation.ts"),
 );
+const identity = await jiti.import(resolve(REPO, "src/lib/stale-asset/wrangler-identity.ts"));
 
 export const { SUPPORTED_WRANGLER_VERSION, parseWranglerVersionOutput, verifyWranglerVersion } =
   contract;
-
-/** Entry points that can be launched without a shell. */
-const NODE_ENTRY = /\.(?:js|mjs|cjs)$/;
-/** Shims that CANNOT. Refused outright, never worked around by enabling a shell. */
-const SHELL_SHIM = /\.(?:cmd|bat|ps1)$/i;
+const { resolveRepositoryWrangler, verifyRepositoryWranglerIdentity } = identity;
 
 /**
  * Resolves the one Wrangler this release is allowed to run.
  *
  * Returns a launcher, never a shell string: `{ command, prefixArgs }` is fed
  * straight to `spawnSync(command, [...prefixArgs, ...argv], { shell: false })`.
+ *
+ * `WRANGLER_BIN` is read here and ONLY here, and it is passed to the shared
+ * resolver as an override to be CHECKED — never as an alternative to be chosen.
  */
 export function resolveWrangler(repo = REPO) {
-  const problems = [];
-  const override = process.env.WRANGLER_BIN;
-  const local = resolve(repo, "node_modules/wrangler/bin/wrangler.js");
-
-  const chosen = override ? resolve(override) : existsSync(local) ? local : null;
-
-  if (!chosen) {
-    problems.push(
-      "Wrangler is not resolvable. Install it in this repository " +
-        "(`npm i -D wrangler@" +
-        `${SUPPORTED_WRANGLER_VERSION}\`) or set WRANGLER_BIN to the exact wrangler entry point. ` +
-        "A PATH lookup is deliberately NOT attempted: a production candidate upload is never " +
-        "performed by whichever Wrangler happens to be installed.",
-    );
-    return { ok: false, problems, launcher: null, resolvedPath: null };
-  }
-  if (SHELL_SHIM.test(chosen)) {
-    problems.push(
-      "the resolved Wrangler is a .cmd/.bat/.ps1 shim, which cannot be launched without a shell. " +
-        "Point WRANGLER_BIN at wrangler's .js entry point instead.",
-    );
-    return { ok: false, problems, launcher: null, resolvedPath: chosen };
-  }
-  if (!existsSync(chosen)) {
-    problems.push("the resolved Wrangler path does not exist.");
-    return { ok: false, problems, launcher: null, resolvedPath: chosen };
-  }
-
-  const launcher = NODE_ENTRY.test(chosen)
-    ? { command: process.execPath, prefixArgs: [chosen] }
-    : { command: chosen, prefixArgs: [] };
-
-  return { ok: true, problems, launcher, resolvedPath: chosen };
+  return resolveRepositoryWrangler({ repoRoot: repo, override: process.env.WRANGLER_BIN });
 }
 
-/** Probes `--version` with `shell: false` and compares it EXACTLY. */
+/** Resolves, then probes `--version` with `shell: false` and compares EXACTLY. */
 export function probeWranglerVersion(repo = REPO) {
-  const resolved = resolveWrangler(repo);
-  if (!resolved.ok) {
-    return { ...resolved, reportedVersion: null, supportedVersion: SUPPORTED_WRANGLER_VERSION };
-  }
-
-  const run = spawnSync(resolved.launcher.command, [...resolved.launcher.prefixArgs, "--version"], {
-    cwd: repo,
-    encoding: "utf8",
-    shell: false,
-    env: { ...process.env, NO_COLOR: "1" },
+  const result = verifyRepositoryWranglerIdentity({
+    repoRoot: repo,
+    override: process.env.WRANGLER_BIN,
   });
-  if (run.error || typeof run.status !== "number" || run.status !== 0) {
-    return {
-      ok: false,
-      problems: ["the resolved Wrangler could not be executed to report its version."],
-      launcher: resolved.launcher,
-      resolvedPath: resolved.resolvedPath,
-      reportedVersion: null,
-      supportedVersion: SUPPORTED_WRANGLER_VERSION,
-    };
-  }
-
-  const reportedVersion = parseWranglerVersionOutput(`${run.stdout ?? ""}\n${run.stderr ?? ""}`);
-  const verdict = verifyWranglerVersion(reportedVersion);
   return {
-    ok: verdict.ok,
-    problems: verdict.reasons,
-    launcher: resolved.launcher,
-    resolvedPath: resolved.resolvedPath,
-    reportedVersion,
-    supportedVersion: SUPPORTED_WRANGLER_VERSION,
+    ok: result.ok,
+    problems: result.problems,
+    refusals: result.refusals,
+    launcher: result.launcher,
+    resolvedPath: result.canonicalPath,
+    reportedVersion: result.evidence.reportedVersion,
+    supportedVersion: result.evidence.expectedVersion,
+    evidence: result.evidence,
   };
 }
 
@@ -139,22 +102,35 @@ if (invokedDirectly) {
   const result = probeWranglerVersion();
   const log = (message) => process.stdout.write(`[wrangler-gate] ${message}\n`);
   log(`supported version : ${result.supportedVersion}`);
+  log(`package version   : ${result.evidence.packageVersion ?? "(none)"}`);
   log(`reported version  : ${result.reportedVersion ?? "(none)"}`);
+  log(`repository-locked : ${result.evidence.resolvedFromRepository}`);
+  log(`override requested: ${result.evidence.overrideRequested}`);
   log(`shell             : false`);
 
   const jsonIndex = process.argv.indexOf("--json");
   if (jsonIndex !== -1 && process.argv[jsonIndex + 1]) {
     writeFileSync(
       resolve(REPO, process.argv[jsonIndex + 1]),
-      // The resolved path is a local filesystem path, not evidence — it is
-      // reported as a boolean rather than written into a shared artefact.
+      // Booleans and version strings only. The resolved path is a local
+      // filesystem path, not evidence, and is never written into a shared
+      // artefact — but `resolvedFromRepository` is now the REAL canonical-path
+      // equality result rather than `Boolean(resolvedPath)`, so a rejected
+      // external override can no longer be recorded as repository-resolved.
       `${JSON.stringify(
         {
           supportedVersion: result.supportedVersion,
+          packageVersion: result.evidence.packageVersion,
           reportedVersion: result.reportedVersion,
-          resolvedFromRepository: Boolean(result.resolvedPath),
+          canonicalRepositoryPathAccepted: result.evidence.canonicalRepositoryPathAccepted,
+          overrideRequested: result.evidence.overrideRequested,
+          overrideAccepted: result.evidence.overrideAccepted,
+          overrideRejected: result.evidence.overrideRejected,
+          resolvedFromRepository: result.evidence.resolvedFromRepository,
+          identityOk: result.evidence.identityOk,
           shell: false,
           ok: result.ok,
+          refusals: result.refusals,
           problems: result.problems,
         },
         null,
@@ -170,5 +146,5 @@ if (invokedDirectly) {
     }
     process.exit(1);
   }
-  log(`PASS — Wrangler ${result.reportedVersion} is the supported version.`);
+  log(`PASS — the repository-locked Wrangler ${result.reportedVersion} is the supported version.`);
 }

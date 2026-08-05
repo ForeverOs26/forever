@@ -451,14 +451,31 @@ describe("no shell is involved anywhere in the release upload path", () => {
     }
   });
 
-  it("NO_PATH_FALLBACK: the resolver cannot spawn a PATH-resolved wrangler", () => {
+  it("NO_PATH_FALLBACK: the gate delegates to the shared resolver and spawns no bare name", () => {
+    // FOREVER-PR139-REVIEW-CORRECTIONS-001. Identity used to be decided inline
+    // here by a ternary that preferred `WRANGLER_BIN` over the repository
+    // install, and this test pinned that ternary as SOURCE TEXT. Both are gone:
+    // the decision lives in `src/lib/stale-asset/wrangler-identity.ts`, is
+    // filesystem identity rather than a version string, and is proven
+    // BEHAVIOURALLY in `wrangler-identity.test.ts` — including that an external
+    // same-version executable is refused and never invoked.
     const source = read("scripts/release/wrangler-version-gate.mjs");
-    expect(source).toContain(
-      "const chosen = override ? resolve(override) : existsSync(local) ? local : null;",
-    );
+    expect(source).toContain("src/lib/stale-asset/wrangler-identity.ts");
+    expect(source).toContain("resolveRepositoryWrangler");
+    expect(source).toContain("verifyRepositoryWranglerIdentity");
     expect(source).not.toMatch(/spawn(?:Sync)?\(\s*["'`]wrangler["'`]/);
     expect(source).not.toMatch(/command:\s*["'`]wrangler["'`]/);
     expect(source).not.toMatch(/:\s*["'`]wrangler["'`]\s*;/);
+    // `WRANGLER_BIN` is read in exactly one file, and only as an override to be
+    // CHECKED. It can no longer select anything anywhere.
+    expect(read("scripts/release/upload-worker-version.mjs")).not.toContain("WRANGLER_BIN");
+  });
+
+  it("PROVENANCE_TRUTHFUL: the emitted evidence no longer reports Boolean(path)", () => {
+    const source = read("scripts/release/wrangler-version-gate.mjs");
+    expect(source).not.toContain("resolvedFromRepository: Boolean(");
+    expect(source).toContain("resolvedFromRepository: result.evidence.resolvedFromRepository");
+    expect(source).toContain("overrideRejected: result.evidence.overrideRejected");
   });
 
   it("spawns wrangler from the canonical argv only, in the one wrapper", () => {
@@ -474,23 +491,34 @@ describe("no shell is involved anywhere in the release upload path", () => {
     expect(wrapper).toContain("the binding preflight did not produce PASS");
   });
 
-  it("PINNED_SPEC_CONSUMED: re-proves the verified specification is what gets uploaded", () => {
+  it("PINNED_SPEC_CONSUMED: the spawn is reachable ONLY through the verified seam", () => {
     const wrapper = read("scripts/release/upload-worker-version.mjs");
     // Generated from the immutable build, hashed, and re-hashed immediately
     // before the spawn. "Verified one artefact, uploaded another" is the gap.
     expect(wrapper).toContain("buildUploadSpecification");
     expect(wrapper).toContain("normalizeUploadSpecification");
     expect(wrapper).toContain("verifiedDigest");
-    expect(wrapper).toContain("consumedDigest");
-    expect(wrapper).toContain("the upload specification changed after it was verified");
-    // The guard must be LIVE, not merely PRESENT. Asserting the strings alone
-    // let a neutered `if (false && consumedDigest !== verifiedDigest)` pass with
-    // every string still in place — the mutation controls caught exactly that,
-    // which is the whole reason they exist. The comparison is pinned as source.
-    expect(wrapper).toMatch(/\n\s*if \(consumedDigest !== verifiedDigest\) \{/);
-    expect(wrapper).toMatch(/\n\s*if \(!readFileSync\(generatedAbsolute\)\.equals\(/);
-    // The immutable build output is READ, never written.
     expect(wrapper).toContain("generatedBytesBefore");
+
+    // FOREVER-PR139-REVIEW-CORRECTIONS-001, P2-4. The digest re-check used to be
+    // "protected" here by matching the comparison as SOURCE TEXT, which proved
+    // the characters existed and nothing about whether the program refused or
+    // whether the refusal preceded the spawn. The decision is now an imported
+    // function and is proven BEHAVIOURALLY in
+    // `release-upload-orchestration.test.ts`: a tampered specification produces
+    // the named STOP and the injected launcher is never called.
+    expect(wrapper).toContain("src/lib/stale-asset/release-upload-orchestration.ts");
+    expect(wrapper).toContain("verifyThenLaunchUpload");
+
+    // What remains worth asserting HERE is the BINDING: that the production
+    // wrapper has no second, unguarded way to spawn Wrangler. Exactly two
+    // spawns exist — the offline preflight and the upload — and the upload one
+    // is the seam's `launch` argument, so it is unreachable unless the seam
+    // decided to launch.
+    expect(wrapper.match(/spawnSync\(/g) ?? []).toHaveLength(2);
+    expect(wrapper).toMatch(/launch: \(\) =>\s+spawnSync\(/);
+    expect(wrapper).toMatch(/if \(!decision\.launched\) \{/);
+    // The immutable build output is READ, never written.
     expect(wrapper).not.toMatch(/writeFileSync\(\s*generatedAbsolute/);
   });
 
