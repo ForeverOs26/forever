@@ -24,10 +24,18 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
+
+import {
+  PREUPLOAD_PINNED_INHERITANCE_MARKER,
+  SUPERSEDED_PREUPLOAD_MARKER,
+  buildUploadSpecification,
+  normalizeUploadSpecification,
+} from "./pinned-binding-inheritance";
 
 const SCRIPT = "scripts/release/verify-binding-preservation.mjs";
 const WRAPPER = "scripts/release/upload-worker-version.mjs";
@@ -46,13 +54,42 @@ function run(script: string, ...args: string[]) {
   });
 }
 
+/**
+ * Writes a valid ephemeral upload specification for a PREUPLOAD run.
+ *
+ * FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001: PREUPLOAD now reads
+ * the specification the upload will consume, so the tests must produce one the
+ * same way the wrapper does — from the real immutable build output plus the two
+ * pinned inherit records. Building it any other way would test a fiction.
+ */
+function writeUploadSpecification(expectedLiveVersion: string): string {
+  const generatedConfig = JSON.parse(read(".output/server/wrangler.json")) as Record<
+    string,
+    unknown
+  >;
+  const path = join(mkdtempSync(join(tmpdir(), "forever-preflight-spec-")), "wrangler.upload.json");
+  writeFileSync(
+    path,
+    normalizeUploadSpecification(
+      buildUploadSpecification({ generatedConfig, expectedLiveVersion }),
+    ),
+    "utf8",
+  );
+  return path;
+}
+
 const runPreflightUnpinned = (...args: string[]) => run(SCRIPT, ...args);
 const runPreflight = (...args: string[]) => {
   if (args.includes("--preupload")) {
+    const index = args.indexOf("--expected-live-version");
+    const pinned = index === -1 ? LIVE_ID : args[index + 1];
     return run(
       SCRIPT,
       ...args,
-      ...(args.includes("--expected-live-version") ? [] : ["--expected-live-version", LIVE_ID]),
+      ...(args.includes("--upload-specification")
+        ? []
+        : ["--upload-specification", writeUploadSpecification(pinned)]),
+      ...(index !== -1 ? [] : ["--expected-live-version", LIVE_ID]),
     );
   }
   return run(
@@ -481,7 +518,13 @@ describe("P1-1 — the free-text command surface is gone", () => {
       good,
       JSON.stringify({
         executable: "wrangler",
-        args: ["versions", "upload", "--keep-vars", "--config", ".output/server/wrangler.json"],
+        args: [
+          "versions",
+          "upload",
+          "--keep-vars",
+          "--config",
+          ".output/server/wrangler.upload.json",
+        ],
       }),
       "utf8",
     );
@@ -527,10 +570,13 @@ describe("the upload wrapper refuses to spawn Wrangler unless every gate held", 
     expect(source).toContain("--authorize-upload");
   });
 
-  it("the pre-upload preflight mode PASSES on a valid live snapshot alone", () => {
+  it("the pre-upload preflight mode PASSES on a valid live snapshot and pinned specification", () => {
     const result = runPreflight("--preupload", "--live", LIVE);
     expect(result.status).toBe(0);
-    expect(output(result)).toContain("PREUPLOAD_CONTRACT_OK");
+    expect(output(result)).toContain(PREUPLOAD_PINNED_INHERITANCE_MARKER);
+    // The superseded marker verified INTENT and passed an upload that could not
+    // have preserved the two variables. It is never emitted again.
+    expect(output(result)).not.toContain(SUPERSEDED_PREUPLOAD_MARKER);
   });
 
   it("the pre-upload preflight STOPS on an invalid live snapshot", () => {
@@ -540,7 +586,45 @@ describe("the upload wrapper refuses to spawn Wrangler unless every gate held", 
       `${FIXTURES}/snapshot-unknown-top-level-key.json`,
     );
     expect(result.status).toBe(1);
-    expect(output(result)).not.toContain("PREUPLOAD_CONTRACT_OK");
+    expect(output(result)).not.toContain(PREUPLOAD_PINNED_INHERITANCE_MARKER);
+  });
+
+  it("PREUPLOAD_PINNED_STOPS: refuses when the specification is missing entirely", () => {
+    // Generic keep_vars as the only protection is exactly candidate 3540bc64.
+    const result = runPreflightUnpinned(
+      "--preupload",
+      "--live",
+      LIVE,
+      "--expected-live-version",
+      LIVE_ID,
+      "--upload-specification",
+      `${FIXTURES}/does-not-exist.json`,
+    );
+    expect(result.status).toBe(1);
+    expect(output(result)).toContain("specification_malformed");
+    expect(output(result)).not.toContain(PREUPLOAD_PINNED_INHERITANCE_MARKER);
+  });
+
+  it("PREUPLOAD_PINNED_STOPS: refuses a specification pinned to a different version", () => {
+    const result = runPreflightUnpinned(
+      "--preupload",
+      "--live",
+      LIVE,
+      "--expected-live-version",
+      LIVE_ID,
+      "--upload-specification",
+      writeUploadSpecification(CANDIDATE_ID),
+    );
+    expect(result.status).toBe(1);
+    expect(output(result)).toContain("inherit_record_version_mismatch");
+    expect(output(result)).not.toContain(PREUPLOAD_PINNED_INHERITANCE_MARKER);
+  });
+
+  it("PREUPLOAD_PINNED_RECORDS: a passing run records the specification digest", () => {
+    const result = runPreflight("--preupload", "--live", LIVE);
+    // The upload wrapper re-hashes the file immediately before spawning, so the
+    // digest is what binds "verified" to "consumed".
+    expect(output(result)).toMatch(/upload spec sha256 : [0-9a-f]{64}/);
   });
 
   it("the version gate reports the supported version and never uses a shell", () => {

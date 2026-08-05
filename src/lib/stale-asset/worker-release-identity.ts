@@ -76,20 +76,66 @@ export function isWorkerVersionId(value: unknown): value is string {
 /**
  * The value-free Worker-version receipt shared by upload, capture and release
  * preflight tooling. This is the small, post-upload subset of the eight-field
- * release provenance record: the exact live version and the exact new version.
+ * release provenance record: the exact live version, the exact new version, and
+ * the two digests naming what was uploaded.
+ *
+ * SCHEMA 2 (FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001).
+ *
+ * WHY THE THREE-FIELD RECEIPT WAS NOT SUFFICIENT. It recorded which version was
+ * live and which version the upload produced — and nothing about WHAT was
+ * uploaded. Two facts were unrecoverable afterwards:
+ *
+ *   - which inheritance source the upload actually pinned, and
+ *   - whether the artefact uploaded was the artefact that was verified.
+ *
+ * A receipt that cannot answer those cannot distinguish a correct release from
+ * the one that produced `3540bc64`. Schema 2 adds the two digests that close
+ * that gap, so a future sanitized receipt mechanically correlates all four
+ * facts: the expected former live UUID, the normalized upload-specification
+ * SHA-256, the immutable release-manifest SHA-256, and the resulting candidate
+ * UUID.
+ *
+ * STILL VALUE-FREE. Two UUIDs and two digests. No binding value, no credential,
+ * no account identifier, no raw Wrangler output.
  */
-export const WORKER_VERSION_PROVENANCE_SCHEMA_VERSION = 1;
+export const WORKER_VERSION_PROVENANCE_SCHEMA_VERSION = 2;
 
-export const WORKER_VERSION_PROVENANCE_FIELDS = [
+/** Schema versions this repository can still READ. Only the newest is written. */
+export const SUPPORTED_WORKER_VERSION_PROVENANCE_SCHEMA_VERSIONS = [1, 2] as const;
+
+/** The superseded three-field receipt. Retained for backward parsing only. */
+export const WORKER_VERSION_PROVENANCE_FIELDS_V1 = [
   "schemaVersion",
   "previousWorkerVersionId",
   "candidateWorkerVersionId",
 ] as const;
 
+export const WORKER_VERSION_PROVENANCE_FIELDS_V2 = [
+  ...WORKER_VERSION_PROVENANCE_FIELDS_V1,
+  /** SHA-256 of the NORMALIZED ephemeral upload specification that was verified. */
+  "uploadSpecificationSha256",
+  /** SHA-256 of the immutable local release manifest the candidate was built from. */
+  "releaseManifestSha256",
+] as const;
+
+/** The fields a receipt written TODAY carries. */
+export const WORKER_VERSION_PROVENANCE_FIELDS = WORKER_VERSION_PROVENANCE_FIELDS_V2;
+
+/** A lowercase hex SHA-256. Bounded before it is ever compared or echoed. */
+export const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
+
+export function isSha256Hex(value: unknown): value is string {
+  return typeof value === "string" && SHA256_HEX_PATTERN.test(value);
+}
+
 export type WorkerVersionProvenance = {
-  readonly schemaVersion: typeof WORKER_VERSION_PROVENANCE_SCHEMA_VERSION;
+  readonly schemaVersion: 1 | 2;
   readonly previousWorkerVersionId: string;
   readonly candidateWorkerVersionId: string;
+  /** Absent on a legacy schema-1 receipt, which could not record it. */
+  readonly uploadSpecificationSha256?: string;
+  /** Absent on a legacy schema-1 receipt, which could not record it. */
+  readonly releaseManifestSha256?: string;
 };
 
 export type WorkerVersionProvenanceRefusal =
@@ -111,20 +157,33 @@ export function verifyWorkerVersionProvenance(value: unknown): WorkerVersionProv
   }
 
   const record = value as Record<string, unknown>;
+
+  // The schema is selected by the DECLARED version, then the key set is closed
+  // against exactly that schema. A schema-1 receipt carrying schema-2 fields, or
+  // the reverse, is refused rather than partially read — an unknown key beside a
+  // receipt is how a value gets stored next to one.
+  const schemaVersion = record.schemaVersion;
+  const expectedFields =
+    schemaVersion === 1
+      ? WORKER_VERSION_PROVENANCE_FIELDS_V1
+      : schemaVersion === 2
+        ? WORKER_VERSION_PROVENANCE_FIELDS_V2
+        : null;
+  if (expectedFields === null) {
+    return { accepted: false, refusal: "release_provenance_invalid" };
+  }
+
   const actualKeys = Object.keys(record).sort();
-  const expectedKeys = [...WORKER_VERSION_PROVENANCE_FIELDS].sort();
+  const expectedKeys = [...expectedFields].sort();
   if (
     actualKeys.length !== expectedKeys.length ||
     actualKeys.some((key, i) => key !== expectedKeys[i])
   ) {
-    const missing = WORKER_VERSION_PROVENANCE_FIELDS.some((field) => !(field in record));
+    const missing = expectedFields.some((field) => !(field in record));
     return {
       accepted: false,
       refusal: missing ? "release_provenance_missing" : "release_provenance_invalid",
     };
-  }
-  if (record.schemaVersion !== WORKER_VERSION_PROVENANCE_SCHEMA_VERSION) {
-    return { accepted: false, refusal: "release_provenance_invalid" };
   }
   if (
     !isWorkerVersionId(record.previousWorkerVersionId) ||
@@ -135,23 +194,47 @@ export function verifyWorkerVersionProvenance(value: unknown): WorkerVersionProv
   if (record.candidateWorkerVersionId === record.previousWorkerVersionId) {
     return { accepted: false, refusal: "candidate_worker_version_not_new" };
   }
+  if (
+    schemaVersion === 2 &&
+    (!isSha256Hex(record.uploadSpecificationSha256) || !isSha256Hex(record.releaseManifestSha256))
+  ) {
+    return { accepted: false, refusal: "release_provenance_invalid" };
+  }
 
   return {
     accepted: true,
-    provenance: {
-      schemaVersion: WORKER_VERSION_PROVENANCE_SCHEMA_VERSION,
-      previousWorkerVersionId: record.previousWorkerVersionId,
-      candidateWorkerVersionId: record.candidateWorkerVersionId,
-    },
+    provenance:
+      schemaVersion === 2
+        ? {
+            schemaVersion: 2,
+            previousWorkerVersionId: record.previousWorkerVersionId,
+            candidateWorkerVersionId: record.candidateWorkerVersionId,
+            uploadSpecificationSha256: record.uploadSpecificationSha256 as string,
+            releaseManifestSha256: record.releaseManifestSha256 as string,
+          }
+        : {
+            schemaVersion: 1,
+            previousWorkerVersionId: record.previousWorkerVersionId,
+            candidateWorkerVersionId: record.candidateWorkerVersionId,
+          },
   };
 }
 
+/**
+ * Serialises a receipt. Always writes the CURRENT schema.
+ *
+ * A schema-1 receipt is readable but is never produced again: a new receipt
+ * that could not name the artefact it uploaded is the gap this correction
+ * closed, so writing one would reopen it.
+ */
 export function serializeWorkerVersionProvenance(provenance: WorkerVersionProvenance): string {
   return `${JSON.stringify(
     {
-      schemaVersion: provenance.schemaVersion,
+      schemaVersion: WORKER_VERSION_PROVENANCE_SCHEMA_VERSION,
       previousWorkerVersionId: provenance.previousWorkerVersionId,
       candidateWorkerVersionId: provenance.candidateWorkerVersionId,
+      uploadSpecificationSha256: provenance.uploadSpecificationSha256,
+      releaseManifestSha256: provenance.releaseManifestSha256,
     },
     null,
     2,
@@ -173,8 +256,22 @@ export type WranglerVersionUploadReceiptVerdict =
 export function parseWranglerVersionUploadReceipt(
   ndjson: string,
   previousWorkerVersionId: string,
+  correlation: {
+    readonly uploadSpecificationSha256: string;
+    readonly releaseManifestSha256: string;
+  },
 ): WranglerVersionUploadReceiptVerdict {
   if (!isWorkerVersionId(previousWorkerVersionId) || typeof ndjson !== "string") {
+    return { accepted: false, refusal: "upload_receipt_invalid" };
+  }
+  // The correlation digests are supplied by the gate that verified them. A
+  // receipt that cannot name the artefact it uploaded is refused outright
+  // rather than written as a schema-1 record.
+  if (
+    !correlation ||
+    !isSha256Hex(correlation.uploadSpecificationSha256) ||
+    !isSha256Hex(correlation.releaseManifestSha256)
+  ) {
     return { accepted: false, refusal: "upload_receipt_invalid" };
   }
 
@@ -205,6 +302,8 @@ export function parseWranglerVersionUploadReceipt(
     schemaVersion: WORKER_VERSION_PROVENANCE_SCHEMA_VERSION,
     previousWorkerVersionId,
     candidateWorkerVersionId: versionIds[0],
+    uploadSpecificationSha256: correlation.uploadSpecificationSha256,
+    releaseManifestSha256: correlation.releaseManifestSha256,
   });
   if (!verdict.accepted) return verdict;
   return { accepted: true, receipt: verdict.provenance };

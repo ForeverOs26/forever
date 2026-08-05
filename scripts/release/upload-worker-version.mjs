@@ -12,10 +12,27 @@
  *
  *   1. proves the resolved Wrangler is EXACTLY the supported version;
  *   2. validates the canonical upload specification token-by-token;
- *   3. runs the binding preflight in pre-upload mode and requires
- *      PREUPLOAD_CONTRACT_OK — the live snapshot must parse against the closed
- *      schema and the generated configuration must carry `keep_vars: true`;
- *   4. only then spawns Wrangler, with `shell: false` and the canonical argv.
+ *   3. generates the EPHEMERAL upload-only specification — the immutable build
+ *      output plus exactly two `inherit` bindings pinned to the verified 100%
+ *      live version — and hashes it;
+ *   4. runs the binding preflight in pre-upload mode and requires
+ *      PREUPLOAD_PINNED_INHERITANCE_OK carrying that same digest;
+ *   5. re-proves the specification is unchanged, then spawns Wrangler with
+ *      `shell: false` and the canonical argv.
+ *
+ * WHY STEP 3 EXISTS (FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001).
+ * Generic `--keep-vars` asks Cloudflare to keep bindings from the LATEST
+ * uploaded version. Candidate `3540bc64` passed it correctly and still lost
+ * SUPABASE_URL and STUDIO_STORAGE_WRITE_PROVIDER, because the latest uploaded
+ * version was by then the failed 10-binding `ae4cae19` while the 12-binding
+ * live version sat two versions back. Naming the source version explicitly
+ * removes the implicit default from the release path. `--keep-vars` is kept as
+ * secondary protection for the six secrets, never as the mechanism these two
+ * plain-text bindings depend on.
+ *
+ * NO BINDING VALUE IS READ. An `inherit` record carries a name and a source
+ * version UUID and nothing else; neither production value is read, copied,
+ * logged, persisted or retransmitted anywhere in this path.
  *
  * Step 4 additionally requires an explicit `--authorize-upload`. Without it the
  * wrapper performs 1-3 and prints exactly what it WOULD have run. That default
@@ -38,6 +55,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -55,8 +73,21 @@ const contract = await jiti.import(
 const releaseIdentity = await jiti.import(
   resolve(REPO, "src/lib/stale-asset/worker-release-identity.ts"),
 );
-const { PRODUCTION_VERSION_UPLOAD_SPEC, PRODUCTION_VERSION_UPLOAD_COMMAND, verifyUploadSpec } =
-  contract;
+const pinned = await jiti.import(
+  resolve(REPO, "src/lib/stale-asset/pinned-binding-inheritance.ts"),
+);
+const {
+  PRODUCTION_VERSION_UPLOAD_SPEC,
+  PRODUCTION_VERSION_UPLOAD_COMMAND,
+  GENERATED_WORKER_CONFIG_PATH,
+  UPLOAD_SPECIFICATION_PATH,
+  verifyUploadSpec,
+} = contract;
+const {
+  PREUPLOAD_PINNED_INHERITANCE_MARKER,
+  buildUploadSpecification,
+  normalizeUploadSpecification,
+} = pinned;
 const { parseWranglerVersionUploadReceipt, serializeWorkerVersionProvenance } = releaseIdentity;
 
 const log = (message) => process.stdout.write(`[upload-version] ${message}\n`);
@@ -124,6 +155,67 @@ if (!expectedLiveVersion) {
   );
 }
 
+// ---- 3a. the EPHEMERAL, UPLOAD-ONLY specification ---------------------------
+//
+// The immutable generated configuration is READ and never written. The
+// specification is it, plus exactly the two `inherit` bindings pinned to the
+// verified live version — and it is emitted into the SAME directory so `main`
+// and the relative `assets.directory` resolve to the identical Worker bundle
+// and asset set.
+//
+// No binding VALUE is read, supplied or written. An `inherit` record carries a
+// name and a source version UUID; the values never leave Cloudflare.
+
+const generatedAbsolute = resolve(REPO, GENERATED_WORKER_CONFIG_PATH);
+if (!existsSync(generatedAbsolute)) {
+  stop(
+    `the immutable generated configuration is missing at ${GENERATED_WORKER_CONFIG_PATH}. Run \`npm run build\` first.`,
+  );
+}
+
+let generatedConfig;
+try {
+  generatedConfig = JSON.parse(readFileSync(generatedAbsolute, "utf8"));
+} catch {
+  stop("the immutable generated configuration is not valid JSON.");
+}
+
+const generatedBytesBefore = readFileSync(generatedAbsolute);
+const specificationAbsolute = resolve(REPO, UPLOAD_SPECIFICATION_PATH);
+const specificationBody = normalizeUploadSpecification(
+  buildUploadSpecification({ generatedConfig, expectedLiveVersion }),
+);
+writeFileSync(specificationAbsolute, specificationBody, "utf8");
+
+/** The digest the PREUPLOAD contract must agree with, and the upload must re-prove. */
+const verifiedDigest = createHash("sha256").update(specificationBody).digest("hex");
+
+/**
+ * The immutable local release manifest the candidate was built from.
+ *
+ * Recorded in the receipt so a future reader can correlate the uploaded
+ * candidate with the exact build — source commit, source tree and
+ * CLIENT_ASSET_ID — rather than having to trust that they matched.
+ */
+const RELEASE_MANIFEST_PATH = ".forever-build/release-manifest.json";
+const releaseManifestAbsolute = resolve(REPO, RELEASE_MANIFEST_PATH);
+if (!existsSync(releaseManifestAbsolute)) {
+  stop(
+    `the immutable release manifest is missing at ${RELEASE_MANIFEST_PATH}. Run \`npm run build\` first.`,
+  );
+}
+const releaseManifestDigest = createHash("sha256")
+  .update(readFileSync(releaseManifestAbsolute))
+  .digest("hex");
+
+log(`generated config   : ${GENERATED_WORKER_CONFIG_PATH} (immutable, unmodified)`);
+log(`release manifest   : ${RELEASE_MANIFEST_PATH} sha256 ${releaseManifestDigest}`);
+log(`upload spec        : ${UPLOAD_SPECIFICATION_PATH} (ephemeral, untracked)`);
+log(`upload spec sha256 : ${verifiedDigest}`);
+log(`inheritance source : ${expectedLiveVersion}`);
+
+// ---- 3b. the pre-upload binding preflight ----------------------------------
+
 const preflight = spawnSync(
   process.execPath,
   [
@@ -133,6 +225,8 @@ const preflight = spawnSync(
     livePath,
     "--expected-live-version",
     expectedLiveVersion,
+    "--upload-specification",
+    UPLOAD_SPECIFICATION_PATH,
   ],
   { cwd: REPO, encoding: "utf8", shell: false, env: { ...process.env, NO_COLOR: "1" } },
 );
@@ -142,10 +236,19 @@ process.stdout.write(preflightOutput);
 if (preflight.error || typeof preflight.status !== "number") {
   stop("the binding preflight could not be run, so it did not produce PASS.");
 }
-if (preflight.status !== 0 || !preflightOutput.includes("PREUPLOAD_CONTRACT_OK")) {
+if (preflight.status !== 0 || !preflightOutput.includes(PREUPLOAD_PINNED_INHERITANCE_MARKER)) {
   stop("the binding preflight did not produce PASS.");
 }
-log("preflight          : PREUPLOAD_CONTRACT_OK");
+// The preflight independently hashed the specification it verified. If its
+// digest is not the one written above, the file verified and the file about to
+// be uploaded are not the same file.
+if (!preflightOutput.includes(verifiedDigest)) {
+  stop(
+    "the preflight verified an upload specification whose digest is not the one generated here. " +
+      "Verification and consumption must name the same bytes.",
+  );
+}
+log(`preflight          : ${PREUPLOAD_PINNED_INHERITANCE_MARKER}`);
 
 // ---- 4. the upload ---------------------------------------------------------
 
@@ -168,6 +271,34 @@ const receiptAbsolute = resolve(REPO, receiptPath);
 if (existsSync(receiptAbsolute)) {
   stop("the receipt path already exists; an upload receipt is immutable and is never overwritten.");
 }
+
+// ---- 4a. verified and consumed must be the SAME BYTES ----------------------
+//
+// Everything above proved a specification. This proves the file Wrangler is
+// about to read is still that specification. A rebuild, a regeneration or any
+// edit between PREUPLOAD and here invalidates the verification rather than
+// being silently uploaded — the gap this closes is precisely "checked one
+// artefact, uploaded another".
+
+if (!existsSync(specificationAbsolute)) {
+  stop("the verified upload specification no longer exists.");
+}
+const consumedDigest = createHash("sha256")
+  .update(readFileSync(specificationAbsolute, "utf8"))
+  .digest("hex");
+if (consumedDigest !== verifiedDigest) {
+  stop(
+    "the upload specification changed after it was verified. PREUPLOAD is invalidated by any " +
+      "later build or regeneration; re-run the whole gate rather than uploading these bytes.",
+  );
+}
+if (!readFileSync(generatedAbsolute).equals(generatedBytesBefore)) {
+  stop(
+    "the immutable generated configuration changed during the gate. The application build must be " +
+      "byte-identical from verification to upload.",
+  );
+}
+log(`upload spec re-verified: ${consumedDigest}`);
 
 // Wrangler's documented output-file contract is ND-JSON. It is consumed from
 // one task-owned temporary directory and removed in `finally`; stdout/stderr
@@ -214,6 +345,10 @@ try {
   const receiptVerdict = parseWranglerVersionUploadReceipt(
     readFileSync(outputPath, "utf8"),
     expectedLiveVersion,
+    {
+      uploadSpecificationSha256: verifiedDigest,
+      releaseManifestSha256: releaseManifestDigest,
+    },
   );
   if (!receiptVerdict.accepted) {
     throw new Error(
