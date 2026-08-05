@@ -181,6 +181,17 @@ uploaded. Those are the two facts that make such a release verifiable at all.
    result. An omitted, malformed, older or substituted UUID is a named STOP.
    Anything else STOPS before Wrangler starts.
 
+   **PREUPLOAD additionally proves the inheritance SOURCE — see §2c.** The
+   supplied live version must carry exactly the twelve-binding contract
+   including both plain-text names; the ephemeral upload specification must
+   carry exactly two `inherit` records named `SUPABASE_URL` and
+   `STUDIO_STORAGE_WRITE_PROVIDER`, both pinned to that exact UUID, neither
+   using `"latest"`, neither omitting `version_id` and neither carrying a value
+   field; no binding name may be duplicated; the immutable build must be
+   unchanged; and the normalized specification's SHA-256 is recorded. The
+   success marker is `PREUPLOAD_PINNED_INHERITANCE_OK`. The superseded
+   `PREUPLOAD_CONTRACT_OK` is never emitted again.
+
 4. **Upload the candidate at 0% traffic, through the structured wrapper**, which
    preserves deployment-managed variables:
 
@@ -192,15 +203,31 @@ uploaded. Those are the two facts that make such a release verifiable at all.
      --authorize-upload
    ```
 
-   The wrapper first proves the resolved Wrangler is exactly the supported
-   version, then spawns — with **no shell** — exactly this and nothing else:
+   The wrapper first proves the Wrangler it will run is the **exact
+   repository-locked entry point** — `node_modules/wrangler/bin/wrangler.js`,
+   by canonical real-path comparison, with both the installed package manifest
+   and the CLI required to report the supported version. An external
+   installation is refused even when it reports that same version, and
+   `WRANGLER_BIN` cannot select one; see §2c.1. It then spawns — with **no
+   shell** — exactly this and nothing else:
 
    ```
-   wrangler versions upload --keep-vars --config .output/server/wrangler.json
+   wrangler versions upload --keep-vars --config .output/server/wrangler.upload.json
    ```
+
+   **`--config` names the ephemeral upload specification, not the build
+   output.** `.output/server/wrangler.upload.json` is generated per release by
+   the wrapper: it is `.output/server/wrangler.json` byte-for-byte plus exactly
+   the two pinned `inherit` bindings. The build output is never modified, and
+   the specification is written into the same directory so `main` and the
+   relative `assets.directory` resolve to the identical Worker bundle and asset
+   set. It is untracked, hashed at verification, and re-hashed immediately
+   before the spawn — if it changed in between, the wrapper STOPS rather than
+   uploading bytes nobody verified.
 
    **`--keep-vars` is not optional and not a convenience.** See §2a — omitting
-   it deletes every deployment-managed variable. That argument vector is
+   it deletes every deployment-managed variable. But it is **no longer
+   sufficient on its own**; see §2c. That argument vector is
    compared token by token against the canonical one, so `--keep-vars=false`,
    `--keep-vars false`, `--no-keep-vars`, `--keep-vars-disabled`, a duplicated
    flag, a flag after a `--` terminator, a `#` comment, a decoy argument
@@ -212,10 +239,25 @@ uploaded. Those are the two facts that make such a release verifiable at all.
    **The wrapper records the immutable Worker version UUID mechanically and
    requires it to be NEW.** Wrangler's documented structured `version-upload`
    result is consumed in memory; only `version_id` is retained. The wrapper
-   writes exactly the three sanitized fields `schemaVersion`,
-   `previousWorkerVersionId` and `candidateWorkerVersionId` to the immutable
+   writes exactly the five sanitized fields `schemaVersion`,
+   `previousWorkerVersionId`, `candidateWorkerVersionId`,
+   `uploadSpecificationSha256` and `releaseManifestSha256` to the immutable
    receipt path, never stdout, stderr, a preview URL, a credential or any raw
-   Wrangler result. It refuses
+   Wrangler result.
+
+   **Receipt schema 2.** The previous three-field receipt recorded which version
+   was live and which version the upload produced — and nothing about **what was
+   uploaded**. It could not say which inheritance source was pinned, nor whether
+   the artefact uploaded was the artefact that was verified, so it could not
+   distinguish a correct release from the one that produced `3540bc64`. Schema 2
+   adds the two digests that close that gap, so a receipt mechanically
+   correlates all four facts: expected former live UUID, normalized
+   upload-specification SHA-256, immutable release-manifest SHA-256, and the
+   resulting candidate UUID. **Migration-free**: schema-1 receipts remain
+   readable exactly as written — no rewrite, no backfill — and only schema 2 is
+   ever produced. It is still value-free: two UUIDs and two digests.
+
+   It refuses
    an existing receipt rather than overwriting it. If the candidate UUID equals
    the discovered currently deployed UUID, `candidate_worker_version_not_new`
    STOPS the release. An operator never retypes the candidate UUID.
@@ -467,6 +509,158 @@ Therefore, before preview acceptance:
 
 A rejected candidate is left at 0%. It is not deleted, and it is not modified;
 it is evidence.
+
+---
+
+## 2c. `--keep-vars` IS NOT A SUFFICIENT RELEASE INVARIANT
+
+§2a established that omitting `--keep-vars` deletes deployment-managed
+variables. That is true and it is not the whole story. A second candidate,
+`3540bc64`, passed `--keep-vars` **correctly** and still came back with ten
+bindings.
+
+### What actually happened
+
+| upload     | `--keep-vars` | predecessor | predecessor bindings | result |
+| ---------- | ------------- | ----------- | -------------------- | ------ |
+| `ae4cae19` | absent        | `9af03721`  | 12                   | 10     |
+| `3540bc64` | present       | `ae4cae19`  | 10                   | 10     |
+
+The first upload deleted the variables outright. The second kept variables from
+the latest uploaded version — and the latest uploaded version was by then the
+failed 10-binding candidate, which had nothing to keep. Two different
+mechanisms, one identical outcome.
+
+**Inheritance resolves against the LATEST UPLOADED version, not the deployed
+one.** Traffic allocation does not influence it. A version sitting at 0% is a
+perfectly eligible inheritance source, and the 12-binding version holding 100%
+of traffic was two versions older.
+
+### What is proven, and what is inferred
+
+**Proven.** Cloudflare documents, for the `inherit` binding type: "Defaults to
+inheriting the binding from the latest version." An offline capture against the
+pinned Wrangler proved it forwards an explicit `version_id` verbatim.
+
+**A high-confidence inference, NOT a proven Cloudflare guarantee.** That generic
+`keep_bindings` resolves against that same base. `keep_bindings` is not
+documented on the Upload Version API page and no server-side trace exists. The
+chronology, the documented `inherit` default and the observed outcome all agree
+— but agreement is not proof, and this document does not claim otherwise.
+
+The correction does not depend on resolving that gap: naming the source version
+explicitly removes the implicit default from the release path entirely.
+
+### The mechanism
+
+The two deployment-managed plain-text bindings are **inherited by name**, from
+an **explicitly pinned** source version:
+
+```json
+[
+  { "name": "SUPABASE_URL", "type": "inherit", "version_id": "<expected-live-version>" },
+  {
+    "name": "STUDIO_STORAGE_WRITE_PROVIDER",
+    "type": "inherit",
+    "version_id": "<expected-live-version>"
+  }
+]
+```
+
+- **the pin is the verified 100% live UUID**, supplied at release time through
+  `--expected-live-version` and verified against the sanitized live snapshot. It
+  is never hard-coded in tracked source, because a committed UUID goes stale
+  silently;
+- **`"latest"` is prohibited**, and so is omitting `version_id` — either one
+  restores the implicit source that caused the incident;
+- **a newer 0% candidate must not affect the inheritance source.** The source is
+  the snapshot-verified live version and nothing else;
+- **binding values are never read or retransmitted.** An `inherit` record
+  carries a name and a source version UUID. Neither production value is read,
+  copied, logged, persisted or retransmitted anywhere in the release path — the
+  values never leave Cloudflare. `--var`, a `vars` block and copying a value
+  into a temporary file are all refused;
+- **only these two binding names may use this mechanism.** A third `inherit`
+  record is a named STOP;
+- **`--keep-vars` is retained as documented secondary protection** for the six
+  secrets and the other supported categories. It is no longer the mechanism
+  these two plain-text bindings depend on.
+
+### Configuration inspection is not enough
+
+The superseded PREUPLOAD contract checked argv tokens and `keep_vars: true` and
+returned `PREUPLOAD_CONTRACT_OK` for an upload that was guaranteed to inherit
+from a 10-binding base. Everything it checked was true; none of it described the
+bytes that left the machine.
+
+**The actual serialized metadata must be inspected offline.**
+`src/lib/stale-asset/wrangler-inherit-serialization.test.ts` runs the
+repository-locked Wrangler against a loopback mock with a synthetic token, a
+synthetic account, a dummy Worker name and dummy version UUIDs, and asserts the
+multipart metadata Wrangler really emits. It creates no Worker version. It fails
+if `version_id` is stripped, replaced with `"latest"`, if either binding is
+missing or duplicated, if a third inherit record appears, if any plain-text
+value is present, or if the resolved Wrangler is not the exact one locked by
+this repository.
+
+### 2c.1 What the offline proof does and does not claim
+
+Corrected by `FOREVER-PR139-REVIEW-CORRECTIONS-001`, whose independent review
+found the previous wording overstated containment.
+
+**The exact repository-local Wrangler entry point is enforced.** Resolution is
+`node_modules/wrangler/bin/wrangler.js` relative to the repository root, proven
+by canonical real-path comparison in `src/lib/stale-asset/wrangler-identity.ts`.
+The installed package manifest must report `4.118.0` and the CLI must report it
+too. The offline proof and the production upload wrapper call the **same
+resolver**, so the executable the proof measured is the executable a release
+runs.
+
+**A same-version external installation FAILS.** Matching the version string is
+not identity. A copy, a hard link, a repository-shaped path under a different
+root and any other external installation are refused even when they print
+`4.118.0` exactly. `WRANGLER_BIN` can no longer select anything: if it is set
+and is not canonically the locked entry point, the gate STOPS with
+`wrangler_override_not_identical` before any upload-capable path is reached, and
+the rejected executable is never invoked.
+
+**The child environment is minimal and synthetic.** It is constructed, not
+inherited. It carries a handful of operating-system variables, a PATH reduced to
+the system directory, every configuration and cache root (`HOME`,
+`USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `XDG_*`, the temporary directory)
+redirected into a throwaway directory that is deleted afterwards, synthetic
+Cloudflare credentials, and metrics, telemetry and update checks disabled.
+`CLOUDFLARE_API_KEY`, `CLOUDFLARE_EMAIL`, `CF_API_TOKEN`, unrelated
+`CLOUDFLARE_*`/`WRANGLER_*`, `HTTP_PROXY`/`HTTPS_PROXY`, the parent
+`NODE_OPTIONS`, npm authentication and every Supabase/R2 credential are absent.
+The operator's real Wrangler OAuth configuration is unreachable, not merely
+unused.
+
+**Process-level interception enforces loopback-only execution.** A Node preload
+guard patches sockets, TLS, DNS, `http`/`https` and `fetch` inside the Wrangler
+child; any destination that is not the test's own loopback listener is refused
+synchronously, before a connection is opened and before a name is resolved. The
+guard writes a sanitized decision log — API name, host, port, allowed — and the
+proof asserts that Wrangler's real activity appears in it, that every record is
+the loopback listener, and that nothing was refused.
+`src/lib/stale-asset/release-network-containment.test.ts` runs a deliberate
+non-loopback canary under the same guard and proves it is blocked, and runs the
+identical operation with the guard absent to prove the assertion is not vacuous.
+
+**The multipart request body may be materialized temporarily in memory for
+parsing.** A multipart document cannot be split without being read. The body is
+read in the mock's request handler, the `metadata` part is parsed out, and the
+buffer goes out of scope; it is never persisted, never logged and never retained
+after the test. The earlier claim that the body was "dropped unread" was
+inaccurate and has been withdrawn.
+
+### This does not replace post-upload verification
+
+Pinned inheritance makes the upload independent of the implicit source. It does
+not prove the result. **After the upload, the candidate must still be captured
+and proved to carry exactly twelve bindings before any deployment authorization
+is offered** — §2 step 6, unchanged. A candidate that cannot be proved
+equivalent stays at 0%.
 
 ---
 

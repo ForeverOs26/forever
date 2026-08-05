@@ -24,6 +24,7 @@ import { describe, expect, it } from "vitest";
 import {
   GENERATED_WORKER_CONFIG_PATH,
   KEEP_VARS_FLAG,
+  UPLOAD_SPECIFICATION_PATH,
   PRODUCTION_VERSION_UPLOAD_ARGV,
   PRODUCTION_VERSION_UPLOAD_COMMAND,
   PRODUCTION_VERSION_UPLOAD_SPEC,
@@ -51,7 +52,7 @@ describe("the canonical production upload specification", () => {
       "upload",
       "--keep-vars",
       "--config",
-      ".output/server/wrangler.json",
+      ".output/server/wrangler.upload.json",
     ]);
   });
 
@@ -63,13 +64,28 @@ describe("the canonical production upload specification", () => {
       [WRANGLER_EXECUTABLE, ...PRODUCTION_VERSION_UPLOAD_ARGV].join(" "),
     );
     expect(PRODUCTION_VERSION_UPLOAD_COMMAND).toBe(
-      "wrangler versions upload --keep-vars --config .output/server/wrangler.json",
+      "wrangler versions upload --keep-vars --config .output/server/wrangler.upload.json",
     );
   });
 
-  it("names the generated artefact, not the reviewed JSONC source", () => {
+  it("names the VERIFIED EPHEMERAL specification, not the JSONC source and not the build output", () => {
+    // FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001. The upload used to
+    // be handed the immutable build output directly. That file carries no
+    // pinned inheritance, so the upload fell back to Cloudflare's implicit
+    // `latest` source — which resolved to a failed 10-binding candidate.
     expect(GENERATED_WORKER_CONFIG_PATH).toBe(".output/server/wrangler.json");
-    expect(PRODUCTION_VERSION_UPLOAD_ARGV).toContain(GENERATED_WORKER_CONFIG_PATH);
+    expect(UPLOAD_SPECIFICATION_PATH).toBe(".output/server/wrangler.upload.json");
+    expect(PRODUCTION_VERSION_UPLOAD_ARGV).toContain(UPLOAD_SPECIFICATION_PATH);
+    expect(PRODUCTION_VERSION_UPLOAD_ARGV).not.toContain(GENERATED_WORKER_CONFIG_PATH);
+  });
+
+  it("keeps the specification BESIDE the build output so relative paths resolve identically", () => {
+    // `main` and `assets.directory` are resolved against the directory holding
+    // the configuration file. A specification written anywhere else would
+    // reference a different bundle and a different asset set while looking
+    // correct.
+    const directoryOf = (path: string) => path.slice(0, path.lastIndexOf("/"));
+    expect(directoryOf(UPLOAD_SPECIFICATION_PATH)).toBe(directoryOf(GENERATED_WORKER_CONFIG_PATH));
   });
 
   it("ACCEPTS the exact canonical structured argv", () => {
@@ -92,7 +108,7 @@ describe("the canonical production upload specification", () => {
 describe("adversarial upload specifications are REFUSED, token by token", () => {
   it("1. REFUSES --keep-vars=false — Cloudflare's own deleting invocation", () => {
     const verdict = verifyUploadSpec(
-      spec(["versions", "upload", "--keep-vars=false", "--config", GENERATED_WORKER_CONFIG_PATH]),
+      spec(["versions", "upload", "--keep-vars=false", "--config", UPLOAD_SPECIFICATION_PATH]),
     );
     expect(verdict.ok).toBe(false);
     expect(codesOf(verdict)).toContain("keep_vars_malformed");
@@ -101,7 +117,7 @@ describe("adversarial upload specifications are REFUSED, token by token", () => 
 
   it("2. REFUSES `--keep-vars false` — one token that needs a shell to split", () => {
     const verdict = verifyUploadSpec(
-      spec(["versions", "upload", "--keep-vars false", "--config", GENERATED_WORKER_CONFIG_PATH]),
+      spec(["versions", "upload", "--keep-vars false", "--config", UPLOAD_SPECIFICATION_PATH]),
     );
     expect(verdict.ok).toBe(false);
     expect(codesOf(verdict)).toContain("shell_metacharacter");
@@ -110,14 +126,7 @@ describe("adversarial upload specifications are REFUSED, token by token", () => 
 
   it("2b. REFUSES `--keep-vars` followed by a `false` positional", () => {
     const verdict = verifyUploadSpec(
-      spec([
-        "versions",
-        "upload",
-        "--keep-vars",
-        "false",
-        "--config",
-        GENERATED_WORKER_CONFIG_PATH,
-      ]),
+      spec(["versions", "upload", "--keep-vars", "false", "--config", UPLOAD_SPECIFICATION_PATH]),
     );
     expect(verdict.ok).toBe(false);
     expect(codesOf(verdict)).toContain("extra_argument");
@@ -126,13 +135,7 @@ describe("adversarial upload specifications are REFUSED, token by token", () => 
 
   it("3. REFUSES --keep-vars-disabled", () => {
     const verdict = verifyUploadSpec(
-      spec([
-        "versions",
-        "upload",
-        "--keep-vars-disabled",
-        "--config",
-        GENERATED_WORKER_CONFIG_PATH,
-      ]),
+      spec(["versions", "upload", "--keep-vars-disabled", "--config", UPLOAD_SPECIFICATION_PATH]),
     );
     expect(verdict.ok).toBe(false);
     expect(codesOf(verdict)).toContain("keep_vars_malformed");
@@ -140,7 +143,7 @@ describe("adversarial upload specifications are REFUSED, token by token", () => 
 
   it("4. REFUSES --no-keep-vars", () => {
     const verdict = verifyUploadSpec(
-      spec(["versions", "upload", "--no-keep-vars", "--config", GENERATED_WORKER_CONFIG_PATH]),
+      spec(["versions", "upload", "--no-keep-vars", "--config", UPLOAD_SPECIFICATION_PATH]),
     );
     expect(verdict.ok).toBe(false);
     expect(codesOf(verdict)).toContain("keep_vars_malformed");
@@ -148,7 +151,7 @@ describe("adversarial upload specifications are REFUSED, token by token", () => 
 
   it("5. REFUSES a comment-only occurrence of the flag", () => {
     const verdict = verifyUploadSpec(
-      spec(["versions", "upload", "--config", GENERATED_WORKER_CONFIG_PATH, "#", "--keep-vars"]),
+      spec(["versions", "upload", "--config", UPLOAD_SPECIFICATION_PATH, "#", "--keep-vars"]),
     );
     expect(verdict.ok).toBe(false);
     expect(codesOf(verdict)).toContain("shell_metacharacter");
@@ -163,7 +166,7 @@ describe("adversarial upload specifications are REFUSED, token by token", () => 
         "--message",
         "release-with-keep-vars",
         "--config",
-        GENERATED_WORKER_CONFIG_PATH,
+        UPLOAD_SPECIFICATION_PATH,
       ]),
     );
     expect(verdict.ok).toBe(false);
@@ -173,7 +176,7 @@ describe("adversarial upload specifications are REFUSED, token by token", () => 
 
   it("7. REFUSES the flag after a `--` terminator, where it is an operand", () => {
     const verdict = verifyUploadSpec(
-      spec(["versions", "upload", "--config", GENERATED_WORKER_CONFIG_PATH, "--", "--keep-vars"]),
+      spec(["versions", "upload", "--config", UPLOAD_SPECIFICATION_PATH, "--", "--keep-vars"]),
     );
     expect(verdict.ok).toBe(false);
     expect(codesOf(verdict)).toContain("argument_terminator_present");
@@ -188,7 +191,7 @@ describe("adversarial upload specifications are REFUSED, token by token", () => 
 
   it("9. REFUSES `wrangler deploy` — deploy moves traffic, it is not the upload", () => {
     const verdict = verifyUploadSpec(
-      spec(["deploy", "--keep-vars", "--config", GENERATED_WORKER_CONFIG_PATH]),
+      spec(["deploy", "--keep-vars", "--config", UPLOAD_SPECIFICATION_PATH]),
     );
     expect(verdict.ok).toBe(false);
     expect(codesOf(verdict)).toContain("wrong_subcommand");
@@ -216,7 +219,7 @@ describe("adversarial upload specifications are REFUSED, token by token", () => 
         "--keep-vars",
         "--keep-vars",
         "--config",
-        GENERATED_WORKER_CONFIG_PATH,
+        UPLOAD_SPECIFICATION_PATH,
       ]),
     );
     expect(verdict.ok).toBe(false);
@@ -230,9 +233,9 @@ describe("adversarial upload specifications are REFUSED, token by token", () => 
         "upload",
         "--keep-vars",
         "--config",
-        GENERATED_WORKER_CONFIG_PATH,
+        UPLOAD_SPECIFICATION_PATH,
         "--config",
-        GENERATED_WORKER_CONFIG_PATH,
+        UPLOAD_SPECIFICATION_PATH,
       ]),
     );
     expect(verdict.ok).toBe(false);
@@ -249,14 +252,7 @@ describe("adversarial upload specifications are REFUSED, token by token", () => 
       ">out.txt",
     ]) {
       const verdict = verifyUploadSpec(
-        spec([
-          "versions",
-          "upload",
-          "--keep-vars",
-          "--config",
-          GENERATED_WORKER_CONFIG_PATH,
-          token,
-        ]),
+        spec(["versions", "upload", "--keep-vars", "--config", UPLOAD_SPECIFICATION_PATH, token]),
       );
       expect(verdict.ok, token).toBe(false);
       expect(codesOf(verdict), token).toContain("shell_metacharacter");
@@ -266,14 +262,7 @@ describe("adversarial upload specifications are REFUSED, token by token", () => 
   it("14b. REFUSES a control character smuggled into a token", () => {
     for (const token of ["a b", "ab", "ab"]) {
       const verdict = verifyUploadSpec(
-        spec([
-          "versions",
-          "upload",
-          "--keep-vars",
-          "--config",
-          GENERATED_WORKER_CONFIG_PATH,
-          token,
-        ]),
+        spec(["versions", "upload", "--keep-vars", "--config", UPLOAD_SPECIFICATION_PATH, token]),
       );
       expect(verdict.ok, JSON.stringify(token)).toBe(false);
       expect(codesOf(verdict), JSON.stringify(token)).toContain("shell_metacharacter");
@@ -306,7 +295,7 @@ describe("adversarial upload specifications are REFUSED, token by token", () => 
         "upload",
         "--keep-vars",
         "--config",
-        GENERATED_WORKER_CONFIG_PATH,
+        UPLOAD_SPECIFICATION_PATH,
         "./src/worker.ts",
       ]),
     );
@@ -323,7 +312,7 @@ describe("adversarial upload specifications are REFUSED, token by token", () => 
 
   it("REFUSES a shell command STRING outright — the removed escape path", () => {
     for (const command of [
-      "wrangler versions upload --keep-vars --config .output/server/wrangler.json",
+      "wrangler versions upload --keep-vars --config .output/server/wrangler.upload.json",
       "wrangler versions upload --keep-vars=false --config .output/server/wrangler.json",
       "",
     ]) {
@@ -349,14 +338,7 @@ describe("adversarial upload specifications are REFUSED, token by token", () => 
   it("never echoes a rejected token back into its own refusal", () => {
     const smuggled = "CANARY_TOKEN_IN_ARGV_9F3K";
     const verdict = verifyUploadSpec(
-      spec([
-        "versions",
-        "upload",
-        "--keep-vars",
-        "--config",
-        GENERATED_WORKER_CONFIG_PATH,
-        smuggled,
-      ]),
+      spec(["versions", "upload", "--keep-vars", "--config", UPLOAD_SPECIFICATION_PATH, smuggled]),
     );
     expect(verdict.ok).toBe(false);
     expect(JSON.stringify(verdict.violations)).not.toContain(smuggled);
@@ -390,7 +372,7 @@ describe("verifyKeepVarsContract consumes the structured specification", () => {
         "upload",
         "--keep-vars=false",
         "--config",
-        GENERATED_WORKER_CONFIG_PATH,
+        UPLOAD_SPECIFICATION_PATH,
       ]),
     });
     expect(verdict.ok).toBe(false);
@@ -469,23 +451,75 @@ describe("no shell is involved anywhere in the release upload path", () => {
     }
   });
 
-  it("NO_PATH_FALLBACK: the resolver cannot spawn a PATH-resolved wrangler", () => {
+  it("NO_PATH_FALLBACK: the gate delegates to the shared resolver and spawns no bare name", () => {
+    // FOREVER-PR139-REVIEW-CORRECTIONS-001. Identity used to be decided inline
+    // here by a ternary that preferred `WRANGLER_BIN` over the repository
+    // install, and this test pinned that ternary as SOURCE TEXT. Both are gone:
+    // the decision lives in `src/lib/stale-asset/wrangler-identity.ts`, is
+    // filesystem identity rather than a version string, and is proven
+    // BEHAVIOURALLY in `wrangler-identity.test.ts` — including that an external
+    // same-version executable is refused and never invoked.
     const source = read("scripts/release/wrangler-version-gate.mjs");
-    expect(source).toContain(
-      "const chosen = override ? resolve(override) : existsSync(local) ? local : null;",
-    );
+    expect(source).toContain("src/lib/stale-asset/wrangler-identity.ts");
+    expect(source).toContain("resolveRepositoryWrangler");
+    expect(source).toContain("verifyRepositoryWranglerIdentity");
     expect(source).not.toMatch(/spawn(?:Sync)?\(\s*["'`]wrangler["'`]/);
     expect(source).not.toMatch(/command:\s*["'`]wrangler["'`]/);
     expect(source).not.toMatch(/:\s*["'`]wrangler["'`]\s*;/);
+    // `WRANGLER_BIN` is read in exactly one file, and only as an override to be
+    // CHECKED. It can no longer select anything anywhere.
+    expect(read("scripts/release/upload-worker-version.mjs")).not.toContain("WRANGLER_BIN");
+  });
+
+  it("PROVENANCE_TRUTHFUL: the emitted evidence no longer reports Boolean(path)", () => {
+    const source = read("scripts/release/wrangler-version-gate.mjs");
+    expect(source).not.toContain("resolvedFromRepository: Boolean(");
+    expect(source).toContain("resolvedFromRepository: result.evidence.resolvedFromRepository");
+    expect(source).toContain("overrideRejected: result.evidence.overrideRejected");
   });
 
   it("spawns wrangler from the canonical argv only, in the one wrapper", () => {
     const wrapper = read("scripts/release/upload-worker-version.mjs");
     expect(wrapper).toContain("...PRODUCTION_VERSION_UPLOAD_SPEC.args");
     expect(wrapper).toContain("--authorize-upload");
-    // The wrapper refuses to spawn until the preflight has produced PASS.
-    expect(wrapper).toContain("PREUPLOAD_CONTRACT_OK");
+    // The wrapper refuses to spawn until the preflight has produced PASS under
+    // the PINNED contract. The superseded marker must not appear anywhere: it
+    // passed an upload that could not have preserved the two variables, and
+    // reusing it would make every historical evidence file ambiguous.
+    expect(wrapper).toContain("PREUPLOAD_PINNED_INHERITANCE_MARKER");
+    expect(wrapper).not.toContain("PREUPLOAD_CONTRACT_OK");
     expect(wrapper).toContain("the binding preflight did not produce PASS");
+  });
+
+  it("PINNED_SPEC_CONSUMED: the spawn is reachable ONLY through the verified seam", () => {
+    const wrapper = read("scripts/release/upload-worker-version.mjs");
+    // Generated from the immutable build, hashed, and re-hashed immediately
+    // before the spawn. "Verified one artefact, uploaded another" is the gap.
+    expect(wrapper).toContain("buildUploadSpecification");
+    expect(wrapper).toContain("normalizeUploadSpecification");
+    expect(wrapper).toContain("verifiedDigest");
+    expect(wrapper).toContain("generatedBytesBefore");
+
+    // FOREVER-PR139-REVIEW-CORRECTIONS-001, P2-4. The digest re-check used to be
+    // "protected" here by matching the comparison as SOURCE TEXT, which proved
+    // the characters existed and nothing about whether the program refused or
+    // whether the refusal preceded the spawn. The decision is now an imported
+    // function and is proven BEHAVIOURALLY in
+    // `release-upload-orchestration.test.ts`: a tampered specification produces
+    // the named STOP and the injected launcher is never called.
+    expect(wrapper).toContain("src/lib/stale-asset/release-upload-orchestration.ts");
+    expect(wrapper).toContain("verifyThenLaunchUpload");
+
+    // What remains worth asserting HERE is the BINDING: that the production
+    // wrapper has no second, unguarded way to spawn Wrangler. Exactly two
+    // spawns exist — the offline preflight and the upload — and the upload one
+    // is the seam's `launch` argument, so it is unreachable unless the seam
+    // decided to launch.
+    expect(wrapper.match(/spawnSync\(/g) ?? []).toHaveLength(2);
+    expect(wrapper).toMatch(/launch: \(\) =>\s+spawnSync\(/);
+    expect(wrapper).toMatch(/if \(!decision\.launched\) \{/);
+    // The immutable build output is READ, never written.
+    expect(wrapper).not.toMatch(/writeFileSync\(\s*generatedAbsolute/);
   });
 
   it("UPLOAD_RECEIPT_SANITIZED: consumes structured output and writes only canonical provenance", () => {

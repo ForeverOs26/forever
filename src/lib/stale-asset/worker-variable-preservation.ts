@@ -98,8 +98,33 @@ export const KEEP_VARS_FLAG = "--keep-vars";
 /** The canonical configuration key, and the value it must carry. */
 export const KEEP_VARS_CONFIG_KEY = "keep_vars";
 
-/** The generated deploy configuration Wrangler is handed, and nothing else. */
+/**
+ * The generated deploy configuration the build produces.
+ *
+ * IMMUTABLE. Nothing in the release path writes to it. It is the byte-identical
+ * application build output, and the upload-only specification below is required
+ * to reproduce it exactly apart from one approved addition.
+ */
 export const GENERATED_WORKER_CONFIG_PATH = ".output/server/wrangler.json";
+
+/**
+ * The EPHEMERAL, UPLOAD-ONLY specification Wrangler is actually handed
+ * (FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001).
+ *
+ * It is the immutable generated configuration plus exactly the two pinned
+ * `inherit` bindings for SUPABASE_URL and STUDIO_STORAGE_WRITE_PROVIDER. It is
+ * generated per release, verified, hashed, consumed, and never committed —
+ * `.output` is ignored in its entirety.
+ *
+ * It lives BESIDE the generated configuration deliberately: `main` and
+ * `assets.directory` are relative and Wrangler resolves them against the
+ * directory holding the configuration file. A specification written anywhere
+ * else would reference a different bundle and a different asset set while
+ * looking correct.
+ *
+ * See `src/lib/stale-asset/pinned-binding-inheritance.ts`.
+ */
+export const UPLOAD_SPECIFICATION_PATH = ".output/server/wrangler.upload.json";
 
 /** The only executable a production candidate upload may run. */
 export const WRANGLER_EXECUTABLE = "wrangler";
@@ -132,13 +157,23 @@ export const SUPPORTED_WRANGLER_VERSION = "4.118.0";
  * one. The upload is an executable plus an exact argv vector, compared
  * token-by-token and spawned with `shell: false`. Nothing is concatenated,
  * interpolated or word-split, so there is no text for a shell to reinterpret.
+ *
+ * PINNED INHERITANCE (FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001).
+ * `--config` now names the verified EPHEMERAL upload specification rather than
+ * the immutable generated configuration. That file is the generated
+ * configuration plus the two explicit `inherit` bindings pinned to the verified
+ * 100% live version; the generated configuration itself is never modified.
+ * `--keep-vars` is retained as documented secondary protection for the six
+ * secrets and the other supported categories — it is NO LONGER the mechanism
+ * the two plain-text variables depend on, because it was passed correctly on
+ * candidate 3540bc64 and preserved nothing.
  */
 export const PRODUCTION_VERSION_UPLOAD_ARGV = [
   "versions",
   "upload",
   KEEP_VARS_FLAG,
   "--config",
-  GENERATED_WORKER_CONFIG_PATH,
+  UPLOAD_SPECIFICATION_PATH,
 ] as const;
 
 /** An executable plus an exact argument vector. Never a shell string. */
@@ -369,11 +404,19 @@ export function verifyUploadSpec(spec: unknown): {
         "wrong_config_path",
         "`--config` must be its own token followed by the path, not a `--config=<path>` pair.",
       );
-    } else if (argv[index + 1] !== GENERATED_WORKER_CONFIG_PATH) {
+    } else if (argv[index + 1] === GENERATED_WORKER_CONFIG_PATH) {
       refuse(
         "wrong_config_path",
-        `\`--config\` must name exactly ${GENERATED_WORKER_CONFIG_PATH} — the generated Worker ` +
-          "configuration carrying keep_vars, not the reviewed JSONC source.",
+        `\`--config\` names the IMMUTABLE generated configuration ${GENERATED_WORKER_CONFIG_PATH}. ` +
+          "That file carries no pinned inheritance, so the upload would fall back to Cloudflare's " +
+          `implicit \`latest\` source. It must name ${UPLOAD_SPECIFICATION_PATH}.`,
+      );
+    } else if (argv[index + 1] !== UPLOAD_SPECIFICATION_PATH) {
+      refuse(
+        "wrong_config_path",
+        `\`--config\` must name exactly ${UPLOAD_SPECIFICATION_PATH} — the verified ephemeral ` +
+          "upload specification carrying the two pinned inherit bindings, not the reviewed JSONC " +
+          "source and not the immutable generated configuration.",
       );
     }
   }
@@ -406,8 +449,14 @@ export function parseWranglerVersionOutput(output: string): string | null {
  * Independent-review limitation 1: nothing in this repository pinned a Wrangler
  * version, so a release would have used whichever Wrangler happened to be on
  * the operator's PATH — including one whose `--keep-vars` handling nobody here
- * has verified. Resolution is repository-local or an explicit operator-supplied
- * path; the version it reports must equal `SUPPORTED_WRANGLER_VERSION` exactly.
+ * has verified.
+ *
+ * A REPORTED VERSION IS NOT AN IDENTITY (PR139 review, P1-1). Resolution is the
+ * exact repository-locked entry point and nothing else, proven by canonical
+ * real-path comparison in `wrangler-identity.ts`; an external installation is
+ * refused even when it reports this exact version. This function is the
+ * remaining, narrower question — whether what executed reports the one version
+ * everything here was verified against.
  */
 export function verifyWranglerVersion(found: string | null): {
   readonly ok: boolean;

@@ -39,7 +39,29 @@
  *
  *   node scripts/release/verify-binding-preservation.mjs --preupload \
  *     --live <live-snapshot.json> \
- *     --expected-live-version <deployed-worker-version-uuid>
+ *     --expected-live-version <deployed-worker-version-uuid> \
+ *     [--upload-specification .output/server/wrangler.upload.json]
+ *
+ * WHAT PREUPLOAD NOW PROVES (FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001)
+ * ---------------------------------------------------------------------------
+ * The superseded contract emitted `PREUPLOAD_CONTRACT_OK` after checking argv
+ * tokens and `keep_vars: true`. It validated INTENT and never the inheritance
+ * SOURCE, so it passed candidate `3540bc64`, whose generic `keep_bindings`
+ * resolved against the failed 10-binding `ae4cae19` rather than the 12-binding
+ * version holding 100% of traffic.
+ *
+ * PREUPLOAD now additionally proves, mechanically, that: the live snapshot IS
+ * the supplied expected-live UUID; that version carries exactly the 12-binding
+ * contract including both plain-text names; the ephemeral upload specification
+ * carries exactly two `inherit` records named SUPABASE_URL and
+ * STUDIO_STORAGE_WRITE_PROVIDER; both are pinned to that exact UUID; neither
+ * uses `"latest"` or omits `version_id`; neither carries a value-bearing field;
+ * no binding name is duplicated; the immutable build is unchanged; and the
+ * normalized specification has a recorded SHA-256 the upload must re-verify.
+ *
+ * The success marker is therefore `PREUPLOAD_PINNED_INHERITANCE_OK`. The old
+ * marker is never emitted again — reusing it with changed semantics would make
+ * every historical evidence file ambiguous.
  *
  * INPUT SHAPE (both snapshots, exactly — no other key is accepted)
  *   { "schemaVersion": 1,
@@ -51,6 +73,7 @@
  *   1  STOP — a violation was found, or an input could not be trusted
  */
 
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -67,12 +90,22 @@ const capture = await jiti.import(resolve(REPO, "src/lib/stale-asset/worker-bind
 const releaseIdentity = await jiti.import(
   resolve(REPO, "src/lib/stale-asset/worker-release-identity.ts"),
 );
+const pinned = await jiti.import(
+  resolve(REPO, "src/lib/stale-asset/pinned-binding-inheritance.ts"),
+);
+
+const {
+  PREUPLOAD_PINNED_INHERITANCE_MARKER,
+  normalizeUploadSpecification,
+  verifyUploadSpecification,
+} = pinned;
 
 const {
   DEPLOYMENT_MANAGED_PLAIN_TEXT_BINDINGS,
   DEPLOYMENT_MANAGED_SECRET_BINDINGS,
   EXPECTED_PRODUCTION_BINDING_COUNT,
   PRODUCTION_VERSION_UPLOAD_SPEC,
+  UPLOAD_SPECIFICATION_PATH,
   expectedProductionBindings,
   verifyBindingPreservation,
   verifyKeepVarsContract,
@@ -318,6 +351,75 @@ const keepVars = generatedConfig
   ? verifyKeepVarsContract({ generatedConfig, uploadSpec })
   : { ok: false, reasons: ["generated deploy configuration unavailable"], specViolations: [] };
 
+// ---- the PINNED INHERITANCE contract ---------------------------------------
+//
+// FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001. The superseded
+// contract proved INTENT — argv tokens and `keep_vars: true` — and returned
+// PREUPLOAD_CONTRACT_OK for an upload that was guaranteed to inherit from a
+// 10-binding base. Intent is no longer sufficient: the ephemeral upload
+// specification is read, verified record by record against the exact verified
+// live version, and HASHED, so the file that passes here is provably the file
+// the upload consumes.
+
+const pinnedViolations = [];
+let uploadSpecificationDigest = null;
+let uploadSpecificationPath = null;
+
+if (preuploadOnly) {
+  uploadSpecificationPath = arg("--upload-specification") ?? UPLOAD_SPECIFICATION_PATH;
+  const specificationAbsolute = resolve(REPO, uploadSpecificationPath);
+  let specification = null;
+
+  if (!existsSync(specificationAbsolute)) {
+    pinnedViolations.push({
+      code: "specification_malformed",
+      binding: "(upload specification)",
+      detail:
+        `no upload specification at ${uploadSpecificationPath}. It is generated per release by ` +
+        "the upload wrapper from the immutable build plus the two pinned inherit bindings; a " +
+        "missing specification is a STOP, never a fallback to the generated configuration.",
+    });
+  } else {
+    try {
+      specification = JSON.parse(readFileSync(specificationAbsolute, "utf8"));
+    } catch {
+      pinnedViolations.push({
+        code: "specification_malformed",
+        binding: "(upload specification)",
+        detail: "the upload specification is not valid JSON. The document is not echoed.",
+      });
+    }
+  }
+
+  if (specification !== null && generatedConfig) {
+    const pinnedVerdict = verifyUploadSpecification({
+      specification,
+      generatedConfig,
+      expectedLiveVersion: arg("--expected-live-version"),
+      liveSnapshotVersionId: liveSnapshot.workerVersionId,
+      liveBindingNames: live.map((binding) => binding.name),
+    });
+    for (const violation of pinnedVerdict.violations) {
+      pinnedViolations.push({
+        code: violation.code,
+        binding: "(pinned inheritance)",
+        detail: violation.detail,
+      });
+    }
+    if (pinnedVerdict.ok && pinnedVerdict.normalized !== null) {
+      // The digest is over the NORMALIZED representation, so a reformatted but
+      // semantically identical file hashes the same and any content change
+      // does not. The upload wrapper recomputes it immediately before spawning
+      // Wrangler; a rebuild or regeneration between the two invalidates it.
+      uploadSpecificationDigest = createHash("sha256")
+        .update(normalizeUploadSpecification(specification))
+        .digest("hex");
+    }
+  }
+
+  for (const violation of pinnedViolations) log(`  ${violation.code}: ${violation.detail}`);
+}
+
 // ---- the binding comparison ------------------------------------------------
 
 const verdict = candidate
@@ -355,6 +457,11 @@ if (candidate) log(`fingerprints equal : ${fingerprintsEqual}`);
 log(`upload spec        : ${specVerdict.ok ? "CANONICAL" : "REFUSED"}`);
 log(`keep-vars contract : ${keepVars.ok ? "OK" : "VIOLATED"}`);
 log(`version identity    : ${versionViolations.length === 0 ? "PINNED" : "REFUSED"}`);
+if (preuploadOnly) {
+  log(`pinned inheritance : ${pinnedViolations.length === 0 ? "OK" : "REFUSED"}`);
+  log(`inheritance source : ${arg("--expected-live-version") ?? "(none)"}`);
+  log(`upload spec sha256 : ${uploadSpecificationDigest ?? "(none)"}`);
+}
 
 for (const reason of keepVars.reasons) log(`  keep-vars: ${reason}`);
 for (const violation of verdict.violations) {
@@ -396,6 +503,11 @@ const FINGERPRINT_EQUALITY_REQUIRED = true;
 const ok =
   schemaViolations.length === 0 &&
   versionViolations.length === 0 &&
+  pinnedViolations.length === 0 &&
+  // A PREUPLOAD pass REQUIRES a recorded digest. Without one there is nothing
+  // for the upload wrapper to re-verify against, so "verified" and "consumed"
+  // could diverge — which is the whole class of failure being closed.
+  (!preuploadOnly || uploadSpecificationDigest !== null) &&
   liveWorkerVersionMatches &&
   (preuploadOnly || (releaseProvenance !== null && candidateWorkerVersionMatches === true)) &&
   verdict.ok &&
@@ -430,8 +542,24 @@ const report = {
   keepVarsContractOk: keepVars.ok,
   keepVarsReasons: keepVars.reasons,
   expectedBindingsAbsent: expectedMissing,
-  violations: [...schemaViolations, ...versionViolations, ...verdict.violations],
-  verdict: ok ? (preuploadOnly ? "PREUPLOAD_CONTRACT_OK" : "BINDINGS_PRESERVED") : "STOP",
+  // Pinned inheritance: the inheritance SOURCE and the exact bytes that will be
+  // uploaded. No binding value appears here — only names, a version UUID and a
+  // digest.
+  pinnedInheritanceOk: preuploadOnly ? pinnedViolations.length === 0 : null,
+  pinnedInheritanceSourceVersionId: preuploadOnly ? (arg("--expected-live-version") ?? null) : null,
+  uploadSpecificationPath,
+  uploadSpecificationSha256: uploadSpecificationDigest,
+  violations: [
+    ...schemaViolations,
+    ...versionViolations,
+    ...pinnedViolations,
+    ...verdict.violations,
+  ],
+  verdict: ok
+    ? preuploadOnly
+      ? PREUPLOAD_PINNED_INHERITANCE_MARKER
+      : "BINDINGS_PRESERVED"
+    : "STOP",
 };
 
 const jsonOut = arg("--json");
@@ -450,9 +578,11 @@ if (!ok) {
 
 log(
   preuploadOnly
-    ? "PASS (PREUPLOAD_CONTRACT_OK) — the live snapshot, the generated configuration and the " +
-        "canonical upload specification all hold, pinned to the exact discovered live Worker " +
-        "UUID. Upload may proceed."
+    ? `PASS (${PREUPLOAD_PINNED_INHERITANCE_MARKER}) — the live snapshot carries the full ` +
+        "12-binding contract, both plain-text bindings are inherited by name from that exact " +
+        `verified 100% live version, neither uses "latest", no value field is present, and the ` +
+        `normalized upload specification hashes to ${uploadSpecificationDigest}. The upload must ` +
+        "consume that exact specification."
     : "PASS — every live binding is preserved, both snapshots are pinned to the exact previous " +
         "and upload-returned Worker UUIDs, the fingerprints are EQUAL and the keep-vars contract " +
         "holds.",

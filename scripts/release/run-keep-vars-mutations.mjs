@@ -2,9 +2,11 @@
 /**
  * FOREVER-WRANGLER-KEEP-VARS-CORRECTION-001 — mutation controls.
  * Extended by FOREVER-PR138-MERGE-BLOCKER-CORRECTION-002 from 8 to 20, then by
- * FOREVER-PR138-WORKER-VERSION-PINNING-CORRECTION-004 from 20 to 28.
+ * FOREVER-PR138-WORKER-VERSION-PINNING-CORRECTION-004 from 20 to 28, then by
+ * FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001 from 28 to 39, then by
+ * FOREVER-PR139-REVIEW-CORRECTIONS-001 from 39 to 42.
  *
- * Twenty-eight edits to REAL source, configuration, tests and documentation, each
+ * Forty-two edits to REAL source, configuration, tests and documentation, each
  * of which must make a NAMED assertion fail. A guard that has never been seen
  * to fail is not a guard, and this correction exists precisely because a safety
  * property was believed rather than measured — twice.
@@ -48,6 +50,37 @@
  *   27. introduce a PATH-resolved Wrangler fallback;
  *   28. make fixture comparison CRLF-sensitive.
  *
+ * THE ELEVEN PINNED-INHERITANCE CONTROLS — the ways this correction could be
+ * undone. Every one restores a state that produced, or would have produced, the
+ * measured 10-binding outcome:
+ *
+ *   29. hand the upload the immutable build output instead of the specification;
+ *   30. tolerate a missing version_id;
+ *   31. accept the literal "latest";
+ *   32. accept a pin other than the verified live version;
+ *   33. accept a source version with fewer than twelve bindings;
+ *   34. tolerate a value-carrying field on an inherit record;
+ *   35. stop requiring the pin to match the sanitized snapshot;
+ *   36. let the immutable build differ from what is uploaded;
+ *   37. stop re-proving the specification before spawning;
+ *   38. reinstate the superseded PREUPLOAD marker;
+ *   39. allow a third binding to use the mechanism.
+ *
+ * THE THREE PR139 REVIEW CONTROLS — the ways the review corrections could be
+ * undone. Two of them replace controls that were detected by SOURCE TEXT with
+ * controls detected by changed RUNTIME BEHAVIOUR:
+ *
+ *   40. accept an external same-version Wrangler as the release uploader;
+ *   41. report `resolvedFromRepository` as a truthiness test again;
+ *   42. let the loopback network guard permit a non-loopback destination.
+ *
+ * CONTROLS 27 AND 37 WERE RETARGETED, not merely moved. Control 27 attacked a
+ * ternary in the version gate; control 37 attacked a comparison whose only
+ * assertion was that its characters existed in a script. Both now attack the
+ * shared modules the corrected implementation actually runs, and both are
+ * detected because a program behaves differently — a refused executable, an
+ * uncalled launcher — rather than because a file's text changed.
+ *
  * A process that could not start, a run that collected no tests, or a failure
  * for some other reason is REJECTED as evidence rather than counted as a
  * detection — that classification lives in `mutation-runner-core.mjs`.
@@ -86,6 +119,10 @@ const UPLOAD_WRAPPER = resolve(REPO, "scripts/release/upload-worker-version.mjs"
 const WRANGLER_GATE = resolve(REPO, "scripts/release/wrangler-version-gate.mjs");
 const RELEASE_IDENTITY = resolve(REPO, "src/lib/stale-asset/worker-release-identity.ts");
 const CAPTURE_TEST_SOURCE = resolve(REPO, "src/lib/stale-asset/worker-binding-capture.test.ts");
+const PINNED_CONTRACT = resolve(REPO, "src/lib/stale-asset/pinned-binding-inheritance.ts");
+const WRANGLER_IDENTITY = resolve(REPO, "src/lib/stale-asset/wrangler-identity.ts");
+const UPLOAD_ORCHESTRATION = resolve(REPO, "src/lib/stale-asset/release-upload-orchestration.ts");
+const NETWORK_GUARD = resolve(REPO, "src/lib/stale-asset/loopback-network-guard.cjs");
 
 const TOUCHED = [
   WRANGLER,
@@ -98,6 +135,10 @@ const TOUCHED = [
   WRANGLER_GATE,
   RELEASE_IDENTITY,
   CAPTURE_TEST_SOURCE,
+  PINNED_CONTRACT,
+  WRANGLER_IDENTITY,
+  UPLOAD_ORCHESTRATION,
+  NETWORK_GUARD,
 ];
 
 const PRESERVATION_TEST = "src/lib/stale-asset/worker-variable-preservation.test.ts";
@@ -107,8 +148,13 @@ const PREFLIGHT_TEST = "src/lib/stale-asset/release-binding-preflight.test.ts";
 const UPLOAD_TEST = "src/lib/stale-asset/worker-upload-command.test.ts";
 const CAPTURE_TEST = "src/lib/stale-asset/worker-binding-capture.test.ts";
 const RELEASE_IDENTITY_TEST = "src/lib/stale-asset/release-identity-separation.test.ts";
+const PINNED_TEST = "src/lib/stale-asset/pinned-binding-inheritance.test.ts";
+const WRANGLER_IDENTITY_TEST = "src/lib/stale-asset/wrangler-identity.test.ts";
+const ORCHESTRATION_TEST = "src/lib/stale-asset/release-upload-orchestration.test.ts";
+const CONTAINMENT_TEST = "src/lib/stale-asset/release-network-containment.test.ts";
 
 const ALL_TESTS = [
+  PINNED_TEST,
   PRESERVATION_TEST,
   CONFIG_TEST,
   RUNBOOK_TEST,
@@ -116,6 +162,9 @@ const ALL_TESTS = [
   UPLOAD_TEST,
   CAPTURE_TEST,
   RELEASE_IDENTITY_TEST,
+  WRANGLER_IDENTITY_TEST,
+  ORCHESTRATION_TEST,
+  CONTAINMENT_TEST,
 ];
 
 const VITEST = resolve(
@@ -170,8 +219,8 @@ const mutations = [
   {
     name: "2. --keep-vars removed from the documented versions upload",
     file: RUNBOOK,
-    from: "   wrangler versions upload --keep-vars --config .output/server/wrangler.json\n",
-    to: "   wrangler versions upload --config .output/server/wrangler.json\n",
+    from: "   wrangler versions upload --keep-vars --config .output/server/wrangler.upload.json\n",
+    to: "   wrangler versions upload --config .output/server/wrangler.upload.json\n",
     tests: [PRESERVATION_TEST, RUNBOOK_TEST, UPLOAD_TEST],
     reason:
       /wrangler versions upload --keep-vars|instruction without --keep-vars|byte-for-byte in the runbook/,
@@ -457,12 +506,16 @@ const mutations = [
     reason: /pins POSTUPLOAD|workerVersionIdentityOk/,
   },
   {
-    name: "27. Wrangler resolution falls back to PATH",
-    file: WRANGLER_GATE,
-    from: "  const chosen = override ? resolve(override) : existsSync(local) ? local : null;",
-    to: '  const chosen = override ? resolve(override) : existsSync(local) ? local : "wrangler";',
-    tests: [UPLOAD_TEST],
-    reason: /NO_PATH_FALLBACK/,
+    // RETARGETED by FOREVER-PR139-REVIEW-CORRECTIONS-001. The ternary this used
+    // to attack no longer exists: resolution is the shared, fail-closed
+    // identity module. Substituting a PATH-shaped name for the canonical entry
+    // point is the same defect against the new code.
+    name: "27. Wrangler resolution falls back to a PATH-shaped name",
+    file: WRANGLER_IDENTITY,
+    from: 'export const CANONICAL_WRANGLER_ENTRY = "node_modules/wrangler/bin/wrangler.js";',
+    to: 'export const CANONICAL_WRANGLER_ENTRY = "wrangler";',
+    tests: [WRANGLER_IDENTITY_TEST],
+    reason: /NO_PATH_FALLBACK|wrangler_not_installed|CANONICAL_WRANGLER_ENTRY/,
   },
   {
     name: "28. fixture comparison becomes CRLF-sensitive",
@@ -471,6 +524,134 @@ const mutations = [
     to: "const canonicalUtf8Lf = (value: string) => value;",
     tests: [CAPTURE_TEST],
     reason: /CRLF_LF_DETERMINISTIC/,
+  },
+  {
+    name: "29. the upload is handed the immutable build output instead of the pinned specification",
+    file: CONTRACT,
+    from: '  "--config",\n  UPLOAD_SPECIFICATION_PATH,\n] as const;',
+    to: '  "--config",\n  GENERATED_WORKER_CONFIG_PATH,\n] as const;',
+    tests: [UPLOAD_TEST, PINNED_TEST],
+    reason:
+      /VERIFIED EPHEMERAL specification|wrong_config_path|BESIDE the build output|wrangler\.upload\.json/,
+  },
+  {
+    name: "30. a missing version_id is tolerated — Cloudflare would default to `latest`",
+    file: PINNED_CONTRACT,
+    from: "    if (versionId === undefined) {",
+    to: "    if (false && versionId === undefined) {",
+    tests: [PINNED_TEST],
+    reason: /inherit_record_version_missing|MISSING version_id/,
+  },
+  {
+    name: '31. the literal "latest" is accepted as an inheritance source',
+    file: PINNED_CONTRACT,
+    from: "    } else if (versionId === FORBIDDEN_INHERIT_VERSION) {",
+    to: "    } else if (false && versionId === FORBIDDEN_INHERIT_VERSION) {",
+    tests: [PINNED_TEST],
+    reason: /inherit_record_version_is_latest|latest/,
+  },
+  {
+    name: "32. a record pinned to a version other than the verified live one is accepted",
+    file: PINNED_CONTRACT,
+    from: "      if (versionId !== expected) {",
+    to: "      if (false && versionId !== expected) {",
+    tests: [PINNED_TEST],
+    reason: /inherit_record_version_mismatch|newer failed 0% candidate/,
+  },
+  {
+    name: "33. a source version carrying fewer than twelve bindings is accepted",
+    file: PINNED_CONTRACT,
+    from: "  if (input.liveBindingNames.length !== EXPECTED_PRODUCTION_BINDING_COUNT) {",
+    to: "  if (false && input.liveBindingNames.length !== EXPECTED_PRODUCTION_BINDING_COUNT) {",
+    tests: [PINNED_TEST],
+    reason: /live_snapshot_binding_count_wrong|TEN rather than twelve/,
+  },
+  {
+    name: "34. a value-carrying field on an inherit record is tolerated",
+    file: PINNED_CONTRACT,
+    from: "      if (!(INHERIT_RECORD_KEYS as readonly string[]).includes(key)) {",
+    to: "      if (false && !(INHERIT_RECORD_KEYS as readonly string[]).includes(key)) {",
+    tests: [PINNED_TEST],
+    reason: /inherit_record_carries_value|inherit_record_unknown_key|REFUSED unread/,
+  },
+  {
+    name: "35. a stale expected-live UUID no longer has to match the sanitized snapshot",
+    file: PINNED_CONTRACT,
+    from: "  if (input.liveSnapshotVersionId !== expected) {",
+    to: "  if (false && input.liveSnapshotVersionId !== expected) {",
+    tests: [PINNED_TEST],
+    reason: /live_snapshot_version_mismatch|STALE expected-live/,
+  },
+  {
+    name: "36. the immutable build may differ from the uploaded specification",
+    file: PINNED_CONTRACT,
+    from: "    if (normalizeUploadSpecification(rebuilt) !== normalizeUploadSpecification(specification)) {",
+    to: "    if (false) {",
+    tests: [PINNED_TEST],
+    reason: /immutable_config_modified|DIFFERENT Worker bundle|DIFFERENT asset set/,
+  },
+  {
+    // RETARGETED by FOREVER-PR139-REVIEW-CORRECTIONS-001. This control used to
+    // attack the wrapper's own text and was detected because a source-text
+    // assertion no longer matched — which would equally have "detected" a
+    // rename. The guard is now an imported decision, and the mutation is
+    // detected because the injected launcher IS CALLED for a specification that
+    // changed after PREUPLOAD: changed runtime behaviour, not changed text.
+    name: "37. the upload no longer re-proves the verified specification before spawning",
+    file: UPLOAD_ORCHESTRATION,
+    from: "  if (consumedDigest !== verifiedDigest) {",
+    to: "  if (false && consumedDigest !== verifiedDigest) {",
+    tests: [ORCHESTRATION_TEST],
+    reason:
+      /upload_specification_digest_mismatch|PINNED_SPEC_CONSUMED|NEVER calls the launcher|launches/,
+  },
+  {
+    name: "38. the superseded PREUPLOAD marker is reinstated with changed semantics",
+    file: PINNED_CONTRACT,
+    from: 'export const PREUPLOAD_PINNED_INHERITANCE_MARKER = "PREUPLOAD_PINNED_INHERITANCE_OK";',
+    to: 'export const PREUPLOAD_PINNED_INHERITANCE_MARKER = "PREUPLOAD_CONTRACT_OK";',
+    tests: [PINNED_TEST, PREFLIGHT_TEST],
+    reason: /PREUPLOAD_PINNED_INHERITANCE_OK|superseded marker|SUPERSEDED_PREUPLOAD_MARKER/,
+  },
+  {
+    name: "39. a third binding may use the pinned inheritance mechanism",
+    file: PINNED_CONTRACT,
+    from: "  if (rawBindings.length !== PINNED_INHERITANCE_BINDINGS.length) {",
+    to: "  if (false && rawBindings.length !== PINNED_INHERITANCE_BINDINGS.length) {",
+    tests: [PINNED_TEST],
+    reason: /inherit_record_count_wrong|THIRD inherit record|keep_vars as the ONLY protection/,
+  },
+
+  // ---- PR139 review controls ----------------------------------------------
+
+  {
+    name: "40. an external same-version Wrangler is accepted as the release uploader",
+    file: WRANGLER_IDENTITY,
+    from: "    if (overrideReal !== canonicalReal) {",
+    to: "    if (false && overrideReal !== canonicalReal) {",
+    tests: [WRANGLER_IDENTITY_TEST],
+    reason: /EXTERNAL_WRANGLER_REJECTED|wrangler_override_not_identical|PROVENANCE_TRUTHFUL/,
+  },
+  {
+    // The P2-1 defect, written against the corrected code: every refusal —
+    // including a rejected external override — reports repository provenance,
+    // exactly as `Boolean(resolvedPath)` used to.
+    name: "41. resolvedFromRepository reverts to a truthiness report",
+    file: WRANGLER_IDENTITY,
+    from: "      resolvedFromRepository: false,",
+    to: "      resolvedFromRepository: true,",
+    tests: [WRANGLER_IDENTITY_TEST],
+    reason: /PROVENANCE_TRUTHFUL|resolvedFromRepository|truthiness/,
+  },
+  {
+    name: "42. the loopback network guard permits a non-loopback destination",
+    file: NETWORK_GUARD,
+    from:
+      "  const allowed =\n" +
+      "    ALLOWED_PORT > 0 && destinationPort === ALLOWED_PORT && isLoopbackHost(destinationHost);",
+    to: "  const allowed = true;",
+    tests: [CONTAINMENT_TEST],
+    reason: /LOOPBACK_GUARD|GUARD_NOT_VACUOUS|FOREVER_LOOPBACK_GUARD_BLOCKED/,
   },
 ];
 

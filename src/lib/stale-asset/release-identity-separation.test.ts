@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import {
   INVALID_PRE_R2_WORKER_VERSION_PREFIX,
   RELEASE_PROVENANCE_FIELDS,
+  WORKER_VERSION_PROVENANCE_FIELDS,
   WORKER_VERSION_PROVENANCE_SCHEMA_VERSION,
   WORKER_VERSION_ID_PATTERN,
   isLocalReleaseManifest,
@@ -38,6 +39,16 @@ const PREVIOUS = "b7d40a19-2c88-4f36-8f21-5e0c9a1d3b77";
 const UPLOAD_CANDIDATE = "22222222-2222-4222-8222-222222222222";
 /** A 32-hex client asset identity, the exact shape the runbook used to spend. */
 const CLIENT_ASSET_ID = "24834ab95d7b514e8fae653a5d18e4a8";
+
+/**
+ * Schema-2 correlation digests. Synthetic, and deliberately NOT the digest of
+ * anything real: a receipt records which artefacts were uploaded, and the test
+ * must not depend on a build having happened.
+ */
+const CORRELATION = {
+  uploadSpecificationSha256: "a".repeat(64),
+  releaseManifestSha256: "b".repeat(64),
+};
 
 function provenance(overrides: Record<string, unknown> = {}) {
   return {
@@ -224,6 +235,7 @@ describe("the strict minimal Worker-version upload receipt", () => {
     schemaVersion: WORKER_VERSION_PROVENANCE_SCHEMA_VERSION,
     previousWorkerVersionId: PREVIOUS,
     candidateWorkerVersionId: CANDIDATE,
+    ...CORRELATION,
   } as const;
 
   it("reuses the canonical release identity rules for the exact version pair", () => {
@@ -236,7 +248,7 @@ describe("the strict minimal Worker-version upload receipt", () => {
     ).toEqual({ accepted: false, refusal: "candidate_worker_version_not_new" });
   });
 
-  it("is a closed three-field schema", () => {
+  it("is a closed schema — no key beside the receipt", () => {
     expect(verifyWorkerVersionProvenance(null)).toEqual({
       accepted: false,
       refusal: "release_provenance_missing",
@@ -258,20 +270,26 @@ describe("the strict minimal Worker-version upload receipt", () => {
 
   it("parses only Wrangler's documented version-upload.version_id field", () => {
     const raw = read("scripts/release/fixtures/raw/wrangler-version-upload.ndjson");
-    const verdict = parseWranglerVersionUploadReceipt(raw.replace(/\n/g, "\r\n"), PREVIOUS);
+    const verdict = parseWranglerVersionUploadReceipt(
+      raw.replace(/\n/g, "\r\n"),
+      PREVIOUS,
+      CORRELATION,
+    );
     expect(verdict).toEqual({
       accepted: true,
       receipt: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         previousWorkerVersionId: PREVIOUS,
         candidateWorkerVersionId: UPLOAD_CANDIDATE,
+        uploadSpecificationSha256: CORRELATION.uploadSpecificationSha256,
+        releaseManifestSha256: CORRELATION.releaseManifestSha256,
       },
     });
   });
 
   it("serializes only sanitized ids and never the raw-output canary", () => {
     const raw = read("scripts/release/fixtures/raw/wrangler-version-upload.ndjson");
-    const verdict = parseWranglerVersionUploadReceipt(raw, PREVIOUS);
+    const verdict = parseWranglerVersionUploadReceipt(raw, PREVIOUS, CORRELATION);
     expect(verdict.accepted).toBe(true);
     if (!verdict.accepted) return;
     const serialized = serializeWorkerVersionProvenance(verdict.receipt);
@@ -279,6 +297,8 @@ describe("the strict minimal Worker-version upload receipt", () => {
       "schemaVersion",
       "previousWorkerVersionId",
       "candidateWorkerVersionId",
+      "uploadSpecificationSha256",
+      "releaseManifestSha256",
     ]);
     expect(serialized).not.toContain("CANARY_RAW_WRANGLER_OUTPUT_MUST_NOT_PERSIST");
     expect(serialized).not.toContain("preview_urls");
@@ -294,14 +314,135 @@ describe("the strict minimal Worker-version upload receipt", () => {
       `${event(UPLOAD_CANDIDATE)}\n${event("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")}\n`,
       `${event("not-a-uuid")}\n`,
     ]) {
-      const verdict = parseWranglerVersionUploadReceipt(raw, PREVIOUS);
+      const verdict = parseWranglerVersionUploadReceipt(raw, PREVIOUS, CORRELATION);
       expect(verdict.accepted, raw).toBe(false);
       expect(JSON.stringify(verdict), raw).not.toContain(raw);
     }
-    expect(parseWranglerVersionUploadReceipt(`${event(PREVIOUS)}\n`, PREVIOUS)).toEqual({
-      accepted: false,
-      refusal: "candidate_worker_version_not_new",
+    expect(
+      parseWranglerVersionUploadReceipt(`${event(PREVIOUS)}\n`, PREVIOUS, CORRELATION),
+    ).toEqual({ accepted: false, refusal: "candidate_worker_version_not_new" });
+  });
+});
+
+/**
+ * FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001 — receipt schema 2.
+ *
+ * The three-field receipt recorded which version was live and which version the
+ * upload produced, and NOTHING about what was uploaded. It could not answer
+ * which inheritance source was pinned, nor whether the artefact uploaded was the
+ * artefact that was verified — so it could not distinguish a correct release
+ * from the one that produced `3540bc64`.
+ *
+ * MIGRATION-FREE. Schema 1 receipts stay readable exactly as written; no
+ * rewrite, no backfill, no conversion step. Only schema 2 is ever produced.
+ */
+describe("the receipt schema is versioned, and schema 1 stays readable", () => {
+  const legacy = {
+    schemaVersion: 1,
+    previousWorkerVersionId: PREVIOUS,
+    candidateWorkerVersionId: UPLOAD_CANDIDATE,
+  };
+  const current = { ...legacy, schemaVersion: 2, ...CORRELATION };
+
+  it("writes schema 2 today", () => {
+    expect(WORKER_VERSION_PROVENANCE_SCHEMA_VERSION).toBe(2);
+    expect(WORKER_VERSION_PROVENANCE_FIELDS).toEqual([
+      "schemaVersion",
+      "previousWorkerVersionId",
+      "candidateWorkerVersionId",
+      "uploadSpecificationSha256",
+      "releaseManifestSha256",
+    ]);
+  });
+
+  it("still ACCEPTS an unmodified schema-1 receipt — no migration is required", () => {
+    const verdict = verifyWorkerVersionProvenance(legacy);
+    expect(verdict.accepted).toBe(true);
+    if (!verdict.accepted) return;
+    expect(verdict.provenance.schemaVersion).toBe(1);
+    // A legacy receipt is honest about what it cannot say.
+    expect(verdict.provenance.uploadSpecificationSha256).toBeUndefined();
+    expect(verdict.provenance.releaseManifestSha256).toBeUndefined();
+  });
+
+  it("ACCEPTS a schema-2 receipt and correlates all four facts", () => {
+    const verdict = verifyWorkerVersionProvenance(current);
+    expect(verdict.accepted).toBe(true);
+    if (!verdict.accepted) return;
+    expect(verdict.provenance).toEqual({
+      schemaVersion: 2,
+      previousWorkerVersionId: PREVIOUS,
+      candidateWorkerVersionId: UPLOAD_CANDIDATE,
+      ...CORRELATION,
     });
+  });
+
+  it("the committed schema-1 fixture still parses, byte-for-byte as committed", () => {
+    const fixture = JSON.parse(read("scripts/release/fixtures/worker-version-provenance.json"));
+    expect(fixture.schemaVersion).toBe(1);
+    expect(verifyWorkerVersionProvenance(fixture).accepted).toBe(true);
+  });
+
+  it("REFUSES a schema-1 receipt carrying schema-2 fields, and the reverse", () => {
+    // Each schema's key set is closed against ITS OWN schema. A mixed record is
+    // refused rather than partially read — an unknown key beside a receipt is
+    // how a value gets stored next to one.
+    expect(verifyWorkerVersionProvenance({ ...legacy, ...CORRELATION })).toEqual({
+      accepted: false,
+      refusal: "release_provenance_invalid",
+    });
+    const { uploadSpecificationSha256: _omitted, ...missingOne } = current;
+    expect(verifyWorkerVersionProvenance(missingOne)).toEqual({
+      accepted: false,
+      refusal: "release_provenance_missing",
+    });
+  });
+
+  it("REFUSES a schema-2 receipt whose digests are not SHA-256", () => {
+    for (const bad of ["", "not-a-digest", "A".repeat(64), "a".repeat(63)]) {
+      expect(verifyWorkerVersionProvenance({ ...current, uploadSpecificationSha256: bad })).toEqual(
+        { accepted: false, refusal: "release_provenance_invalid" },
+      );
+      expect(verifyWorkerVersionProvenance({ ...current, releaseManifestSha256: bad })).toEqual({
+        accepted: false,
+        refusal: "release_provenance_invalid",
+      });
+    }
+  });
+
+  it("REFUSES an unknown schema version outright", () => {
+    for (const version of [0, 3, "2", null, undefined]) {
+      expect(verifyWorkerVersionProvenance({ ...current, schemaVersion: version })).toEqual({
+        accepted: false,
+        refusal: "release_provenance_invalid",
+      });
+    }
+  });
+
+  it("REFUSES to write a receipt when the correlation digests are absent", () => {
+    const raw = read("scripts/release/fixtures/raw/wrangler-version-upload.ndjson");
+    for (const bad of [
+      undefined,
+      {},
+      { uploadSpecificationSha256: "a".repeat(64) },
+      { uploadSpecificationSha256: "nope", releaseManifestSha256: "b".repeat(64) },
+    ]) {
+      expect(parseWranglerVersionUploadReceipt(raw, PREVIOUS, bad as never)).toEqual({
+        accepted: false,
+        refusal: "upload_receipt_invalid",
+      });
+    }
+  });
+
+  it("carries no binding value, credential or account identifier", () => {
+    const serialized = serializeWorkerVersionProvenance({
+      schemaVersion: 2,
+      previousWorkerVersionId: PREVIOUS,
+      candidateWorkerVersionId: UPLOAD_CANDIDATE,
+      ...CORRELATION,
+    });
+    expect(serialized).not.toMatch(/supabase|token|secret|account|apikey|Bearer/i);
+    expect(Object.keys(JSON.parse(serialized))).toHaveLength(5);
   });
 });
 
