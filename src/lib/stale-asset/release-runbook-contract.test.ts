@@ -12,7 +12,7 @@
  * named assertion rather than being noticed after the next release.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { check, resolveConfig } from "prettier";
@@ -518,6 +518,118 @@ describe("the runbook preserves deployment-managed Worker variables", () => {
 
   it("carries no production variable value in the documentation itself", () => {
     expect(runbook).not.toMatch(/https:\/\/[a-z0-9]{20}\.supabase\.co/);
+  });
+});
+
+/**
+ * FOREVER-PR140-CORRECTIONS-002.
+ *
+ * Four documentation facts the independent review found stated wrongly or not at
+ * all. Each is a safety statement — an operator reading the wrong one draws the
+ * wrong conclusion about what a release holds, what it proves and what ran — so
+ * each is pinned rather than trusted to survive an edit.
+ */
+describe("the runbook describes the explicit-binding release truthfully", () => {
+  it("calls the upload-specification digest a SALTED VERIFICATION digest, not a content address", () => {
+    expect(runbookFlat).toContain("salted verification digest");
+    expect(runbookFlat).toContain("not a content address");
+    expect(runbookFlat).toContain("not reproducible");
+    expect(runbookFlat).toContain("not comparable across releases");
+    // And it distinguishes the two digests rather than describing both as one.
+    expect(runbookFlat).toContain("The two digests are not the same kind of thing");
+    expect(runbookFlat).toContain(
+      "`releaseManifestSha256` is an ordinary, reproducible SHA-256 of a value-free file",
+    );
+    // The superseded wording is gone.
+    expect(runbookFlat).not.toContain("normalized upload-specification SHA-256");
+  });
+
+  it("states which process holds the release inputs, and which two do not", () => {
+    expect(runbookFlat).toContain("Exactly which process holds what");
+    expect(runbookFlat).toContain("The wrapper process DOES hold both release inputs");
+    expect(runbookFlat).toContain("The PREUPLOAD child does NOT");
+    expect(runbookFlat).toContain("The Wrangler child does NOT either");
+    expect(runbookFlat).toContain("deleted from its environment");
+    expect(runbookFlat).toContain(
+      "Wrangler receives the two values through **exactly one channel**",
+    );
+    expect(runbookFlat).toContain(
+      "The specification is deleted once the launcher returns or throws",
+    );
+    expect(runbookFlat).toContain("A lost exclusive-create race is the same fail-closed STOP");
+  });
+
+  it("names the CURRENT Wrangler serialization proof and no stale one", () => {
+    expect(runbook).toContain("wrangler-plain-text-serialization.test.ts");
+    expect(runbookFlat).toContain("An equivalent proof exists for the mechanism that replaced it");
+    // The deleted proof is described as deleted, never cited as evidence.
+    expect(runbookFlat).toContain("That inherit proof is deleted");
+    expect(runbook).not.toContain("wrangler-inherit-serialization");
+    expect(runbookFlat).not.toContain(
+      "The proof has been deleted rather than left to defend a mechanism",
+    );
+    // And the claim it supports stays inside what it can measure.
+    expect(runbookFlat).toContain("It is evidence about WRANGLER's serialization only");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FOREVER-PR140-CORRECTIONS-002 — the release-check mapping, including the
+// explicit actionlint N/A waiver
+// ---------------------------------------------------------------------------
+
+describe("the release-check mapping records what runs and what is not applicable", () => {
+  it("publishes a mapping of every claimed gate to the command that produces it", () => {
+    expect(runbook).toContain("## 2d. RELEASE CHECK MAPPING");
+    for (const command of [
+      "npm run build",
+      "npx vitest run",
+      "npm run release:verify-bindings",
+      "npm run release:wrangler-gate",
+      "npm run release:keep-vars-mutations",
+    ]) {
+      expect(runbook, command).toContain(command);
+    }
+  });
+
+  it("records actionlint as an explicit N/A waiver, in the exact wording", () => {
+    expect(runbook).toContain(
+      "`actionlint: N/A — repository contains no GitHub Actions workflows`",
+    );
+    expect(runbookFlat).toContain("owner-approved, repository-state-specific waiver");
+  });
+
+  it("refuses the two ways a waiver becomes a lie", () => {
+    // A workflow created to satisfy a linter, and a check claimed as passing.
+    expect(runbookFlat).toContain("A workflow was **not** created to satisfy the check");
+    expect(runbookFlat).toContain("`actionlint` was **not** installed");
+    expect(runbookFlat).toContain("the check is **not** reported as passing");
+  });
+
+  it("expires the waiver automatically the moment a workflow file exists", () => {
+    expect(runbookFlat).toContain("The waiver expires automatically");
+    expect(runbookFlat).toContain(
+      "If any file is added under `.github/workflows`, this waiver is void",
+    );
+  });
+
+  it("forbids presenting an absent CI as a successful status check", () => {
+    expect(runbookFlat).toContain("Absence of CI is never a green status check");
+    expect(runbookFlat).toContain("no status checks at all");
+    expect(runbookFlat).toContain('An empty check list means "nothing ran"');
+  });
+
+  it("scopes lint rather than editing shared configuration for one checkout", () => {
+    expect(runbookFlat).toContain("Why lint is scoped rather than repository-wide");
+    expect(runbookFlat).toContain("environmental limitation of this working copy");
+    expect(runbookFlat).toContain("not** a reason to edit the ESLint configuration");
+  });
+
+  it("the waiver is TRUE of this repository right now", () => {
+    // The waiver is repository-state-specific, so the state is measured rather
+    // than assumed: the moment a workflow exists, this fails and the waiver in
+    // the runbook must be replaced by a real actionlint run.
+    expect(existsSync(resolve(process.cwd(), ".github/workflows"))).toBe(false);
   });
 });
 

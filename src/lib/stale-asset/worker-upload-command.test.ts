@@ -526,7 +526,16 @@ describe("no shell is involved anywhere in the release upload path", () => {
 
   it("UPLOAD_RECEIPT_SANITIZED: consumes structured output and writes only canonical provenance", () => {
     const wrapper = read("scripts/release/upload-worker-version.mjs");
-    expect(wrapper).toContain("WRANGLER_OUTPUT_FILE_PATH");
+    // FOREVER-PR140-CORRECTIONS-002, F2. Wrangler's output-file path is now set
+    // by the shared child-environment builder, which is the same place both
+    // release inputs are DELETED. What the builder produces — the exact output
+    // FILE, no output DIRECTORY override, and neither release input — is proven
+    // by spawning a real child in `release-child-environment.test.ts`; what is
+    // asserted here is that the wrapper uses it rather than assembling its own.
+    expect(wrapper).toContain("src/lib/stale-asset/release-child-environment.ts");
+    expect(wrapper).toContain("buildUploadChildEnv");
+    expect(wrapper).toContain("buildPreuploadChildEnv");
+    expect(wrapper).not.toMatch(/env:\s*\{\s*\.\.\.process\.env/);
     expect(wrapper).toContain("parseWranglerVersionUploadReceipt");
     expect(wrapper).toContain("serializeWorkerVersionProvenance");
     expect(wrapper).toContain("--receipt <path>");

@@ -302,7 +302,17 @@ export function readReleaseBindingInputs(env: Record<string, string | undefined>
           "default: a guessed value would silently reconfigure production during a release that " +
           "was supposed to change nothing.",
       );
-    } else if (raw.trim() === "") {
+      // The `typeof` test below is NOT redundant with the branch above.
+      //
+      // It is the second half of a fail-closed pair (PR140 corrections). If the
+      // absence check is ever weakened — mutation control 35 does exactly that —
+      // a missing input reaches this line, and `raw.trim()` on `undefined` would
+      // throw a TypeError. A crash is a bad refusal: it produces no violation
+      // code, so the caller reports "the release tooling failed" rather than
+      // "this variable is not set", and a mutation control can only observe a
+      // stack trace instead of a named rule. With the type test, a weakened
+      // absence check still STOPS the release with a named violation.
+    } else if (typeof raw !== "string" || raw.trim() === "") {
       refuse(
         "release_input_empty",
         `${variable} is set but empty. An empty ${binding} is refused — Cloudflare would accept it ` +
@@ -311,8 +321,10 @@ export function readReleaseBindingInputs(env: Record<string, string | undefined>
     }
   }
 
+  // `typeof` rather than `!== undefined`, for the same reason as above: a
+  // non-string must reach a NAMED refusal, never a TypeError.
   if (
-    rawProvider !== undefined &&
+    typeof rawProvider === "string" &&
     rawProvider.trim() !== "" &&
     !isAcceptableWriteProvider(rawProvider)
   ) {
@@ -324,7 +336,7 @@ export function readReleaseBindingInputs(env: Record<string, string | undefined>
     );
   }
 
-  if (rawUrl !== undefined && rawUrl.trim() !== "" && !isAcceptableSupabaseUrl(rawUrl)) {
+  if (typeof rawUrl === "string" && rawUrl.trim() !== "" && !isAcceptableSupabaseUrl(rawUrl)) {
     refuse(
       "supabase_url_invalid",
       "SUPABASE_URL must be an absolute https ORIGIN with no credentials, query, fragment or path " +
@@ -361,28 +373,69 @@ export function buildExplicitPlainTextBindings(
 }
 
 /**
- * Every binding NAME the immutable generated configuration already declares.
+ * The binding categories the generated configuration may declare, and the class
+ * each one projects as.
+ *
+ * ONE TABLE, TWO READERS (PR140 review, F6). `declaredBindingNames` and
+ * `projectFinalBindingSet` both walk this list. They used to enumerate their own
+ * categories, and the projection knew about only two of the six — so a KV
+ * namespace, a D1 database, a queue or a service binding added to the build was
+ * invisible to the projection while `declaredBindingNames` saw it. The projected
+ * total would have stayed at twelve and passed the count gate, describing a
+ * binding set the upload does not produce. Deriving both from one table means a
+ * new category cannot be understood by one reader and not the other.
+ */
+export const CONFIG_BINDING_CATEGORIES = [
+  { key: "r2_buckets", type: "r2_bucket" },
+  { key: "kv_namespaces", type: "kv_namespace" },
+  { key: "d1_databases", type: "d1_database" },
+  { key: "queues", type: "queue" },
+  { key: "services", type: "service" },
+] as const;
+
+/** The class the single `assets` binding projects as. */
+export const ASSETS_BINDING_TYPE = "assets";
+
+/**
+ * Every `{ name, type }` the immutable generated configuration already declares.
  *
  * Cloudflare keys bindings by name, so a collision would silently replace a real
- * binding with a variable.
+ * binding with a variable — and a category this function cannot see is a
+ * collision nobody would notice.
  */
-export function declaredBindingNames(config: Record<string, unknown>): readonly string[] {
-  const names: string[] = [];
+export function declaredConfigBindings(
+  config: Record<string, unknown>,
+): readonly BindingProjectionEntry[] {
+  const declared: BindingProjectionEntry[] = [];
+
   const assets = config.assets;
   if (typeof assets === "object" && assets !== null && !Array.isArray(assets)) {
     const binding = (assets as Record<string, unknown>).binding;
-    if (typeof binding === "string") names.push(binding);
+    if (typeof binding === "string") declared.push({ name: binding, type: ASSETS_BINDING_TYPE });
   }
-  for (const key of ["r2_buckets", "kv_namespaces", "d1_databases", "queues", "services"]) {
-    const entries = config[key];
+
+  for (const category of CONFIG_BINDING_CATEGORIES) {
+    const entries = config[category.key];
     if (!Array.isArray(entries)) continue;
     for (const entry of entries) {
       if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
       const binding = (entry as Record<string, unknown>).binding;
-      if (typeof binding === "string") names.push(binding);
+      if (typeof binding === "string") declared.push({ name: binding, type: category.type });
     }
   }
-  return names;
+
+  return declared;
+}
+
+/**
+ * Every binding NAME the immutable generated configuration already declares.
+ *
+ * Derived from `declaredConfigBindings` rather than re-walking the document, so
+ * the name check and the projection can never disagree about which categories
+ * exist.
+ */
+export function declaredBindingNames(config: Record<string, unknown>): readonly string[] {
+  return declaredConfigBindings(config).map((binding) => binding.name);
 }
 
 /**
@@ -465,10 +518,17 @@ export interface FinalBindingProjection {
  * This is what crosses a process boundary, what the preflight reasons about and
  * what may appear in a log. It is built from three name-only sources:
  *
- *   - the immutable generated configuration (ASSETS + the three R2 buckets);
+ *   - EVERY binding category the immutable generated configuration declares —
+ *     assets, R2 buckets, KV namespaces, D1 databases, queues and services —
+ *     read through the single `declaredConfigBindings` table;
  *   - the two explicit records in the specification, by NAME and TYPE only;
  *   - the deployment-managed secret NAMES observed on the live Worker, which
  *     Cloudflare never deletes and which this release never materializes.
+ *
+ * THE APPROVED BUILD DECLARES ONLY ASSETS AND THREE R2 BUCKETS, and the total is
+ * therefore still exactly twelve. The other four categories are projected
+ * because a build that grows one must fail the twelve-binding gate LOUDLY rather
+ * than project a set it does not produce (PR140 review, F6).
  *
  * `inheritRecordCount` is projected rather than assumed so a preflight in
  * another process can refuse a non-zero count without ever seeing the document.
@@ -478,21 +538,7 @@ export function projectFinalBindingSet(input: {
   readonly specification: Record<string, unknown>;
   readonly liveBindingNames: readonly string[];
 }): FinalBindingProjection {
-  const bindings: BindingProjectionEntry[] = [];
-
-  const assets = input.generatedConfig.assets;
-  if (typeof assets === "object" && assets !== null && !Array.isArray(assets)) {
-    const binding = (assets as Record<string, unknown>).binding;
-    if (typeof binding === "string") bindings.push({ name: binding, type: "assets" });
-  }
-  const buckets = input.generatedConfig.r2_buckets;
-  if (Array.isArray(buckets)) {
-    for (const entry of buckets) {
-      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
-      const binding = (entry as Record<string, unknown>).binding;
-      if (typeof binding === "string") bindings.push({ name: binding, type: "r2_bucket" });
-    }
-  }
+  const bindings: BindingProjectionEntry[] = [...declaredConfigBindings(input.generatedConfig)];
 
   let inheritRecordCount = 0;
   const unsafeBlock = input.specification[UPLOAD_SPECIFICATION_BINDINGS_KEY];

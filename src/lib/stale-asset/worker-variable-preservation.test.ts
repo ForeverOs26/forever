@@ -402,12 +402,78 @@ describe("server-only boundary for the deployment-managed variables", () => {
     }
   });
 
+  /**
+   * THE FILES THAT NOW HANDLE OR DESCRIBE THE TWO RELEASE VALUES (PR140 review,
+   * F4).
+   *
+   * The guard used to cover `worker-variable-preservation.ts` and
+   * `wrangler.jsonc` — the two files that existed when it was written, and
+   * neither of which ever touches a value. Every file that DOES handle one
+   * arrived later: the contract that validates them, the module that writes them
+   * to disk, the wrapper that reads them from the environment, the preflight
+   * that must never see them, and the runbook that tells an operator where they
+   * come from. A committed value would have landed in one of those.
+   *
+   * Test-only files are deliberately absent: their `.test` origins and
+   * documented provider identifiers are synthetic fixtures, and several suites
+   * exist precisely to assert on them.
+   */
+  const VALUE_GUARDED_FILES = [
+    "wrangler.jsonc",
+    "src/lib/stale-asset/worker-variable-preservation.ts",
+    "src/lib/stale-asset/explicit-plain-text-bindings.ts",
+    "src/lib/stale-asset/ephemeral-upload-specification.ts",
+    "src/lib/stale-asset/release-child-environment.ts",
+    "src/lib/stale-asset/release-upload-orchestration.ts",
+    "scripts/release/upload-worker-version.mjs",
+    "scripts/release/verify-binding-preservation.mjs",
+    "docs/FOREVER_PRODUCTION_RELEASE_RUNBOOK.md",
+  ];
+
   it("commits no value for either deployment-managed variable", () => {
     // The repository may NAME them. It must never carry what they hold.
-    const contractSource = read("src/lib/stale-asset/worker-variable-preservation.ts");
-    for (const source of [contractSource, wranglerSource]) {
-      expect(source).not.toMatch(/https:\/\/[a-z0-9]{20}\.supabase\.co/);
-      expect(source).not.toMatch(/STUDIO_STORAGE_WRITE_PROVIDER\s*[:=]\s*["']r2["']/);
+    for (const path of VALUE_GUARDED_FILES) {
+      const source = read(path);
+      // The original two patterns, unchanged — a real Supabase project origin,
+      // and the provider assigned a literal value.
+      expect(source, path).not.toMatch(/https:\/\/[a-z0-9]{20}\.supabase\.co/);
+      expect(source, path).not.toMatch(/STUDIO_STORAGE_WRITE_PROVIDER\s*[:=]\s*["']r2["']/);
+      // Widened: ANY Supabase-hosted origin, at any project-reference length,
+      // on any of the hosted TLDs. `.test` is reserved and cannot resolve, so a
+      // synthetic fixture origin is deliberately NOT matched.
+      expect(source, path).not.toMatch(/https:\/\/[a-z0-9-]+\.supabase\.(?:co|in|net)\b/i);
+      // Either variable given a literal value in source, in either direction.
+      expect(source, path).not.toMatch(
+        /STUDIO_STORAGE_WRITE_PROVIDER\s*[:=]\s*["'](?:r2|supabase)["']/,
+      );
+      expect(source, path).not.toMatch(/SUPABASE_URL\s*[:=]\s*["']https?:/i);
+    }
+  });
+
+  it("commits no secret, token or credential in any file that handles a release value", () => {
+    // Existing detection is not weakened: these are ADDITIONAL markers, and each
+    // is a literal prefix rather than a heuristic, so a match is a real finding.
+    for (const path of VALUE_GUARDED_FILES) {
+      const source = read(path);
+      for (const marker of ["sb_secret_", "sb_publishable_", "eyJ", "Bearer ", "-----BEGIN "]) {
+        expect(source, `${path} :: ${marker}`).not.toContain(marker);
+      }
+      expect(source, path).not.toMatch(/CLOUDFLARE_API_(?:TOKEN|KEY)\s*[:=]\s*["'][^"']+["']/);
+      expect(source, path).not.toMatch(/SUPABASE_(?:SERVICE_ROLE_KEY|PUBLISHABLE_KEY)\s*=\s*\S/);
+    }
+  });
+
+  it("names every production file that handles a release value, so the list cannot lag", () => {
+    // The guard is only as good as its file list. Any module importing the
+    // release-input names is handling a value and must be covered.
+    const releaseValueHandlers = [
+      "src/lib/stale-asset/explicit-plain-text-bindings.ts",
+      "src/lib/stale-asset/release-child-environment.ts",
+      "scripts/release/upload-worker-version.mjs",
+    ];
+    for (const path of releaseValueHandlers) {
+      expect(read(path), path).toContain("FOREVER_RELEASE_");
+      expect(VALUE_GUARDED_FILES, path).toContain(path);
     }
   });
 

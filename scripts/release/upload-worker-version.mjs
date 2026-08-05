@@ -20,17 +20,26 @@
  * THE VALUES ARE NOT IN THIS REPOSITORY. They are supplied per release through
  * FOREVER_RELEASE_SUPABASE_URL and FOREVER_RELEASE_STUDIO_STORAGE_WRITE_PROVIDER,
  * validated here, and written ONLY into the ephemeral specification Wrangler
- * reads. Nothing else in this program, and no other process it starts, is given
- * a value:
+ * reads. THIS WRAPPER PROCESS DOES HOLD BOTH INPUTS, for as long as it takes to
+ * build and verify that specification — that is stated plainly rather than
+ * implied away. Nothing else in this program, and NO process it starts, is given
+ * a value or the environment variable carrying one:
  *
  *   - the PREUPLOAD preflight runs in a separate process and receives a
- *     VALUE-FREE binding projection — names and classes only;
+ *     VALUE-FREE binding projection — names and classes only. Both release-input
+ *     environment variables are DELETED from its environment (PR140 review, F2);
+ *   - the Wrangler upload child also has both DELETED from its environment. It
+ *     receives the two values through exactly one channel: the verified
+ *     ephemeral specification named by `--config`. Wrangler resolves `${VAR}`
+ *     references and reads `.env`/`.dev.vars`, so an environment copy would be a
+ *     real second source that nothing in this contract verifies;
  *   - the digest printed and recorded is SALTED with a per-release secret held
  *     in this process's memory, because `STUDIO_STORAGE_WRITE_PROVIDER` has two
  *     possible values and a bare digest of an otherwise-knowable document is a
  *     two-guess oracle;
- *   - the specification is created immediately before the spawn and deleted
- *     whether the upload succeeds or fails;
+ *   - the specification is created immediately before the spawn and deleted in a
+ *     `finally` once the launcher RETURNS OR THROWS — success, non-zero exit and
+ *     exception all reach the same removal;
  *   - no value reaches stdout, stderr, the receipt or any error message.
  *
  * WHAT IT DOES, IN ORDER, REFUSING AT THE FIRST FAILURE
@@ -39,16 +48,29 @@
  *   2. validates the canonical upload argv token-by-token;
  *   3. reads and validates the two release-environment inputs;
  *   4. builds the upload specification IN MEMORY and verifies it in-process;
- *   5. runs the binding preflight on the VALUE-FREE projection and requires
- *      PREUPLOAD_EXPLICIT_BINDINGS_OK;
- *   6. writes the specification, re-proves its digest AND its structure, then
- *      spawns Wrangler with `shell: false` and the canonical argv;
+ *   5. builds the PREUPLOAD child environment with both release inputs REMOVED,
+ *      re-audits it, and runs the binding preflight on the VALUE-FREE projection,
+ *      requiring PREUPLOAD_EXPLICIT_BINDINGS_OK;
+ *   6. builds the Wrangler child environment with both release inputs REMOVED,
+ *      re-audits it, writes the specification, re-proves its digest AND its
+ *      structure, then spawns Wrangler with `shell: false` and the canonical
+ *      argv;
  *   7. deletes the specification on every path.
  *
  * Step 6 additionally requires an explicit `--authorize-upload`. Without it the
  * wrapper performs 1-5 and prints exactly what it WOULD have run, writing no
  * value-carrying file at all. That default is what makes this whole path
- * testable with no credential, no network and no Cloudflare contact.
+ * testable with no credential, no network and no Cloudflare contact. The flag is
+ * checked twice on purpose: here, where the dry run exits, and again inside
+ * `verifyThenLaunchUpload`, which refuses `upload_not_authorized` before reading
+ * a byte — so the guarantee is a property of the decision and not of this
+ * file's control flow (PR140 review, F5).
+ *
+ * IF THE EXCLUSIVE CREATE LOSES A RACE — a concurrent release writing the same
+ * ephemeral path between the existence check and the create — the failure is
+ * normalized into the same fail-closed STOP. The other run's file is neither
+ * overwritten nor deleted, this run's temporary directories are removed, and
+ * Wrangler is never spawned.
  *
  * NOTHING IS CONCATENATED. The executable and each argument are separate values
  * from `PRODUCTION_VERSION_UPLOAD_SPEC`; no string is built, split, quoted or
@@ -89,6 +111,9 @@ const ephemeral = await jiti.import(
 const orchestration = await jiti.import(
   resolve(REPO, "src/lib/stale-asset/release-upload-orchestration.ts"),
 );
+const childEnvironment = await jiti.import(
+  resolve(REPO, "src/lib/stale-asset/release-child-environment.ts"),
+);
 
 const {
   PRODUCTION_VERSION_UPLOAD_SPEC,
@@ -107,9 +132,10 @@ const {
   readReleaseBindingInputs,
   verifyUploadSpecification,
 } = explicit;
-const { withEphemeralSpecification } = ephemeral;
+const { describeEphemeralSpecificationFailure, withEphemeralSpecification } = ephemeral;
 const { parseWranglerVersionUploadReceipt, serializeWorkerVersionProvenance } = releaseIdentity;
-const { verifyThenLaunchUpload } = orchestration;
+const { AUTHORIZE_UPLOAD_FLAG, isUploadAuthorized, verifyThenLaunchUpload } = orchestration;
+const { auditReleaseChildEnv, buildPreuploadChildEnv, buildUploadChildEnv } = childEnvironment;
 
 const log = (message) => process.stdout.write(`[upload-version] ${message}\n`);
 
@@ -350,6 +376,23 @@ writeFileSync(
   "utf8",
 );
 
+/**
+ * The PREUPLOAD child's environment, with BOTH release inputs deleted.
+ *
+ * The preflight's whole premise is that it cannot see a value. Inheriting the
+ * variables that carry them and choosing not to read them is a different, weaker
+ * property — so they are removed from the environment object itself, and the
+ * removal is re-checked below rather than assumed.
+ */
+const preflightEnvironment = buildPreuploadChildEnv({ parentEnv: process.env });
+const preflightEnvironmentAudit = auditReleaseChildEnv(preflightEnvironment);
+if (!preflightEnvironmentAudit.ok) {
+  for (const finding of preflightEnvironmentAudit.findings) {
+    process.stderr.write(`[upload-version] ${finding.code}: ${finding.detail}\n`);
+  }
+  stop("a release input survived into the PREUPLOAD child environment.");
+}
+
 const preflight = spawnSync(
   process.execPath,
   [
@@ -364,7 +407,7 @@ const preflight = spawnSync(
     "--upload-specification-digest",
     verifiedDigest,
   ],
-  { cwd: REPO, encoding: "utf8", shell: false, env: { ...process.env, NO_COLOR: "1" } },
+  { cwd: REPO, encoding: "utf8", shell: false, env: preflightEnvironment },
 );
 const preflightOutput = `${preflight.stdout ?? ""}${preflight.stderr ?? ""}`;
 process.stdout.write(preflightOutput);
@@ -388,12 +431,14 @@ log(`preflight          : ${PREUPLOAD_EXPLICIT_BINDINGS_MARKER}`);
 
 // ---- 4. the upload ---------------------------------------------------------
 
-if (!has("--authorize-upload")) {
+const authorized = isUploadAuthorized(process.argv);
+
+if (!authorized) {
   releaseOwnedDirectories();
   log(
-    "DRY RUN — every gate held and NO value-carrying file was written. Re-run with " +
-      "--authorize-upload to perform the upload. An upload is a separately authorized action; " +
-      "this program does not authorize one.",
+    `DRY RUN — every gate held and NO value-carrying file was written. Re-run with ` +
+      `${AUTHORIZE_UPLOAD_FLAG} to perform the upload. An upload is a separately authorized ` +
+      "action; this program does not authorize one.",
   );
   process.exit(0);
 }
@@ -426,63 +471,97 @@ const outputDirectory = mkdtempSync(join(tmpdir(), "forever-wrangler-output-"));
 ownedDirectories.push(outputDirectory);
 const outputPath = join(outputDirectory, "version-upload.ndjson");
 
-const uploadEnvironment = {
-  ...process.env,
-  WRANGLER_OUTPUT_FILE_PATH: outputPath,
-  FORCE_COLOR: "0",
-  NO_COLOR: "1",
-};
-delete uploadEnvironment.WRANGLER_OUTPUT_FILE_DIRECTORY;
+/**
+ * The Wrangler child's environment.
+ *
+ * Both release inputs are DELETED (PR140 review, F2) and the output-DIRECTORY
+ * override is removed as before. Wrangler is given the two values through the
+ * verified ephemeral specification named by `--config` and through nothing else.
+ */
+const uploadEnvironment = buildUploadChildEnv({
+  parentEnv: process.env,
+  outputFilePath: outputPath,
+});
+const uploadEnvironmentAudit = auditReleaseChildEnv(uploadEnvironment, {
+  forbidWranglerOutputDirectory: true,
+});
+if (!uploadEnvironmentAudit.ok) {
+  for (const finding of uploadEnvironmentAudit.findings) {
+    process.stderr.write(`[upload-version] ${finding.code}: ${finding.detail}\n`);
+  }
+  stop("a release input survived into the Wrangler upload child environment.");
+}
+log("child environments : PREUPLOAD and Wrangler both stripped of the release inputs");
 
 let cleanupFailed = false;
 
-const decision = withEphemeralSpecification({
-  absolutePath: specificationAbsolute,
-  body: specificationBody,
-  onCleanupFailure: () => {
-    cleanupFailed = true;
-  },
-  run: () =>
-    verifyThenLaunchUpload({
-      specificationPath: specificationAbsolute,
-      verifiedDigest,
-      digest: saltedSpecificationDigest,
-      generatedConfigPath: generatedAbsolute,
-      generatedBytesBefore,
-      revalidate: (raw) => {
-        let reparsed;
-        try {
-          reparsed = JSON.parse(raw);
-        } catch {
-          return { ok: false, detail: "the upload specification is not valid JSON at spawn time." };
-        }
-        const verdict = verifyUploadSpecification({
-          specification: reparsed,
-          generatedConfig,
-          values: inputs.values,
-        });
-        return {
-          ok: verdict.ok,
-          detail: verdict.ok
-            ? ""
-            : `the upload specification no longer satisfies the explicit-binding contract at spawn ` +
-              `time (${verdict.violations.map((violation) => violation.code).join(", ")}). No value ` +
-              "is echoed.",
-        };
-      },
-      launch: () =>
-        spawnSync(
-          wrangler.launcher.command,
-          [...wrangler.launcher.prefixArgs, ...PRODUCTION_VERSION_UPLOAD_SPEC.args],
-          {
-            cwd: REPO,
-            encoding: "utf8",
-            shell: false,
-            env: uploadEnvironment,
-          },
-        ),
-    }),
-});
+let decision;
+try {
+  decision = withEphemeralSpecification({
+    absolutePath: specificationAbsolute,
+    body: specificationBody,
+    onCleanupFailure: () => {
+      cleanupFailed = true;
+    },
+    run: () =>
+      verifyThenLaunchUpload({
+        authorized,
+        specificationPath: specificationAbsolute,
+        verifiedDigest,
+        digest: saltedSpecificationDigest,
+        generatedConfigPath: generatedAbsolute,
+        generatedBytesBefore,
+        revalidate: (raw) => {
+          let reparsed;
+          try {
+            reparsed = JSON.parse(raw);
+          } catch {
+            return {
+              ok: false,
+              detail: "the upload specification is not valid JSON at spawn time.",
+            };
+          }
+          const verdict = verifyUploadSpecification({
+            specification: reparsed,
+            generatedConfig,
+            values: inputs.values,
+          });
+          return {
+            ok: verdict.ok,
+            detail: verdict.ok
+              ? ""
+              : `the upload specification no longer satisfies the explicit-binding contract at ` +
+                `spawn time (${verdict.violations.map((violation) => violation.code).join(", ")}). ` +
+                "No value is echoed.",
+          };
+        },
+        launch: () =>
+          spawnSync(
+            wrangler.launcher.command,
+            [...wrangler.launcher.prefixArgs, ...PRODUCTION_VERSION_UPLOAD_SPEC.args],
+            {
+              cwd: REPO,
+              encoding: "utf8",
+              shell: false,
+              env: uploadEnvironment,
+            },
+          ),
+      }),
+  });
+} catch (error) {
+  // THE EXCLUSIVE-CREATE RACE (PR140 review, F9). The early existence check and
+  // this create are separated by the whole preflight, so a concurrent release
+  // can win the gap. The pre-existing file is neither overwritten nor deleted,
+  // Wrangler is not spawned, and `stop` removes the directories this run owns.
+  const failure = describeEphemeralSpecificationFailure(error);
+  if (failure.preExisting) {
+    stop(
+      `${failure.stop}: ${failure.message} The path is ${UPLOAD_SPECIFICATION_PATH}. It was left ` +
+        "exactly as found.",
+    );
+  }
+  throw error;
+}
 
 if (cleanupFailed) {
   process.stderr.write(
@@ -520,6 +599,14 @@ try {
     );
   }
 
+  // `uploadSpecificationSha256` is the SALTED VERIFICATION DIGEST — the field
+  // name is schema-2 and is not renamed, but the value is not a content address:
+  // it is SHA-256 over a per-release random salt followed by the normalized
+  // specification, so it cannot be recomputed by anyone (including a later
+  // reader of this receipt) and it discloses nothing about a two-valued setting.
+  // What it proves is that verification and consumption named the same bytes.
+  // `releaseManifestSha256`, by contrast, is a plain reproducible SHA-256 over a
+  // value-free file.
   const receiptVerdict = parseWranglerVersionUploadReceipt(
     readFileSync(outputPath, "utf8"),
     expectedLiveVersion,

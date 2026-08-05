@@ -88,6 +88,24 @@
  * detected because a program behaves differently — a refused executable, an
  * uncalled launcher — rather than because a file's text changed.
  *
+ * CONTROL 33 WAS A SURVIVOR, AND THE SUITE WAS WHAT CHANGED
+ * (FOREVER-PR140-CORRECTIONS-002, independent review F1). It disables the
+ * live-snapshot binding-count comparison in `verifyFinalBindingProjection` —
+ * the cross-check proving the release is REPRODUCING a verified twelve-binding
+ * Worker rather than authoring a new binding set. Nothing exercised that rule,
+ * so the mutation changed no test result. The control is unchanged; what was
+ * missing was coverage, and it now exists in two places:
+ *
+ *   - `explicit-plain-text-bindings.test.ts` §16 supplies a COMPLETE, VALID
+ *     twelve-entry projection and varies only the live snapshot, so the count
+ *     rule and the plain-text-presence rule each refuse ALONE. A shortened
+ *     projection would have tripped `final_binding_count_wrong` as well, the
+ *     verdict would still have been a STOP with the gate disabled, and the
+ *     control would have survived exactly as before;
+ *   - `release-binding-preflight.test.ts` reaches the same gate through the
+ *     EXECUTED preflight, using two committed snapshots that satisfy the closed
+ *     schema instead of failing validation earlier.
+ *
  * A process that could not start, a run that collected no tests, or a failure
  * for some other reason is REJECTED as evidence rather than counted as a
  * detection — that classification lives in `mutation-runner-core.mjs`.

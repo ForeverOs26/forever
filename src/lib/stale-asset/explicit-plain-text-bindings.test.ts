@@ -25,12 +25,16 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  EPHEMERAL_SPECIFICATION_EXISTS_STOP,
+  describeEphemeralSpecificationFailure,
+  isEphemeralSpecificationExistsError,
   removeEphemeralSpecification,
   withEphemeralSpecification,
   writeEphemeralSpecification,
 } from "./ephemeral-upload-specification";
 import {
   BINDINGS_PRESERVED_WITHOUT_EXPLICIT_RECORDS,
+  CONFIG_BINDING_CATEGORIES,
   EXPECTED_FINAL_BINDING_COUNT,
   EXPLICIT_PLAIN_TEXT_BINDINGS,
   PREUPLOAD_EXPLICIT_BINDINGS_MARKER,
@@ -39,6 +43,8 @@ import {
   REFUSED_INHERIT_LATEST,
   SUPERSEDED_PREUPLOAD_MARKERS,
   buildUploadSpecification,
+  declaredBindingNames,
+  declaredConfigBindings,
   isAcceptableSupabaseUrl,
   isAcceptableWriteProvider,
   normalizeUploadSpecification,
@@ -317,6 +323,21 @@ describe("3/4/5. required release inputs, fail-closed BEFORE any spawn", () => {
     // `supabase` is the RUNTIME default. Applying it during a release would
     // silently reconfigure production storage.
     expect(allText(result)).toContain("no default");
+  });
+
+  it("STOPS with a NAMED violation rather than crashing on a non-string input", () => {
+    // The second half of the fail-closed pair. A `process.env` entry is always a
+    // string or absent, so this is unreachable in production — which is exactly
+    // why it exists: if the absence check is ever weakened, the value still
+    // reaches a NAMED refusal instead of throwing a TypeError out of the release
+    // tooling, where it would produce no violation code at all.
+    const result = readReleaseBindingInputs({
+      ...complete,
+      [RELEASE_VALUE_ENV_VARS.SUPABASE_URL]: 42 as unknown as string,
+    });
+    expect(codes(result)).toContain("release_input_empty");
+    expect(result.ok).toBe(false);
+    expect(result.values).toBeNull();
   });
 
   it("STOPS on an empty or whitespace-only input", () => {
@@ -621,6 +642,7 @@ describe("13/14/15. the spawn is guarded, single-attempt and never automatic", (
     writeFileSync(specificationPath, `${body} `, "utf8");
 
     const decision = verifyThenLaunchUpload({
+      authorized: true,
       specificationPath,
       verifiedDigest: digest(body),
       digest,
@@ -655,6 +677,7 @@ describe("13/14/15. the spawn is guarded, single-attempt and never automatic", (
 
     let launched = 0;
     const decision = verifyThenLaunchUpload({
+      authorized: true,
       specificationPath,
       verifiedDigest: `salted:${tampered.length}`,
       digest: (raw) => `salted:${raw.length}`,
@@ -684,6 +707,7 @@ describe("13/14/15. the spawn is guarded, single-attempt and never automatic", (
 
     let launched = 0;
     const decision = verifyThenLaunchUpload({
+      authorized: true,
       specificationPath,
       verifiedDigest: `salted:${body.length}`,
       digest: (raw) => `salted:${raw.length}`,
@@ -706,11 +730,19 @@ describe("13/14/15. the spawn is guarded, single-attempt and never automatic", (
     expect(decision.result).toEqual({ status: 1 });
   });
 
-  it("13. the wrapper spawns Wrangler only behind the exact authorization flag", () => {
+  /**
+   * SECONDARY DEFENCE ONLY (PR140 review, F5).
+   *
+   * The authorization gate and the single-attempt contract are proved
+   * BEHAVIOURALLY — by running the decision with an injected launcher and
+   * counting the calls — in `release-upload-orchestration.test.ts`, and
+   * end-to-end against the real wrapper in `release-binding-preflight.test.ts`,
+   * which shows a dry run spawns no Wrangler at all. These two remain as a cheap
+   * extra reading of the wrapper's shape; neither is the proof of anything.
+   */
+  it("13. SECONDARY: the wrapper's dry-run exit precedes its launch call", () => {
     const wrapper = readFileSync("scripts/release/upload-worker-version.mjs", "utf8");
-    // The dry run returns BEFORE the upload section, so every path that reaches
-    // the launcher passes the flag check first.
-    const authorizationIndex = wrapper.indexOf('if (!has("--authorize-upload"))');
+    const authorizationIndex = wrapper.indexOf("if (!authorized) {");
     const launchIndex = wrapper.indexOf("verifyThenLaunchUpload({");
     expect(authorizationIndex).toBeGreaterThan(-1);
     expect(launchIndex).toBeGreaterThan(authorizationIndex);
@@ -718,10 +750,397 @@ describe("13/14/15. the spawn is guarded, single-attempt and never automatic", (
     expect(wrapper).toContain("NO value-carrying file was written");
   });
 
-  it("15. the wrapper states the single-attempt contract on its failure path", () => {
+  it("15. SECONDARY: the wrapper states the single-attempt contract on its failure path", () => {
     const wrapper = readFileSync("scripts/release/upload-worker-version.mjs", "utf8");
     expect(wrapper).toContain("never retries automatically");
     expect(wrapper).not.toMatch(/for\s*\([^)]*attempt/i);
     expect(wrapper).not.toMatch(/while\s*\([^)]*retr/i);
+  });
+});
+
+/* ---- 16. the LIVE SNAPSHOT cross-check ------------------------------------ */
+
+/**
+ * MUTATION CONTROL 33, made detectable (PR140 review, F1).
+ *
+ * `verifyFinalBindingProjection` cross-checks the live Worker's own binding
+ * names: the release is REPRODUCING a verified twelve-binding Worker, not
+ * authoring a new binding set. Nothing exercised that cross-check, so control
+ * 33 — which disables the count comparison outright — changed no test result and
+ * survived. Both live-snapshot rules are exercised below, each in isolation from
+ * every other rule, so a mutation to either one fails a named assertion.
+ *
+ * ISOLATION IS THE POINT. Each case below supplies a COMPLETE, VALID twelve-entry
+ * projection and varies only the live snapshot. If the projection were shortened
+ * instead, `final_binding_count_wrong` and `preserved_binding_missing` would fire
+ * too, the verdict would still be a STOP with the gate disabled, and the control
+ * would survive exactly as it did before.
+ */
+describe("16. the live snapshot must itself be the verified twelve", () => {
+  const withLive = (liveBindingNames: readonly string[]) =>
+    verifyFinalBindingProjection({ projection: validProjection(), liveBindingNames });
+
+  it("ACCEPTS the complete twelve-name live snapshot — the positive control", () => {
+    const verdict = withLive(LIVE_BINDING_NAMES);
+    expect(LIVE_BINDING_NAMES).toHaveLength(EXPECTED_FINAL_BINDING_COUNT);
+    expect(verdict.violations).toEqual([]);
+    expect(verdict.ok).toBe(true);
+  });
+
+  it("REFUSES a live snapshot carrying FEWER than twelve bindings", () => {
+    // One secret dropped: eleven live names, and a projection that is still a
+    // complete, correct twelve. Only the live cross-check can catch this.
+    const eleven = LIVE_BINDING_NAMES.filter((name) => name !== "SUPABASE_SERVICE_ROLE_KEY");
+    expect(eleven).toHaveLength(11);
+
+    const verdict = withLive(eleven);
+
+    expect(codes(verdict)).toContain("live_snapshot_binding_count_wrong");
+    expect(allText(verdict)).toContain("requires exactly");
+    expect(verdict.ok).toBe(false);
+    // The projection itself is untouched, so no OTHER rule fired. Without the
+    // live cross-check this input would PASS.
+    expect(codes(verdict)).toEqual(["live_snapshot_binding_count_wrong"]);
+    expect(verdict.bindingCount).toBe(EXPECTED_FINAL_BINDING_COUNT);
+  });
+
+  it("REFUSES a live snapshot carrying MORE than twelve bindings", () => {
+    // A thirteenth live binding this contract does not enumerate. It cannot
+    // enter the projection, so again only the live count comparison sees it.
+    const thirteen = [...LIVE_BINDING_NAMES, "UNENUMERATED_LIVE_BINDING"];
+
+    const verdict = withLive(thirteen);
+
+    expect(codes(verdict)).toEqual(["live_snapshot_binding_count_wrong"]);
+    expect(verdict.ok).toBe(false);
+  });
+
+  it("REFUSES a live snapshot at exactly twelve that is missing a plain-text binding", () => {
+    for (const missing of EXPLICIT_PLAIN_TEXT_BINDINGS) {
+      // Twelve names, so the COUNT rule is satisfied: one required plain-text
+      // name is swapped for a foreign one. Only the plain-text presence rule
+      // refuses this, and it refuses it alone.
+      const swapped = [
+        ...LIVE_BINDING_NAMES.filter((name) => name !== missing),
+        "UNRELATED_LIVE_BINDING",
+      ];
+      expect(swapped).toHaveLength(EXPECTED_FINAL_BINDING_COUNT);
+
+      const verdict = withLive(swapped);
+
+      expect(codes(verdict), missing).toEqual(["live_snapshot_plain_text_missing"]);
+      expect(allText(verdict), missing).toContain(missing);
+      expect(allText(verdict), missing).toContain("verified 12-binding baseline");
+      expect(verdict.ok, missing).toBe(false);
+    }
+  });
+
+  it("REFUSES an EMPTY live snapshot rather than treating absence as agreement", () => {
+    // The upload wrapper falls back to `[]` when the live snapshot cannot be
+    // read or parsed. That must be a STOP, not a vacuous pass.
+    const verdict = withLive([]);
+    const reported = codes(verdict);
+    expect(reported).toContain("live_snapshot_binding_count_wrong");
+    for (const name of EXPLICIT_PLAIN_TEXT_BINDINGS) {
+      expect(allText(verdict)).toContain(name);
+    }
+    expect(reported).toContain("live_snapshot_plain_text_missing");
+    expect(verdict.ok).toBe(false);
+  });
+
+  it("never echoes a value while refusing a live snapshot", () => {
+    const verdict = withLive(LIVE_BINDING_NAMES.slice(0, 5));
+    expect(allText(verdict)).not.toContain(SUPABASE_URL);
+    expect(allText(verdict)).not.toContain("supabase.test");
+  });
+});
+
+/* ---- 17. every declared binding category reaches the projection ----------- */
+
+/**
+ * PR140 independent review, F6.
+ *
+ * `declaredBindingNames` understood six categories; `projectFinalBindingSet`
+ * understood two. A KV namespace, D1 database, queue or service binding added to
+ * the build was therefore invisible to the projection — the projected total
+ * would have stayed at twelve, passed the count gate, and described a binding set
+ * the upload does not produce. Both readers now walk one table, and a new
+ * binding in ANY supported category must move the count.
+ */
+describe("17. binding projection completeness across every declared category", () => {
+  /** One synthetic extra binding per supported category, added to the build. */
+  const extraFor = (category: (typeof CONFIG_BINDING_CATEGORIES)[number]) => ({
+    ...GENERATED_CONFIG,
+    [category.key]: [
+      ...((GENERATED_CONFIG[category.key] as unknown[] | undefined) ?? []),
+      { binding: "SYNTHETIC_EXTRA_BINDING", bucket_name: "synthetic-extra" },
+    ],
+  });
+
+  it("the APPROVED build still resolves to exactly twelve unique bindings", () => {
+    // The production contract is unchanged: the real build declares ASSETS and
+    // three R2 buckets and nothing else.
+    const projection = validProjection();
+    const names = projection.bindings.map((binding) => binding.name);
+    expect(names).toHaveLength(EXPECTED_FINAL_BINDING_COUNT);
+    expect(new Set(names).size).toBe(EXPECTED_FINAL_BINDING_COUNT);
+    expect(
+      verifyFinalBindingProjection({ projection, liveBindingNames: LIVE_BINDING_NAMES }).ok,
+    ).toBe(true);
+  });
+
+  it("the two readers agree on every category, by construction", () => {
+    expect(CONFIG_BINDING_CATEGORIES.map((category) => category.key)).toEqual([
+      "r2_buckets",
+      "kv_namespaces",
+      "d1_databases",
+      "queues",
+      "services",
+    ]);
+    for (const category of CONFIG_BINDING_CATEGORIES) {
+      const config = extraFor(category);
+      expect(declaredBindingNames(config), category.key).toContain("SYNTHETIC_EXTRA_BINDING");
+      expect(
+        declaredConfigBindings(config).map((binding) => binding.name),
+        category.key,
+      ).toEqual(declaredBindingNames(config));
+    }
+  });
+
+  for (const category of CONFIG_BINDING_CATEGORIES) {
+    it(`an extra ${category.key} binding CANNOT be hidden behind the twelve-binding gate`, () => {
+      const generatedConfig = extraFor(category);
+      const specification = buildUploadSpecification({ generatedConfig, values: VALUES });
+      const projection = projectFinalBindingSet({
+        generatedConfig,
+        specification,
+        liveBindingNames: LIVE_BINDING_NAMES,
+      });
+
+      // It is PROJECTED, with the class its category implies …
+      expect(projection.bindings).toContainEqual({
+        name: "SYNTHETIC_EXTRA_BINDING",
+        type: category.type,
+      });
+      expect(projection.bindings).toHaveLength(EXPECTED_FINAL_BINDING_COUNT + 1);
+
+      // … and it is therefore REFUSED, loudly, instead of silently omitted.
+      const verdict = verifyFinalBindingProjection({
+        projection,
+        liveBindingNames: LIVE_BINDING_NAMES,
+      });
+      expect(codes(verdict)).toContain("final_binding_count_wrong");
+      expect(verdict.ok).toBe(false);
+      expect(verdict.bindingCount).toBe(EXPECTED_FINAL_BINDING_COUNT + 1);
+    });
+  }
+
+  it("the assets binding is projected as its own class", () => {
+    expect(declaredConfigBindings(GENERATED_CONFIG)).toContainEqual({
+      name: "ASSETS",
+      type: "assets",
+    });
+  });
+
+  it("REFUSES an explicit record that collides with a binding in ANY category", () => {
+    for (const category of CONFIG_BINDING_CATEGORIES) {
+      const generatedConfig = extraFor(category);
+      const result = verifyUploadSpecification({
+        specification: buildUploadSpecification({ generatedConfig, values: VALUES }),
+        generatedConfig,
+        values: VALUES,
+      });
+      // The approved names do not collide, so this is the negative control for
+      // the collision rule reading the full category list.
+      expect(codes(result), category.key).not.toContain("duplicate_binding_name");
+    }
+
+    // And a real collision, declared in a category the projection used to ignore.
+    const generatedConfig = {
+      ...GENERATED_CONFIG,
+      kv_namespaces: [{ binding: "SUPABASE_URL", id: "synthetic" }],
+    };
+    const result = verifyUploadSpecification({
+      specification: buildUploadSpecification({ generatedConfig, values: VALUES }),
+      generatedConfig,
+      values: VALUES,
+    });
+    expect(codes(result)).toContain("duplicate_binding_name");
+    expect(result.ok).toBe(false);
+  });
+});
+
+/* ---- 19. the immutable build must be reproduced EXACTLY ------------------- */
+
+/**
+ * The last rule in `verifyUploadSpecification`: once every individual rule has
+ * passed, the whole document is rebuilt from the generated configuration plus
+ * the two records and compared. It exists because satisfying each rule
+ * separately does not make a document the approved one — a different
+ * compatibility date, a swapped bundle or a reordered binding array passes every
+ * individual check and is still not the artefact that was built.
+ *
+ * Nothing exercised it, which is the same shape of gap as mutation control 33:
+ * every case that reached it had already been refused by an earlier rule, so
+ * disabling it changed no result. Both inputs below pass every individual rule.
+ */
+describe("19. the upload specification IS the build plus exactly the two records", () => {
+  it("REFUSES a specification whose build fields differ from the generated configuration", () => {
+    // Every individual rule passes: two well-formed plain_text records, no vars
+    // block, no inherit, no duplicate. Only the reconstruction sees it.
+    const result = verifySpec({ ...validSpecification(), compatibility_date: "2026-08-01" });
+
+    expect(codes(result)).toEqual(["immutable_config_modified"]);
+    expect(allText(result)).toContain("byte-identical");
+    expect(result.ok).toBe(false);
+    expect(result.normalized).toBeNull();
+  });
+
+  it("REFUSES a specification carrying an extra build field the generated configuration lacks", () => {
+    const result = verifySpec({ ...validSpecification(), no_bundle: false });
+
+    expect(codes(result)).toEqual(["immutable_config_modified"]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("REFUSES the two records in the wrong ORDER — array order is content", () => {
+    const reversed = [...EXPLICIT_PLAIN_TEXT_BINDINGS]
+      .reverse()
+      .map((name) => ({ name, type: "plain_text", text: VALUES[name] }));
+    const result = verifySpec(specificationWithRecords(reversed));
+
+    expect(codes(result)).toEqual(["immutable_config_modified"]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("REFUSES a generated configuration that already declares the unsafe block", () => {
+    const generatedConfig = { ...GENERATED_CONFIG, unsafe: { bindings: [] } };
+    const result = verifyUploadSpecification({
+      specification: buildUploadSpecification({ generatedConfig, values: VALUES }),
+      generatedConfig,
+      values: VALUES,
+    });
+
+    expect(codes(result)).toContain("immutable_config_modified");
+    expect(allText(result)).toContain("may only ADD it");
+    expect(result.ok).toBe(false);
+  });
+
+  it("ACCEPTS the exact reconstruction — the positive control", () => {
+    const result = verifySpec(validSpecification());
+    expect(result.violations).toEqual([]);
+    expect(result.normalized).not.toBeNull();
+  });
+});
+
+/* ---- 18. the exclusive-create race ---------------------------------------- */
+
+/**
+ * PR140 independent review, F9.
+ *
+ * The wrapper checks `existsSync` early and creates the specification with `wx`
+ * much later, so a concurrent release can win the gap. The create then failed
+ * with a raw `EEXIST`, which surfaced as an unhandled exception: the wrapper
+ * aborted with a stack trace rather than the documented fail-closed STOP, and
+ * its own temporary directories were left behind.
+ *
+ * The refusal is normalized. What must remain true on that path — the other
+ * run's file is untouched and `run` is never invoked — is asserted directly.
+ */
+describe("18. losing the exclusive-create race is the documented STOP", () => {
+  it("normalizes EEXIST into the named refusal, and NEVER runs the body", () => {
+    const path = temporaryPath();
+    const foreign = '{"owner":"a concurrent release"}\n';
+    writeFileSync(path, foreign, "utf8");
+
+    let ran = 0;
+    let caught: unknown = null;
+    try {
+      withEphemeralSpecification({
+        absolutePath: path,
+        body: normalizeUploadSpecification(validSpecification()),
+        run: () => {
+          ran += 1;
+          return "spawned";
+        },
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(isEphemeralSpecificationExistsError(caught)).toBe(true);
+    expect((caught as { stop: string }).stop).toBe(EPHEMERAL_SPECIFICATION_EXISTS_STOP);
+    // The body — and therefore any launcher inside it — was never reached.
+    expect(ran).toBe(0);
+  });
+
+  it("never overwrites and never deletes the file the other run owns", () => {
+    const path = temporaryPath();
+    const foreign = '{"owner":"a concurrent release"}\n';
+    writeFileSync(path, foreign, "utf8");
+
+    expect(() =>
+      withEphemeralSpecification({
+        absolutePath: path,
+        body: normalizeUploadSpecification(validSpecification()),
+        run: () => "spawned",
+      }),
+    ).toThrow();
+
+    // Still there, byte for byte. The `finally` cleanup must NOT have run: this
+    // function did not create the file and has no business removing evidence.
+    expect(existsSync(path)).toBe(true);
+    expect(readFileSync(path, "utf8")).toBe(foreign);
+  });
+
+  it("carries no binding value in the refusal it raises or the description it yields", () => {
+    const path = temporaryPath();
+    writeFileSync(path, "{}\n", "utf8");
+
+    let caught: unknown = null;
+    try {
+      writeEphemeralSpecification(path, normalizeUploadSpecification(validSpecification()));
+    } catch (error) {
+      caught = error;
+    }
+
+    const described = describeEphemeralSpecificationFailure(caught);
+    expect(described.preExisting).toBe(true);
+    expect(described.stop).toBe(EPHEMERAL_SPECIFICATION_EXISTS_STOP);
+    expect(described.message).toContain("NOT overwritten");
+    expect(described.message).toContain("NOT deleted");
+    for (const text of [String((caught as Error).message), described.message]) {
+      expect(text).not.toContain(SUPABASE_URL);
+      expect(text).not.toContain("supabase.test");
+      expect(text).not.toContain(path);
+    }
+  });
+
+  it("does NOT classify an unrelated filesystem failure as a lost race", () => {
+    // A directory that does not exist is ENOENT, not EEXIST. Disguising it as a
+    // race would be a worse report than no report.
+    const missing = join(temporaryPath("nested"), "deeper", "wrangler.upload.json");
+    let caught: unknown = null;
+    try {
+      writeEphemeralSpecification(missing, "{}\n");
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).not.toBeNull();
+    expect(isEphemeralSpecificationExistsError(caught)).toBe(false);
+    const described = describeEphemeralSpecificationFailure(caught);
+    expect(described.preExisting).toBe(false);
+    expect(described.stop).toBeNull();
+  });
+
+  it("still removes a specification THIS run created, on success and on throw", () => {
+    const created = temporaryPath();
+    withEphemeralSpecification({
+      absolutePath: created,
+      body: normalizeUploadSpecification(validSpecification()),
+      run: () => null,
+    });
+    expect(existsSync(created)).toBe(false);
   });
 });

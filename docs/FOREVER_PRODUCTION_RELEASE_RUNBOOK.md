@@ -271,11 +271,24 @@ uploaded. Those are the two facts that make such a release verifiable at all.
    the artefact uploaded was the artefact that was verified, so it could not
    distinguish a correct release from the one that produced `3540bc64`. Schema 2
    adds the two digests that close that gap, so a receipt mechanically
-   correlates all four facts: expected former live UUID, normalized
-   upload-specification SHA-256, immutable release-manifest SHA-256, and the
-   resulting candidate UUID. **Migration-free**: schema-1 receipts remain
-   readable exactly as written — no rewrite, no backfill — and only schema 2 is
-   ever produced. It is still value-free: two UUIDs and two digests.
+   correlates all four facts: expected former live UUID, the
+   upload-specification **verification digest**, the immutable release-manifest
+   SHA-256, and the resulting candidate UUID. **Migration-free**: schema-1
+   receipts remain readable exactly as written — no rewrite, no backfill — and
+   only schema 2 is ever produced. It is still value-free: two UUIDs and two
+   digests.
+
+   **The two digests are not the same kind of thing.** `releaseManifestSha256`
+   is an ordinary, reproducible SHA-256 of a value-free file; anyone holding
+   that file can recompute it. `uploadSpecificationSha256` is a **salted
+   verification digest** — SHA-256 over a per-release random salt followed by
+   the normalized specification — and it is therefore **not a content address**,
+   **not reproducible** by a later reader, and **not comparable across
+   releases**. Its only job is to bind "verified" to "consumed" inside one
+   release. It is salted because `STUDIO_STORAGE_WRITE_PROVIDER` has two
+   possible values, so a bare SHA-256 of a document whose every other byte is
+   knowable would be a two-guess oracle. The field name is fixed by the schema;
+   the meaning is this paragraph, not the name.
 
    It refuses
    an existing receipt rather than overwriting it. If the candidate UUID equals
@@ -593,8 +606,26 @@ Wrangler against a loopback mock and asserted the multipart metadata Wrangler
 emits. That was real, and it measured WRANGLER. It could not measure
 CLOUDFLARE, and §2c said so at the time: the surrounding claim was labelled "a
 high-confidence inference, NOT a proven Cloudflare guarantee". The inference was
-wrong in the one place no local proof could reach. The proof has been deleted
-rather than left to defend a mechanism that cannot be used.
+wrong in the one place no local proof could reach. **That inherit proof is
+deleted** — it defended a mechanism the API refuses — and it is not referenced
+anywhere as current evidence.
+
+**An equivalent proof exists for the mechanism that replaced it.**
+`src/lib/stale-asset/wrangler-plain-text-serialization.test.ts` runs the same
+repository-locked Wrangler, against a loopback listener, under the same
+process-level network guard and the same constructed child environment, and
+reads the multipart metadata Wrangler emits for the two explicit records. It
+proves exactly two `plain_text` records with the right names carrying the values
+the specification supplied, **zero** `inherit` records, and no duplicate name.
+Dropping it along with the inherit proof would have left the new mechanism
+resting on inspecting the configuration this repository writes — which is the
+same gap the superseded PREUPLOAD contract had.
+
+**And it carries the narrower claim the previous one should have carried.** It
+is evidence about WRANGLER's serialization only. It says nothing about what
+Cloudflare accepts, it cannot, and it is never cited as though it did.
+Post-upload capture and comparison — §2 step 6 — remain the only evidence of
+what the API actually produced.
 
 ### Why `"latest"` is prohibited, even though it is the only accepted value
 
@@ -686,6 +717,41 @@ a hash that would disclose a low-entropy value. Concretely:
   shell history;
 - every refusal names the BINDING and the RULE, never the value that broke it.
 
+### Exactly which process holds what
+
+Stated as facts rather than as an impression, because the previous wording read
+as though nothing anywhere held a value, and both children were in fact being
+handed the release-input variables:
+
+1. **The wrapper process DOES hold both release inputs**, from the moment it
+   reads them until the ephemeral specification has been built and verified. It
+   is the one process permitted to, and it is the only one.
+2. **The PREUPLOAD child does NOT.** `FOREVER_RELEASE_SUPABASE_URL` and
+   `FOREVER_RELEASE_STUDIO_STORAGE_WRITE_PROVIDER` are **deleted from its
+   environment** before it is spawned, so "this process was never given a value"
+   is a property of the process and not merely of the code path it took.
+3. **The Wrangler child does NOT either.** Both keys are deleted from its
+   environment as well. Wrangler receives the two values through **exactly one
+   channel** — the verified ephemeral specification named by `--config`. This
+   matters concretely: Wrangler resolves `${VAR}`-style references and reads
+   `.env`/`.dev.vars`, so an environment copy would be a real second source that
+   nothing in this contract verifies.
+4. **The specification is deleted once the launcher returns or throws.** The
+   removal is in a `finally`, so a successful upload, a non-zero Wrangler exit
+   and an exception all reach it. If removal itself fails, the wrapper says so
+   loudly and names the file as one that carries values.
+5. **A lost exclusive-create race is the same fail-closed STOP.** If a
+   concurrent release creates that path between the wrapper's existence check
+   and its exclusive create, the other run's file is neither overwritten nor
+   deleted, this run's temporary directories are cleaned, and Wrangler is never
+   spawned.
+
+Both child-environment facts are proven behaviourally rather than asserted:
+`release-child-environment.test.ts` spawns real child processes with the
+environments the production builders produce and has them report their own
+environment back, and `release-binding-preflight.test.ts` runs the real wrapper
+end-to-end and observes the actual PREUPLOAD child.
+
 ### Configuration inspection is not enough — and neither is a digest
 
 The superseded PREUPLOAD contracts each checked something true and insufficient:
@@ -723,6 +789,63 @@ where they are, at 0%, as evidence — §2b. The 26 asset blobs the refused uplo
 staged into the account's asset store belong to an upload session that never
 became a version; nothing references or serves them, and deleting them is not
 part of this or any release step.
+
+---
+
+## 2d. RELEASE CHECK MAPPING — WHAT RUNS, AND WHAT IS N/A
+
+Added by `FOREVER-PR140-CORRECTIONS-002`. Every gate a release claims is listed
+here with the command that produces it, so a claim in a PR description can be
+checked against a command rather than taken on trust.
+
+| Check                          | Command                                                                        | Status                          |
+| ------------------------------ | ------------------------------------------------------------------------------ | ------------------------------- |
+| production build               | `npm run build`                                                                | required                        |
+| full test suite                | `npx vitest run`                                                               | required                        |
+| release binding preflight      | `npm run release:verify-bindings`                                              | required                        |
+| Wrangler identity gate         | `npm run release:wrangler-gate`                                                | required                        |
+| mutation controls (42)         | `npm run release:keep-vars-mutations`                                          | required                        |
+| offline Wrangler serialization | `npx vitest run src/lib/stale-asset/wrangler-plain-text-serialization.test.ts` | required                        |
+| network containment            | `npx vitest run src/lib/stale-asset/release-network-containment.test.ts`       | required                        |
+| lint                           | `npx eslint <changed files>`                                                   | required, scoped — see below    |
+| formatting                     | `npx prettier --check <changed files>`                                         | required, scoped                |
+| `actionlint`                   | —                                                                              | **N/A — owner-approved waiver** |
+
+### `actionlint: N/A — repository contains no GitHub Actions workflows`
+
+**This is an owner-approved, repository-state-specific waiver.** The repository
+contains no `.github/workflows` directory and no GitHub Actions workflow file of
+any kind, so there is nothing for `actionlint` to lint. A workflow was **not**
+created to satisfy the check: adding a meaningless workflow purely to make a
+linter applicable would be a change to the release surface made for the benefit
+of a report, which is exactly the class of change §3 forbids. `actionlint` was
+**not** installed and the check is **not** reported as passing.
+
+**The waiver expires automatically.** It holds only while the repository has no
+workflow files. If any file is added under `.github/workflows`, this waiver is
+void from that moment and `actionlint` becomes a required check in the same task
+that adds the file.
+
+**Absence of CI is never a green status check.** This repository has no GitHub
+Actions, so a pull request against it carries **no status checks at all**. An
+empty check list means "nothing ran", and it must never be presented — in a PR
+description, a release report or a review summary — as checks that passed. Every
+gate in the table above is a LOCAL command whose output is the evidence; if a
+report claims a gate held, it names the command and quotes the result.
+
+### Why lint is scoped rather than repository-wide
+
+`npm run lint` runs `eslint .` from the repository root, and this checkout has
+sibling worktrees and scratch trees physically located beneath it (`.codex/tmp`,
+`.forever-factory/worktrees`, and others). A repository-wide lint therefore
+traverses unrelated checkouts and reports findings that belong to other
+branches. That is an environmental limitation of this working copy, **not** a
+reason to edit the ESLint configuration: changing shared configuration to
+accommodate one machine's directory layout would weaken the check for everyone.
+
+The release therefore lints the changed files explicitly — `npx eslint` with
+each changed source, test and documentation-supported file named — and reports
+the limitation alongside the result.
 
 ---
 
