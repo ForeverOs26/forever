@@ -31,11 +31,11 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  PREUPLOAD_PINNED_INHERITANCE_MARKER,
-  SUPERSEDED_PREUPLOAD_MARKER,
+  PREUPLOAD_EXPLICIT_BINDINGS_MARKER,
+  SUPERSEDED_PREUPLOAD_MARKERS,
   buildUploadSpecification,
-  normalizeUploadSpecification,
-} from "./pinned-binding-inheritance";
+  projectFinalBindingSet,
+} from "./explicit-plain-text-bindings";
 
 const SCRIPT = "scripts/release/verify-binding-preservation.mjs";
 const WRAPPER = "scripts/release/upload-worker-version.mjs";
@@ -55,26 +55,54 @@ function run(script: string, ...args: string[]) {
 }
 
 /**
- * Writes a valid ephemeral upload specification for a PREUPLOAD run.
- *
- * FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001: PREUPLOAD now reads
- * the specification the upload will consume, so the tests must produce one the
- * same way the wrapper does — from the real immutable build output plus the two
- * pinned inherit records. Building it any other way would test a fiction.
+ * SYNTHETIC values. Never a production value, and never written anywhere the
+ * suite asserts against — the origin is a `.test` host that cannot resolve.
  */
-function writeUploadSpecification(expectedLiveVersion: string): string {
+const SYNTHETIC_SUPABASE_URL = "https://synthetic-project.supabase.test";
+const SYNTHETIC_WRITE_PROVIDER = "r2";
+const SYNTHETIC_DIGEST = "a".repeat(64);
+
+/**
+ * Writes the VALUE-FREE binding projection a PREUPLOAD run consumes.
+ *
+ * FOREVER-STUDIO-EXPLICIT-BINDINGS-FIX-002: PREUPLOAD no longer reads the
+ * value-carrying specification — it never sees a value at all. It reasons about
+ * the projection the wrapper derives, so the tests must derive one the same way,
+ * from the real immutable build output plus the two explicit records. Building
+ * it any other way would test a fiction.
+ */
+function writeBindingProjection(
+  overrides: Partial<Record<string, unknown>> = {},
+  liveBindingNames?: readonly string[],
+): string {
   const generatedConfig = JSON.parse(read(".output/server/wrangler.json")) as Record<
     string,
     unknown
   >;
-  const path = join(mkdtempSync(join(tmpdir(), "forever-preflight-spec-")), "wrangler.upload.json");
-  writeFileSync(
-    path,
-    normalizeUploadSpecification(
-      buildUploadSpecification({ generatedConfig, expectedLiveVersion }),
-    ),
-    "utf8",
+  const names =
+    liveBindingNames ??
+    (JSON.parse(read(LIVE)) as { bindings: { name: string }[] }).bindings.map(
+      (binding) => binding.name,
+    );
+  const projection = {
+    ...projectFinalBindingSet({
+      generatedConfig,
+      specification: buildUploadSpecification({
+        generatedConfig,
+        values: {
+          SUPABASE_URL: SYNTHETIC_SUPABASE_URL,
+          STUDIO_STORAGE_WRITE_PROVIDER: SYNTHETIC_WRITE_PROVIDER,
+        },
+      }),
+      liveBindingNames: names,
+    }),
+    ...overrides,
+  };
+  const path = join(
+    mkdtempSync(join(tmpdir(), "forever-preflight-projection-")),
+    "upload-binding-projection.json",
   );
+  writeFileSync(path, `${JSON.stringify(projection, null, 2)}\n`, "utf8");
   return path;
 }
 
@@ -82,13 +110,15 @@ const runPreflightUnpinned = (...args: string[]) => run(SCRIPT, ...args);
 const runPreflight = (...args: string[]) => {
   if (args.includes("--preupload")) {
     const index = args.indexOf("--expected-live-version");
-    const pinned = index === -1 ? LIVE_ID : args[index + 1];
     return run(
       SCRIPT,
       ...args,
-      ...(args.includes("--upload-specification")
+      ...(args.includes("--upload-binding-projection")
         ? []
-        : ["--upload-specification", writeUploadSpecification(pinned)]),
+        : ["--upload-binding-projection", writeBindingProjection()]),
+      ...(args.includes("--upload-specification-digest")
+        ? []
+        : ["--upload-specification-digest", SYNTHETIC_DIGEST]),
       ...(index !== -1 ? [] : ["--expected-live-version", LIVE_ID]),
     );
   }
@@ -610,13 +640,18 @@ describe("the upload wrapper refuses to spawn Wrangler unless every gate held", 
     expect(source).toContain("--authorize-upload");
   });
 
-  it("the pre-upload preflight mode PASSES on a valid live snapshot and pinned specification", () => {
+  it("the pre-upload preflight mode PASSES on a valid live snapshot and explicit projection", () => {
     const result = runPreflight("--preupload", "--live", LIVE);
     expect(result.status).toBe(0);
-    expect(output(result)).toContain(PREUPLOAD_PINNED_INHERITANCE_MARKER);
-    // The superseded marker verified INTENT and passed an upload that could not
-    // have preserved the two variables. It is never emitted again.
-    expect(output(result)).not.toContain(SUPERSEDED_PREUPLOAD_MARKER);
+    expect(output(result)).toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
+    expect(output(result)).toContain("inherit records    : 0");
+    expect(output(result)).toContain("projected bindings : 12");
+    // Both superseded markers described contracts that did not hold — one
+    // verified INTENT, the other verified a mechanism the API rejects with
+    // HTTP 400. Neither is ever emitted again.
+    for (const superseded of SUPERSEDED_PREUPLOAD_MARKERS) {
+      expect(output(result)).not.toContain(superseded);
+    }
   });
 
   it("the pre-upload preflight STOPS on an invalid live snapshot", () => {
@@ -626,10 +661,10 @@ describe("the upload wrapper refuses to spawn Wrangler unless every gate held", 
       `${FIXTURES}/snapshot-unknown-top-level-key.json`,
     );
     expect(result.status).toBe(1);
-    expect(output(result)).not.toContain(PREUPLOAD_PINNED_INHERITANCE_MARKER);
+    expect(output(result)).not.toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
   });
 
-  it("PREUPLOAD_PINNED_STOPS: refuses when the specification is missing entirely", () => {
+  it("PREUPLOAD_EXPLICIT_STOPS: refuses when the projection is missing entirely", () => {
     // Generic keep_vars as the only protection is exactly candidate 3540bc64.
     const result = runPreflightUnpinned(
       "--preupload",
@@ -637,34 +672,79 @@ describe("the upload wrapper refuses to spawn Wrangler unless every gate held", 
       LIVE,
       "--expected-live-version",
       LIVE_ID,
-      "--upload-specification",
+      "--upload-binding-projection",
       `${FIXTURES}/does-not-exist.json`,
+      "--upload-specification-digest",
+      SYNTHETIC_DIGEST,
     );
     expect(result.status).toBe(1);
     expect(output(result)).toContain("specification_malformed");
-    expect(output(result)).not.toContain(PREUPLOAD_PINNED_INHERITANCE_MARKER);
+    expect(output(result)).not.toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
   });
 
-  it("PREUPLOAD_PINNED_STOPS: refuses a specification pinned to a different version", () => {
-    const result = runPreflightUnpinned(
+  it("PREUPLOAD_EXPLICIT_STOPS: refuses a projection carrying any inherit record", () => {
+    const result = runPreflight(
       "--preupload",
       "--live",
       LIVE,
-      "--expected-live-version",
-      LIVE_ID,
-      "--upload-specification",
-      writeUploadSpecification(CANDIDATE_ID),
+      "--upload-binding-projection",
+      writeBindingProjection({ inheritRecordCount: 1 }),
     );
     expect(result.status).toBe(1);
-    expect(output(result)).toContain("inherit_record_version_mismatch");
-    expect(output(result)).not.toContain(PREUPLOAD_PINNED_INHERITANCE_MARKER);
+    expect(output(result)).toContain("inherit_record_present");
+    expect(output(result)).toContain("10057");
+    expect(output(result)).not.toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
   });
 
-  it("PREUPLOAD_PINNED_RECORDS: a passing run records the specification digest", () => {
+  it("PREUPLOAD_EXPLICIT_STOPS: refuses a projection that lost a plain-text binding", () => {
+    const projection = writeBindingProjection();
+    const parsed = JSON.parse(readFileSync(projection, "utf8")) as {
+      bindings: { name: string }[];
+    };
+    const shortened = writeBindingProjection({
+      bindings: parsed.bindings.filter((binding) => binding.name !== "SUPABASE_URL"),
+    });
+    const result = runPreflight(
+      "--preupload",
+      "--live",
+      LIVE,
+      "--upload-binding-projection",
+      shortened,
+    );
+    expect(result.status).toBe(1);
+    expect(output(result)).toContain("SUPABASE_URL");
+    expect(output(result)).toContain("final_binding_count_wrong");
+    expect(output(result)).not.toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
+  });
+
+  it("PREUPLOAD_EXPLICIT_STOPS: refuses a missing or malformed specification digest", () => {
+    for (const digest of [undefined, "not-a-digest"]) {
+      const result = runPreflightUnpinned(
+        "--preupload",
+        "--live",
+        LIVE,
+        "--expected-live-version",
+        LIVE_ID,
+        "--upload-binding-projection",
+        writeBindingProjection(),
+        ...(digest === undefined ? [] : ["--upload-specification-digest", digest]),
+      );
+      expect(result.status).toBe(1);
+      expect(output(result)).not.toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
+    }
+  });
+
+  it("PREUPLOAD_EXPLICIT_RECORDS: a passing run records the specification digest", () => {
     const result = runPreflight("--preupload", "--live", LIVE);
     // The upload wrapper re-hashes the file immediately before spawning, so the
     // digest is what binds "verified" to "consumed".
-    expect(output(result)).toMatch(/upload spec sha256 : [0-9a-f]{64}/);
+    expect(output(result)).toMatch(/upload spec digest : [0-9a-f]{64}/);
+  });
+
+  it("PREUPLOAD_VALUE_FREE: the preflight never prints a binding value", () => {
+    const result = runPreflight("--preupload", "--live", LIVE);
+    expect(output(result)).not.toContain(SYNTHETIC_SUPABASE_URL);
+    expect(output(result)).not.toContain("supabase.test");
   });
 
   it("the version gate reports the supported version and never uses a shell", () => {

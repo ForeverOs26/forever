@@ -37,7 +37,7 @@ import {
   buildUploadSpecification,
   normalizeUploadSpecification,
   verifyUploadSpecification,
-} from "./pinned-binding-inheritance";
+} from "./explicit-plain-text-bindings";
 import {
   IMMUTABLE_BUILD_OUTPUT_CHANGED_STOP,
   UPLOAD_SPECIFICATION_DIGEST_MISMATCH_STOP,
@@ -61,6 +61,16 @@ const DUMMY_GENERATED_CONFIG: Record<string, unknown> = {
   keep_vars: true,
   assets: { binding: "ASSETS", directory: "./public" },
 };
+
+/**
+ * SYNTHETIC release values. FOREVER-STUDIO-EXPLICIT-BINDINGS-FIX-002 replaced
+ * pinned inheritance with explicit `plain_text` bindings, so the fixture now
+ * carries values — synthetic ones, on a `.test` host that cannot resolve.
+ */
+const DUMMY_VALUES = {
+  SUPABASE_URL: "https://orchestration-fixture.supabase.test",
+  STUDIO_STORAGE_WRITE_PROVIDER: "supabase",
+} as const;
 
 /** A sanitized twelve-name live snapshot. Names only; no value exists here. */
 const DUMMY_LIVE_BINDING_NAMES = [
@@ -106,14 +116,12 @@ beforeEach(() => {
   // ---- the applicable offline PREUPLOAD verification, in full ---------------
   const specification = buildUploadSpecification({
     generatedConfig: DUMMY_GENERATED_CONFIG,
-    expectedLiveVersion: DUMMY_LIVE_VERSION,
+    values: DUMMY_VALUES,
   });
   const preupload = verifyUploadSpecification({
     specification,
     generatedConfig: DUMMY_GENERATED_CONFIG,
-    expectedLiveVersion: DUMMY_LIVE_VERSION,
-    liveSnapshotVersionId: DUMMY_LIVE_VERSION,
-    liveBindingNames: DUMMY_LIVE_BINDING_NAMES,
+    values: DUMMY_VALUES,
   });
   if (!preupload.ok || preupload.normalized === null) {
     throw new Error(
@@ -139,20 +147,23 @@ const decide = () =>
   });
 
 describe("the dummy fixture really passed the offline PREUPLOAD contract", () => {
-  it("carries exactly the twelve-name source and the two pinned inherit records", () => {
+  it("carries exactly the twelve-name source and the two explicit plain_text records", () => {
     expect(DUMMY_LIVE_BINDING_NAMES).toHaveLength(EXPECTED_PRODUCTION_BINDING_COUNT);
     const specification = JSON.parse(readFileSync(specificationPath, "utf8")) as {
       unsafe: { bindings: { name: string; type: string; version_id: string }[] };
     };
     expect(specification.unsafe.bindings).toHaveLength(2);
     for (const binding of specification.unsafe.bindings) {
-      expect(binding.type).toBe("inherit");
-      expect(binding.version_id).toBe(DUMMY_LIVE_VERSION);
+      expect(binding.type).toBe("plain_text");
+      // No inheritance survives anywhere in the document: the production API
+      // rejects a pinned version_id with HTTP 400 [code: 10057].
+      expect(binding.version_id).toBeUndefined();
     }
+    expect(readFileSync(specificationPath, "utf8")).not.toContain("inherit");
   });
 });
 
-describe("PINNED_SPEC_CONSUMED: the verified bytes are the uploaded bytes", () => {
+describe("VERIFIED_SPEC_CONSUMED: the verified bytes are the uploaded bytes", () => {
   it("LAUNCHES when the specification is untouched — the positive control", () => {
     const decision = decide();
 
@@ -167,7 +178,7 @@ describe("PINNED_SPEC_CONSUMED: the verified bytes are the uploaded bytes", () =
     // final spawn decision — the exact window this guard exists to close.
     const tampered = buildUploadSpecification({
       generatedConfig: DUMMY_GENERATED_CONFIG,
-      expectedLiveVersion: "9f8e7d6c-5b4a-4392-8817-06f5e4d3c2b1",
+      values: { ...DUMMY_VALUES, STUDIO_STORAGE_WRITE_PROVIDER: "r2" },
     });
     writeFileSync(specificationPath, normalizeUploadSpecification(tampered), "utf8");
 

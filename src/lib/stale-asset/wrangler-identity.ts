@@ -56,12 +56,17 @@
  * ONE RESOLVER, BOTH PATHS
  * ---------------------------------------------------------------------------
  *
- * `scripts/release/wrangler-version-gate.mjs` (and therefore the production
- * upload wrapper, which consumes it) and
- * `src/lib/stale-asset/wrangler-inherit-serialization.test.ts` both call this
- * module. The offline serialization proof and the production upload are
- * therefore proven to run THE SAME FILE, which is the only thing that makes the
- * offline proof evidence about the production path at all.
+ * `scripts/release/wrangler-version-gate.mjs` — and therefore the production
+ * upload wrapper, which consumes it — and `wrangler-identity.test.ts` both call
+ * this module, so identity is decided in exactly one place for every path that
+ * can reach an upload.
+ *
+ * FOREVER-STUDIO-EXPLICIT-BINDINGS-FIX-002 removed the third caller. The
+ * offline multipart-serialization proof asserted that Wrangler forwards a
+ * pinned `inherit` `version_id` verbatim. It did, and the production API
+ * refused the result with HTTP 400 [code: 10057]: the proof measured Wrangler
+ * where the open question was Cloudflare. It was deleted with the mechanism it
+ * defended rather than left as evidence for a path no release can take.
  *
  * Nothing here reads a credential, contacts a network or performs an upload.
  * The single spawn is `--version`, under a minimal synthetic environment.

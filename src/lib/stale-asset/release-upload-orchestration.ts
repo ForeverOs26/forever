@@ -47,11 +47,13 @@ import { existsSync, readFileSync } from "node:fs";
 /** The named STOPs. Asserted by name, never by message text. */
 export const UPLOAD_SPECIFICATION_MISSING_STOP = "upload_specification_missing";
 export const UPLOAD_SPECIFICATION_DIGEST_MISMATCH_STOP = "upload_specification_digest_mismatch";
+export const UPLOAD_SPECIFICATION_STRUCTURE_INVALID_STOP = "upload_specification_structure_invalid";
 export const IMMUTABLE_BUILD_OUTPUT_CHANGED_STOP = "immutable_build_output_changed";
 
 export type UploadLaunchStop =
   | typeof UPLOAD_SPECIFICATION_MISSING_STOP
   | typeof UPLOAD_SPECIFICATION_DIGEST_MISMATCH_STOP
+  | typeof UPLOAD_SPECIFICATION_STRUCTURE_INVALID_STOP
   | typeof IMMUTABLE_BUILD_OUTPUT_CHANGED_STOP;
 
 export interface UploadLaunchDecision<T> {
@@ -95,10 +97,33 @@ export function verifyThenLaunchUpload<T>(input: {
   readonly generatedConfigPath: string;
   /** The generated configuration's bytes, read before the preflight ran. */
   readonly generatedBytesBefore: Buffer;
+  /**
+   * How the digest is computed over the specification's bytes.
+   *
+   * FOREVER-STUDIO-EXPLICIT-BINDINGS-FIX-002. The specification now carries
+   * `SUPABASE_URL` and `STUDIO_STORAGE_WRITE_PROVIDER`, and the latter has two
+   * possible values — so a BARE SHA-256 of a document whose every other byte is
+   * knowable is a two-guess oracle for a production setting. The wrapper
+   * therefore supplies a per-release SALTED digest, and the salt never leaves
+   * its memory. Defaults to a bare SHA-256 for callers hashing value-free bytes.
+   */
+  readonly digest?: (raw: string) => string;
+  /**
+   * Re-proves the STRUCTURE of the bytes about to be uploaded, not just their
+   * digest.
+   *
+   * The digest proves the file did not change since PREUPLOAD. It cannot prove
+   * PREUPLOAD verified the right thing if the two ever disagreed about which
+   * document they were describing. Re-parsing here means the contract is
+   * asserted against the exact bytes Wrangler will read, at the last possible
+   * moment.
+   */
+  readonly revalidate?: (raw: string) => { readonly ok: boolean; readonly detail: string };
   /** Invoked once, only after every guard above has passed. */
   readonly launch: () => T;
 }): UploadLaunchDecision<T> {
   const { specificationPath, verifiedDigest, generatedConfigPath, generatedBytesBefore } = input;
+  const digest = input.digest ?? ((raw: string) => createHash("sha256").update(raw).digest("hex"));
 
   if (!existsSync(specificationPath)) {
     return refuse(
@@ -107,9 +132,8 @@ export function verifyThenLaunchUpload<T>(input: {
     );
   }
 
-  const consumedDigest = createHash("sha256")
-    .update(readFileSync(specificationPath, "utf8"))
-    .digest("hex");
+  const raw = readFileSync(specificationPath, "utf8");
+  const consumedDigest = digest(raw);
 
   // MUTATION CONTROL 37 attacks exactly this comparison, and is now detected by
   // the injected launcher being called rather than by the source text differing.
@@ -119,6 +143,13 @@ export function verifyThenLaunchUpload<T>(input: {
       "the upload specification changed after it was verified. PREUPLOAD is invalidated by any " +
         "later build or regeneration; re-run the whole gate rather than uploading these bytes.",
     );
+  }
+
+  if (input.revalidate) {
+    const revalidation = input.revalidate(raw);
+    if (!revalidation.ok) {
+      return refuse(UPLOAD_SPECIFICATION_STRUCTURE_INVALID_STOP, revalidation.detail);
+    }
   }
 
   if (!readFileSync(generatedConfigPath).equals(generatedBytesBefore)) {
