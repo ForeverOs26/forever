@@ -315,6 +315,40 @@ describe("3/4/5. required release inputs, fail-closed BEFORE any spawn", () => {
     expect(result.ok).toBe(false);
   });
 
+  /**
+   * FOREVER-PR140-FINAL-REVIEW-003 — the RUNTIME names cannot stand in for the
+   * release inputs.
+   *
+   * `RELEASE_VALUE_ENV_VARS` uses deliberately release-scoped names so a
+   * developer's exported `SUPABASE_URL` or `STUDIO_STORAGE_WRITE_PROVIDER`
+   * cannot be shipped by a release that happened to run in their shell. That is
+   * a stated safety property of this module and of runbook §2c, and nothing
+   * exercised it: every other case here supplies the release-scoped names, so
+   * the suite could not distinguish a scoped lookup from an unscoped one.
+   */
+  it("REFUSES the RUNTIME variable names as a substitute for the release inputs", () => {
+    for (const binding of EXPLICIT_PLAIN_TEXT_BINDINGS) {
+      expect(RELEASE_VALUE_ENV_VARS[binding], binding).not.toBe(binding);
+      expect(RELEASE_VALUE_ENV_VARS[binding], binding).toContain("FOREVER_RELEASE_");
+    }
+
+    // A shell carrying BOTH runtime variables, correctly valued, and neither
+    // release input. This is a developer's everyday environment.
+    const result = readReleaseBindingInputs({
+      SUPABASE_URL,
+      STUDIO_STORAGE_WRITE_PROVIDER: WRITE_PROVIDER,
+    });
+
+    // Both refusals are "missing", never "invalid": the runtime values were not
+    // read and rejected, they were not read at all.
+    expect(codes(result)).toEqual(["release_input_missing", "release_input_missing"]);
+    expect(result.ok).toBe(false);
+    expect(result.values).toBeNull();
+    for (const binding of EXPLICIT_PLAIN_TEXT_BINDINGS) {
+      expect(allText(result), binding).toContain(RELEASE_VALUE_ENV_VARS[binding]);
+    }
+  });
+
   it("NEVER defaults the provider, even though the runtime documents one", () => {
     const result = readReleaseBindingInputs({
       [RELEASE_VALUE_ENV_VARS.SUPABASE_URL]: SUPABASE_URL,

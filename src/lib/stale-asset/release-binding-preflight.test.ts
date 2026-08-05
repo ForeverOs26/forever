@@ -888,7 +888,13 @@ if (log) {
     );
 
   /** Runs the wrapper with the reporter installed and collects everything. */
-  function runWrapperOffline(extraArgs: readonly string[] = []): WrapperRun {
+  function runWrapperOffline(
+    extraArgs: readonly string[] = [],
+    live: { readonly snapshot: string; readonly versionId: string } = {
+      snapshot: LIVE,
+      versionId: LIVE_ID,
+    },
+  ): WrapperRun {
     const scratch = mkdtempSync(join(tmpdir(), "forever-wrapper-observed-"));
     const reporter = join(scratch, "report-child-environment.cjs");
     const logPath = join(scratch, "child-environments.jsonl");
@@ -899,7 +905,7 @@ if (log) {
     try {
       const run = spawnSync(
         process.execPath,
-        [WRAPPER, "--live", LIVE, "--expected-live-version", LIVE_ID, ...extraArgs],
+        [WRAPPER, "--live", live.snapshot, "--expected-live-version", live.versionId, ...extraArgs],
         {
           cwd: process.cwd(),
           encoding: "utf8",
@@ -990,6 +996,36 @@ if (log) {
     // set — and the values are not.
     for (const key of RELEASE_VALUE_ENV_KEYS) expect(dryRun.text).toContain(key);
   });
+
+  /**
+   * FOREVER-PR140-FINAL-REVIEW-003 — the release-owned temporary directory is
+   * released on a STOP, measured where the measurement is not vacuous.
+   *
+   * The dry-run and pre-existing-specification cases above both assert that no
+   * `forever-release-work-*` directory survives, and NEITHER of them can fail:
+   * the pre-existing-specification STOP happens before `mkdtempSync` is ever
+   * reached, so there is no directory to leave behind. A preflight refusal is
+   * the one path an UNAUTHORIZED run can take that reaches `stop()` with a
+   * directory already created — the wrapper makes it to hold the value-free
+   * projection it hands the preflight child.
+   */
+  it("RELEASE_WORK_DIRECTORY_RELEASED: a STOP after the work directory exists still cleans it", () => {
+    const run = runWrapperOffline([], {
+      snapshot: LIVE_ELEVEN,
+      versionId: LIVE_ELEVEN_ID,
+    });
+
+    // The refusal came from the preflight, which only runs once the work
+    // directory holds the projection — so the cleanup below is a real one.
+    expect(run.status).toBe(1);
+    expect(run.text).toContain("live_snapshot_binding_count_wrong");
+    expect(run.text).toContain("the binding preflight did not produce PASS");
+    expect(run.text).toContain("Wrangler was NOT spawned");
+
+    expect(run.workDirectoriesLeftBehind).toEqual([]);
+    expect(run.records.map((record) => record.script)).not.toContain("wrangler.js");
+    expect(existsSync(resolve(process.cwd(), UPLOAD_SPECIFICATION_PATH))).toBe(false);
+  }, 180_000);
 
   it("STOPS when a specification from another run is already present, and preserves it", () => {
     // The documented fail-closed refusal. The pre-existing file belongs to a

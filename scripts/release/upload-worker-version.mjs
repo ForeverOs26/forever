@@ -560,6 +560,18 @@ try {
         "exactly as found.",
     );
   }
+  // ANY OTHER failure is re-thrown exactly as Node raised it — it is not a race
+  // and disguising it as one would be a worse report than no report. But the
+  // directories THIS run owns are released first: every other exit reaches
+  // either `stop` or the receipt `finally`, and this one reached neither, so it
+  // was the single path that left `forever-release-work-*` behind.
+  //
+  // NOT DONE HERE, DELIBERATELY: removing the specification path as well. This
+  // handler cannot know whether the file at that path is one this run created —
+  // `wx` reports EEXIST for the pre-existing case above, but a platform is free
+  // to report a permission error instead, and deleting on that guess would
+  // destroy the concurrent run's evidence, which §2c promises never happens.
+  releaseOwnedDirectories();
   throw error;
 }
 

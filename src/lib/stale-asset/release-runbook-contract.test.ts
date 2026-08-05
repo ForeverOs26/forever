@@ -18,6 +18,15 @@ import { resolve } from "node:path";
 import { check, resolveConfig } from "prettier";
 import { describe, expect, it } from "vitest";
 
+import {
+  PREUPLOAD_EXPLICIT_BINDINGS_MARKER,
+  SUPERSEDED_PREUPLOAD_MARKERS,
+} from "./explicit-plain-text-bindings";
+import {
+  GENERATED_WORKER_CONFIG_PATH,
+  PRODUCTION_VERSION_UPLOAD_SPEC,
+} from "./worker-variable-preservation";
+
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 const runbook = read("docs/FOREVER_PRODUCTION_RELEASE_RUNBOOK.md");
 const contract = read("docs/FOREVER_STUDIO_STALE_ASSET_RECOVERY.md");
@@ -711,11 +720,32 @@ describe("the runbook prescribes the MECHANICAL release sequence", () => {
     expect(runbook).not.toContain('includes("--keep-vars")');
   });
 
-  it("publishes the canonical specification as data, and derives the text from it", () => {
+  /**
+   * FOREVER-PR140-FINAL-REVIEW-003 — the published argv is DERIVED, never
+   * retyped.
+   *
+   * This assertion used to restate the argv as a hard-coded literal, and the
+   * literal was the SUPERSEDED one: §2b published
+   * `--config .output/server/wrangler.json`, the immutable generated
+   * configuration. That is the artefact `verifyUploadSpec` refuses by name with
+   * `wrong_config_path` — it declares neither deployment-managed plain-text
+   * binding, so an upload performed with it produces the 10-binding shape both
+   * rejected candidates came back with, and mutation control 29 exists to keep
+   * it refused. So the runbook published, as the canonical upload, a command the
+   * release tooling would have rejected outright, while §2 step 4 in the same
+   * document printed the correct one — and the assertion that was supposed to
+   * catch exactly that drift was pinning the wrong value.
+   *
+   * Deriving from `PRODUCTION_VERSION_UPLOAD_SPEC` means the runbook and the
+   * argv the wrapper spawns cannot disagree without this failing.
+   */
+  it("publishes the canonical specification as data, DERIVED from it rather than retyped", () => {
     expect(runbook).toContain("PRODUCTION_VERSION_UPLOAD_SPEC");
     expect(runbook).toContain(
-      '"versions", "upload", "--keep-vars", "--config", ".output/server/wrangler.json"',
+      PRODUCTION_VERSION_UPLOAD_SPEC.args.map((token) => `"${token}"`).join(", "),
     );
+    // And the refused path is never published as the canonical one.
+    expect(runbook).not.toContain(`"--config", "${GENERATED_WORKER_CONFIG_PATH}"`);
     expect(runbookFlat).toContain("derived from** that specification");
     expect(runbook).toContain("`shell: false`");
   });
@@ -725,8 +755,30 @@ describe("the runbook prescribes the MECHANICAL release sequence", () => {
     expect(runbookFlat).toContain("never falls back to a PATH lookup");
   });
 
-  it("refuses to spawn Wrangler before the preflight passed", () => {
-    expect(runbook).toContain("PREUPLOAD_CONTRACT_OK");
+  /**
+   * FOREVER-PR140-FINAL-REVIEW-003 — the spawn gate names the marker the
+   * preflight actually emits.
+   *
+   * §2b told the operator the wrapper refuses to spawn Wrangler "unless it
+   * produced `PREUPLOAD_CONTRACT_OK`", and this assertion pinned that string.
+   * That marker was superseded twice — once by the pinned-inheritance contract
+   * and again by the explicit-binding contract — and §2 step 3 of the same
+   * document already said it is never emitted again. The gate §2b described was
+   * therefore unobservable: an operator watching for it would never see it, and
+   * the assertion guarding the sentence was satisfied by the very words that
+   * declare the marker dead.
+   */
+  it("names the CURRENT PREUPLOAD marker as the spawn gate, never a superseded one", () => {
+    expect(runbook).toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
+    // A superseded marker may appear ONCE, and only after the sentence that
+    // declares it superseded — never as an instruction to watch for it.
+    const supersededNotice = runbook.indexOf("The superseded");
+    expect(supersededNotice).toBeGreaterThan(-1);
+    for (const superseded of SUPERSEDED_PREUPLOAD_MARKERS) {
+      const occurrences = runbook.split(superseded).length - 1;
+      expect(occurrences, superseded).toBe(1);
+      expect(runbook.indexOf(superseded), superseded).toBeGreaterThan(supersededNotice);
+    }
   });
 
   it("keeps every safety property the earlier corrections established", () => {

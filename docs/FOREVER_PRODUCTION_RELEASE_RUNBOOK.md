@@ -490,12 +490,23 @@ specification, held as data in
 ```
 PRODUCTION_VERSION_UPLOAD_SPEC = {
   executable: "wrangler",
-  args: ["versions", "upload", "--keep-vars", "--config", ".output/server/wrangler.json"],
+  args: ["versions", "upload", "--keep-vars", "--config", ".output/server/wrangler.upload.json"],
 }
 ```
 
+- **`--config` names the EPHEMERAL upload specification, never the immutable
+  build output.** This block published `.output/server/wrangler.json` until the
+  second independent review of PR #140 caught it. That path is the immutable
+  generated configuration, which declares neither deployment-managed plain-text
+  binding, so an upload performed with it produces the 10-binding shape both
+  rejected candidates came back with. `verifyUploadSpec` refuses it by name with
+  `wrong_config_path`, and mutation control 29 exists to keep it refused — so
+  the published argv was one the release tooling would have rejected outright.
+  See §2c;
 - the command printed in §2 step 4 is **derived from** that specification, so
-  documentation and execution cannot drift apart;
+  documentation and execution cannot drift apart. The assertion that pins this
+  block now derives the argv from `PRODUCTION_VERSION_UPLOAD_SPEC` rather than
+  restating it, because a retyped copy is exactly how the two drifted apart;
 - `npm run release:upload-version` is the only thing that spawns Wrangler, and
   it spawns exactly those arguments with **`shell: false`** — nothing is
   concatenated, quoted, split or word-expanded, so there is no text for a shell
@@ -506,7 +517,11 @@ PRODUCTION_VERSION_UPLOAD_SPEC = {
   version**. It never falls back to a PATH lookup, so a release is never
   performed by whichever Wrangler happens to be installed;
 - the wrapper runs the pre-upload preflight FIRST and refuses to spawn Wrangler
-  unless it produced `PREUPLOAD_CONTRACT_OK`.
+  unless it produced `PREUPLOAD_EXPLICIT_BINDINGS_OK` — the marker named in §2
+  step 3 and §2c. This bullet named one of the two superseded markers listed
+  there until the second independent review of PR #140 caught it. Neither is
+  emitted any more, so the gate this section described could not have been
+  observed by an operator watching for it.
 
 **Never hand-write a binding snapshot.** The preflight's inputs are produced by
 `npm run release:capture-bindings`, which reads
