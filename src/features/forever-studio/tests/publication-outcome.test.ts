@@ -590,7 +590,7 @@ function everyOutcome() {
   warningSets.push(codes.map((code) => warn(code)));
   const uploadSets = [[], ["one.jpg"], OWNER_UNCONFIRMED_FILES];
   const countSets = [null, counts(0, 0, 0), counts(0, 0, 1), counts(12, 12, 30)];
-  const statuses = ["published", "failed", "processing", "queued"] as const;
+  const statuses = ["published", "failed", "processing", "received"] as const;
 
   const all = [];
   for (const status of statuses) {
