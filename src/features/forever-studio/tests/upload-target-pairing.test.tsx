@@ -361,7 +361,11 @@ describe("upload target pairing", () => {
     await addTo("Floor Plans", file("level-2.pdf", "PLAN-BYTES"));
     await publish();
 
-    expect(await screen.findByRole("heading", { name: "Published" })).toBeVisible();
+    // FOREVER-STUDIO-R2-MANUAL-E2E-FAILURE-FORENSICS-006: this run has a file
+    // that failed to upload, so the verdict is no longer an unconditional
+    // "Published". The old expectation encoded the defect it sits beside — the
+    // very next assertion checks that a file failed and was skipped.
+    expect(await screen.findByRole("heading", { name: "Partly published" })).toBeVisible();
     // Named the file that actually failed — not a neighbour.
     expect(screen.getByText(/failed to upload and were skipped/)).toHaveTextContent("deed.pdf");
     expect(deliveredFiles()).toEqual({

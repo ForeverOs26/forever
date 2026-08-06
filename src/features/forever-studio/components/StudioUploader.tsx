@@ -27,6 +27,7 @@ import {
   isArchiveUploadAvailable,
   isArchiveUploadDisplayedUnavailable,
 } from "../archive-capability";
+import { describePublicationOutcome } from "../publication-outcome";
 import { studioGetOverview, studioProcessJob, studioStartJob } from "../studio.functions";
 import {
   additionalMaterialWindows,
@@ -985,13 +986,29 @@ function ResultPanel(props: { result: StudioJobResult; failedUploads: string[] }
       await navigator.clipboard.writeText(pageUrl);
     }
   };
+  // The verdict is DERIVED, never constant. This heading used to read
+  // "Published" unconditionally — including for a run whose every source file
+  // failed to upload, which produced a live but empty page described as a
+  // success. See `publication-outcome.ts`.
+  const outcome = describePublicationOutcome({
+    status: result.status,
+    pagePath: result.pagePath,
+    counts: result.counts,
+    warnings: result.warnings,
+    failedUploads: props.failedUploads,
+  });
   return (
     <div className="mx-auto max-w-md space-y-5 py-10">
       <div className="text-center">
-        <h2 className="text-xl font-semibold">Published</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          The page is live now. Anything missing can be added later.
-        </p>
+        <h2
+          className={
+            outcome.ok ? "text-xl font-semibold" : "text-xl font-semibold text-destructive"
+          }
+          data-outcome={outcome.level}
+        >
+          {outcome.title}
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">{outcome.description}</p>
       </div>
       {result.counts ? (
         <p className="text-center text-sm text-muted-foreground">
