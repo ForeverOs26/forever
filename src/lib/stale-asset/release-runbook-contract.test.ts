@@ -341,9 +341,9 @@ describe("a 0% version inside the deployment is invocable by version override", 
 });
 
 describe("the Forever-specific limits of a 0% override smoke test are PROVEN, not asserted", () => {
-  it("determines that scripted probes are permitted and browsers are not", () => {
+  it("determines that scripted probes are permitted and the Owner browser session is not", () => {
     expect(runbookFlat).toContain(
-      "Determination: YES for scripted, header-bearing probes. NO for any browser session",
+      "Determination: YES for scripted, header-bearing probes. NO for the ordinary Owner browser acceptance session",
     );
   });
 
@@ -421,7 +421,7 @@ describe("the deferred log gate stays mandatory and cannot be rounded up", () =>
     expect(runbookFlat).toContain("Traffic has ALREADY moved, so failure is a rollback");
   });
 
-  it("forces the pre-cutover gate to be recorded even when it is not used", () => {
+  it("forces the pre-cutover gate to be recorded even when the Owner declines it", () => {
     expect(runbookFlat).toContain("pre-cutover candidate log gate");
     expect(runbookFlat).toContain("`DECLINED BY OWNER`");
     expect(runbookFlat).toContain("It is not `N/A`");
@@ -438,10 +438,16 @@ describe("the deferred log gate stays mandatory and cannot be rounded up", () =>
   });
 
   it("requires the cutover authorization to carry the log gate's honest verdict", () => {
+    // FOREVER-PR141-PR142-FINAL-GATE-CORRECTIONS-008: the verdict A4 carries is
+    // no longer one of three. `PASS` is the only value that reaches A4 at all,
+    // so the authorization records `PASS` — and the other values are recorded
+    // as the reason there is no A4. See the hard-gate block below.
     expect(runbookFlat).toContain(
-      "the state of the pre-cutover log gate — `PASS`, `NOT VERIFIED`, or `DECLINED BY OWNER` — recorded honestly",
+      "the pre-cutover log gate recorded as `PASS` — the only value that reaches this point",
     );
-    expect(runbookFlat).toContain("A cutover performed without all five is out of contract");
+    expect(runbookFlat).toContain(
+      "A cutover performed without all five preconditions and all five statements is out of contract",
+    );
   });
 
   it("keeps candidate-upload PASS from implying a cutover", () => {
@@ -461,6 +467,180 @@ describe("the deferred log gate stays mandatory and cannot be rounded up", () =>
     ]) {
       expect(runbookFlat, kept).toContain(kept);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FOREVER-PR141-PR142-FINAL-GATE-CORRECTIONS-008
+//
+// The corrected §6 established that a pre-cutover candidate-log gate EXISTS.
+// It then let the Owner walk past it: A4 was requestable "after the Owner has
+// explicitly declined the pre-cutover gate", and an unreadable log was
+// `NOT VERIFIED` with the Owner free to "proceed to A4 with the gate explicitly
+// declined". A gate that the party being gated may waive is not a gate, and it
+// reproduces the exact defect §6 exists to correct: a release recorded as
+// acceptable beside a mandatory check that did not hold.
+//
+// These assertions make the gate MECHANICAL. `NOT VERIFIED` and
+// `DECLINED BY OWNER` remain honest, required, reportable outcomes — they are
+// what an operator must write down — but neither may reach A4.
+// ---------------------------------------------------------------------------
+
+describe("the pre-cutover gate is HARD — only PASS reaches A4", () => {
+  it("states the five A4 preconditions as a conjunction", () => {
+    expect(runbookFlat).toContain("**A4 — the atomic cutover. HARD-GATED.**");
+    expect(runbookFlat).toContain(
+      "A4 may be requested only when ALL FIVE of the following are true. This is a conjunction, not a checklist to weigh",
+    );
+    for (const precondition of [
+      "**A1 completed successfully**",
+      "**bindings AND deployment membership were re-verified**",
+      "**A2's COMPLETE named non-mutating probe set passed**",
+      "**A3 returned actual candidate-attributed evidence**",
+      "**step 11b has the exact final status `PASS`.**",
+    ]) {
+      expect(runbookFlat, precondition).toContain(precondition);
+    }
+  });
+
+  it("enumerates every blocking outcome, and blocks A4 on each", () => {
+    expect(runbookFlat).toContain("#### The outcomes that BLOCK A4 — exhaustive");
+    for (const blocker of [
+      "`STOP`",
+      "`NOT VERIFIED`",
+      "`DECLINED BY OWNER`",
+      "observability unavailable",
+      "log-reading access unavailable",
+      "no attributable candidate log events",
+      "binding verification failure",
+      "any override probe failure",
+    ]) {
+      expect(runbookFlat, blocker).toContain(blocker);
+    }
+    expect(runbookFlat).toContain(
+      "Each of these halts the release before the cutover. None is waivable",
+    );
+  });
+
+  // THE FOUR REGRESSIONS THIS SUITE EXISTS TO CATCH.
+
+  it("REFUSES A4 after `NOT VERIFIED`, quoting the old permission once, to retract it", () => {
+    // Same idiom the §6 corrections already use: cite the retracted sentence
+    // EXACTLY once so the record of what was wrong survives, and refute it in
+    // place. A second, loose occurrence would be a live instruction again.
+    const retracted =
+      "the Owner decides whether to proceed to A4 with the gate explicitly declined";
+    expect(runbookFlat.split(retracted).length - 1).toBe(1);
+    expect(runbookFlat).toContain(`"${retracted}". Both are RETRACTED`);
+
+    expect(runbookFlat).toContain(
+      "**It is still BLOCKING.** `NOT VERIFIED` does not reach A4; the release halts here",
+    );
+    expect(runbookFlat).toContain(
+      "There is no Owner decision that converts it into permission to cut over",
+    );
+  });
+
+  it("REFUSES A4 after `DECLINED BY OWNER`, and denies it is a waiver", () => {
+    // The permissive A4 precondition survives only inside the retraction.
+    const retracted = "after the Owner has explicitly declined the pre-cutover gate";
+    expect(runbookFlat.split(retracted).length - 1).toBe(1);
+    expect(runbookFlat).toContain(`A4 could be requested "${retracted}"`);
+    // Named as retracted rather than silently cut, so the change is visible.
+    expect(runbookFlat).toContain("Both are RETRACTED");
+
+    expect(runbookFlat).toContain("**`DECLINED BY OWNER` IS NOT A WAIVER.**");
+    expect(runbookFlat).toContain("GATE DECLINED — RELEASE REMAINS BLOCKED BEFORE CUTOVER");
+    expect(runbookFlat).toContain(
+      "Declining the gate declines the release, not the gate's authority",
+    );
+    // The LIVE A4 precondition is the hard one, not the retracted one.
+    expect(runbookFlat).toContain(
+      "**A4 — the atomic cutover. HARD-GATED.** A4 may be requested only when ALL FIVE",
+    );
+  });
+
+  it("REFUSES A1 when A3's evidence access is already known to be unavailable", () => {
+    expect(runbookFlat).toContain(
+      "**A2 AND A3 MUST BE PROVEN OPERATIONALLY AVAILABLE AND SEPARATELY AUTHORIZED BEFORE A1 IS PERFORMED.**",
+    );
+    expect(runbookFlat).toContain(
+      "**If read access cannot be demonstrated, A1 is not performed.**",
+    );
+    expect(runbookFlat).toContain(
+      "**If the operator already knows the candidate's logs cannot be read, the state-2 deployment is NOT created.**",
+    );
+    // The proof must be POSITIVE — a token existing is not read access.
+    expect(runbookFlat).toContain("a **positive, non-mutating read-access proof**");
+    // And the one prerequisite that genuinely cannot be pre-proven is named as
+    // such, so this rule is not read as demanding the impossible.
+    expect(runbookFlat).toContain("Prerequisite 1 is deliberately NOT on this list");
+  });
+
+  it("REFUSES the overbroad 'any browser session' claim, and scopes what replaced it", () => {
+    // Cited once, inside the scope note that explains why it was too strong.
+    const overbroad = "NO for any browser session";
+    expect(runbookFlat.split(overbroad).length - 1).toBe(1);
+    expect(runbookFlat).toContain(
+      `asserted the universal form — "${overbroad}" — which claimed more than the cited Cloudflare documentation establishes`,
+    );
+    // The universal claim never appears as a live determination.
+    expect(runbookFlat).not.toContain(
+      "Determination: YES for scripted, header-bearing probes. NO for any browser session",
+    );
+    expect(runbookFlat).not.toMatch(/impossible for any browser session/i);
+    expect(runbookFlat).toContain(
+      "unavailable for the ordinary Owner browser acceptance session under Forever's current workers.dev-only architecture, because normal navigation and automatically requested subresources do not carry the override header",
+    );
+    // The narrowing must be explicit about what it does NOT claim.
+    expect(runbookFlat).toContain(
+      "It is **not** a universal claim that no browser automation, extension, proxy or instrumented client could ever attach the header",
+    );
+    expect(runbookFlat).toContain(
+      "**None of them is part of the authorized Forever release workflow**",
+    );
+  });
+
+  it("keeps both honest outcomes reportable rather than deleting them", () => {
+    // Mechanically prohibiting an outcome from reaching A4 is not the same as
+    // forbidding an operator to record it. Losing either word would push a
+    // failed gate back into silence, which is the older defect.
+    expect(runbookFlat).toContain(
+      "`NOT VERIFIED` and `DECLINED BY OWNER` remain honest, required, reportable outcomes",
+    );
+    expect(runbookFlat).toContain(
+      "Its only honest values are `PASS`, `STOP`, `NOT VERIFIED` or `DECLINED BY OWNER`",
+    );
+  });
+
+  it("resolves the Observability contradiction in exactly one direction", () => {
+    expect(runbookFlat).toContain(
+      "**there is no path in which a cutover proceeds while Observability read access is unavailable.**",
+    );
+    expect(runbookFlat).toContain("**prerequisite of A1 and of the cutover authorization alike**");
+  });
+
+  it("makes step 11b mandatory in the sequence, not merely recorded", () => {
+    expect(runbookFlat).toContain("SEPARATELY AUTHORIZED (§6 A1–A3), AND MANDATORY BEFORE A4");
+    expect(runbookFlat).toContain(
+      "**step 11b must reach the exact final status `PASS` before the A4 cutover may be requested.**",
+    );
+    expect(runbookFlat).toContain("**Every non-`PASS` outcome blocks A4.**");
+    // The release-check mapping row must agree with the sequence.
+    expect(runbookFlat).toContain("**required — must read `PASS` before A4**");
+    expect(runbookFlat).toContain("**Only `PASS` permits the A4 cutover authorization.**");
+  });
+
+  it("moves the cutover's starting point to state 2, since state 1 cannot produce the evidence", () => {
+    expect(runbookFlat).toContain(
+      "**The starting point is §6 state 2 — the candidate present in the deployment at 0% with step 11b recorded as `PASS`.**",
+    );
+    expect(runbookFlat).toContain("Cutting over from §6 state 1 is out of contract");
+    // Step 16b no longer describes 11b as optional.
+    expect(runbookFlat).not.toContain("it is required whether or not step 11b was performed");
+    expect(runbookFlat).toContain(
+      "it is required IN ADDITION to step 11b, which must already have been recorded as `PASS`",
+    );
   });
 });
 

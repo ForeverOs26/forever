@@ -5,9 +5,10 @@
  * FOREVER-PR138-WORKER-VERSION-PINNING-CORRECTION-004 from 20 to 28, then by
  * FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001 from 28 to 39, then by
  * FOREVER-PR139-REVIEW-CORRECTIONS-001 from 39 to 42, then by
- * FOREVER-PR141-PR142-EVIDENCE-REVIEW-CORRECTIONS-007 from 42 to 45.
+ * FOREVER-PR141-PR142-EVIDENCE-REVIEW-CORRECTIONS-007 from 42 to 45, then by
+ * FOREVER-PR141-PR142-FINAL-GATE-CORRECTIONS-008 from 45 to 49.
  *
- * Forty-five edits to REAL source, configuration, tests and documentation, each
+ * Forty-nine edits to REAL source, configuration, tests and documentation, each
  * of which must make a NAMED assertion fail. A guard that has never been seen
  * to fail is not a guard, and this correction exists precisely because a safety
  * property was believed rather than measured — twice.
@@ -93,6 +94,17 @@
  *   43. restore the post-cutover-only conclusion;
  *   44. claim again that a 0% candidate cannot be invoked;
  *   45. point step 11 back at a post-cutover-only log gate.
+ *
+ * THE FOUR PR141 HARD-GATE CONTROLS — the ways a mandatory gate could be
+ * softened back into advice. §6 established that a pre-cutover candidate-log
+ * gate EXISTS and then permitted A4 after `NOT VERIFIED` or
+ * `DECLINED BY OWNER`, which made the gate waivable by the party it gates. Each
+ * control restores one piece of that:
+ *
+ *   46. let `NOT VERIFIED` reach A4;
+ *   47. let `DECLINED BY OWNER` act as a waiver;
+ *   48. let A1 proceed when A3's evidence access is already unavailable;
+ *   49. restore the overbroad "any browser session" claim.
  *
  * CONTROLS 27 AND 37 WERE RETARGETED, not merely moved. Control 27 attacked a
  * ternary in the version gate; control 37 attacked a comparison whose only
@@ -732,6 +744,68 @@ const mutations = [
     tests: [RUNBOOK_TEST],
     reason:
       /first point at which this candidate can produce a log|retracted|EARLIER than the cutover/,
+  },
+  // -------------------------------------------------------------------------
+  // FOREVER-PR141-PR142-FINAL-GATE-CORRECTIONS-008
+  //
+  // The corrected §6 established that a pre-cutover candidate-log gate exists,
+  // and then let the Owner walk past it. A gate the gated party may waive is
+  // not a gate. These four controls each restore one way the hard gate could be
+  // softened back into advice, and require a NAMED assertion to catch it.
+  //
+  //   46. let `NOT VERIFIED` reach A4;
+  //   47. let `DECLINED BY OWNER` act as a waiver;
+  //   48. let A1 proceed when A3's evidence access is already unavailable;
+  //   49. restore the overbroad "any browser session" claim.
+  // -------------------------------------------------------------------------
+  {
+    name: "46. NOT VERIFIED becomes an Owner decision instead of a block",
+    file: RUNBOOK,
+    from:
+      "  `NOT VERIFIED`** — not a pass, and not a failure of the candidate. **It is\n" +
+      "  still BLOCKING.** `NOT VERIFIED` does not reach A4; the release halts here and\n" +
+      "  the state-2 deployment is reverted to the previous version alone at 100%.\n" +
+      "  There is no Owner decision that converts it into permission to cut over.",
+    to:
+      "  `NOT VERIFIED`** — not a pass, and not a failure of the candidate. The Owner\n" +
+      "  decides whether to proceed to A4 with the gate explicitly declined and\n" +
+      "  recorded as such.",
+    tests: [RUNBOOK_TEST],
+    reason: /proceed to A4 with the gate|still BLOCKING|does not reach A4|NOT VERIFIED/,
+  },
+  {
+    name: "47. DECLINED BY OWNER is restored as a route to the cutover",
+    file: RUNBOOK,
+    from:
+      "**A4 — the atomic cutover. HARD-GATED.** A4 may be requested only when ALL FIVE\n" +
+      "of the following are true. This is a conjunction, not a checklist to weigh:",
+    to:
+      "**A4 — the atomic cutover.** Requested only after A1–A3 have produced a PASS, or\n" +
+      "after the Owner has explicitly declined the pre-cutover gate. It must state:",
+    tests: [RUNBOOK_TEST],
+    reason: /HARD-GATED|explicitly declined the pre-cutover gate|ALL FIVE|conjunction/,
+  },
+  {
+    name: "48. A1 proceeds although A3's log-read access is already unavailable",
+    file: RUNBOOK,
+    from:
+      "   **If read access cannot be demonstrated, A1 is not performed.** The release\n" +
+      "   is recorded as `NOT VERIFIED` and remains BLOCKED BEFORE CUTOVER, with the",
+    to:
+      "   **If read access cannot be demonstrated, A1 may still be performed** and the\n" +
+      "   question settled afterwards, with the release recorded as `NOT VERIFIED`, with the",
+    tests: [RUNBOOK_TEST],
+    reason: /read access cannot be demonstrated|A1 is not performed|BEFORE A1 IS PERFORMED/,
+  },
+  {
+    name: "49. the overbroad 'any browser session' determination is restored",
+    file: RUNBOOK,
+    from:
+      "**Determination: YES for scripted, header-bearing probes. NO for the ordinary\n" +
+      "Owner browser acceptance session.**",
+    to: "**Determination: YES for scripted, header-bearing probes. NO for any browser\nsession.**",
+    tests: [RUNBOOK_TEST],
+    reason: /any browser session|ordinary Owner browser acceptance session|universal claim/,
   },
 ];
 

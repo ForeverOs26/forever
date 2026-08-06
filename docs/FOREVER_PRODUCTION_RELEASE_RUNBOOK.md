@@ -368,21 +368,42 @@ uploaded. Those are the two facts that make such a release verifiable at all.
     The sampling rate is a PERMANENT setting, not a temporary elevation — see §7.
 
     11b. **Pre-cutover version-override smoke and log gate — SEPARATELY
-    AUTHORIZED (§6 A1–A3).** This step is performed only when the Owner has
-    authorized it, and it is skipped-and-recorded, never silently omitted.
-    Include the candidate in the active deployment at **0% while the previous
-    version stays at 100%** (A1), re-verify bindings against the live Worker
-    afterwards, re-read `script-settings` to confirm observability is actually
-    live, then send ONLY the named, non-mutating `GET`/`HEAD` probe set with
+    AUTHORIZED (§6 A1–A3), AND MANDATORY BEFORE A4.** The A1–A3 mutations each
+    require their own Owner authorization and are never implied by this
+    document. What is NOT discretionary is the consequence: **step 11b must
+    reach the exact final status `PASS` before the A4 cutover may be
+    requested.** Include the candidate in the active deployment at **0% while
+    the previous version stays at 100%** (A1), re-verify bindings AND deployment
+    membership against the live Worker afterwards, re-read `script-settings` to
+    confirm observability is actually live, then send the COMPLETE named,
+    non-mutating `GET`/`HEAD` probe set with
     `Cloudflare-Workers-Version-Overrides: forever="<candidate-uuid>"` on every
     request (A2), and read the resulting logs attributed to that exact UUID
     (A3). **Normal production traffic stays entirely on the previous version
     throughout.** A 5xx or a candidate release error here is a STOP, not a
-    rollback — traffic has not moved. If the gate is not authorized, or
-    observability is not live, or the logs cannot be read, record it as
-    `DECLINED BY OWNER` or `NOT VERIFIED` and carry that word into the A4
-    cutover authorization. **A browser session against the candidate is NOT part
-    of this step and is not possible — §6 proves why.**
+    rollback — traffic has not moved.
+
+    **Every non-`PASS` outcome blocks A4.** If the gate is not authorized, or
+    observability is not live, or the logs cannot be read, or no log event
+    carries the candidate UUID, the honest status is `DECLINED BY OWNER` or
+    `NOT VERIFIED` — and either one means
+    `GATE DECLINED — RELEASE REMAINS BLOCKED BEFORE CUTOVER`. Neither is a
+    waiver, neither may be carried into an A4 authorization as an accepted
+    risk, and no Owner decision converts either into permission to cut over.
+    The release halts and the state-2 deployment is reverted to the previous
+    version alone at 100%. The full blocking list is in §6.
+
+    **Do not perform A1 until A2 and A3 are proven operationally available and
+    separately authorized** — §6 states the pre-A1 evidence required. Creating
+    the state-2 deployment while already knowing the candidate's logs cannot be
+    read produces a deployment mutation that can only ever end in
+    `NOT VERIFIED`, and is forbidden.
+
+    **A browser session against the candidate is NOT part of this step.** It is
+    unavailable for the ordinary Owner browser acceptance session under
+    Forever's current workers.dev-only architecture, because normal navigation
+    and automatically requested subresources do not carry the override header —
+    §6 proves the mechanism and states the scope of that claim.
 
 12. **Obtain an explicit, short Owner Studio hold.** Required for the first
     bootstrap release — see §4. The Owner is told the window and told to take no
@@ -391,10 +412,14 @@ uploaded. Those are the two facts that make such a release verifiable at all.
     action.** No upload, no publication, no Retry, no member change, no password
     change.
 14. **Atomic cutover.** Move to old 0% / new 100% in ONE `wrangler versions
-deploy` invocation. No intermediate percentage. The starting point is either
-    §6 state 1 (candidate absent) or §6 state 2 (candidate present at 0% because
-    step 11b was performed); both end in the same single invocation, and neither
-    is a gradual rollout. Run `--dry-run` first and confirm the exact source and
+deploy` invocation. No intermediate percentage. **The starting point is §6
+    state 2 — the candidate present in the deployment at 0% with step 11b
+    recorded as `PASS`.** Cutting over from §6 state 1 is out of contract: the
+    hard gate in §6 requires A1, A2 and A3 to have completed and step 11b to
+    read `PASS` before A4 exists as an option, and a candidate that was never in
+    the deployment cannot have produced that evidence. The invocation itself is
+    a single step and is not a gradual rollout. Run `--dry-run` first and
+    confirm the exact source and
     target **Worker version UUIDs** — the target must be the candidate UUID
     recorded in step 4, and the source must be the previous UUID recorded in
     step 4.
@@ -423,7 +448,8 @@ deploy` invocation. No intermediate percentage. The starting point is either
     16b. **Verify Workers Logs after the cutover. REQUIRED.**
     This is the stage at which the candidate's REAL production traffic is
     logged. It is **not** the first stage at which candidate logs can exist —
-    step 11b is (§6) — and it is required whether or not step 11b was performed.
+    step 11b is (§6) — and it is required IN ADDITION to step 11b, which must
+    already have been recorded as `PASS` for this step to be reachable at all.
     Confirm `observability` is live on the Worker, then read
     the Worker's logs for the cutover window — dashboard Workers Logs, or
     `wrangler tail --version-id <candidate-uuid>` against the deployed Worker.
@@ -866,20 +892,20 @@ Added by `FOREVER-PR140-CORRECTIONS-002`. Every gate a release claims is listed
 here with the command that produces it, so a claim in a PR description can be
 checked against a command rather than taken on trust.
 
-| Check                          | Command                                                                        | Status                                  |
-| ------------------------------ | ------------------------------------------------------------------------------ | --------------------------------------- |
-| production build               | `npm run build`                                                                | required                                |
-| full test suite                | `npx vitest run`                                                               | required                                |
-| release binding preflight      | `npm run release:verify-bindings`                                              | required                                |
-| Wrangler identity gate         | `npm run release:wrangler-gate`                                                | required                                |
-| mutation controls (42)         | `npm run release:keep-vars-mutations`                                          | required                                |
-| offline Wrangler serialization | `npx vitest run src/lib/stale-asset/wrangler-plain-text-serialization.test.ts` | required                                |
-| network containment            | `npx vitest run src/lib/stale-asset/release-network-containment.test.ts`       | required                                |
-| lint                           | `npx eslint <changed files>`                                                   | required, scoped — see below            |
-| formatting                     | `npx prettier --check <changed files>`                                         | required, scoped                        |
-| candidate preview log check    | —                                                                              | **N/A — platform limitation, see §6**   |
-| pre-cutover candidate log gate | step 11b, Version Overrides — see §6                                           | separately authorized, must be recorded |
-| `actionlint`                   | —                                                                              | **N/A — owner-approved waiver**         |
+| Check                          | Command                                                                        | Status                                    |
+| ------------------------------ | ------------------------------------------------------------------------------ | ----------------------------------------- |
+| production build               | `npm run build`                                                                | required                                  |
+| full test suite                | `npx vitest run`                                                               | required                                  |
+| release binding preflight      | `npm run release:verify-bindings`                                              | required                                  |
+| Wrangler identity gate         | `npm run release:wrangler-gate`                                                | required                                  |
+| mutation controls (49)         | `npm run release:keep-vars-mutations`                                          | required                                  |
+| offline Wrangler serialization | `npx vitest run src/lib/stale-asset/wrangler-plain-text-serialization.test.ts` | required                                  |
+| network containment            | `npx vitest run src/lib/stale-asset/release-network-containment.test.ts`       | required                                  |
+| lint                           | `npx eslint <changed files>`                                                   | required, scoped — see below              |
+| formatting                     | `npx prettier --check <changed files>`                                         | required, scoped                          |
+| candidate preview log check    | —                                                                              | **N/A — platform limitation, see §6**     |
+| pre-cutover candidate log gate | step 11b, Version Overrides — see §6                                           | **required — must read `PASS` before A4** |
+| `actionlint`                   | —                                                                              | **N/A — owner-approved waiver**           |
 
 ### `candidate preview log check: N/A — the platform cannot emit it`
 
@@ -896,12 +922,22 @@ the cutover: it is satisfied at **step 11b**, before the cutover, using Version
 Overrides against a candidate included in the deployment at 0% — see §6. Step
 16b is an additional post-cutover acceptance check, not the first opportunity.
 
-### `pre-cutover candidate log gate (step 11b): separately authorized`
+### `pre-cutover candidate log gate (step 11b): required — must read PASS before A4`
 
 This row exists so a release report cannot omit the gate by never mentioning it.
 Its only honest values are `PASS`, `STOP`, `NOT VERIFIED` or
-`DECLINED BY OWNER`. It is not `N/A`: the mechanism exists, and whether it was
-used is an Owner decision that must be recorded rather than an absence.
+`DECLINED BY OWNER`. It is not `N/A`: the mechanism exists, and its recorded
+value is a release fact rather than an absence.
+
+**Only `PASS` permits the A4 cutover authorization.** `STOP`, `NOT VERIFIED` and
+`DECLINED BY OWNER` are all honest, reportable outcomes and all three are
+BLOCKING. `DECLINED BY OWNER` is not a waiver: it is recorded, in full, as
+
+    GATE DECLINED — RELEASE REMAINS BLOCKED BEFORE CUTOVER
+
+The A1–A3 mutations are individually discretionary — the Owner may decline to
+authorize them. What the Owner cannot do is decline the gate and cut over
+anyway. Declining the gate declines the release, not the gate's authority.
 
 ### `actionlint: N/A — repository contains no GitHub Actions workflows`
 
@@ -1220,8 +1256,10 @@ So §0 does not forbid state 2, and this runbook must not use §0 to dismiss it.
 
 ### Does Forever's static-asset and version-affinity situation PERMIT state 2+3?
 
-**Determination: YES for scripted, header-bearing probes. NO for any browser
-session.** Both halves are proven below; neither may be dropped.
+**Determination: YES for scripted, header-bearing probes. NO for the ordinary
+Owner browser acceptance session.** Both halves are proven below; neither may be
+dropped. The second half is stated at exactly the strength the evidence supports
+and no further — see the scope note under limit 1.
 
 **PERMITTED, because:**
 
@@ -1241,14 +1279,31 @@ session.** Both halves are proven below; neither may be dropped.
 
 **LIMITED, and these limits are load-bearing:**
 
-1. **A browser cannot carry the override header.** A browser sets no custom
-   header on a top-level navigation, and none on the subresource requests the
-   returned HTML triggers. Those requests are therefore routed by percentage —
-   Cloudflare: "the request will be routed according to the percentages set in
-   the gradual deployment configuration" — i.e. to the previous version, which
-   does not have the candidate's content-hashed chunk names. **A browser pointed
+1. **The override header is unavailable for the ordinary Owner browser
+   acceptance session under Forever's current workers.dev-only architecture,
+   because normal navigation and automatically requested subresources do not
+   carry the override header.** A top-level navigation carries no custom header,
+   and neither do the subresource requests the returned HTML triggers. Those
+   requests are therefore routed by percentage — Cloudflare: "the request will
+   be routed according to the percentages set in the gradual deployment
+   configuration" — i.e. to the previous version, which does not have the
+   candidate's content-hashed chunk names. **An ordinary browser session pointed
    at a state-2 origin either never reaches the candidate at all, or reaches it
    for the document only and then 404s on every candidate chunk.**
+
+   **SCOPE OF THIS CLAIM, STATED DELIBERATELY.** This is a statement about the
+   session step 17 actually prescribes: the Owner opening Studio in a normal
+   browser against the production origin. It is **not** a universal claim that
+   no browser automation, extension, proxy or instrumented client could ever
+   attach the header. Some such mechanism may well be capable of it. **None of
+   them is part of the authorized Forever release workflow**, none is
+   provisioned, and none may be introduced to satisfy this gate without its own
+   authorization and its own evidence. An earlier revision of this section
+   asserted the universal form — "NO for any browser session" — which claimed
+   more than the cited Cloudflare documentation establishes. The narrower claim
+   is the one that is proven, and it is sufficient: it is exactly what keeps the
+   Owner acceptance gate at step 17.
+
 2. **The header cannot be injected for Forever.** The documented way to attach
    these headers without client cooperation is a zone Transform Rule, and
    Cloudflare excludes exactly this origin shape: "Transform Rules require your
@@ -1270,10 +1325,12 @@ session.** Both halves are proven below; neither may be dropped.
 5. **Overrides make the candidate INVOCABLE, not OBSERVABLE.** See the
    prerequisites below.
 
-### The two prerequisites of a pre-cutover log gate
+### The prerequisites of a pre-cutover log gate — and WHEN each is proven
 
-Both must be satisfied by MEASUREMENT, not by assumption, or state 3 produces
-invocations and no evidence.
+These must be satisfied by MEASUREMENT, not by assumption, or state 3 produces
+invocations and no evidence. Prerequisite 3 is the one that must hold **before
+A1 is performed at all**, and it exists because a deployment mutation whose
+outcome is already known to be unreadable is a mutation made for nothing.
 
 1. **Script-level observability must actually be live.** Workers Logs is a
    script-level setting. Measured on this Worker, `script-settings` reported
@@ -1288,6 +1345,32 @@ invocations and no evidence.
    environment's token does not; the telemetry query returns HTTP 403
    `[code: 10000]`. That is Owner setup and it is a prerequisite of the state-3
    authorization, not something to discover afterwards.
+
+3. **A2 AND A3 MUST BE PROVEN OPERATIONALLY AVAILABLE AND SEPARATELY AUTHORIZED
+   BEFORE A1 IS PERFORMED.** A1 is a real mutation of the production deployment.
+   It is justified only by the evidence A2 and A3 are supposed to produce, so
+   performing it while that evidence is already known to be unobtainable buys a
+   deployment mutation and nothing else, and can end only in `NOT VERIFIED`.
+
+   Before A1, record all three of:
+   - the Owner's separate A2 authorization, naming the complete probe set;
+   - the Owner's separate A3 authorization;
+   - a **positive, non-mutating read-access proof** for the observability
+     credential — a telemetry query that returns a result rather than HTTP 403
+     `[code: 10000]`. The credential named in prerequisite 2 is the thing being
+     proven; it is not assumed from the fact that a token exists.
+
+   **If read access cannot be demonstrated, A1 is not performed.** The release
+   is recorded as `NOT VERIFIED` and remains BLOCKED BEFORE CUTOVER, with the
+   candidate left in §6 state 1 exactly as it is. Proceeding to A1 anyway — "we
+   will find out afterwards" — is the specific error this prerequisite exists to
+   stop, and it is out of contract.
+
+   Prerequisite 1 is deliberately NOT on this list. Script-level observability
+   may only become live once the state-2 deployment exists, so it genuinely
+   cannot be settled before A1; it is measured immediately after A1 and it
+   blocks A4 if it is off. Prerequisite 3 is different: it is knowable in
+   advance, which is precisely why it must be known in advance.
 
 ### The `--keep-vars` hazard applies to the state-2 deployment too — UNPROVEN, so MEASURE
 
@@ -1337,7 +1420,15 @@ exact candidate Worker version UUID, the exact previous Worker version UUID
 remaining at **100%**, that this is a deployment mutation performed with
 `wrangler versions deploy`, that normal traffic does not move, and that the
 rollback is to redeploy the previous version alone at 100%. The post-mutation
-binding re-verification above is part of this authorization.
+binding **and deployment-membership** re-verification above is part of this
+authorization.
+
+**A1 IS GATED ON PREREQUISITE 3.** It may not be requested or performed until
+A2 and A3 are separately authorized AND the observability read access A3 depends
+on has been positively demonstrated. **If the operator already knows the
+candidate's logs cannot be read, the state-2 deployment is NOT created.** A1
+exists to make A2 and A3 possible; performing it when they are not is a
+production deployment mutation with no reachable purpose.
 
 **A2 — send controlled requests using Version Overrides.** Must NAME the exact
 request set in advance, and every request in it must be **non-mutating**: `GET`
@@ -1349,20 +1440,67 @@ override.
 **A3 — read the resulting logs and attribute them to the exact candidate UUID.**
 Must state that attribution is by version UUID and that a log line not carrying
 the candidate UUID is NOT candidate evidence. Requires the observability-read
-credential named above.
+credential named above. **A3 passes only when it returns ACTUAL
+candidate-attributed evidence.** An empty result, a result carrying no event
+attributed to the candidate UUID, or a query that cannot be executed at all, is
+`NOT VERIFIED` — never "clean", and never rounded up.
 
-**A4 — the atomic cutover.** Requested only after A1–A3 have produced a PASS, or
-after the Owner has explicitly declined the pre-cutover gate. It must state:
+**A4 — the atomic cutover. HARD-GATED.** A4 may be requested only when ALL FIVE
+of the following are true. This is a conjunction, not a checklist to weigh:
+
+1. **A1 completed successfully** — the candidate is a member of the active
+   deployment at 0% and the previous version holds 100%;
+2. **bindings AND deployment membership were re-verified** against the live
+   Worker after A1, and both matched;
+3. **A2's COMPLETE named non-mutating probe set passed** — every request in the
+   set that was authorized in advance, with zero 5xx and zero probe failures.
+   A partial probe set is not a pass;
+4. **A3 returned actual candidate-attributed evidence** — at least one log event
+   carrying the candidate UUID, with no candidate release error in it;
+5. **step 11b has the exact final status `PASS`.**
+
+The A4 authorization request must then state:
 
 1. the exact candidate Worker version UUID being cut over to;
 2. the exact previous Worker version UUID as the rollback target;
-3. the state of the pre-cutover log gate — `PASS`, `NOT VERIFIED`, or
-   `DECLINED BY OWNER` — recorded honestly, and step 16b named as the
-   post-cutover check that still applies;
+3. the pre-cutover log gate recorded as `PASS` — the only value that reaches
+   this point — and step 16b named as the post-cutover check that still applies;
 4. the Owner Studio hold (steps 12–13);
 5. explicit acceptance of the rollback boundary below.
 
-A cutover performed without all five is out of contract.
+A cutover performed without all five preconditions and all five statements is
+out of contract.
+
+#### The outcomes that BLOCK A4 — exhaustive
+
+Each of these halts the release before the cutover. None is waivable, and none
+may be carried into an A4 request as an accepted risk:
+
+- `STOP`;
+- `NOT VERIFIED`;
+- `DECLINED BY OWNER`;
+- observability unavailable;
+- log-reading access unavailable;
+- no attributable candidate log events;
+- binding verification failure;
+- any override probe failure.
+
+**`DECLINED BY OWNER` IS NOT A WAIVER.** It is recorded, in full, as
+
+    GATE DECLINED — RELEASE REMAINS BLOCKED BEFORE CUTOVER
+
+An earlier revision of this section said A4 could be requested "after the Owner
+has explicitly declined the pre-cutover gate", and the failure-boundary text said
+"the Owner decides whether to proceed to A4 with the gate explicitly declined".
+Both are RETRACTED. They made the gate advisory, which is the same defect as a
+report that records `PASS` beside an unsatisfied mandatory gate — the defect this
+whole section exists to correct. The Owner may decline to authorize A1, A2 or A3;
+declining them declines the release. It does not unlock A4.
+
+`NOT VERIFIED` and `DECLINED BY OWNER` remain honest, required, reportable
+outcomes. They are exactly what an operator must write down when the gate did not
+pass. What they may never do is appear in an A4 authorization as anything other
+than the reason there is no A4.
 
 ### Failure boundaries — step 11b BEFORE the cutover, step 16b AFTER it
 
@@ -1377,9 +1515,23 @@ refusal to proceed, never a rollback of traffic:
   deployment is reverted to the previous version alone at 100%.
 - **A 5xx on any override probe is a STOP**, on the same terms as step 8.
 - **Logs that cannot be read, or observability that is still off, are
-  `NOT VERIFIED`** — not a pass, and not a failure of the candidate. The Owner
-  decides whether to proceed to A4 with the gate explicitly declined and
-  recorded as such.
+  `NOT VERIFIED`** — not a pass, and not a failure of the candidate. **It is
+  still BLOCKING.** `NOT VERIFIED` does not reach A4; the release halts here and
+  the state-2 deployment is reverted to the previous version alone at 100%.
+  There is no Owner decision that converts it into permission to cut over.
+- **A gate the Owner declines to authorize is `DECLINED BY OWNER`, and it is
+  BLOCKING on identical terms** —
+  `GATE DECLINED — RELEASE REMAINS BLOCKED BEFORE CUTOVER`. Recording the
+  decline honestly is required; treating the record as a waiver is not
+  permitted.
+- **A3 that returns no event attributed to the candidate UUID is `NOT VERIFIED`**
+  even when the query itself succeeded. Zero attributable events is an absence
+  of evidence, and §6 does not let an absence of evidence become a pass.
+- **Any failure of any authorized override probe is a STOP**, including a probe
+  that could not be executed. The named set passes as a whole or not at all.
+- **A binding or deployment-membership re-verification that does not match after
+  A1 is a STOP**, and the remedy is to redeploy the previous version alone at
+  100%.
 
 **Step 16b (state 5, post-cutover).** Traffic has ALREADY moved, so failure is a
 rollback:
@@ -1391,8 +1543,12 @@ rollback:
   readiness and the Owner decides; it is never rounded up to "clean".
 - Reading logs at either step requires a token carrying Workers Observability
   read, or dashboard access. Obtaining it is Owner setup, and it is a
-  **prerequisite of the cutover authorization** — not something to discover
-  afterwards.
+  **prerequisite of A1 and of the cutover authorization alike** — proven before
+  the state-2 deployment is created, not discovered afterwards. This runbook
+  states that requirement in exactly one direction: **there is no path in which
+  a cutover proceeds while Observability read access is unavailable.** Any
+  reading of any paragraph here that permits one is a misreading of this
+  sentence.
 
 **Step 16b is retained as a required acceptance check. It is NOT the first
 possible candidate-log stage** — step 11b is — and no report may describe it as
