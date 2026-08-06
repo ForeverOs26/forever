@@ -983,9 +983,15 @@ push to `main`. The waiver's expiry is a consequence of that, not its purpose.
 This repository now publishes exactly one check, `quality-gate`. A check that is
 queued, skipped or absent is never presented — in a PR description, a release
 report or a review summary — as a check that passed; an empty or pending check
-list means "nothing ran". Every other gate in the table above is a LOCAL command
-whose output is the evidence; if a report claims a gate held, it names the
-command and quotes the result.
+list means "nothing ran". Every other gate in the table above that NAMES a
+command is a LOCAL command whose output is the evidence; if a report claims such
+a gate held, it names the command and quotes the result. The two rows that name
+no command are evidenced differently and neither is thereby excused: the
+candidate preview log check is recorded as
+`preview logs: UNSUPPORTED (N/A — platform limitation)`, and the pre-cutover
+candidate log gate is evidenced by the §6 status recorded at step 11b — `PASS`,
+`STOP`, `NOT VERIFIED` or `DECLINED BY OWNER`. **An absent status is never a
+pass**, and only `PASS` reaches A4.
 
 ### Why lint is scoped rather than repository-wide
 
