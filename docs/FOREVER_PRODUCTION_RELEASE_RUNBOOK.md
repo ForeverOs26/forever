@@ -905,7 +905,8 @@ checked against a command rather than taken on trust.
 | formatting                     | `npx prettier --check <changed files>`                                         | required, scoped                          |
 | candidate preview log check    | —                                                                              | **N/A — platform limitation, see §6**     |
 | pre-cutover candidate log gate | step 11b, Version Overrides — see §6                                           | **required — must read `PASS` before A4** |
-| `actionlint`                   | —                                                                              | **N/A — owner-approved waiver**           |
+| repository CI                  | `quality-gate` on the pull request                                             | required                                  |
+| `actionlint`                   | `actionlint` inside `quality-gate` (pinned, checksum-verified)                 | required — enforced in CI                 |
 
 ### `candidate preview log check: N/A — the platform cannot emit it`
 
@@ -939,27 +940,52 @@ The A1–A3 mutations are individually discretionary — the Owner may decline t
 authorize them. What the Owner cannot do is decline the gate and cut over
 anyway. Declining the gate declines the release, not the gate's authority.
 
-### `actionlint: N/A — repository contains no GitHub Actions workflows`
+### The `actionlint` waiver is VOID, and the check now RUNS
 
-**This is an owner-approved, repository-state-specific waiver.** The repository
-contains no `.github/workflows` directory and no GitHub Actions workflow file of
-any kind, so there is nothing for `actionlint` to lint. A workflow was **not**
-created to satisfy the check: adding a meaningless workflow purely to make a
-linter applicable would be a change to the release surface made for the benefit
-of a report, which is exactly the class of change §3 forbids. `actionlint` was
-**not** installed and the check is **not** reported as passing.
+This section previously carried an owner-approved N/A waiver for `actionlint`,
+valid only while the repository held no workflow files.
+**It expired exactly as it was written to expire:**
+`FOREVER-DEVELOPMENT-PROCESS-001` added `.github/workflows/quality-gate.yml`, so
+there is now something for `actionlint` to lint. The superseded wording is
+deliberately not reproduced here — the current state is the only state.
 
-**The waiver expires automatically.** It holds only while the repository has no
-workflow files. If any file is added under `.github/workflows`, this waiver is
-void from that moment and `actionlint` becomes a required check in the same task
-that adds the file.
+**`actionlint` is now ENFORCED by `quality-gate`.**
+`FOREVER-ACTIONLINT-GATE-001` closed the gap the expired waiver left, inside the
+one canonical gate — not in a second workflow and not in a second job. On every
+pull request and every push to `main`, `quality-gate` downloads the official
+`rhysd/actionlint` `v1.7.12` Linux AMD64 release archive into `$RUNNER_TEMP`,
+verifies it against the published SHA-256
+`8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8` **before**
+extracting or executing it, and lints **every** file under `.github/workflows` —
+with no file arguments, so a workflow added later cannot arrive unlinted. The
+lint runs **before** `npm run verify:ci`, so a broken workflow fails in seconds
+rather than after the full gate.
 
-**Absence of CI is never a green status check.** This repository has no GitHub
-Actions, so a pull request against it carries **no status checks at all**. An
-empty check list means "nothing ran", and it must never be presented — in a PR
-description, a release report or a review summary — as checks that passed. Every
-gate in the table above is a LOCAL command whose output is the evidence; if a
-report claims a gate held, it names the command and quotes the result.
+**Nothing about that install is taken on trust.** No `latest` tag, no unpinned
+remote installer script piped into a shell, and no unverified binary: an archive
+whose digest does not match the pin fails the job instead of being executed.
+
+`npm run process:check` holds the step to that shape, so it cannot be weakened
+while this document still claims it. The checker fails if the step is removed;
+if the version pin or the digest pin is dropped, or the download stops being
+derived from the pin; if the checksum check is removed, or moved after the
+archive is extracted or executed; if the lint is moved after the canonical
+verification; or if the lint is **neutered** — reduced to a `-version` print,
+narrowed to named files (which would exclude a workflow added later), or given
+`continue-on-error`, `|| true`, `set +e` or a step-level `if:` so its exit code
+stops failing the job.
+
+**The workflow was not created to satisfy a linter.**
+`quality-gate` exists to run `npm run verify:ci` on every pull request and every
+push to `main`. The waiver's expiry is a consequence of that, not its purpose.
+
+**A status check is evidence only when it ran.**
+This repository now publishes exactly one check, `quality-gate`. A check that is
+queued, skipped or absent is never presented — in a PR description, a release
+report or a review summary — as a check that passed; an empty or pending check
+list means "nothing ran". Every other gate in the table above is a LOCAL command
+whose output is the evidence; if a report claims a gate held, it names the
+command and quotes the result.
 
 ### Why lint is scoped rather than repository-wide
 

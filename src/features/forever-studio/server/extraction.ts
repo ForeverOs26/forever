@@ -1091,7 +1091,11 @@ export async function gatherMaterials(
         fileWarning(
           "file_upload_missing",
           file.name,
-          `${file.name} was declared but never arrived in storage; continuing without it.`,
+          // EVIDENCE-SAFE BY CONSTRUCTION (FOREVER-PR142-EVIDENCE-SAFE-RENDER-009).
+          // A `statObject` miss is a failed LOOKUP through one credentialed code
+          // path. It does not establish that the bytes never reached storage, so
+          // this message reports the lookup and stops there.
+          `${file.name} could not be found through its declared storage path. Physical storage state is unresolved.`,
         ),
       );
       continue;

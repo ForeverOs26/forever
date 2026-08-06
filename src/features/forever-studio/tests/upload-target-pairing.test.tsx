@@ -361,14 +361,149 @@ describe("upload target pairing", () => {
     await addTo("Floor Plans", file("level-2.pdf", "PLAN-BYTES"));
     await publish();
 
-    expect(await screen.findByRole("heading", { name: "Published" })).toBeVisible();
-    // Named the file that actually failed — not a neighbour.
-    expect(screen.getByText(/failed to upload and were skipped/)).toHaveTextContent("deed.pdf");
+    // FOREVER-STUDIO-R2-MANUAL-E2E-FAILURE-FORENSICS-006: this run has a file
+    // that failed to upload, so the verdict is no longer an unconditional
+    // "Published". The old expectation encoded the defect it sits beside — the
+    // very next assertion checks that a file failed and was skipped.
+    expect(await screen.findByRole("heading", { name: "Partly published" })).toBeVisible();
+    // Named the file that actually failed — not a neighbour. The browser's own
+    // record is labelled as the BROWSER's: it is reported separately from the
+    // server's, because the server redacts filenames and the two observations
+    // carry no shared identifier
+    // (FOREVER-PR141-PR142-EVIDENCE-REVIEW-CORRECTIONS-007).
+    //
+    // The wording is "did not complete", not "failed to upload", because the
+    // browser observed an unconfirmed transfer and not a proven absence
+    // (FOREVER-PR141-PR142-FINAL-GATE-CORRECTIONS-008).
+    expect(
+      screen.getByText(/did not complete from this browser and were skipped/),
+    ).toHaveTextContent("deed.pdf");
     expect(deliveredFiles()).toEqual({
       "jobs/job-1/staging/00-q3.pdf": "PRICE-BYTES",
       "jobs/job-1/staging/01-deed.pdf": "DEED-BYTES",
       "jobs/job-1/staging/02-level-2.pdf": "PLAN-BYTES",
     });
+  });
+
+  // 8b ------------------------------------------------------------------------
+  /**
+   * THE RENDERED CRITICAL DELIVERY PATH, asserted on the DOM the Owner sees.
+   *
+   * FOREVER-PR141-PR142-FINAL-GATE-CORRECTIONS-008. The module-level suite pins
+   * the strings; this pins what actually reaches the screen. A delivery problem
+   * whose physical R2 state is unresolved must not produce a re-upload
+   * instruction, must not assert that anything was or was not lost, and must
+   * carry the storage-verification guidance where the Owner will read it.
+   */
+  it("renders no re-upload instruction and no loss claim for a failed delivery", async () => {
+    uploaded.toSignedUrl.mockImplementation(async (path: string) =>
+      path.endsWith("01-deed.pdf") ? { error: new Error("HTTP 500") } : { error: null },
+    );
+    renderUploader();
+    await screen.findByRole("button", { name: "Publish now" });
+    await addTo("Price List", file("q3.pdf", "PRICE-BYTES"));
+    await addTo("Documents / Legal", file("deed.pdf", "DEED-BYTES"));
+    await publish();
+    await screen.findByRole("heading", { name: "Partly published" });
+
+    // The safe guidance is present, verbatim, and is not hidden behind a
+    // <details> the Owner has to open.
+    const guidance = document.querySelector('[data-block="storage-verification-guidance"]');
+    expect(guidance).not.toBeNull();
+    expect(guidance).toHaveTextContent(
+      "Do not upload these files again yet. Storage verification is required.",
+    );
+    expect(guidance?.closest("details")).toBeNull();
+
+    const panel = document.body.textContent ?? "";
+    // No retry instruction, in any of the shapes the screen used to carry.
+    for (const banned of [
+      "Upload them again",
+      "upload them again",
+      "supply them again",
+      "try again",
+      "Try again",
+    ]) {
+      expect(panel, banned).not.toContain(banned);
+    }
+    // No claim about physical storage state in EITHER direction.
+    for (const banned of ["Nothing was lost", "nothing was lost", "never arrived", "was lost"]) {
+      expect(panel, banned).not.toContain(banned);
+    }
+    // And the honest statement of what IS known is there.
+    expect(panel).toContain("whether their bytes reached storage is unresolved");
+  });
+
+  /**
+   * A HISTORICALLY PERSISTED WARNING MESSAGE MUST NOT REACH THE DOM.
+   *
+   * FOREVER-PR142-EVIDENCE-SAFE-RENDER-009. Warning messages are stored with the
+   * job, so a run processed before the canonical wording was corrected still
+   * carries the superseded sentence below. Rendering it raw let one screen state
+   * that physical storage state is unresolved and then assert, two lines lower,
+   * that the object never arrived.
+   *
+   * The module suite could not catch this: it inspects the DERIVED description,
+   * and the raw warning is what the critical block renders. This test drives the
+   * real component and asserts the DOM.
+   */
+  it("renders a historically persisted file_upload_missing warning safely", async () => {
+    endpoints.processJob.mockResolvedValue({
+      status: "published",
+      pagePath: "/projects/x",
+      counts: { buildings: 0, units: 3, prices: 3, media: 0, warnings: 1 },
+      warnings: [
+        {
+          code: "file_upload_missing",
+          // DELIBERATELY UNSAFE, and quoted here only to be refuted by the
+          // assertions below. This is the exact sentence persisted before the
+          // canonical wording was corrected; it asserts physical absence, which
+          // the evidence does not support.
+          message:
+            "Private source file was declared but never arrived in storage; continuing without it.",
+        },
+      ],
+      projectSlug: "x",
+      listingId: null,
+    });
+    renderUploader();
+    await screen.findByRole("button", { name: "Publish now" });
+    await addTo("Price List", file("q3.pdf", "PRICE-BYTES"));
+    await publish();
+    await screen.findByRole("heading", { name: "Partly published" });
+
+    // Every transfer completed from the browser's side, so this is the
+    // SERVER-ONLY delivery path — the one the module suite never rendered.
+    const critical = document.querySelector('[data-block="critical-warnings"]');
+    expect(critical).not.toBeNull();
+    expect(critical?.closest("details")).toBeNull();
+    expect(critical).toHaveTextContent(
+      "Private source file could not be found through its declared storage path. Physical storage state is unresolved.",
+    );
+
+    const panel = document.body.textContent ?? "";
+    for (const banned of [
+      "never arrived",
+      "Nothing was lost",
+      "nothing was lost",
+      "was lost",
+      "Upload them again",
+      "upload them again",
+      "supply them again",
+      "re-upload",
+      "Re-upload",
+      "try again",
+      "Try again",
+    ]) {
+      expect(panel, banned).not.toContain(banned);
+    }
+    expect(panel).toContain(
+      "Do not upload these files again yet. Storage verification is required.",
+    );
+    // The browser confirmed every transfer here, so the screen must not say it
+    // did not — only processing's lookup failed.
+    expect(panel).toContain("processing could not find them through their declared storage path");
+    expect(panel).not.toContain("the browser could not confirm completion");
   });
 
   // Refusals ------------------------------------------------------------------

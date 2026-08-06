@@ -27,6 +27,7 @@ import {
   isArchiveUploadAvailable,
   isArchiveUploadDisplayedUnavailable,
 } from "../archive-capability";
+import { describePublicationOutcome, STORAGE_VERIFICATION_GUIDANCE } from "../publication-outcome";
 import { studioGetOverview, studioProcessJob, studioStartJob } from "../studio.functions";
 import {
   additionalMaterialWindows,
@@ -985,13 +986,29 @@ function ResultPanel(props: { result: StudioJobResult; failedUploads: string[] }
       await navigator.clipboard.writeText(pageUrl);
     }
   };
+  // The verdict is DERIVED, never constant. This heading used to read
+  // "Published" unconditionally — including for a run in which not one declared
+  // source reached processing, which produced a live but empty page described as
+  // a success. See `publication-outcome.ts`.
+  const outcome = describePublicationOutcome({
+    status: result.status,
+    pagePath: result.pagePath,
+    counts: result.counts,
+    warnings: result.warnings,
+    failedUploads: props.failedUploads,
+  });
   return (
     <div className="mx-auto max-w-md space-y-5 py-10">
       <div className="text-center">
-        <h2 className="text-xl font-semibold">Published</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          The page is live now. Anything missing can be added later.
-        </p>
+        <h2
+          className={
+            outcome.ok ? "text-xl font-semibold" : "text-xl font-semibold text-destructive"
+          }
+          data-outcome={outcome.level}
+        >
+          {outcome.title}
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">{outcome.description}</p>
       </div>
       {result.counts ? (
         <p className="text-center text-sm text-muted-foreground">
@@ -999,19 +1016,99 @@ function ResultPanel(props: { result: StudioJobResult; failedUploads: string[] }
           {result.counts.warnings ? ` · ${result.counts.warnings} notes` : ""}
         </p>
       ) : null}
-      {props.failedUploads.length ? (
-        <p className="text-center text-sm text-destructive">
-          {props.failedUploads.length} file(s) failed to upload and were skipped:{" "}
-          {props.failedUploads.join(", ")}. Upload them again any time.
+      {/*
+        TWO OBSERVERS, REPORTED SEPARATELY. The browser's record and the
+        server's record are shown as their own counts and never combined:
+        the server redacts every filename to "Private source file", so there
+        is no identifier by which the two could be matched or deduplicated.
+        Summing would double-count; taking the greater would assume a subset
+        relationship for which there is no evidence.
+      */}
+      {outcome.clientObservedFailure ? (
+        <p className="text-center text-sm text-destructive" data-block="client-failed-uploads">
+          {outcome.clientFailedUploadCount} file(s) did not complete from this browser and were
+          skipped: {outcome.clientFailedUploadNames.join(", ")}. The browser could not confirm
+          completion, so whether their bytes reached storage is unresolved.
         </p>
       ) : null}
-      {result.warnings.length ? (
+      {/*
+        THE SAFE GUIDANCE FOR AN UNRESOLVED DELIVERY PROBLEM. This block used to
+        say "Upload them again any time". On the present evidence that is unsafe:
+        a browser-side failure report does not establish that the object is
+        absent, so re-uploading may duplicate an object that already exists, may
+        repeat the same silent failure, and destroys the forensic state needed to
+        tell which. Diagnosis first — see `publication-outcome.ts`.
+      */}
+      {outcome.deliveryProblem ? (
+        <p
+          className="rounded-lg border border-destructive/40 p-3 text-center text-sm font-medium text-destructive"
+          data-block="storage-verification-guidance"
+        >
+          {STORAGE_VERIFICATION_GUIDANCE}
+        </p>
+      ) : null}
+      {/*
+        CRITICAL SERVER WARNINGS ARE RENDERED DIRECTLY. A source that did not
+        reach the page, or that was rejected, is not a note for later enrichment,
+        and it must not be reachable only by opening a collapsed section.
+
+        THE MESSAGE IS ALREADY SAFE. `describePublicationOutcome` derives the
+        public message from the warning CODE for any code in
+        `EVIDENCE_SAFE_WARNING_MESSAGES`, so a job persisted before the canonical
+        wording was corrected cannot render its old "never arrived in storage"
+        sentence here. Every other code keeps the server's own message.
+      */}
+      {outcome.serverObservedCriticalProblem ? (
+        <div
+          className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive"
+          data-block="critical-warnings"
+        >
+          <p className="font-medium">
+            {outcome.criticalWarnings.length} source file(s) did not reach the page — reported by
+            processing.
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {outcome.criticalWarnings.slice(0, 20).map((warning, index) => (
+              <li key={index}>{warning.message}</li>
+            ))}
+          </ul>
+          {outcome.clientObservedFailure ? (
+            <p className="mt-2 text-xs">
+              This count is separate from the browser's. The two may describe the same files.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {/*
+        Retained or deferred material. This is the ONE place a retention claim is
+        made, and it is the one place the evidence supports it: these classes are
+        exactly those whose server status mechanically states the original was
+        retained. Visible — never buried — but not styled or counted as a
+        failure, because there is no Owner action to take.
+      */}
+      {outcome.retainedWarnings.length ? (
+        <div
+          className="rounded-lg border border-border/40 p-3 text-sm text-muted-foreground"
+          data-block="retained-warnings"
+        >
+          <p>
+            {outcome.retainedWarnings.length} file(s) were kept privately and are not on the public
+            page. Processing reported the original as retained.
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {outcome.retainedWarnings.slice(0, 20).map((warning, index) => (
+              <li key={index}>{warning.message}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {outcome.enrichmentWarnings.length ? (
         <details className="rounded-lg border border-border/40 p-3 text-sm">
           <summary className="cursor-pointer text-muted-foreground">
-            {result.warnings.length} note(s) for later enrichment
+            {outcome.enrichmentWarnings.length} note(s) for later enrichment
           </summary>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
-            {result.warnings.slice(0, 20).map((warning, index) => (
+            {outcome.enrichmentWarnings.slice(0, 20).map((warning, index) => (
               <li key={index}>{warning.message}</li>
             ))}
           </ul>
