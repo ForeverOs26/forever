@@ -1016,19 +1016,75 @@ function ResultPanel(props: { result: StudioJobResult; failedUploads: string[] }
           {result.counts.warnings ? ` · ${result.counts.warnings} notes` : ""}
         </p>
       ) : null}
-      {props.failedUploads.length ? (
-        <p className="text-center text-sm text-destructive">
-          {props.failedUploads.length} file(s) failed to upload and were skipped:{" "}
-          {props.failedUploads.join(", ")}. Upload them again any time.
+      {/*
+        TWO OBSERVERS, REPORTED SEPARATELY. The browser's record and the
+        server's record are shown as their own counts and never combined:
+        the server redacts every filename to "Private source file", so there
+        is no identifier by which the two could be matched or deduplicated.
+        Summing would double-count; taking the greater would assume a subset
+        relationship for which there is no evidence.
+      */}
+      {outcome.clientObservedFailure ? (
+        <p className="text-center text-sm text-destructive" data-block="client-failed-uploads">
+          {outcome.clientFailedUploadCount} file(s) failed to upload from this browser and were
+          skipped: {outcome.clientFailedUploadNames.join(", ")}. Upload them again any time.
         </p>
       ) : null}
-      {result.warnings.length ? (
+      {/*
+        CRITICAL SERVER WARNINGS ARE RENDERED DIRECTLY. A source that never
+        arrived, or that was rejected, is not a note for later enrichment, and
+        it must not be reachable only by opening a collapsed section.
+      */}
+      {outcome.serverObservedCriticalProblem ? (
+        <div
+          className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive"
+          data-block="critical-warnings"
+        >
+          <p className="font-medium">
+            {outcome.criticalWarnings.length} source file(s) did not reach the page — reported by
+            processing.
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {outcome.criticalWarnings.slice(0, 20).map((warning, index) => (
+              <li key={index}>{warning.message}</li>
+            ))}
+          </ul>
+          {outcome.clientObservedFailure ? (
+            <p className="mt-2 text-xs">
+              This count is separate from the browser's. The two may describe the same files.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {/*
+        Retained or deferred material: the ORIGINAL is stored and intact, only
+        the public copy is missing. Visible — never buried — but not styled or
+        counted as a failure, because nothing is lost and there is no Owner
+        action to take.
+      */}
+      {outcome.retainedWarnings.length ? (
+        <div
+          className="rounded-lg border border-border/40 p-3 text-sm text-muted-foreground"
+          data-block="retained-warnings"
+        >
+          <p>
+            {outcome.retainedWarnings.length} file(s) were kept privately and are not on the public
+            page. Nothing was lost.
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {outcome.retainedWarnings.slice(0, 20).map((warning, index) => (
+              <li key={index}>{warning.message}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {outcome.enrichmentWarnings.length ? (
         <details className="rounded-lg border border-border/40 p-3 text-sm">
           <summary className="cursor-pointer text-muted-foreground">
-            {result.warnings.length} note(s) for later enrichment
+            {outcome.enrichmentWarnings.length} note(s) for later enrichment
           </summary>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
-            {result.warnings.slice(0, 20).map((warning, index) => (
+            {outcome.enrichmentWarnings.slice(0, 20).map((warning, index) => (
               <li key={index}>{warning.message}</li>
             ))}
           </ul>

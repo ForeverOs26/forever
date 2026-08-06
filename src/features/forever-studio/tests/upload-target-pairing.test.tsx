@@ -366,8 +366,14 @@ describe("upload target pairing", () => {
     // "Published". The old expectation encoded the defect it sits beside — the
     // very next assertion checks that a file failed and was skipped.
     expect(await screen.findByRole("heading", { name: "Partly published" })).toBeVisible();
-    // Named the file that actually failed — not a neighbour.
-    expect(screen.getByText(/failed to upload and were skipped/)).toHaveTextContent("deed.pdf");
+    // Named the file that actually failed — not a neighbour. The browser's own
+    // record is labelled as the BROWSER's: it is reported separately from the
+    // server's, because the server redacts filenames and the two observations
+    // carry no shared identifier
+    // (FOREVER-PR141-PR142-EVIDENCE-REVIEW-CORRECTIONS-007).
+    expect(
+      screen.getByText(/failed to upload from this browser and were skipped/),
+    ).toHaveTextContent("deed.pdf");
     expect(deliveredFiles()).toEqual({
       "jobs/job-1/staging/00-q3.pdf": "PRICE-BYTES",
       "jobs/job-1/staging/01-deed.pdf": "DEED-BYTES",

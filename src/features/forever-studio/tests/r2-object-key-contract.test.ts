@@ -28,6 +28,54 @@
  * Owner's production upload failed. Physical R2 inspection for that attempt
  * remains UNRESOLVED pending read access. This test constrains the search: if
  * it passes, the storage-key design is not the fault and must not be "fixed".
+ *
+ * ---------------------------------------------------------------------------
+ * THE FORENSIC BOUNDARY, STATED AT THE STRENGTH THE EVIDENCE SUPPORTS
+ * (FOREVER-PR141-PR142-EVIDENCE-REVIEW-CORRECTIONS-007)
+ * ---------------------------------------------------------------------------
+ *
+ * An earlier account of this incident said the physical R2 transfer is PROVEN
+ * to have failed. It is not. Here is the whole of what was actually observed:
+ *
+ *   - the browser-side transfer/acknowledgement path REPORTED failure;
+ *   - the client placed those files in `failedUploads`;
+ *   - later server processing received `statObject = null` for the declared
+ *     storage location;
+ *   - physical R2 existence remains INACCESSIBLE (`403 code 10000`).
+ *
+ * The correct classification is therefore:
+ *
+ *     FIRST OBSERVED FAILURE: BROWSER-TO-R2 TRANSFER OR ACKNOWLEDGEMENT PATH
+ *
+ * and these three possibilities remain UNRESOLVED between one another:
+ *
+ *   (a) the bytes never reached R2;
+ *   (b) the bytes reached R2 but the acknowledgement — or CORS on the response
+ *       — failed, so the browser recorded a failure for a transfer that
+ *       physically completed;
+ *   (c) an object exists under a production location this environment cannot
+ *       enumerate, or under one that differs from the declared path.
+ *
+ * `statObject = null` distinguishes none of them. It is a NEGATIVE READ through
+ * the same credential and code path whose behaviour is in question, not a proof
+ * of physical absence.
+ *
+ * SUPABASE STORAGE, CORRECTED. An earlier account said Supabase Storage holds
+ * zero buckets and that file bodies physically cannot be there. That overstates
+ * an anonymous `200 []`. Supabase documents that listing buckets requires
+ * `SELECT` on `storage.buckets`, so an empty list from an anon caller proves
+ * only what that caller was permitted to see. The supportable statement is:
+ *
+ *     NO SUPABASE STORAGE BUCKETS WERE VISIBLE TO THE ANON CALLER —
+ *     PHYSICAL ABSENCE NOT PROVEN
+ *
+ * The no-fallback assertion at the end of this file remains valuable, but it is
+ * CODE-CONTRACT evidence about what this repository does, not production
+ * physical evidence about where any particular byte ended up.
+ *
+ * NOTHING HERE AUTHORIZES A RETRY of the Owner's upload, and nothing here
+ * repairs the transport failure. This file, and the PR it belongs to, repair
+ * the FINAL-RESULT INTEGRITY defect only.
  */
 
 import { describe, expect, it } from "vitest";
@@ -170,6 +218,12 @@ describe("R2 object-key contract — the Owner's exact failed filenames", () => 
   });
 
   it("never writes a private source body into Supabase Storage on the R2 lane", async () => {
+    // CODE-CONTRACT EVIDENCE, NOT PRODUCTION PHYSICAL EVIDENCE. This proves
+    // what THIS REPOSITORY does on the R2 lane. It says nothing about where any
+    // production byte physically is, and it must never be cited as proof that
+    // Supabase Storage holds nothing: the anonymous bucket listing that was
+    // read returned `200 []`, which reflects that caller's RLS visibility, not
+    // physical absence. See the forensic boundary at the top of this file.
     const world = r2World();
     const started = await startOwnerJob(world);
     await uploadAllViaTransport(world, started.uploads, bodies());
