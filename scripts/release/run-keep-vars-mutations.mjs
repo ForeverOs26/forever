@@ -4,9 +4,10 @@
  * Extended by FOREVER-PR138-MERGE-BLOCKER-CORRECTION-002 from 8 to 20, then by
  * FOREVER-PR138-WORKER-VERSION-PINNING-CORRECTION-004 from 20 to 28, then by
  * FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001 from 28 to 39, then by
- * FOREVER-PR139-REVIEW-CORRECTIONS-001 from 39 to 42.
+ * FOREVER-PR139-REVIEW-CORRECTIONS-001 from 39 to 42, then by
+ * FOREVER-PR141-PR142-EVIDENCE-REVIEW-CORRECTIONS-007 from 42 to 45.
  *
- * Forty-two edits to REAL source, configuration, tests and documentation, each
+ * Forty-five edits to REAL source, configuration, tests and documentation, each
  * of which must make a NAMED assertion fail. A guard that has never been seen
  * to fail is not a guard, and this correction exists precisely because a safety
  * property was believed rather than measured — twice.
@@ -80,6 +81,18 @@
  *   40. accept an external same-version Wrangler as the release uploader;
  *   41. report `resolvedFromRepository` as a truthiness test again;
  *   42. let the loopback network guard permit a non-loopback destination.
+ *
+ * THE THREE PR141 EVIDENCE CONTROLS — the ways the corrected candidate-log
+ * lifecycle could be un-corrected. §6 briefly concluded that candidate logs are
+ * possible only after the atomic cutover, reasoning that "0% means zero
+ * invocations". Cloudflare's Version Overrides documentation refutes that: a
+ * version at 0% INSIDE the current deployment is invocable by an explicit
+ * per-request header, and those invocations are observable. Each control
+ * restores one piece of the retracted claim:
+ *
+ *   43. restore the post-cutover-only conclusion;
+ *   44. claim again that a 0% candidate cannot be invoked;
+ *   45. point step 11 back at a post-cutover-only log gate.
  *
  * CONTROLS 27 AND 37 WERE RETARGETED, not merely moved. Control 27 attacked a
  * ternary in the version gate; control 37 attacked a comparison whose only
@@ -679,6 +692,46 @@ const mutations = [
     to: "  const allowed = true;",
     tests: [CONTAINMENT_TEST],
     reason: /LOOPBACK_GUARD|GUARD_NOT_VACUOUS|FOREVER_LOOPBACK_GUARD_BLOCKED/,
+  },
+  // -------------------------------------------------------------------------
+  // FOREVER-PR141-PR142-EVIDENCE-REVIEW-CORRECTIONS-007
+  //
+  // §6 briefly concluded that candidate logs are possible only after the atomic
+  // cutover, because "0% means zero invocations". Cloudflare's Version
+  // Overrides documentation refutes that directly. These three controls restore
+  // the retracted claims one at a time and require the contract suite to catch
+  // each, so the wrong conclusion cannot drift back in unnoticed.
+  // -------------------------------------------------------------------------
+  {
+    name: "43. the post-cutover-only conclusion is restored",
+    file: RUNBOOK,
+    from: "**The corrected conclusion: state 3 is the FIRST technically valid stage for\ncandidate logs, and it is BEFORE the atomic cutover.**",
+    to: "**The first technically valid stage is therefore AFTER the atomic cutover.**",
+    tests: [RUNBOOK_TEST],
+    reason: /AFTER the atomic cutover|FIRST technically valid stage/,
+  },
+  {
+    name: "44. a 0% candidate is claimed to be uninvokable again",
+    file: RUNBOOK,
+    from: "| 2 — in the current deployment at 0%, no override sent   | **No — but not because 0% forbids it** | nothing has invoked it yet; normal traffic is routed by percentage and 0% is never selected                                             |",
+    to: "| 2 — in the current deployment at 0%, no override sent   | **No**                                 | 0% means zero invocations, so there is nothing to log                                                                                  |",
+    tests: [RUNBOOK_TEST],
+    reason: /zero invocations|0% version inside the deployment|retracted/,
+  },
+  {
+    name: "45. step 11 points the operator back to a post-cutover-only gate",
+    file: RUNBOOK,
+    from:
+      "    Log verification is possible EARLIER than the cutover, at step 11b, using\n" +
+      "    Cloudflare's documented Version Overrides mechanism — see §6. Step 16b\n" +
+      "    remains a required post-cutover acceptance check but is NOT the first\n" +
+      "    possible candidate-log stage.",
+    to:
+      "    Log verification is a REQUIRED gate at step 16b, which is the first point\n" +
+      "    at which this candidate can produce a log at all.",
+    tests: [RUNBOOK_TEST],
+    reason:
+      /first point at which this candidate can produce a log|retracted|EARLIER than the cutover/,
   },
 ];
 

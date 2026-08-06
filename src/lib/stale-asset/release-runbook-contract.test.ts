@@ -77,13 +77,14 @@ describe("percentage rollout is prohibited without version affinity", () => {
       "transitive route-chunk graph",
       "VERSION_A → VERSION_B recovery locally",
       "Confirm the observability CONFIGURATION",
+      "Pre-cutover version-override smoke and log gate",
       "Owner Studio hold",
       "closes or refreshes the existing Studio tab",
       "Atomic cutover",
       "Verify public routes",
       "Verify the deployed WORKER VERSION, by UUID",
       "Verify the full current asset graph",
-      "Verify Workers Logs — the deferred gate from step 11",
+      "Verify Workers Logs after the cutover",
       "confirms the authenticated dashboard",
       "Roll back immediately",
     ];
@@ -233,23 +234,197 @@ describe("preview URLs cannot be logged, and the runbook says so", () => {
     expect(runbookFlat).toContain("returns **no** `observability` field at all, for ANY version");
   });
 
-  it("names the first stage at which candidate logs can exist, and why", () => {
+  it("keeps `wrangler tail --version-id` described as a FILTER, not an attach", () => {
     expect(runbookFlat).toContain(
-      "The first technically valid stage is therefore AFTER the atomic cutover",
+      "`--version-id` FILTERS the deployed Worker's stream and cannot attach to a Preview URL",
     );
-    // A deployment entry at 0% is explicitly refuted as an earlier route.
-    expect(runbookFlat).toContain("0% means zero invocations, so there is nothing to log");
-    // wrangler tail --version-id must be described as a FILTER, not an attach.
-    expect(runbookFlat).toContain("it cannot attach to a Preview URL");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FOREVER-PR141-PR142-EVIDENCE-REVIEW-CORRECTIONS-007
+//
+// The first revision of §6 concluded that the first technically valid stage for
+// candidate logs is AFTER the atomic cutover. Cloudflare's Version Overrides
+// documentation refutes that: a version sitting at 0% INSIDE the current
+// deployment can be invoked by an explicit per-request header, and those
+// invocations are observable and attributable to the version.
+//
+// These assertions pin the corrected finding and, together with mutation
+// controls 43-45, make the incorrect claim detectable if it is ever restored.
+// ---------------------------------------------------------------------------
+
+describe("a 0% version inside the deployment is invocable by version override", () => {
+  it("REFUSES the retracted post-cutover-only conclusion, in every phrasing", () => {
+    for (const retracted of [
+      "The first technically valid stage is therefore AFTER the atomic cutover",
+      "IMPOSSIBLE BY PLATFORM DESIGN",
+      "which is the first point at which this candidate can produce a log at all",
+      "This is the FIRST stage at which logs for this candidate can exist",
+    ]) {
+      expect(runbookFlat, retracted).not.toContain(retracted);
+    }
+  });
+
+  it("quotes the retracted 0% inference EXACTLY once, and only to refute it", () => {
+    // Deleting the words would erase the record of what was wrong; leaving them
+    // loose would let a reader mistake them for a finding. Same idiom as the
+    // superseded step-11 demand above: cite once, refute in the next sentence.
+    const inference = "0% means zero invocations, so there is nothing to log";
+    expect(runbookFlat.split(inference).length - 1).toBe(1);
+    expect(runbookFlat).toContain(
+      `to "${inference}". **That inference is WRONG, and Cloudflare refutes it`,
+    );
+  });
+
+  it("quotes Cloudflare's own statement that a 0% version can be targeted", () => {
+    expect(runbookQuoted).toContain(
+      "You can use version overrides to send a request to a specific version of your Worker in the current deployment, even those set to serve 0% of traffic",
+    );
+    expect(runbook).toContain(
+      "https://developers.cloudflare.com/workers/versions-and-deployments/version-overrides/",
+    );
+  });
+
+  it("names the exact header and the exact prerequisite", () => {
+    expect(runbookFlat).toContain("Cloudflare-Workers-Version-Overrides");
+    expect(runbookQuoted).toContain(
+      "A version override will only be applied if the specified version is in the current deployment",
+    );
+    // The two-version ceiling is what makes previous+candidate the only shape.
+    expect(runbookQuoted).toContain(
+      "Workers currently only supports serving **two** different versions in one deployment",
+    );
+  });
+
+  it("records that Cloudflare presents this AS a pre-rollout smoke test", () => {
+    expect(runbookQuoted).toContain(
+      "Create a new deployment using `wrangler versions deploy` and specify 0% for the new version whilst keeping the previous version at 100%",
+    );
+    expect(runbookQuoted).toContain(
+      "You can observe the version of your Worker that was invoked using Observability",
+    );
+  });
+
+  it("states that state 3 is the FIRST valid candidate-log stage, before cutover", () => {
+    expect(runbookFlat).toContain(
+      "state 3 is the FIRST technically valid stage for candidate logs, and it is BEFORE the atomic cutover",
+    );
+  });
+
+  it("keeps the five states distinct instead of collapsing them into '0%'", () => {
+    for (const state of [
+      "Uploaded, ABSENT from the active deployment",
+      "In the current deployment at 0%",
+      "Controlled requests carrying `Cloudflare-Workers-Version-Overrides`",
+      "Normal production traffic during states 2–3",
+      "After the atomic cutover",
+    ]) {
+      expect(runbookFlat, state).toContain(state);
+    }
+    // The specific conflation that produced the wrong conclusion is named.
+    expect(runbookFlat).toContain('**The candidate is in state 1, NOT "at 0%".**');
+  });
+
+  it("refuses to dismiss overrides merely because percentage rollout is banned", () => {
+    expect(runbookFlat).toContain("Version Overrides are NOT a percentage rollout");
+    expect(runbookFlat).toContain("So §0 does not forbid state 2");
+  });
+
+  it("keeps §0's percentage prohibition intact and unweakened", () => {
+    // The correction must not have become a licence for a gradual rollout.
+    expect(runbook).toContain(
+      "Until true version affinity exists, a percentage rollout is PROHIBITED",
+    );
+    expect(runbookFlat).toContain("No intermediate percentage");
+  });
+});
+
+describe("the Forever-specific limits of a 0% override smoke test are PROVEN, not asserted", () => {
+  it("determines that scripted probes are permitted and browsers are not", () => {
+    expect(runbookFlat).toContain(
+      "Determination: YES for scripted, header-bearing probes. NO for any browser session",
+    );
+  });
+
+  it("proves the browser limit from the documented Transform Rule exclusion", () => {
+    expect(runbookQuoted).toContain(
+      "Transform Rules require your Worker to be on a route on a zone you control. They are not available for Workers served on `*.workers.dev` domains",
+    );
+    expect(runbookFlat).toContain("one missing zone disables both");
+  });
+
+  it("keeps the Owner browser acceptance gate AFTER the cutover", () => {
+    expect(runbookFlat).toContain("they do **not** move the **Owner browser acceptance** gate");
+  });
+
+  it("records that cron invocations cannot be overridden at all", () => {
+    expect(runbookFlat).toContain(
+      "A scheduled invocation carries no request, so there is no header to set",
+    );
+  });
+
+  it("separates INVOCABLE from OBSERVABLE and demands both be measured", () => {
+    expect(runbookFlat).toContain("Overrides make the candidate INVOCABLE, not OBSERVABLE");
+    expect(runbookFlat).toContain("Re-read `GET .../workers/scripts/forever/script-settings`");
+  });
+
+  it("treats the --keep-vars hazard on `versions deploy` as UNPROVEN, not decided", () => {
+    expect(runbookFlat).toContain("NOT established here in either direction");
+    expect(runbookFlat).toContain("re-run `npm run release:verify-bindings`");
+  });
+});
+
+describe("the four separate Owner authorizations are enumerated", () => {
+  it("names A1 through A4 as four decisions, not one", () => {
+    expect(runbookFlat).toContain("### The FOUR separate Owner authorizations");
+    expect(runbookFlat).toContain("A1 — include the candidate in the active deployment at 0%");
+    expect(runbookFlat).toContain("A2 — send controlled requests using Version Overrides");
+    expect(runbookFlat).toContain(
+      "A3 — read the resulting logs and attribute them to the exact candidate UUID",
+    );
+    expect(runbookFlat).toContain("A4 — the atomic cutover");
+    expect(runbookFlat).toContain("none implies the next");
+  });
+
+  it("restricts the override probe set to named, non-mutating requests", () => {
+    expect(runbookFlat).toContain("every request in it must be **non-mutating**");
+    expect(runbookFlat).toContain(
+      "No POST, no Studio write, no job creation, no authenticated session, no cron",
+    );
+  });
+
+  it("states plainly that this document does not authorize the state-2 mutation", () => {
+    expect(runbookFlat).toContain(
+      "the state-2 deployment mutation described here is NOT authorized by this document",
+    );
+    expect(runbookFlat).toContain("has not been requested, authorized or performed");
   });
 });
 
 describe("the deferred log gate stays mandatory and cannot be rounded up", () => {
   it("keeps Workers Logs verification as a REQUIRED post-cutover gate", () => {
-    expect(runbookFlat).toContain(
-      "Verify Workers Logs — the deferred gate from step 11. REQUIRED.",
-    );
+    expect(runbookFlat).toContain("Verify Workers Logs after the cutover. REQUIRED.");
     expect(runbookFlat).toContain("logs are ACTUALLY RETURNED");
+  });
+
+  it("refuses to call the post-cutover check the first possible stage", () => {
+    expect(runbookFlat).toContain(
+      "Step 16b is retained as a required acceptance check. It is NOT the first possible candidate-log stage**",
+    );
+  });
+
+  it("gives step 11b a STOP failure mode and step 16b a ROLLBACK failure mode", () => {
+    expect(runbookFlat).toContain(
+      "Traffic has NOT moved, so failure is a refusal to proceed, never a rollback of traffic",
+    );
+    expect(runbookFlat).toContain("Traffic has ALREADY moved, so failure is a rollback");
+  });
+
+  it("forces the pre-cutover gate to be recorded even when it is not used", () => {
+    expect(runbookFlat).toContain("pre-cutover candidate log gate");
+    expect(runbookFlat).toContain("`DECLINED BY OWNER`");
+    expect(runbookFlat).toContain("It is not `N/A`");
   });
 
   it("treats unreadable or empty logs as NOT VERIFIED, never as clean", () => {
@@ -262,17 +437,16 @@ describe("the deferred log gate stays mandatory and cannot be rounded up", () =>
     expect(runbookFlat).toContain("A failure here is a rollback trigger under §5, not a note");
   });
 
-  it("requires a separate Owner authorization that names the unverified logs", () => {
-    expect(runbookFlat).toContain("The separate Owner authorization this creates");
+  it("requires the cutover authorization to carry the log gate's honest verdict", () => {
     expect(runbookFlat).toContain(
-      "Workers Logs for the candidate are UNVERIFIED at the moment of authorization",
+      "the state of the pre-cutover log gate — `PASS`, `NOT VERIFIED`, or `DECLINED BY OWNER` — recorded honestly",
     );
     expect(runbookFlat).toContain("A cutover performed without all five is out of contract");
   });
 
   it("keeps candidate-upload PASS from implying a cutover", () => {
     expect(runbookFlat).toContain(
-      "A candidate-upload PASS still authorizes NOTHING beyond a verified artefact sitting at 0%",
+      "A candidate-upload PASS still authorizes NOTHING beyond a verified artefact sitting outside the deployment",
     );
   });
 
@@ -299,7 +473,13 @@ describe("wrangler tail is not presented as a preview instrument", () => {
 
   it("says plainly that tail cannot observe a versioned Preview URL", () => {
     expect(runbookFlat).toContain("`wrangler tail` cannot observe a versioned Preview URL");
-    expect(runbookFlat).toContain("Its release role begins at step 16b");
+  });
+
+  it("restores tail as a step 11b instrument, before the cutover", () => {
+    expect(runbookFlat).toContain("It becomes usable at **step 11b**");
+    expect(runbookFlat).toContain(
+      "the wording that replaced it wrongly deferred tail to after the cutover",
+    );
   });
 });
 
@@ -318,8 +498,18 @@ describe("the completed PR140 upload is classified honestly", () => {
     );
   });
 
-  it("records the candidate's logs as impossible rather than clean", () => {
-    expect(runbookFlat).toContain("IMPOSSIBLE BY PLATFORM DESIGN — not verified, not clean");
+  it("records the candidate's logs as not-yet-obtainable rather than clean", () => {
+    expect(runbookFlat).toContain("NOT OBTAINABLE IN STATE 1 — not verified, not clean");
+    // "Not yet obtainable" and "impossible" are different claims, and only the
+    // weaker one is supported: state 1 is reversible by an authorized mutation.
+    expect(runbookFlat).toContain('**"Not yet obtainable" and "impossible" are different words.**');
+  });
+
+  it("corrects the row that conflated absence from the deployment with 0%", () => {
+    expect(runbookFlat).toContain(
+      "STATE 1 — ABSENT from the active deployment.** It holds no percentage at all",
+    );
+    expect(runbookFlat).not.toContain("| Candidate traffic | **0%** — absent from the active");
   });
 
   it("leaves the candidate in place as evidence", () => {
