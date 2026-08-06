@@ -36,6 +36,14 @@ const flat = (text: string) => text.replace(/\s+/g, " ");
 const runbookFlat = flat(runbook);
 const contractFlat = flat(contract);
 
+/**
+ * A blockquote wraps too, and its continuation lines carry a `>` marker. A
+ * VERBATIM quotation of an external source must survive that, or the assertion
+ * pins the line width rather than the words.
+ */
+const unquoted = (text: string) => flat(text.replace(/^[ \t]*>[ \t]?/gm, ""));
+const runbookQuoted = unquoted(runbook);
+
 describe("percentage rollout is prohibited without version affinity", () => {
   it("states the prohibition explicitly", () => {
     expect(runbook).toContain(
@@ -68,13 +76,14 @@ describe("percentage rollout is prohibited without version affinity", () => {
       "version preview URL",
       "transitive route-chunk graph",
       "VERSION_A → VERSION_B recovery locally",
-      "Enable and verify Workers Logs",
+      "Confirm the observability CONFIGURATION",
       "Owner Studio hold",
       "closes or refreshes the existing Studio tab",
       "Atomic cutover",
       "Verify public routes",
       "Verify the deployed WORKER VERSION, by UUID",
       "Verify the full current asset graph",
+      "Verify Workers Logs — the deferred gate from step 11",
       "confirms the authenticated dashboard",
       "Roll back immediately",
     ];
@@ -154,6 +163,194 @@ describe("the observability boundary is documented with its honest limit", () =>
 
   it("keeps a browser telemetry endpoint out of scope", () => {
     expect(contract).toContain("No public browser-error collection endpoint is introduced");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FOREVER-PR140-PREVIEW-LOG-GATE-REPAIR-005
+//
+// The runbook required "logs appear for the candidate" at a stage where the
+// candidate is reachable ONLY through its versioned Preview URL — and Cloudflare
+// excludes Workers Logs, Wrangler tail and Logpush for Preview URLs. The gate
+// could not be satisfied by any operator, with any credential.
+//
+// A release report then recorded PASS while stating that same gate was not
+// completed. These assertions pin BOTH corrections: the impossible demand is
+// gone, and its absence can never be read as evidence the candidate was clean.
+// ---------------------------------------------------------------------------
+
+describe("preview URLs cannot be logged, and the runbook says so", () => {
+  it("no longer demands candidate logs at the preview stage", () => {
+    // The impossible instruction is GONE as an instruction.
+    expect(runbook).not.toContain("**Enable and verify Workers Logs.**");
+
+    // It survives in exactly one place, and only as a citation of the
+    // superseded requirement — the same idiom SUPERSEDED_PREUPLOAD_MARKERS uses.
+    // Deleting the words entirely would erase the record of what was wrong;
+    // leaving them loose would let a reader mistake them for a live demand.
+    const occurrences = runbookFlat.split("that logs appear for the candidate").length - 1;
+    expect(occurrences).toBe(1);
+    expect(runbookFlat).toContain(
+      'The earlier revision of step 11 required confirming "that logs appear for the candidate"',
+    );
+  });
+
+  it("states the platform limitation naming all three excluded routes", () => {
+    expect(runbookQuoted).toContain(
+      "You cannot view logs for Preview URLs today, this includes Workers Logs, Wrangler tail and Logpush",
+    );
+    // The citation must be present so the claim is checkable, not folklore.
+    expect(runbook).toContain(
+      "https://developers.cloudflare.com/workers/versions-and-deployments/preview-urls/#limitations",
+    );
+  });
+
+  it("refuses to let a token or permission change be blamed for it", () => {
+    expect(runbookFlat).toContain(
+      "No API token, permission, binding, sampling rate or configuration change makes preview logs appear",
+    );
+  });
+
+  it("classifies candidate preview logs as N/A rather than omitting them", () => {
+    expect(runbookFlat).toContain("candidate preview log check");
+    expect(runbookFlat).toContain("N/A — platform limitation");
+    expect(runbookFlat).toContain("UNSUPPORTED (N/A — platform limitation)");
+  });
+
+  it("forbids reading the missing evidence as proof the candidate ran cleanly", () => {
+    expect(runbookFlat).toContain(
+      "THE ABSENCE OF CANDIDATE LOG EVIDENCE IS NOT EVIDENCE THAT THE CANDIDATE RAN CLEANLY",
+    );
+    expect(runbookFlat).toContain("Absence of log evidence is NEVER evidence of correctness");
+    expect(runbookFlat).toContain("An N/A here is not a green check");
+  });
+
+  it("records that observability is dormant until the version is deployed", () => {
+    expect(runbookFlat).toContain("Uploaded-but-undeployed observability is DORMANT");
+    expect(runbookFlat).toContain("script-level");
+    // The measurement error that produced the first misdiagnosis is named so it
+    // is not repeated: version-detail simply has no observability field.
+    expect(runbookFlat).toContain("returns **no** `observability` field at all, for ANY version");
+  });
+
+  it("names the first stage at which candidate logs can exist, and why", () => {
+    expect(runbookFlat).toContain(
+      "The first technically valid stage is therefore AFTER the atomic cutover",
+    );
+    // A deployment entry at 0% is explicitly refuted as an earlier route.
+    expect(runbookFlat).toContain("0% means zero invocations, so there is nothing to log");
+    // wrangler tail --version-id must be described as a FILTER, not an attach.
+    expect(runbookFlat).toContain("it cannot attach to a Preview URL");
+  });
+});
+
+describe("the deferred log gate stays mandatory and cannot be rounded up", () => {
+  it("keeps Workers Logs verification as a REQUIRED post-cutover gate", () => {
+    expect(runbookFlat).toContain(
+      "Verify Workers Logs — the deferred gate from step 11. REQUIRED.",
+    );
+    expect(runbookFlat).toContain("logs are ACTUALLY RETURNED");
+  });
+
+  it("treats unreadable or empty logs as NOT VERIFIED, never as clean", () => {
+    expect(runbookFlat).toContain('an empty result is "not verified", not "clean"');
+    expect(runbookFlat).toContain("Logs that cannot be read at all are NOT a pass");
+    expect(runbookFlat).toContain("it is never rounded up to");
+  });
+
+  it("makes a failure there a rollback trigger rather than a note", () => {
+    expect(runbookFlat).toContain("A failure here is a rollback trigger under §5, not a note");
+  });
+
+  it("requires a separate Owner authorization that names the unverified logs", () => {
+    expect(runbookFlat).toContain("The separate Owner authorization this creates");
+    expect(runbookFlat).toContain(
+      "Workers Logs for the candidate are UNVERIFIED at the moment of authorization",
+    );
+    expect(runbookFlat).toContain("A cutover performed without all five is out of contract");
+  });
+
+  it("keeps candidate-upload PASS from implying a cutover", () => {
+    expect(runbookFlat).toContain(
+      "A candidate-upload PASS still authorizes NOTHING beyond a verified artefact sitting at 0%",
+    );
+  });
+
+  it("keeps every candidate-upload gate that CAN hold", () => {
+    // The repair must not have quietly dropped the checks that caught the two
+    // rejected candidates.
+    for (const kept of [
+      "binding fingerprint equality",
+      "public-route probes with zero 5xx",
+      "the full transitive `/assets/*` graph",
+      "the Studio chunk graph",
+    ]) {
+      expect(runbookFlat, kept).toContain(kept);
+    }
+  });
+});
+
+describe("wrangler tail is not presented as a preview instrument", () => {
+  it("no longer implies tail needs nothing and works during the release", () => {
+    expect(runbookFlat).not.toContain(
+      "**Temporary deeper observation** during a release uses `wrangler tail`, which needs no deployment and no configuration change.",
+    );
+  });
+
+  it("says plainly that tail cannot observe a versioned Preview URL", () => {
+    expect(runbookFlat).toContain("`wrangler tail` cannot observe a versioned Preview URL");
+    expect(runbookFlat).toContain("Its release role begins at step 16b");
+  });
+});
+
+describe("the completed PR140 upload is classified honestly", () => {
+  it("records the upload as succeeded and the release as blocked before cutover", () => {
+    expect(runbookFlat).toContain("Status of the PR #140 candidate, recorded accurately");
+    expect(runbookFlat).toContain("**BLOCKED BEFORE CUTOVER**");
+    expect(runbookFlat).toContain(
+      "The release is not accepted and no cutover is authorized by any of the above",
+    );
+  });
+
+  it("states that a required gate which did not hold is a BLOCKED verdict", () => {
+    expect(runbookFlat).toContain(
+      "a required gate that did not hold is a BLOCKED verdict, and a gate that cannot hold must be corrected rather than reported around",
+    );
+  });
+
+  it("records the candidate's logs as impossible rather than clean", () => {
+    expect(runbookFlat).toContain("IMPOSSIBLE BY PLATFORM DESIGN — not verified, not clean");
+  });
+
+  it("leaves the candidate in place as evidence", () => {
+    expect(runbookFlat).toContain("unmodified and undeleted");
+  });
+});
+
+describe("the correction introduces no Cloudflare write path", () => {
+  it("still permits only `versions upload`, never a deploy, as the spawned command", () => {
+    expect(PRODUCTION_VERSION_UPLOAD_SPEC.args.slice(0, 2)).toEqual(["versions", "upload"]);
+    expect(PRODUCTION_VERSION_UPLOAD_SPEC.args).not.toContain("deploy");
+    expect(PRODUCTION_VERSION_UPLOAD_SPEC.args).not.toContain("--percentage");
+  });
+
+  it("adds no deploy, traffic or delete command to any release script", () => {
+    // §6 documents the cutover; it must not hand the operator a runnable
+    // traffic-moving command that the release tooling would perform itself.
+    const releaseScripts = [
+      "scripts/release/upload-worker-version.mjs",
+      "scripts/release/capture-worker-version-bindings.mjs",
+      "scripts/release/verify-binding-preservation.mjs",
+    ];
+    for (const path of releaseScripts) {
+      const source = read(path);
+      expect(source, path).not.toContain("versions deploy");
+      expect(source, path).not.toContain("--percentage");
+    }
+  });
+
+  it("keeps the rejected-candidate preservation rule intact", () => {
+    expect(runbookFlat).toContain("a candidate that is not accepted is evidence, not rubbish");
   });
 });
 
@@ -706,8 +903,15 @@ describe("the runbook prescribes the MECHANICAL release sequence", () => {
     );
     expect(runbook).toContain("--release-provenance .forever-build/worker-version-provenance.json");
     expect(runbookFlat).toContain("An operator never retypes the candidate UUID");
-    expect(runbookFlat).toContain("workerVersionIdentityOk: true");
-    expect(runbookFlat).toContain("BINDINGS_PRESERVED");
+
+    // POSITIONAL, not "appears somewhere". Asserting the two tokens anywhere in
+    // the document made this control forgeable: any later section that merely
+    // MENTIONS them — a status table, an incident record — satisfied the check
+    // while step 7's actual gate could be deleted. Mutation control 26 removes
+    // precisely this sentence, so the sentence is what must be pinned.
+    expect(runbookFlat).toContain(
+      "Only when step 6 reports both `workerVersionIdentityOk: true` and `BINDINGS_PRESERVED` does preview acceptance begin",
+    );
   });
 
   it("states that a substring test is NOT proof, and lists what it accepted", () => {
