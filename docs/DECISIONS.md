@@ -1,7 +1,7 @@
 # Forever Decisions
 
 Status: Canonical decision log
-Last updated: 2026-07-23
+Last updated: 2026-08-06
 
 ## Purpose
 
@@ -18,6 +18,13 @@ Each decision should include:
 - Review trigger, if any
 
 ## Approved decisions
+
+### 2026-08-06 — Adopt the Forever development contract as durable repository guidance
+
+- **Decision:** Development is governed by a contract the repository supplies automatically to every coding agent — `AGENTS.md` (imported by `CLAUDE.md`), `docs/FOREVER_DEVELOPMENT_WORKFLOW.md`, `docs/FOREVER_TASK_TEMPLATE.md` and `.github/pull_request_template.md`. It establishes: **one active task → one outcome → one branch → one pull request**, with a single prompt authorizing the whole lifecycle and no "continue?" between internal phases; **three task modes** (Standard Development, Investigation, High-Risk / Production) with proportional verification; an **evidence and access preflight** that stops at `BLOCKED BEFORE IMPLEMENTATION` rather than implementing speculatively, and `PROVEN` / `INFERRED` / `UNKNOWN` labels on every material claim; **one consolidated review and at most one corrective pass**, terminating in `APPROVED`, `BLOCKED` or `SPLIT INTO A NEW TASK`; one canonical CI command `npm run verify:ci`, enforced by the `quality-gate` workflow; **no automatic merge, no force push, no agent-performed external mutation**; and a **short retrospective plus a guidance update** when the same class of mistake occurs a second time, instead of another long corrective prompt.
+- **Context:** Recent tasks expanded into repeated prompts, lost context across compaction, produced speculative conclusions where the primary evidence was unreachable, and ran open-ended verification loops. The repository also had no CI at all, so nothing mechanically distinguished a verified change from an asserted one. A clean `origin/main` baseline measured on this date shows whole-repository lint is not clean (~1,635 `prettier/prettier` errors across ~94 files) and that two Vitest suites depend on gitignored project source material; a naive full-lint or full-test gate would therefore have failed on `main` for reasons unrelated to any change.
+- **Consequence:** `npm run verify:ci` runs `process:check` → `typecheck` → `build` → `test:ci` → `lint:changed` in that order, because several suites read `.output/`. `test:ci` executes the entire Vitest suite and tolerates a failure only in the two declared source-data suites and only while their fixtures are provably absent. Lint is a deterministic changed-file check until a separate repository-wide formatting cleanup is authorized. `scripts/process/check-development-contract.mjs` mechanically enforces that the process files exist, stay short, wire together, and never carry a command that would merge, force-push, deploy or use a credential. The contract governs how a task is executed; role and stage governance in `docs/AI_WORKFLOW.md` and `docs/FOREVER_FACTORY_CONSTITUTION.md` is unchanged. Two consequences elsewhere in the repository follow from the workflow existing at all: the self-expiring `actionlint` N/A waiver in `docs/FOREVER_PRODUCTION_RELEASE_RUNBOOK.md` §2d is void on its own stated condition, and `actionlint` is now a required release check that has not yet been run; and every statement in `docs/crm/**` of the form "there is no `.github/`, therefore no CI" — including the standing rule at `docs/crm/CRM_MARKET_RESEARCH_2026.md` — was true on its stated date and is superseded here. Those documents are dated analysis and are not rewritten. The process does not promise correct code on the first attempt — only that a task completes through one bounded lifecycle or stops early with an exact blocker.
+- **Review trigger:** After the repository-wide formatting cleanup lands, so `lint:changed` can be reconsidered against full lint; when a second instance of the same class of mistake triggers a retrospective; or if the task modes or review budget prove wrong in practice.
 
 ### 2026-07-23 — Configuration-and-identity checkpoint completes Auth hardening but remains blocked on hosting evidence
 

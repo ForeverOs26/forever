@@ -813,40 +813,50 @@ Added by `FOREVER-PR140-CORRECTIONS-002`. Every gate a release claims is listed
 here with the command that produces it, so a claim in a PR description can be
 checked against a command rather than taken on trust.
 
-| Check                          | Command                                                                        | Status                          |
-| ------------------------------ | ------------------------------------------------------------------------------ | ------------------------------- |
-| production build               | `npm run build`                                                                | required                        |
-| full test suite                | `npx vitest run`                                                               | required                        |
-| release binding preflight      | `npm run release:verify-bindings`                                              | required                        |
-| Wrangler identity gate         | `npm run release:wrangler-gate`                                                | required                        |
-| mutation controls (42)         | `npm run release:keep-vars-mutations`                                          | required                        |
-| offline Wrangler serialization | `npx vitest run src/lib/stale-asset/wrangler-plain-text-serialization.test.ts` | required                        |
-| network containment            | `npx vitest run src/lib/stale-asset/release-network-containment.test.ts`       | required                        |
-| lint                           | `npx eslint <changed files>`                                                   | required, scoped — see below    |
-| formatting                     | `npx prettier --check <changed files>`                                         | required, scoped                |
-| `actionlint`                   | —                                                                              | **N/A — owner-approved waiver** |
+| Check                          | Command                                                                        | Status                       |
+| ------------------------------ | ------------------------------------------------------------------------------ | ---------------------------- |
+| production build               | `npm run build`                                                                | required                     |
+| full test suite                | `npx vitest run`                                                               | required                     |
+| release binding preflight      | `npm run release:verify-bindings`                                              | required                     |
+| Wrangler identity gate         | `npm run release:wrangler-gate`                                                | required                     |
+| mutation controls (42)         | `npm run release:keep-vars-mutations`                                          | required                     |
+| offline Wrangler serialization | `npx vitest run src/lib/stale-asset/wrangler-plain-text-serialization.test.ts` | required                     |
+| network containment            | `npx vitest run src/lib/stale-asset/release-network-containment.test.ts`       | required                     |
+| lint                           | `npx eslint <changed files>`                                                   | required, scoped — see below |
+| formatting                     | `npx prettier --check <changed files>`                                         | required, scoped             |
+| repository CI                  | `quality-gate` on the pull request                                             | required                     |
+| `actionlint`                   | `actionlint .github/workflows/quality-gate.yml`                                | **required — NOT YET RUN**   |
 
-### `actionlint: N/A — repository contains no GitHub Actions workflows`
+### The `actionlint` waiver is VOID
 
-**This is an owner-approved, repository-state-specific waiver.** The repository
-contains no `.github/workflows` directory and no GitHub Actions workflow file of
-any kind, so there is nothing for `actionlint` to lint. A workflow was **not**
-created to satisfy the check: adding a meaningless workflow purely to make a
-linter applicable would be a change to the release surface made for the benefit
-of a report, which is exactly the class of change §3 forbids. `actionlint` was
-**not** installed and the check is **not** reported as passing.
+This section previously carried an owner-approved N/A waiver for `actionlint`,
+valid only while the repository held no workflow files.
+**It expired exactly as it was written to expire:**
+`FOREVER-DEVELOPMENT-PROCESS-001` added `.github/workflows/quality-gate.yml`, so
+there is now something for `actionlint` to lint. The superseded wording is
+deliberately not reproduced here — the current state is the only state.
 
-**The waiver expires automatically.** It holds only while the repository has no
-workflow files. If any file is added under `.github/workflows`, this waiver is
-void from that moment and `actionlint` becomes a required check in the same task
-that adds the file.
+**`actionlint` is now a required check, and it has NOT been run.**
+It is not installed in this environment, the Docker daemon that would run the
+official image is not running, and **no binary was downloaded to manufacture a
+result.** The check is **not** reported as passing. Satisfying it is one bounded
+action: install `actionlint` and run
+`actionlint .github/workflows/quality-gate.yml`, or add it to the `quality-gate`
+workflow in a separate authorized task. **The next release must satisfy it
+first** — a required check with no runner blocks the release, it does not excuse
+it.
 
-**Absence of CI is never a green status check.** This repository has no GitHub
-Actions, so a pull request against it carries **no status checks at all**. An
-empty check list means "nothing ran", and it must never be presented — in a PR
-description, a release report or a review summary — as checks that passed. Every
-gate in the table above is a LOCAL command whose output is the evidence; if a
-report claims a gate held, it names the command and quotes the result.
+**The workflow was not created to satisfy a linter.**
+`quality-gate` exists to run `npm run verify:ci` on every pull request and every
+push to `main`. The waiver's expiry is a consequence of that, not its purpose.
+
+**A status check is evidence only when it ran.**
+This repository now publishes exactly one check, `quality-gate`. A check that is
+queued, skipped or absent is never presented — in a PR description, a release
+report or a review summary — as a check that passed; an empty or pending check
+list means "nothing ran". Every other gate in the table above is a LOCAL command
+whose output is the evidence; if a report claims a gate held, it names the
+command and quotes the result.
 
 ### Why lint is scoped rather than repository-wide
 

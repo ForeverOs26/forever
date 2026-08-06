@@ -1,0 +1,59 @@
+name: quality-gate
+
+# The single canonical repository gate. It runs the same command a developer
+# runs locally: `npm run verify:ci`. It uses no secrets, touches no external
+# service, and deploys nothing. Contract: docs/FOREVER_DEVELOPMENT_WORKFLOW.md
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Stale PR runs are cancelled. A run on `main` is release evidence, so it is
+  # always allowed to finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  quality-gate:
+    name: quality-gate
+    runs-on: ubuntu-latest
+    # `npm ci` plus the full gate; the local Windows baseline is ~10 minutes.
+    timeout-minutes: 45
+    steps:
+      - name: Check out the branch with full history
+        uses: actions/checkout@v4
+        with:
+          # `lint:changed` needs the merge base with the target branch.
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # Matches the Node major the local baseline was measured on.
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve the changed-file lint base
+        # Context values reach the shell as environment variables, never as
+        # interpolated script text.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+            echo "FOREVER_LINT_BASE=origin/$BASE_REF" >> "$GITHUB_ENV"
+          else
+            echo "FOREVER_LINT_BASE=HEAD~1" >> "$GITHUB_ENV"
+          fi
+
+      - name: Verify
+        run: npm run verify:ci
