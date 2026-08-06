@@ -491,7 +491,16 @@ describe("CONTAINED_ENV: the child environment is constructed, not inherited", (
   it("reduces PATH to the system directory — Wrangler is never FOUND, only named", () => {
     const path = String(observed.PATH ?? "");
     expect(path.length).toBeGreaterThan(0);
-    expect(path.split(process.platform === "win32" ? ";" : ":")).toHaveLength(1);
+    // `contained-child-environment.ts` sets one System32 entry on Windows and
+    // exactly `/usr/bin:/bin` elsewhere. Pin the actual value per platform: a
+    // bare segment count silently asserted the Windows shape on POSIX.
+    const segments = path.split(process.platform === "win32" ? ";" : ":");
+    if (process.platform === "win32") {
+      expect(segments).toHaveLength(1);
+      expect(segments[0].toLowerCase()).toContain("system32");
+    } else {
+      expect(segments).toEqual(["/usr/bin", "/bin"]);
+    }
     expect(path.toLowerCase()).not.toContain("node_modules");
   });
 });
