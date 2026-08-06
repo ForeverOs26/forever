@@ -2,8 +2,8 @@
  * FOREVER-STUDIO-R2-MANUAL-E2E-FAILURE-FORENSICS-006 — the honest final state.
  * Corrected by FOREVER-PR141-PR142-EVIDENCE-REVIEW-CORRECTIONS-007.
  *
- * The measured defect: a run whose four declared source files all failed to
- * upload produced `0 units, 0 prices, 0 media` and was presented as
+ * The measured defect: a run in which none of the four declared source files
+ * reached processing produced `0 units, 0 prices, 0 media` and was presented as
  *
  *     Published — The page is live now. Anything missing can be added later.
  *
@@ -28,6 +28,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   classifyWarning,
+  EVIDENCE_SAFE_WARNING_MESSAGES,
+  publicWarningMessage,
   countWarningsByClass,
   CRITICAL_WARNING_CLASSES,
   describePublicationOutcome,
@@ -42,10 +44,21 @@ import type { StudioWarningSummary } from "../studio-types";
 
 const warn = (code: string): StudioWarningSummary => ({
   code,
-  message: "Private source file was declared but never arrived in storage; continuing without it.",
+  message:
+    "Private source file could not be found through its declared storage path. Physical storage state is unresolved.",
 });
 
-const OWNER_FAILED_FILES = [
+/**
+ * The message a run persisted BEFORE the canonical wording was corrected. It
+ * asserts physical absence, which the evidence does not support, and it appears
+ * here only so the assertions below can refute it
+ * (FOREVER-PR142-EVIDENCE-SAFE-RENDER-009).
+ */
+const SUPERSEDED_UNSAFE_MESSAGE =
+  "Private source file was declared but never arrived in storage; continuing without it.";
+
+/** The four files the Owner declared that never reached the published page. */
+const OWNER_UNCONFIRMED_FILES = [
   "SUB - Price List V.1. - Updated 24.07.2026.pdf",
   "The Title Sierra Show Unit 30 sq.m.-01.jpg",
   "The Title Sierra Show Unit 30 sq.m.-02.jpg",
@@ -61,7 +74,7 @@ const counts = (units: number, prices: number, media: number, warnings = 0) => (
 });
 
 describe("the Owner's exact observed run is never reported as success", () => {
-  it("reconstructs it: 4 failed uploads, 3 missing-source notes, 0/0/0 → FAILED", () => {
+  it("reconstructs it: 4 unconfirmed transfers, 3 failed lookups, 0/0/0 → FAILED", () => {
     const outcome = describePublicationOutcome({
       status: "published",
       pagePath: "/projects/the-title-sierra",
@@ -71,7 +84,7 @@ describe("the Owner's exact observed run is never reported as success", () => {
         warn("file_upload_missing"),
         warn("file_upload_missing"),
       ],
-      failedUploads: OWNER_FAILED_FILES,
+      failedUploads: OWNER_UNCONFIRMED_FILES,
     });
 
     expect(outcome.level).toBe("failed");
@@ -98,17 +111,18 @@ describe("the Owner's exact observed run is never reported as success", () => {
     expect(outcome.description).toContain("physical storage state is unresolved");
   });
 
-  it("names every failed file so the Owner can tell WHICH ones to re-upload", () => {
+  it("names every unconfirmed file, so the Owner knows WHICH ones to verify", () => {
     // The server-side notes are redacted to "Private source file" by design, so
-    // the client's own record is the only place the names survive.
+    // the client's own record is the only place the names survive. Naming them
+    // is for VERIFICATION, not for a re-upload — storage state is unresolved.
     const outcome = describePublicationOutcome({
       status: "published",
       pagePath: "/projects/x",
       counts: counts(0, 0, 0),
       warnings: [],
-      failedUploads: OWNER_FAILED_FILES,
+      failedUploads: OWNER_UNCONFIRMED_FILES,
     });
-    expect(outcome.clientFailedUploadNames).toEqual(OWNER_FAILED_FILES);
+    expect(outcome.clientFailedUploadNames).toEqual(OWNER_UNCONFIRMED_FILES);
   });
 });
 
@@ -184,6 +198,79 @@ describe("client and server observations are independent, and stay independent",
     });
     expect(outcome.description).not.toContain("uploading");
     expect(outcome.description).toContain("could not be used");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FOREVER-PR142-EVIDENCE-SAFE-RENDER-009 — the message a caller may display
+// ---------------------------------------------------------------------------
+
+describe("a persisted warning message can never reach the screen unsafely", () => {
+  it("derives the file_upload_missing message from the CODE, not the stored text", () => {
+    const unsafe: StudioWarningSummary = {
+      code: "file_upload_missing",
+      message: SUPERSEDED_UNSAFE_MESSAGE,
+    };
+    expect(publicWarningMessage(unsafe)).toBe(
+      "Private source file could not be found through its declared storage path. Physical storage state is unresolved.",
+    );
+    expect(publicWarningMessage(unsafe)).not.toContain("never arrived");
+  });
+
+  it("keeps every other code's own message, which is where the detail lives", () => {
+    for (const code of Object.keys(WARNING_CLASSIFICATION)) {
+      if (code in EVIDENCE_SAFE_WARNING_MESSAGES) continue;
+      const warning: StudioWarningSummary = { code, message: "server detail for this file" };
+      expect(publicWarningMessage(warning), code).toBe("server detail for this file");
+    }
+  });
+
+  it("hands the caller only safe messages, in every warning group", () => {
+    const outcome = describePublicationOutcome({
+      status: "published",
+      pagePath: "/projects/x",
+      counts: counts(3, 3, 0),
+      warnings: [
+        { code: "file_upload_missing", message: SUPERSEDED_UNSAFE_MESSAGE },
+        { code: "media_class_mismatch", message: "server detail for this file" },
+      ],
+      failedUploads: [],
+    });
+    const rendered = [
+      ...outcome.criticalWarnings,
+      ...outcome.retainedWarnings,
+      ...outcome.enrichmentWarnings,
+    ].map((warning) => warning.message);
+    for (const message of rendered) expect(message).not.toContain("never arrived");
+    expect(rendered).toContain(
+      "Private source file could not be found through its declared storage path. Physical storage state is unresolved.",
+    );
+    // Untouched, because it carries detail nothing else can supply.
+    expect(rendered).toContain("server detail for this file");
+  });
+
+  it("attributes a delivery problem to the observer that actually saw it", () => {
+    const serverOnly = describePublicationOutcome({
+      status: "published",
+      pagePath: "/projects/x",
+      counts: counts(3, 3, 0),
+      warnings: [warn("file_upload_missing")],
+      failedUploads: [],
+    });
+    expect(serverOnly.description).toContain(
+      "processing could not find them through their declared storage path",
+    );
+    expect(serverOnly.description).not.toContain("the browser could not confirm completion");
+
+    const clientOnly = describePublicationOutcome({
+      status: "published",
+      pagePath: "/projects/x",
+      counts: counts(3, 3, 0),
+      warnings: [],
+      failedUploads: ["one.jpg"],
+    });
+    expect(clientOnly.description).toContain("the browser could not confirm completion for them");
+    expect(clientOnly.description).not.toContain("processing could not find them");
   });
 });
 
@@ -501,7 +588,7 @@ function everyOutcome() {
   const codes = [...Object.keys(WARNING_CLASSIFICATION), "an_unknown_future_code"];
   const warningSets: StudioWarningSummary[][] = [[], ...codes.map((code) => [warn(code)])];
   warningSets.push(codes.map((code) => warn(code)));
-  const uploadSets = [[], ["one.jpg"], OWNER_FAILED_FILES];
+  const uploadSets = [[], ["one.jpg"], OWNER_UNCONFIRMED_FILES];
   const countSets = [null, counts(0, 0, 0), counts(0, 0, 1), counts(12, 12, 30)];
   const statuses = ["published", "failed", "processing", "queued"] as const;
 
@@ -649,7 +736,7 @@ describe("the four publication states stay distinct", () => {
       pagePath: "/projects/x",
       counts: counts(0, 0, 0),
       warnings: [warn("file_upload_missing")],
-      failedUploads: OWNER_FAILED_FILES,
+      failedUploads: OWNER_UNCONFIRMED_FILES,
     });
     expect(outcome.level).toBe("failed");
     expect(outcome.title).toBe("Publication failed — empty page created");

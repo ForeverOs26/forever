@@ -1,10 +1,16 @@
 /**
  * FOREVER-STUDIO-R2-MANUAL-E2E-FAILURE-FORENSICS-006 — the object-key contract.
  *
- * A manual end-to-end attempt on the PR #140 candidate produced four files the
- * UI reported as failed to upload, three enrichment notes reading "was declared
- * but never arrived in storage; continuing without it", and a page published
- * with 0 units, 0 prices and 0 media.
+ * A manual end-to-end attempt on the PR #140 candidate produced four files
+ * whose transfer the browser could not confirm, three processing notes, and a
+ * page published with 0 units, 0 prices and 0 media.
+ *
+ * SUPERSEDED WORDING, quoted once and refuted immediately: those notes then read
+ * "was declared but never arrived in storage; continuing without it." That
+ * sentence asserts physical absence, which a failed lookup cannot establish. The
+ * canonical message now reports the lookup and stops there, and
+ * FOREVER-PR142-EVIDENCE-SAFE-RENDER-009 derives the rendered message from the
+ * warning CODE so a job persisted with the old sentence cannot display it.
  *
  * One hypothesis for "never arrived" is a KEY MISMATCH: the application writes
  * an object under one R2 key and later looks for it under another. The R2 and
@@ -195,11 +201,18 @@ describe("R2 object-key contract — the Owner's exact failed filenames", () => 
     // The note is REDACTED by design — `fileWarning` replaces the filename with
     // a neutral label because names carry personal data. This is why the Owner
     // saw three identical "Private source file …" notes and could not tell from
-    // them WHICH files were lost. Pinned here so the privacy contract holds and
-    // so the reason for that ambiguity is recorded rather than rediscovered.
+    // them WHICH files were unconfirmed. Pinned here so the privacy contract
+    // holds and so the reason for that ambiguity is recorded rather than
+    // rediscovered.
+    //
+    // The wording is also pinned as EVIDENCE-SAFE: it reports the failed lookup
+    // and stops there. It must never again assert physical absence
+    // (FOREVER-PR142-EVIDENCE-SAFE-RENDER-009).
     for (const warning of missing) {
       expect(warning.message).toContain("Private source file");
-      expect(warning.message).toContain("never arrived in storage");
+      expect(warning.message).toContain("could not be found through its declared storage path");
+      expect(warning.message).toContain("Physical storage state is unresolved");
+      expect(warning.message).not.toContain("never arrived");
       for (const name of SIERRA_PHOTOS) expect(warning.message).not.toContain(name);
     }
   });

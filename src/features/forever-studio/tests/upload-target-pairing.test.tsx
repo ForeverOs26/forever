@@ -434,6 +434,78 @@ describe("upload target pairing", () => {
     expect(panel).toContain("whether their bytes reached storage is unresolved");
   });
 
+  /**
+   * A HISTORICALLY PERSISTED WARNING MESSAGE MUST NOT REACH THE DOM.
+   *
+   * FOREVER-PR142-EVIDENCE-SAFE-RENDER-009. Warning messages are stored with the
+   * job, so a run processed before the canonical wording was corrected still
+   * carries the superseded sentence below. Rendering it raw let one screen state
+   * that physical storage state is unresolved and then assert, two lines lower,
+   * that the object never arrived.
+   *
+   * The module suite could not catch this: it inspects the DERIVED description,
+   * and the raw warning is what the critical block renders. This test drives the
+   * real component and asserts the DOM.
+   */
+  it("renders a historically persisted file_upload_missing warning safely", async () => {
+    endpoints.processJob.mockResolvedValue({
+      status: "published",
+      pagePath: "/projects/x",
+      counts: { buildings: 0, units: 3, prices: 3, media: 0, warnings: 1 },
+      warnings: [
+        {
+          code: "file_upload_missing",
+          // DELIBERATELY UNSAFE, and quoted here only to be refuted by the
+          // assertions below. This is the exact sentence persisted before the
+          // canonical wording was corrected; it asserts physical absence, which
+          // the evidence does not support.
+          message:
+            "Private source file was declared but never arrived in storage; continuing without it.",
+        },
+      ],
+      projectSlug: "x",
+      listingId: null,
+    });
+    renderUploader();
+    await screen.findByRole("button", { name: "Publish now" });
+    await addTo("Price List", file("q3.pdf", "PRICE-BYTES"));
+    await publish();
+    await screen.findByRole("heading", { name: "Partly published" });
+
+    // Every transfer completed from the browser's side, so this is the
+    // SERVER-ONLY delivery path — the one the module suite never rendered.
+    const critical = document.querySelector('[data-block="critical-warnings"]');
+    expect(critical).not.toBeNull();
+    expect(critical?.closest("details")).toBeNull();
+    expect(critical).toHaveTextContent(
+      "Private source file could not be found through its declared storage path. Physical storage state is unresolved.",
+    );
+
+    const panel = document.body.textContent ?? "";
+    for (const banned of [
+      "never arrived",
+      "Nothing was lost",
+      "nothing was lost",
+      "was lost",
+      "Upload them again",
+      "upload them again",
+      "supply them again",
+      "re-upload",
+      "Re-upload",
+      "try again",
+      "Try again",
+    ]) {
+      expect(panel, banned).not.toContain(banned);
+    }
+    expect(panel).toContain(
+      "Do not upload these files again yet. Storage verification is required.",
+    );
+    // The browser confirmed every transfer here, so the screen must not say it
+    // did not — only processing's lookup failed.
+    expect(panel).toContain("processing could not find them through their declared storage path");
+    expect(panel).not.toContain("the browser could not confirm completion");
+  });
+
   // Refusals ------------------------------------------------------------------
 
   /**

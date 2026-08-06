@@ -987,9 +987,9 @@ function ResultPanel(props: { result: StudioJobResult; failedUploads: string[] }
     }
   };
   // The verdict is DERIVED, never constant. This heading used to read
-  // "Published" unconditionally — including for a run whose every source file
-  // failed to upload, which produced a live but empty page described as a
-  // success. See `publication-outcome.ts`.
+  // "Published" unconditionally — including for a run in which not one declared
+  // source reached processing, which produced a live but empty page described as
+  // a success. See `publication-outcome.ts`.
   const outcome = describePublicationOutcome({
     status: result.status,
     pagePath: result.pagePath,
@@ -1051,6 +1051,12 @@ function ResultPanel(props: { result: StudioJobResult; failedUploads: string[] }
         CRITICAL SERVER WARNINGS ARE RENDERED DIRECTLY. A source that did not
         reach the page, or that was rejected, is not a note for later enrichment,
         and it must not be reachable only by opening a collapsed section.
+
+        THE MESSAGE IS ALREADY SAFE. `describePublicationOutcome` derives the
+        public message from the warning CODE for any code in
+        `EVIDENCE_SAFE_WARNING_MESSAGES`, so a job persisted before the canonical
+        wording was corrected cannot render its old "never arrived in storage"
+        sentence here. Every other code keeps the server's own message.
       */}
       {outcome.serverObservedCriticalProblem ? (
         <div

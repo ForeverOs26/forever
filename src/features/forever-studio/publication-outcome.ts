@@ -6,11 +6,13 @@
  * THE MEASURED DEFECT
  * ---------------------------------------------------------------------------
  *
- * A manual end-to-end attempt uploaded a price list and three photographs. All
- * four failed to upload. The browser KNEW they had failed — it collected them
- * into `failedUploads` and rendered them — and the server knew too: each became
- * a `file_upload_missing` warning. Processing then continued without them and
- * the run finished with `0 units`, `0 prices`, `0 media`.
+ * A manual end-to-end attempt declared a price list and three photographs. None
+ * of the four reached the page. The browser could not confirm completion — it
+ * collected them into `failedUploads` and rendered them — and processing could
+ * not find them through their declared storage path, so each became a
+ * `file_upload_missing` warning. Processing then continued without them and the
+ * run finished with `0 units`, `0 prices`, `0 media`. What physically happened
+ * to those bytes is UNRESOLVED — see THE EVIDENCE BOUNDARY below.
  *
  * The final screen said:
  *
@@ -106,9 +108,9 @@
  *   - `failed`    — the job did not publish a page at all, OR a page exists but
  *                   carries no content AND a critical problem was observed.
  *                   That second clause is the measured case: an empty page
- *                   produced BECAUSE the uploads failed is a failure, not a
- *                   success with a note. Its heading says so without leading
- *                   with the word "Published" —
+ *                   produced BECAUSE its declared sources never reached
+ *                   processing is a failure, not a success with a note. Its
+ *                   heading says so without leading with the word "Published" —
  *                   "Publication failed — empty page created".
  *   - `partial`   — a page exists and carries content, but a critical problem
  *                   was observed.
@@ -163,11 +165,16 @@ export type WarningClass =
  * Each classification is justified by the message the server actually emits.
  */
 export const WARNING_CLASSIFICATION: Readonly<Record<string, WarningClass>> = {
-  // The server emits: "was declared but never arrived in storage; continuing
-  // without it." That sentence is the SERVER'S OWN MESSAGE and is reproduced
-  // here only to justify the classification. It is a report of a failed lookup,
-  // not a proof of physical absence — see THE EVIDENCE BOUNDARY above. This
-  // module never repeats that phrasing in anything it renders.
+  // The server emits: "could not be found through its declared storage path.
+  // Physical storage state is unresolved." A report of a failed LOOKUP, not a
+  // proof of physical absence — see THE EVIDENCE BOUNDARY above.
+  //
+  // SUPERSEDED WORDING, quoted once and refuted here: runs processed before
+  // FOREVER-PR142-EVIDENCE-SAFE-RENDER-009 persisted "was declared but never
+  // arrived in storage; continuing without it." That sentence asserts physical
+  // absence, which this evidence cannot support, and it is NEVER rendered:
+  // `EVIDENCE_SAFE_WARNING_MESSAGES` derives this code's public message from the
+  // code itself, so a historical message cannot reach the DOM.
   file_upload_missing: "delivery_failure",
 
   // "could not be read back." / "could not be parsed as JSON; the file was
@@ -245,6 +252,36 @@ export const RETAINED_WARNING_CLASSES = ["retained_private", "deferred_publicati
  */
 export const STORAGE_VERIFICATION_GUIDANCE =
   "Do not upload these files again yet. Storage verification is required.";
+
+/**
+ * THE MESSAGE THE SCREEN SHOWS, DERIVED FROM THE CODE — NOT FROM THE STORED TEXT.
+ *
+ * FOREVER-PR142-EVIDENCE-SAFE-RENDER-009. Warning messages are PERSISTED with a
+ * job, so a run processed before the canonical wording was corrected still
+ * carries the old sentence — which asserted that an object "never arrived in
+ * storage". Rendering that raw would let one screen say physical storage state
+ * is unresolved and then assert the object is absent, which is the exact defect
+ * this PR exists to remove.
+ *
+ * For any code listed here the public message is derived from the CODE, so a
+ * historical message can never reach the DOM. Every other code keeps the
+ * server's own message, which is the only place the specific detail lives.
+ */
+export const EVIDENCE_SAFE_WARNING_MESSAGES: Readonly<Record<string, string>> = {
+  file_upload_missing:
+    "Private source file could not be found through its declared storage path. Physical storage state is unresolved.",
+};
+
+/** The message a caller may display for a warning. Never `warning.message` raw. */
+export function publicWarningMessage(warning: StudioWarningSummary): string {
+  return EVIDENCE_SAFE_WARNING_MESSAGES[warning.code] ?? warning.message;
+}
+
+/** A warning whose message is safe to render, whenever it was produced. */
+function toSafeWarning(warning: StudioWarningSummary): StudioWarningSummary {
+  const safe = EVIDENCE_SAFE_WARNING_MESSAGES[warning.code];
+  return safe === undefined ? warning : { ...warning, message: safe };
+}
 
 /**
  * Unknown codes classify as `enrichment_note` so an unrecognised warning can
@@ -362,11 +399,13 @@ export function describePublicationOutcome(input: {
   readonly failedUploads: readonly string[];
 }): PublicationOutcome {
   const byClass = countWarningsByClass(input.warnings);
-  const criticalWarnings = input.warnings.filter(isCriticalWarning);
-  const retainedWarnings = input.warnings.filter(isRetainedWarning);
-  const enrichmentWarnings = input.warnings.filter(
-    (warning) => !isCriticalWarning(warning) && !isRetainedWarning(warning),
-  );
+  // Every group carries SAFE messages. The mapping is a no-op for codes with no
+  // override, so each of those keeps the server's own, correct message.
+  const criticalWarnings = input.warnings.filter(isCriticalWarning).map(toSafeWarning);
+  const retainedWarnings = input.warnings.filter(isRetainedWarning).map(toSafeWarning);
+  const enrichmentWarnings = input.warnings
+    .filter((warning) => !isCriticalWarning(warning) && !isRetainedWarning(warning))
+    .map(toSafeWarning);
 
   const clientFailedUploadCount = input.failedUploads.length;
   const clientObservedFailure = clientFailedUploadCount > 0;
@@ -405,6 +444,19 @@ export function describePublicationOutcome(input: {
     enrichmentWarnings,
   };
 
+  // ATTRIBUTED TO THE OBSERVER THAT ACTUALLY SAW IT. Saying "the browser could
+  // not confirm completion" for a run where the browser confirmed every
+  // transfer and only processing's lookup failed is a false statement of the
+  // same family as the one this correction removes.
+  const deliveryEvidence = [
+    clientObservedFailure ? "the browser could not confirm completion for them" : null,
+    byClass.delivery_failure > 0
+      ? "processing could not find them through their declared storage path"
+      : null,
+  ]
+    .filter(Boolean)
+    .join(", and ");
+
   if (!published) {
     return {
       ...base,
@@ -412,7 +464,7 @@ export function describePublicationOutcome(input: {
       ok: false,
       title: "Not published",
       description: deliveryProblem
-        ? `No page was published by this run, and some files did not complete. The browser could not confirm completion for them, so whether their bytes reached storage is unresolved. ${STORAGE_VERIFICATION_GUIDANCE}`
+        ? `No page was published by this run, and some files did not complete: ${deliveryEvidence}, so whether their bytes reached storage is unresolved. ${STORAGE_VERIFICATION_GUIDANCE}`
         : anyCriticalProblem
           ? "No page was published by this run, and some files could not be used. Check the details below."
           : "No page was published by this run.",
@@ -431,7 +483,7 @@ export function describePublicationOutcome(input: {
       // is the same defect as the constant "Published" it replaced.
       title: "Publication failed — empty page created",
       description: deliveryProblem
-        ? `An empty page was created with no units, prices or media. The browser could not confirm completion for the source files, and processing could not find the declared objects through their storage path — physical storage state is unresolved. ${STORAGE_VERIFICATION_GUIDANCE}`
+        ? `An empty page was created with no units, prices or media: ${deliveryEvidence} — physical storage state is unresolved. ${STORAGE_VERIFICATION_GUIDANCE}`
         : "An empty page was created with no units, prices or media, because the source files that reached processing could not be used. Check the details below.",
     };
   }
@@ -443,7 +495,7 @@ export function describePublicationOutcome(input: {
       ok: false,
       title: "Partly published",
       description: deliveryProblem
-        ? `The page is live, but some files did not complete and are not on it. The browser could not confirm completion for them, so whether their bytes reached storage is unresolved. ${STORAGE_VERIFICATION_GUIDANCE}`
+        ? `The page is live, but some files did not complete and are not on it: ${deliveryEvidence}, so whether their bytes reached storage is unresolved. ${STORAGE_VERIFICATION_GUIDANCE}`
         : "The page is live, but some files could not be used and are not on it yet. Check the details below.",
     };
   }
