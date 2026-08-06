@@ -668,7 +668,11 @@ describe("the release-check mapping records what runs and what is not applicable
     // it; this asserts the document is describing that workflow and no other.
     const checksum = workflow.search(/sha256sum\s+--check\s+--strict/);
     const extract = workflow.search(/^\s*tar\s/m);
-    const lint = workflow.indexOf('"${RUNNER_TEMP}/actionlint"');
+    // The LINT call, not the version print: the binary with optional flags and
+    // nothing else — no `-version`, no file argument, no swallowed exit code.
+    const lint = workflow.search(
+      /^[ \t]*"\$\{RUNNER_TEMP\}\/actionlint"(?:[ \t]+-(?!version\b)[a-z-]+)*[ \t]*$/m,
+    );
     const verify = workflow.search(/^\s*run:\s*npm run verify:ci\s*$/m);
     for (const index of [checksum, extract, lint, verify]) expect(index).toBeGreaterThan(-1);
     expect(checksum).toBeLessThan(extract);

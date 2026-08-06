@@ -850,11 +850,17 @@ rather than after the full gate.
 
 **Nothing about that install is taken on trust.** No `latest` tag, no unpinned
 remote installer script piped into a shell, and no unverified binary: an archive
-whose digest does not match the pin fails the job instead of being executed. Nor
-can the gate be quietly deleted while this document still claims it —
-`npm run process:check` fails if the step is removed, if the version pin or the
-checksum verification is dropped, or if the lint is moved after the canonical
-verification.
+whose digest does not match the pin fails the job instead of being executed.
+
+`npm run process:check` holds the step to that shape, so it cannot be weakened
+while this document still claims it. The checker fails if the step is removed;
+if the version pin or the digest pin is dropped, or the download stops being
+derived from the pin; if the checksum check is removed, or moved after the
+archive is extracted or executed; if the lint is moved after the canonical
+verification; or if the lint is **neutered** — reduced to a `-version` print,
+narrowed to named files (which would exclude a workflow added later), or given
+`continue-on-error`, `|| true`, `set +e` or a step-level `if:` so its exit code
+stops failing the job.
 
 **The workflow was not created to satisfy a linter.**
 `quality-gate` exists to run `npm run verify:ci` on every pull request and every
