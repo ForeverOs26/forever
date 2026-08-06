@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -83,18 +83,25 @@ function runChild(kind: "jpeg" | "png", megabytes: number) {
     const modPath = join(root, "media-truth.mjs");
     // Transpile the sanitizer in a CLEAN subprocess. esbuild's buildSync/JS API
     // cannot run inside the vitest worker (its patched globals trip an esbuild
-    // invariant), so the CLI is invoked via a fresh node process instead.
-    const transpile = spawnSync(
-      process.execPath,
-      [
-        "node_modules/esbuild/bin/esbuild",
-        "src/features/forever-studio/server/media-truth.ts",
-        `--outfile=${modPath}`,
-        "--format=esm",
-        "--platform=node",
-      ],
-      { encoding: "utf8", timeout: 60_000 },
-    );
+    // invariant), so the CLI is invoked as a fresh process instead.
+    //
+    // `esbuild/bin/esbuild` is a `#!`-prefixed JS shim on some platforms and the
+    // native executable on others — on Linux it is an ELF binary, which `node`
+    // cannot parse. Read the first bytes and launch it the way it actually is.
+    const esbuildBin = "node_modules/esbuild/bin/esbuild";
+    const isScript = readFileSync(esbuildBin).subarray(0, 2).toString("latin1") === "#!";
+    const esbuildArgs = [
+      "src/features/forever-studio/server/media-truth.ts",
+      `--outfile=${modPath}`,
+      "--format=esm",
+      "--platform=node",
+    ];
+    const transpile = isScript
+      ? spawnSync(process.execPath, [esbuildBin, ...esbuildArgs], {
+          encoding: "utf8",
+          timeout: 60_000,
+        })
+      : spawnSync(esbuildBin, esbuildArgs, { encoding: "utf8", timeout: 60_000 });
     if (transpile.status !== 0) {
       throw new Error(`transpile_failed:${transpile.status}:${transpile.stderr.slice(0, 600)}`);
     }

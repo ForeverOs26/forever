@@ -583,8 +583,9 @@ describe("the runbook describes the explicit-binding release truthfully", () => 
 });
 
 // ---------------------------------------------------------------------------
-// FOREVER-PR140-CORRECTIONS-002 — the release-check mapping, including the
-// explicit actionlint N/A waiver
+// FOREVER-PR140-CORRECTIONS-002 — the release-check mapping.
+// FOREVER-DEVELOPMENT-PROCESS-001 — the actionlint N/A waiver expired here, on
+// the exact condition it was written to expire on: a workflow file now exists.
 // ---------------------------------------------------------------------------
 
 describe("the release-check mapping records what runs and what is not applicable", () => {
@@ -601,31 +602,30 @@ describe("the release-check mapping records what runs and what is not applicable
     }
   });
 
-  it("records actionlint as an explicit N/A waiver, in the exact wording", () => {
-    expect(runbook).toContain(
-      "`actionlint: N/A — repository contains no GitHub Actions workflows`",
-    );
-    expect(runbookFlat).toContain("owner-approved, repository-state-specific waiver");
+  it("records the actionlint waiver as VOID, not as still standing", () => {
+    expect(runbookFlat).toContain("The `actionlint` waiver is VOID");
+    expect(runbookFlat).toContain("It expired exactly as it was written to expire");
+    // The superseded N/A claim must not survive anywhere in the runbook, in any
+    // wrapping — a stale waiver left in the text reads as a live one. Only the
+    // claim is barred; the general principle it carried is restated below.
+    expect(runbookFlat).not.toContain("repository contains no GitHub Actions workflows");
   });
 
-  it("refuses the two ways a waiver becomes a lie", () => {
+  it("refuses the two ways an expired waiver becomes a lie", () => {
     // A workflow created to satisfy a linter, and a check claimed as passing.
-    expect(runbookFlat).toContain("A workflow was **not** created to satisfy the check");
-    expect(runbookFlat).toContain("`actionlint` was **not** installed");
-    expect(runbookFlat).toContain("the check is **not** reported as passing");
+    expect(runbookFlat).toContain("The workflow was not created to satisfy a linter");
+    expect(runbookFlat).toContain("no binary was downloaded to manufacture a result");
+    expect(runbookFlat).toContain("The check is **not** reported as passing");
   });
 
-  it("expires the waiver automatically the moment a workflow file exists", () => {
-    expect(runbookFlat).toContain("The waiver expires automatically");
-    expect(runbookFlat).toContain(
-      "If any file is added under `.github/workflows`, this waiver is void",
-    );
+  it("names actionlint as required-but-unrun, with the exact command", () => {
+    expect(runbookFlat).toContain("`actionlint` is now a required check, and it has NOT been run");
+    expect(runbook).toContain("actionlint .github/workflows/quality-gate.yml");
   });
 
-  it("forbids presenting an absent CI as a successful status check", () => {
-    expect(runbookFlat).toContain("Absence of CI is never a green status check");
-    expect(runbookFlat).toContain("no status checks at all");
-    expect(runbookFlat).toContain('An empty check list means "nothing ran"');
+  it("forbids presenting a pending or absent check as a successful one", () => {
+    expect(runbookFlat).toContain("A status check is evidence only when it ran");
+    expect(runbookFlat).toContain('an empty or pending check list means "nothing ran"');
   });
 
   it("scopes lint rather than editing shared configuration for one checkout", () => {
@@ -634,11 +634,11 @@ describe("the release-check mapping records what runs and what is not applicable
     expect(runbookFlat).toContain("not** a reason to edit the ESLint configuration");
   });
 
-  it("the waiver is TRUE of this repository right now", () => {
-    // The waiver is repository-state-specific, so the state is measured rather
-    // than assumed: the moment a workflow exists, this fails and the waiver in
-    // the runbook must be replaced by a real actionlint run.
-    expect(existsSync(resolve(process.cwd(), ".github/workflows"))).toBe(false);
+  it("the expiry is TRUE of this repository right now", () => {
+    // Measured, not assumed — the same discipline the waiver itself used. The
+    // workflow the runbook names must actually exist, or the section is stale.
+    expect(existsSync(resolve(process.cwd(), ".github/workflows"))).toBe(true);
+    expect(existsSync(resolve(process.cwd(), ".github/workflows/quality-gate.yml"))).toBe(true);
   });
 });
 
