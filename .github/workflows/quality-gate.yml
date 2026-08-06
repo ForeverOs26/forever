@@ -31,6 +31,30 @@ jobs:
           # `lint:changed` needs the merge base with the target branch.
           fetch-depth: 0
 
+      - name: Lint the workflows with pinned actionlint
+        # Pinned twice: an exact release version, and the SHA-256 that release
+        # publishes for this archive. The checksum is verified BEFORE the
+        # archive is extracted or executed, so a substituted or truncated
+        # download fails the job instead of linting with it. No `latest`, no
+        # remote installer script piped into a shell, no unverified binary.
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            --output "${RUNNER_TEMP}/${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_SHA256}  ${RUNNER_TEMP}/${archive}" | sha256sum --check --strict -
+          tar --extract --gzip --file "${RUNNER_TEMP}/${archive}" --directory "${RUNNER_TEMP}" actionlint
+          "${RUNNER_TEMP}/actionlint" -version
+          # No file arguments: actionlint discovers every workflow file under
+          # `.github/workflows`, so a new one cannot arrive unlinted. `-verbose`
+          # records which files it collected and whether the runner's shellcheck
+          # was picked up, so a silently skipped rule is visible in the log.
+          "${RUNNER_TEMP}/actionlint" -verbose -color
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:

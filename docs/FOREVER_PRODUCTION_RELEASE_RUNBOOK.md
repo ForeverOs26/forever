@@ -825,9 +825,9 @@ checked against a command rather than taken on trust.
 | lint                           | `npx eslint <changed files>`                                                   | required, scoped — see below |
 | formatting                     | `npx prettier --check <changed files>`                                         | required, scoped             |
 | repository CI                  | `quality-gate` on the pull request                                             | required                     |
-| `actionlint`                   | `actionlint .github/workflows/quality-gate.yml`                                | **required — NOT YET RUN**   |
+| `actionlint`                   | `actionlint` inside `quality-gate` (pinned, checksum-verified)                 | required — enforced in CI    |
 
-### The `actionlint` waiver is VOID
+### The `actionlint` waiver is VOID, and the check now RUNS
 
 This section previously carried an owner-approved N/A waiver for `actionlint`,
 valid only while the repository held no workflow files.
@@ -836,15 +836,31 @@ valid only while the repository held no workflow files.
 there is now something for `actionlint` to lint. The superseded wording is
 deliberately not reproduced here — the current state is the only state.
 
-**`actionlint` is now a required check, and it has NOT been run.**
-It is not installed in this environment, the Docker daemon that would run the
-official image is not running, and **no binary was downloaded to manufacture a
-result.** The check is **not** reported as passing. Satisfying it is one bounded
-action: install `actionlint` and run
-`actionlint .github/workflows/quality-gate.yml`, or add it to the `quality-gate`
-workflow in a separate authorized task. **The next release must satisfy it
-first** — a required check with no runner blocks the release, it does not excuse
-it.
+**`actionlint` is now ENFORCED by `quality-gate`.**
+`FOREVER-ACTIONLINT-GATE-001` closed the gap the expired waiver left, inside the
+one canonical gate — not in a second workflow and not in a second job. On every
+pull request and every push to `main`, `quality-gate` downloads the official
+`rhysd/actionlint` `v1.7.12` Linux AMD64 release archive into `$RUNNER_TEMP`,
+verifies it against the published SHA-256
+`8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8` **before**
+extracting or executing it, and lints **every** file under `.github/workflows` —
+with no file arguments, so a workflow added later cannot arrive unlinted. The
+lint runs **before** `npm run verify:ci`, so a broken workflow fails in seconds
+rather than after the full gate.
+
+**Nothing about that install is taken on trust.** No `latest` tag, no unpinned
+remote installer script piped into a shell, and no unverified binary: an archive
+whose digest does not match the pin fails the job instead of being executed.
+
+`npm run process:check` holds the step to that shape, so it cannot be weakened
+while this document still claims it. The checker fails if the step is removed;
+if the version pin or the digest pin is dropped, or the download stops being
+derived from the pin; if the checksum check is removed, or moved after the
+archive is extracted or executed; if the lint is moved after the canonical
+verification; or if the lint is **neutered** — reduced to a `-version` print,
+narrowed to named files (which would exclude a workflow added later), or given
+`continue-on-error`, `|| true`, `set +e` or a step-level `if:` so its exit code
+stops failing the job.
 
 **The workflow was not created to satisfy a linter.**
 `quality-gate` exists to run `npm run verify:ci` on every pull request and every

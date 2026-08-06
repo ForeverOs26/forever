@@ -50,6 +50,63 @@ const REQUIRED_SCRIPTS = ["process:check", "typecheck", "test:ci", "lint:changed
 const DECISION_STATES = ["APPROVED", "CORRECT ONCE", "BLOCKED", "SPLIT"];
 
 /**
+ * The workflow lint gate. `quality-gate` is the only place a GitHub Actions
+ * change is mechanically checked, so the properties that make that check
+ * trustworthy are asserted here rather than left to review:
+ *
+ *   1. actionlint actually LINTS — the step is not reduced to a version print,
+ *      not narrowed with file arguments that would exclude a workflow added
+ *      later, and not neutered so its exit code stops failing the job;
+ *   2. it is pinned to an exact release version, never `latest`;
+ *   3. the archive is checksum-verified before it is extracted or executed;
+ *   4. it runs BEFORE the canonical verification, so a broken workflow fails
+ *      in seconds instead of after a full `verify:ci`.
+ *
+ * Every marker below is matched INSIDE the step, never anywhere in the file: a
+ * mention in a comment, or an unrelated `tar`, must not satisfy one. The
+ * version and digest are matched by shape rather than by literal value, so an
+ * upgrade is a workflow edit rather than a change here.
+ */
+const STEP_HEADER = /^[ \t]*- name:/m;
+const ACTIONLINT_STEP_HEADER = /^[ \t]*- name:[^\n]*actionlint\b/im;
+const ACTIONLINT_BINARY = '"${RUNNER_TEMP}/actionlint"';
+/**
+ * The lint invocation itself: the binary, optional flags, and NOTHING else. It
+ * deliberately does not match `-version` (which prints a version and lints
+ * nothing), a file argument (which would silently exclude a workflow added
+ * later), or a trailing `|| true`.
+ */
+const ACTIONLINT_LINT_CALL =
+  /^[ \t]*"\$\{RUNNER_TEMP\}\/actionlint"(?:[ \t]+-(?!version\b)[a-z-]+)*[ \t]*$/m;
+const ACTIONLINT_VERSION_PIN = /^\s*ACTIONLINT_VERSION:\s*\d+\.\d+\.\d+\s*$/m;
+const ACTIONLINT_SHA256_PIN = /^\s*ACTIONLINT_SHA256:\s*[0-9a-f]{64}\s*$/m;
+const ACTIONLINT_CHECKSUM_CHECK = /sha256sum\s+--check\s+--strict/;
+const ACTIONLINT_EXTRACT = /^\s*tar\s/m;
+/** Without it, a failed download or a mismatched digest does not abort the step. */
+const ACTIONLINT_ABORTS = /^\s*set -euo pipefail\s*$/m;
+/** The release asset and its URL must both be derived from the pinned version. */
+const ACTIONLINT_DERIVED = [
+  "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz",
+  "releases/download/v${ACTIONLINT_VERSION}/",
+];
+/** Ways a step stays in the file while losing the power to fail the job. */
+const NEUTERED = [
+  [/^\s*if:/m, "a step-level `if:` can switch the lint off"],
+  [/\|\|\s*true/, "`|| true` swallows the exit code"],
+  [/set\s+\+e\b/, "`set +e` stops a failure from failing the step"],
+];
+/** A remote script piped into a shell cannot be checksum-verified at all. */
+const PIPE_INTO_SHELL = /(curl|wget)[^\n]*\|[ \t]*(ba)?sh\b/;
+/**
+ * The step that actually runs the canonical command. The ordering assertion
+ * needs the invocation, not the prose mention of it in the file header.
+ */
+const CANONICAL_CI_STEP = new RegExp(
+  `^\\s*run:\\s*${CANONICAL_CI.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`,
+  "m",
+);
+
+/**
  * Commands that would authorize a merge, a history rewrite, a production
  * deployment or credential use. Patterns are assembled from fragments so this
  * checker can scan itself without matching its own source.
@@ -120,7 +177,77 @@ if (verify) {
   if (!ordered) fail(`\`verify:ci\` must run its stages in order: ${CI_STAGES.join(" → ")}`);
 }
 
-// 6. No process file authorizes a merge, a force push, a deployment or credential use.
+// 6. `quality-gate` lints every workflow file with a pinned, checksum-verified
+//    actionlint, before the canonical verification.
+if (!missing.includes(WORKFLOW)) {
+  const workflow = read(WORKFLOW);
+  const stepAt = workflow.search(ACTIONLINT_STEP_HEADER);
+  const runsCanonical = workflow.search(CANONICAL_CI_STEP);
+
+  if (stepAt === -1) fail(`${WORKFLOW} must carry a step that installs and runs actionlint`);
+  // Job- or step-level, it turns the one canonical gate into an advisory one.
+  if (workflow.includes("continue-on-error")) {
+    fail(`${WORKFLOW} must not use \`continue-on-error\`; the gate either passes or fails`);
+  }
+  if (PIPE_INTO_SHELL.test(workflow)) {
+    fail(`${WORKFLOW} pipes a remote script into a shell; install a checksum-verified binary`);
+  }
+  // Without the canonical step there is nothing to order actionlint against,
+  // so its absence is a failure here too, not a silently skipped assertion.
+  if (runsCanonical === -1) {
+    fail(`${WORKFLOW} must run \`${CANONICAL_CI}\` as a step, so actionlint can precede it`);
+  } else if (stepAt > runsCanonical) {
+    fail(`${WORKFLOW} must run actionlint BEFORE \`${CANONICAL_CI}\``);
+  }
+
+  if (stepAt > -1) {
+    // The step body: everything after its `- name:` line, up to the next step.
+    const headerEnd = workflow.indexOf("\n", stepAt);
+    const tail = headerEnd === -1 ? "" : workflow.slice(headerEnd + 1);
+    const nextAt = tail.search(STEP_HEADER);
+    const step = nextAt === -1 ? tail : tail.slice(0, nextAt);
+
+    const lints = step.search(ACTIONLINT_LINT_CALL);
+    const executes = step.indexOf(ACTIONLINT_BINARY);
+    const checksAsset = step.search(ACTIONLINT_CHECKSUM_CHECK);
+    const extracts = step.search(ACTIONLINT_EXTRACT);
+
+    if (lints === -1) {
+      fail(
+        `${WORKFLOW} must run ${ACTIONLINT_BINARY} with no file arguments — a version print, ` +
+          `a named file, or a swallowed exit code lints nothing that arrives later`,
+      );
+    }
+    if (!ACTIONLINT_ABORTS.test(step)) {
+      fail(`${WORKFLOW}: the actionlint step must \`set -euo pipefail\` so a bad download aborts`);
+    }
+    NEUTERED.filter(([pattern]) => pattern.test(step)).forEach(([, why]) =>
+      fail(`${WORKFLOW}: the actionlint step is neutered — ${why}`),
+    );
+    if (!ACTIONLINT_VERSION_PIN.test(step)) {
+      fail(`${WORKFLOW} must pin actionlint to an exact version via \`ACTIONLINT_VERSION\``);
+    }
+    if (!ACTIONLINT_SHA256_PIN.test(step)) {
+      fail(`${WORKFLOW} must pin the actionlint archive digest via \`ACTIONLINT_SHA256\``);
+    }
+    ACTIONLINT_DERIVED.filter((token) => !step.includes(token)).forEach((token) =>
+      fail(`${WORKFLOW} must derive the actionlint download from the pinned version: \`${token}\``),
+    );
+    if (checksAsset === -1) {
+      fail(`${WORKFLOW} must verify the actionlint archive with \`sha256sum --check --strict\``);
+    }
+    // A checksum verified after extraction or execution proves nothing: the
+    // untrusted bytes already ran.
+    if (checksAsset > -1 && extracts > -1 && checksAsset > extracts) {
+      fail(`${WORKFLOW} must verify the actionlint checksum BEFORE extracting the archive`);
+    }
+    if (checksAsset > -1 && executes > -1 && checksAsset > executes) {
+      fail(`${WORKFLOW} must verify the actionlint checksum BEFORE executing the binary`);
+    }
+  }
+}
+
+// 7. No process file authorizes a merge, a force push, a deployment or credential use.
 for (const file of SCANNED_FILES) {
   if (missing.includes(file)) continue;
   const text = read(file);

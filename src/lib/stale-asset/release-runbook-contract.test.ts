@@ -586,7 +586,12 @@ describe("the runbook describes the explicit-binding release truthfully", () => 
 // FOREVER-PR140-CORRECTIONS-002 — the release-check mapping.
 // FOREVER-DEVELOPMENT-PROCESS-001 — the actionlint N/A waiver expired here, on
 // the exact condition it was written to expire on: a workflow file now exists.
+// FOREVER-ACTIONLINT-GATE-001 — and the check the expired waiver left unrun is
+// now enforced by `quality-gate`, so the runbook must say so.
 // ---------------------------------------------------------------------------
+
+const QUALITY_GATE = ".github/workflows/quality-gate.yml";
+const workflow = read(QUALITY_GATE);
 
 describe("the release-check mapping records what runs and what is not applicable", () => {
   it("publishes a mapping of every claimed gate to the command that produces it", () => {
@@ -611,16 +616,68 @@ describe("the release-check mapping records what runs and what is not applicable
     expect(runbookFlat).not.toContain("repository contains no GitHub Actions workflows");
   });
 
-  it("refuses the two ways an expired waiver becomes a lie", () => {
-    // A workflow created to satisfy a linter, and a check claimed as passing.
+  it("refuses the way an expired waiver becomes a lie", () => {
+    // A workflow created to satisfy a linter rather than to run the gate.
     expect(runbookFlat).toContain("The workflow was not created to satisfy a linter");
-    expect(runbookFlat).toContain("no binary was downloaded to manufacture a result");
-    expect(runbookFlat).toContain("The check is **not** reported as passing");
   });
 
-  it("names actionlint as required-but-unrun, with the exact command", () => {
-    expect(runbookFlat).toContain("`actionlint` is now a required check, and it has NOT been run");
-    expect(runbook).toContain("actionlint .github/workflows/quality-gate.yml");
+  /**
+   * FOREVER-ACTIONLINT-GATE-001.
+   *
+   * The waiver expired into a second stale state: "required — NOT YET RUN".
+   * A required check nobody runs blocks the release just as surely as a failing
+   * one, so it was made to run inside `quality-gate`. The status is pinned in
+   * both directions — the enforcement must be stated, and the superseded
+   * "not yet run" wording must be gone rather than left to read as current.
+   */
+  it("records actionlint as ENFORCED by `quality-gate`, not as required-but-unrun", () => {
+    expect(runbookFlat).toContain("`actionlint` is now ENFORCED by `quality-gate`");
+    // The mapping row carries the status, so assert the row itself. Scoped to
+    // actionlint deliberately: a different check that genuinely has not run
+    // must still be allowed to say so.
+    const row = runbook.split("\n").find((line) => line.startsWith("| `actionlint`"));
+    expect(row, "the mapping must still carry an `actionlint` row").toBeDefined();
+    expect(row).toContain("required — enforced in CI");
+    expect(row).not.toContain("NOT YET RUN");
+    expect(runbookFlat).not.toContain("it has NOT been run");
+    expect(runbookFlat).not.toContain("no binary was downloaded to manufacture a result");
+    expect(runbookFlat).not.toContain("The check is **not** reported as passing");
+  });
+
+  /**
+   * The pin and the digest are read out of the workflow rather than retyped, so
+   * the runbook and the step it describes cannot drift apart silently — the
+   * same discipline §2b uses for the upload specification.
+   */
+  it("publishes the SAME version pin and digest the workflow enforces", () => {
+    const version = /^\s*ACTIONLINT_VERSION:\s*(\d+\.\d+\.\d+)\s*$/m.exec(workflow)?.[1];
+    const digest = /^\s*ACTIONLINT_SHA256:\s*([0-9a-f]{64})\s*$/m.exec(workflow)?.[1];
+    expect(version, "the workflow must pin an exact actionlint version").toBeDefined();
+    expect(digest, "the workflow must pin the archive digest").toBeDefined();
+    expect(runbook).toContain(`\`v${version}\``);
+    expect(runbook).toContain(digest);
+  });
+
+  it("describes an install the workflow actually performs, in that order", () => {
+    expect(runbookFlat).toContain("into `$RUNNER_TEMP`");
+    expect(runbookFlat).toContain("**before** extracting or executing it");
+    expect(runbookFlat).toContain("lints **every** file under `.github/workflows`");
+    expect(runbookFlat).toContain("no unverified binary");
+    // The workflow verifies the digest before it untars or runs anything, and
+    // lints before the canonical gate. `npm run process:check` enforces all of
+    // it; this asserts the document is describing that workflow and no other.
+    const checksum = workflow.search(/sha256sum\s+--check\s+--strict/);
+    const extract = workflow.search(/^\s*tar\s/m);
+    // The LINT call, not the version print: the binary with optional flags and
+    // nothing else — no `-version`, no file argument, no swallowed exit code.
+    const lint = workflow.search(
+      /^[ \t]*"\$\{RUNNER_TEMP\}\/actionlint"(?:[ \t]+-(?!version\b)[a-z-]+)*[ \t]*$/m,
+    );
+    const verify = workflow.search(/^\s*run:\s*npm run verify:ci\s*$/m);
+    for (const index of [checksum, extract, lint, verify]) expect(index).toBeGreaterThan(-1);
+    expect(checksum).toBeLessThan(extract);
+    expect(checksum).toBeLessThan(lint);
+    expect(lint).toBeLessThan(verify);
   });
 
   it("forbids presenting a pending or absent check as a successful one", () => {
