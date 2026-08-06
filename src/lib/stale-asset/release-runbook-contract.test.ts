@@ -36,6 +36,14 @@ const flat = (text: string) => text.replace(/\s+/g, " ");
 const runbookFlat = flat(runbook);
 const contractFlat = flat(contract);
 
+/**
+ * A blockquote wraps too, and its continuation lines carry a `>` marker. A
+ * VERBATIM quotation of an external source must survive that, or the assertion
+ * pins the line width rather than the words.
+ */
+const unquoted = (text: string) => flat(text.replace(/^[ \t]*>[ \t]?/gm, ""));
+const runbookQuoted = unquoted(runbook);
+
 describe("percentage rollout is prohibited without version affinity", () => {
   it("states the prohibition explicitly", () => {
     expect(runbook).toContain(
@@ -68,13 +76,15 @@ describe("percentage rollout is prohibited without version affinity", () => {
       "version preview URL",
       "transitive route-chunk graph",
       "VERSION_A → VERSION_B recovery locally",
-      "Enable and verify Workers Logs",
+      "Confirm the observability CONFIGURATION",
+      "Pre-cutover version-override smoke and log gate",
       "Owner Studio hold",
       "closes or refreshes the existing Studio tab",
       "Atomic cutover",
       "Verify public routes",
       "Verify the deployed WORKER VERSION, by UUID",
       "Verify the full current asset graph",
+      "Verify Workers Logs after the cutover",
       "confirms the authenticated dashboard",
       "Roll back immediately",
     ];
@@ -154,6 +164,563 @@ describe("the observability boundary is documented with its honest limit", () =>
 
   it("keeps a browser telemetry endpoint out of scope", () => {
     expect(contract).toContain("No public browser-error collection endpoint is introduced");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FOREVER-PR140-PREVIEW-LOG-GATE-REPAIR-005
+//
+// The runbook required "logs appear for the candidate" at a stage where the
+// candidate is reachable ONLY through its versioned Preview URL — and Cloudflare
+// excludes Workers Logs, Wrangler tail and Logpush for Preview URLs. The gate
+// could not be satisfied by any operator, with any credential.
+//
+// A release report then recorded PASS while stating that same gate was not
+// completed. These assertions pin BOTH corrections: the impossible demand is
+// gone, and its absence can never be read as evidence the candidate was clean.
+// ---------------------------------------------------------------------------
+
+describe("preview URLs cannot be logged, and the runbook says so", () => {
+  it("no longer demands candidate logs at the preview stage", () => {
+    // The impossible instruction is GONE as an instruction.
+    expect(runbook).not.toContain("**Enable and verify Workers Logs.**");
+
+    // It survives in exactly one place, and only as a citation of the
+    // superseded requirement — the same idiom SUPERSEDED_PREUPLOAD_MARKERS uses.
+    // Deleting the words entirely would erase the record of what was wrong;
+    // leaving them loose would let a reader mistake them for a live demand.
+    const occurrences = runbookFlat.split("that logs appear for the candidate").length - 1;
+    expect(occurrences).toBe(1);
+    expect(runbookFlat).toContain(
+      'The earlier revision of step 11 required confirming "that logs appear for the candidate"',
+    );
+  });
+
+  it("states the platform limitation naming all three excluded routes", () => {
+    expect(runbookQuoted).toContain(
+      "You cannot view logs for Preview URLs today, this includes Workers Logs, Wrangler tail and Logpush",
+    );
+    // The citation must be present so the claim is checkable, not folklore.
+    expect(runbook).toContain(
+      "https://developers.cloudflare.com/workers/versions-and-deployments/preview-urls/#limitations",
+    );
+  });
+
+  it("refuses to let a token or permission change be blamed for it", () => {
+    expect(runbookFlat).toContain(
+      "No API token, permission, binding, sampling rate or configuration change makes preview logs appear",
+    );
+  });
+
+  it("classifies candidate preview logs as N/A rather than omitting them", () => {
+    expect(runbookFlat).toContain("candidate preview log check");
+    expect(runbookFlat).toContain("N/A — platform limitation");
+    expect(runbookFlat).toContain("UNSUPPORTED (N/A — platform limitation)");
+  });
+
+  it("forbids reading the missing evidence as proof the candidate ran cleanly", () => {
+    expect(runbookFlat).toContain(
+      "THE ABSENCE OF CANDIDATE LOG EVIDENCE IS NOT EVIDENCE THAT THE CANDIDATE RAN CLEANLY",
+    );
+    expect(runbookFlat).toContain("Absence of log evidence is NEVER evidence of correctness");
+    expect(runbookFlat).toContain("An N/A here is not a green check");
+  });
+
+  it("records that observability is dormant until the version is deployed", () => {
+    expect(runbookFlat).toContain("Uploaded-but-undeployed observability is DORMANT");
+    expect(runbookFlat).toContain("script-level");
+    // The measurement error that produced the first misdiagnosis is named so it
+    // is not repeated: version-detail simply has no observability field.
+    expect(runbookFlat).toContain("returns **no** `observability` field at all, for ANY version");
+  });
+
+  it("keeps `wrangler tail --version-id` described as a FILTER, not an attach", () => {
+    expect(runbookFlat).toContain(
+      "`--version-id` FILTERS the deployed Worker's stream and cannot attach to a Preview URL",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FOREVER-PR141-PR142-EVIDENCE-REVIEW-CORRECTIONS-007
+//
+// The first revision of §6 concluded that the first technically valid stage for
+// candidate logs is AFTER the atomic cutover. Cloudflare's Version Overrides
+// documentation refutes that: a version sitting at 0% INSIDE the current
+// deployment can be invoked by an explicit per-request header, and those
+// invocations are observable and attributable to the version.
+//
+// These assertions pin the corrected finding and, together with mutation
+// controls 43-45, make the incorrect claim detectable if it is ever restored.
+// ---------------------------------------------------------------------------
+
+describe("a 0% version inside the deployment is invocable by version override", () => {
+  it("REFUSES the retracted post-cutover-only conclusion, in every phrasing", () => {
+    for (const retracted of [
+      "The first technically valid stage is therefore AFTER the atomic cutover",
+      "IMPOSSIBLE BY PLATFORM DESIGN",
+      "which is the first point at which this candidate can produce a log at all",
+      "This is the FIRST stage at which logs for this candidate can exist",
+    ]) {
+      expect(runbookFlat, retracted).not.toContain(retracted);
+    }
+  });
+
+  it("quotes the retracted 0% inference EXACTLY once, and only to refute it", () => {
+    // Deleting the words would erase the record of what was wrong; leaving them
+    // loose would let a reader mistake them for a finding. Same idiom as the
+    // superseded step-11 demand above: cite once, refute in the next sentence.
+    const inference = "0% means zero invocations, so there is nothing to log";
+    expect(runbookFlat.split(inference).length - 1).toBe(1);
+    expect(runbookFlat).toContain(
+      `to "${inference}". **That inference is WRONG, and Cloudflare refutes it`,
+    );
+  });
+
+  it("quotes Cloudflare's own statement that a 0% version can be targeted", () => {
+    expect(runbookQuoted).toContain(
+      "You can use version overrides to send a request to a specific version of your Worker in the current deployment, even those set to serve 0% of traffic",
+    );
+    expect(runbook).toContain(
+      "https://developers.cloudflare.com/workers/versions-and-deployments/version-overrides/",
+    );
+  });
+
+  it("names the exact header and the exact prerequisite", () => {
+    expect(runbookFlat).toContain("Cloudflare-Workers-Version-Overrides");
+    expect(runbookQuoted).toContain(
+      "A version override will only be applied if the specified version is in the current deployment",
+    );
+    // The two-version ceiling is what makes previous+candidate the only shape.
+    expect(runbookQuoted).toContain(
+      "Workers currently only supports serving **two** different versions in one deployment",
+    );
+  });
+
+  it("records that Cloudflare presents this AS a pre-rollout smoke test", () => {
+    expect(runbookQuoted).toContain(
+      "Create a new deployment using `wrangler versions deploy` and specify 0% for the new version whilst keeping the previous version at 100%",
+    );
+    expect(runbookQuoted).toContain(
+      "You can observe the version of your Worker that was invoked using Observability",
+    );
+  });
+
+  it("states that state 3 is the FIRST valid candidate-log stage, before cutover", () => {
+    expect(runbookFlat).toContain(
+      "state 3 is the FIRST technically valid stage for candidate logs, and it is BEFORE the atomic cutover",
+    );
+  });
+
+  it("keeps the five states distinct instead of collapsing them into '0%'", () => {
+    for (const state of [
+      "Uploaded, ABSENT from the active deployment",
+      "In the current deployment at 0%",
+      "Controlled requests carrying `Cloudflare-Workers-Version-Overrides`",
+      "Normal production traffic during states 2–3",
+      "After the atomic cutover",
+    ]) {
+      expect(runbookFlat, state).toContain(state);
+    }
+    // The specific conflation that produced the wrong conclusion is named.
+    expect(runbookFlat).toContain('**The candidate is in state 1, NOT "at 0%".**');
+  });
+
+  it("refuses to dismiss overrides merely because percentage rollout is banned", () => {
+    expect(runbookFlat).toContain("Version Overrides are NOT a percentage rollout");
+    expect(runbookFlat).toContain("So §0 does not forbid state 2");
+  });
+
+  it("keeps §0's percentage prohibition intact and unweakened", () => {
+    // The correction must not have become a licence for a gradual rollout.
+    expect(runbook).toContain(
+      "Until true version affinity exists, a percentage rollout is PROHIBITED",
+    );
+    expect(runbookFlat).toContain("No intermediate percentage");
+  });
+});
+
+describe("the Forever-specific limits of a 0% override smoke test are PROVEN, not asserted", () => {
+  it("determines that scripted probes are permitted and the Owner browser session is not", () => {
+    expect(runbookFlat).toContain(
+      "Determination: YES for scripted, header-bearing probes. NO for the ordinary Owner browser acceptance session",
+    );
+  });
+
+  it("proves the browser limit from the documented Transform Rule exclusion", () => {
+    expect(runbookQuoted).toContain(
+      "Transform Rules require your Worker to be on a route on a zone you control. They are not available for Workers served on `*.workers.dev` domains",
+    );
+    expect(runbookFlat).toContain("one missing zone disables both");
+  });
+
+  it("keeps the Owner browser acceptance gate AFTER the cutover", () => {
+    expect(runbookFlat).toContain("they do **not** move the **Owner browser acceptance** gate");
+  });
+
+  it("records that cron invocations cannot be overridden at all", () => {
+    expect(runbookFlat).toContain(
+      "A scheduled invocation carries no request, so there is no header to set",
+    );
+  });
+
+  it("separates INVOCABLE from OBSERVABLE and demands both be measured", () => {
+    expect(runbookFlat).toContain("Overrides make the candidate INVOCABLE, not OBSERVABLE");
+    expect(runbookFlat).toContain("Re-read `GET .../workers/scripts/forever/script-settings`");
+  });
+
+  it("treats the --keep-vars hazard on `versions deploy` as UNPROVEN, not decided", () => {
+    expect(runbookFlat).toContain("NOT established here in either direction");
+    expect(runbookFlat).toContain("re-run `npm run release:verify-bindings`");
+  });
+});
+
+describe("the four separate Owner authorizations are enumerated", () => {
+  it("names A1 through A4 as four decisions, not one", () => {
+    expect(runbookFlat).toContain("### The FOUR separate Owner authorizations");
+    expect(runbookFlat).toContain("A1 — include the candidate in the active deployment at 0%");
+    expect(runbookFlat).toContain("A2 — send controlled requests using Version Overrides");
+    expect(runbookFlat).toContain(
+      "A3 — read the resulting logs and attribute them to the exact candidate UUID",
+    );
+    expect(runbookFlat).toContain("A4 — the atomic cutover");
+    expect(runbookFlat).toContain("none implies the next");
+  });
+
+  it("restricts the override probe set to named, non-mutating requests", () => {
+    expect(runbookFlat).toContain("every request in it must be **non-mutating**");
+    expect(runbookFlat).toContain(
+      "No POST, no Studio write, no job creation, no authenticated session, no cron",
+    );
+  });
+
+  it("states plainly that this document does not authorize the state-2 mutation", () => {
+    expect(runbookFlat).toContain(
+      "the state-2 deployment mutation described here is NOT authorized by this document",
+    );
+    expect(runbookFlat).toContain("has not been requested, authorized or performed");
+  });
+});
+
+describe("the deferred log gate stays mandatory and cannot be rounded up", () => {
+  it("keeps Workers Logs verification as a REQUIRED post-cutover gate", () => {
+    expect(runbookFlat).toContain("Verify Workers Logs after the cutover. REQUIRED.");
+    expect(runbookFlat).toContain("logs are ACTUALLY RETURNED");
+  });
+
+  it("refuses to call the post-cutover check the first possible stage", () => {
+    expect(runbookFlat).toContain(
+      "Step 16b is retained as a required acceptance check. It is NOT the first possible candidate-log stage**",
+    );
+  });
+
+  it("gives step 11b a STOP failure mode and step 16b a ROLLBACK failure mode", () => {
+    expect(runbookFlat).toContain(
+      "Traffic has NOT moved, so failure is a refusal to proceed, never a rollback of traffic",
+    );
+    expect(runbookFlat).toContain("Traffic has ALREADY moved, so failure is a rollback");
+  });
+
+  it("forces the pre-cutover gate to be recorded even when the Owner declines it", () => {
+    expect(runbookFlat).toContain("pre-cutover candidate log gate");
+    expect(runbookFlat).toContain("`DECLINED BY OWNER`");
+    expect(runbookFlat).toContain("It is not `N/A`");
+  });
+
+  it("treats unreadable or empty logs as NOT VERIFIED, never as clean", () => {
+    expect(runbookFlat).toContain('an empty result is "not verified", not "clean"');
+    expect(runbookFlat).toContain("Logs that cannot be read at all are NOT a pass");
+    expect(runbookFlat).toContain("it is never rounded up to");
+  });
+
+  it("makes a failure there a rollback trigger rather than a note", () => {
+    expect(runbookFlat).toContain("A failure here is a rollback trigger under §5, not a note");
+  });
+
+  it("requires the cutover authorization to carry the log gate's honest verdict", () => {
+    // FOREVER-PR141-PR142-FINAL-GATE-CORRECTIONS-008: the verdict A4 carries is
+    // no longer one of three. `PASS` is the only value that reaches A4 at all,
+    // so the authorization records `PASS` — and the other values are recorded
+    // as the reason there is no A4. See the hard-gate block below.
+    expect(runbookFlat).toContain(
+      "the pre-cutover log gate recorded as `PASS` — the only value that reaches this point",
+    );
+    expect(runbookFlat).toContain(
+      "A cutover performed without all five preconditions and all five statements is out of contract",
+    );
+  });
+
+  it("keeps candidate-upload PASS from implying a cutover", () => {
+    expect(runbookFlat).toContain(
+      "A candidate-upload PASS still authorizes NOTHING beyond a verified artefact sitting outside the deployment",
+    );
+  });
+
+  it("keeps every candidate-upload gate that CAN hold", () => {
+    // The repair must not have quietly dropped the checks that caught the two
+    // rejected candidates.
+    for (const kept of [
+      "binding fingerprint equality",
+      "public-route probes with zero 5xx",
+      "the full transitive `/assets/*` graph",
+      "the Studio chunk graph",
+    ]) {
+      expect(runbookFlat, kept).toContain(kept);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FOREVER-PR141-PR142-FINAL-GATE-CORRECTIONS-008
+//
+// The corrected §6 established that a pre-cutover candidate-log gate EXISTS.
+// It then let the Owner walk past it: A4 was requestable "after the Owner has
+// explicitly declined the pre-cutover gate", and an unreadable log was
+// `NOT VERIFIED` with the Owner free to "proceed to A4 with the gate explicitly
+// declined". A gate that the party being gated may waive is not a gate, and it
+// reproduces the exact defect §6 exists to correct: a release recorded as
+// acceptable beside a mandatory check that did not hold.
+//
+// These assertions make the gate MECHANICAL. `NOT VERIFIED` and
+// `DECLINED BY OWNER` remain honest, required, reportable outcomes — they are
+// what an operator must write down — but neither may reach A4.
+// ---------------------------------------------------------------------------
+
+describe("the pre-cutover gate is HARD — only PASS reaches A4", () => {
+  it("states the five A4 preconditions as a conjunction", () => {
+    expect(runbookFlat).toContain("**A4 — the atomic cutover. HARD-GATED.**");
+    expect(runbookFlat).toContain(
+      "A4 may be requested only when ALL FIVE of the following are true. This is a conjunction, not a checklist to weigh",
+    );
+    for (const precondition of [
+      "**A1 completed successfully**",
+      "**bindings AND deployment membership were re-verified**",
+      "**A2's COMPLETE named non-mutating probe set passed**",
+      "**A3 returned actual candidate-attributed evidence**",
+      "**step 11b has the exact final status `PASS`.**",
+    ]) {
+      expect(runbookFlat, precondition).toContain(precondition);
+    }
+  });
+
+  it("enumerates every blocking outcome, and blocks A4 on each", () => {
+    expect(runbookFlat).toContain("#### The outcomes that BLOCK A4 — exhaustive");
+    for (const blocker of [
+      "`STOP`",
+      "`NOT VERIFIED`",
+      "`DECLINED BY OWNER`",
+      "observability unavailable",
+      "log-reading access unavailable",
+      "no attributable candidate log events",
+      "binding verification failure",
+      "any override probe failure",
+    ]) {
+      expect(runbookFlat, blocker).toContain(blocker);
+    }
+    expect(runbookFlat).toContain(
+      "Each of these halts the release before the cutover. None is waivable",
+    );
+  });
+
+  // THE FOUR REGRESSIONS THIS SUITE EXISTS TO CATCH.
+
+  it("REFUSES A4 after `NOT VERIFIED`, quoting the old permission once, to retract it", () => {
+    // Same idiom the §6 corrections already use: cite the retracted sentence
+    // EXACTLY once so the record of what was wrong survives, and refute it in
+    // place. A second, loose occurrence would be a live instruction again.
+    const retracted =
+      "the Owner decides whether to proceed to A4 with the gate explicitly declined";
+    expect(runbookFlat.split(retracted).length - 1).toBe(1);
+    expect(runbookFlat).toContain(`"${retracted}". Both are RETRACTED`);
+
+    expect(runbookFlat).toContain(
+      "**It is still BLOCKING.** `NOT VERIFIED` does not reach A4; the release halts here",
+    );
+    expect(runbookFlat).toContain(
+      "There is no Owner decision that converts it into permission to cut over",
+    );
+  });
+
+  it("REFUSES A4 after `DECLINED BY OWNER`, and denies it is a waiver", () => {
+    // The permissive A4 precondition survives only inside the retraction.
+    const retracted = "after the Owner has explicitly declined the pre-cutover gate";
+    expect(runbookFlat.split(retracted).length - 1).toBe(1);
+    expect(runbookFlat).toContain(`A4 could be requested "${retracted}"`);
+    // Named as retracted rather than silently cut, so the change is visible.
+    expect(runbookFlat).toContain("Both are RETRACTED");
+
+    expect(runbookFlat).toContain("**`DECLINED BY OWNER` IS NOT A WAIVER.**");
+    expect(runbookFlat).toContain("GATE DECLINED — RELEASE REMAINS BLOCKED BEFORE CUTOVER");
+    expect(runbookFlat).toContain(
+      "Declining the gate declines the release, not the gate's authority",
+    );
+    // The LIVE A4 precondition is the hard one, not the retracted one.
+    expect(runbookFlat).toContain(
+      "**A4 — the atomic cutover. HARD-GATED.** A4 may be requested only when ALL FIVE",
+    );
+  });
+
+  it("REFUSES A1 when A3's evidence access is already known to be unavailable", () => {
+    expect(runbookFlat).toContain(
+      "**A2 AND A3 MUST BE PROVEN OPERATIONALLY AVAILABLE AND SEPARATELY AUTHORIZED BEFORE A1 IS PERFORMED.**",
+    );
+    expect(runbookFlat).toContain(
+      "**If read access cannot be demonstrated, A1 is not performed.**",
+    );
+    expect(runbookFlat).toContain(
+      "**If the operator already knows the candidate's logs cannot be read, the state-2 deployment is NOT created.**",
+    );
+    // The proof must be POSITIVE — a token existing is not read access.
+    expect(runbookFlat).toContain("a **positive, non-mutating read-access proof**");
+    // And the one prerequisite that genuinely cannot be pre-proven is named as
+    // such, so this rule is not read as demanding the impossible.
+    expect(runbookFlat).toContain("Prerequisite 1 is deliberately NOT on this list");
+  });
+
+  it("REFUSES the overbroad 'any browser session' claim, and scopes what replaced it", () => {
+    // Cited once, inside the scope note that explains why it was too strong.
+    const overbroad = "NO for any browser session";
+    expect(runbookFlat.split(overbroad).length - 1).toBe(1);
+    expect(runbookFlat).toContain(
+      `asserted the universal form — "${overbroad}" — which claimed more than the cited Cloudflare documentation establishes`,
+    );
+    // The universal claim never appears as a live determination.
+    expect(runbookFlat).not.toContain(
+      "Determination: YES for scripted, header-bearing probes. NO for any browser session",
+    );
+    expect(runbookFlat).not.toMatch(/impossible for any browser session/i);
+    expect(runbookFlat).toContain(
+      "unavailable for the ordinary Owner browser acceptance session under Forever's current workers.dev-only architecture, because normal navigation and automatically requested subresources do not carry the override header",
+    );
+    // The narrowing must be explicit about what it does NOT claim.
+    expect(runbookFlat).toContain(
+      "It is **not** a universal claim that no browser automation, extension, proxy or instrumented client could ever attach the header",
+    );
+    expect(runbookFlat).toContain(
+      "**None of them is part of the authorized Forever release workflow**",
+    );
+  });
+
+  it("keeps both honest outcomes reportable rather than deleting them", () => {
+    // Mechanically prohibiting an outcome from reaching A4 is not the same as
+    // forbidding an operator to record it. Losing either word would push a
+    // failed gate back into silence, which is the older defect.
+    expect(runbookFlat).toContain(
+      "`NOT VERIFIED` and `DECLINED BY OWNER` remain honest, required, reportable outcomes",
+    );
+    expect(runbookFlat).toContain(
+      "Its only honest values are `PASS`, `STOP`, `NOT VERIFIED` or `DECLINED BY OWNER`",
+    );
+  });
+
+  it("resolves the Observability contradiction in exactly one direction", () => {
+    expect(runbookFlat).toContain(
+      "**there is no path in which a cutover proceeds while Observability read access is unavailable.**",
+    );
+    expect(runbookFlat).toContain("**prerequisite of A1 and of the cutover authorization alike**");
+  });
+
+  it("makes step 11b mandatory in the sequence, not merely recorded", () => {
+    expect(runbookFlat).toContain("SEPARATELY AUTHORIZED (§6 A1–A3), AND MANDATORY BEFORE A4");
+    expect(runbookFlat).toContain(
+      "**step 11b must reach the exact final status `PASS` before the A4 cutover may be requested.**",
+    );
+    expect(runbookFlat).toContain("**Every non-`PASS` outcome blocks A4.**");
+    // The release-check mapping row must agree with the sequence.
+    expect(runbookFlat).toContain("**required — must read `PASS` before A4**");
+    expect(runbookFlat).toContain("**Only `PASS` permits the A4 cutover authorization.**");
+  });
+
+  it("moves the cutover's starting point to state 2, since state 1 cannot produce the evidence", () => {
+    expect(runbookFlat).toContain(
+      "**The starting point is §6 state 2 — the candidate present in the deployment at 0% with step 11b recorded as `PASS`.**",
+    );
+    expect(runbookFlat).toContain("Cutting over from §6 state 1 is out of contract");
+    // Step 16b no longer describes 11b as optional.
+    expect(runbookFlat).not.toContain("it is required whether or not step 11b was performed");
+    expect(runbookFlat).toContain(
+      "it is required IN ADDITION to step 11b, which must already have been recorded as `PASS`",
+    );
+  });
+});
+
+describe("wrangler tail is not presented as a preview instrument", () => {
+  it("no longer implies tail needs nothing and works during the release", () => {
+    expect(runbookFlat).not.toContain(
+      "**Temporary deeper observation** during a release uses `wrangler tail`, which needs no deployment and no configuration change.",
+    );
+  });
+
+  it("says plainly that tail cannot observe a versioned Preview URL", () => {
+    expect(runbookFlat).toContain("`wrangler tail` cannot observe a versioned Preview URL");
+  });
+
+  it("restores tail as a step 11b instrument, before the cutover", () => {
+    expect(runbookFlat).toContain("It becomes usable at **step 11b**");
+    expect(runbookFlat).toContain(
+      "the wording that replaced it wrongly deferred tail to after the cutover",
+    );
+  });
+});
+
+describe("the completed PR140 upload is classified honestly", () => {
+  it("records the upload as succeeded and the release as blocked before cutover", () => {
+    expect(runbookFlat).toContain("Status of the PR #140 candidate, recorded accurately");
+    expect(runbookFlat).toContain("**BLOCKED BEFORE CUTOVER**");
+    expect(runbookFlat).toContain(
+      "The release is not accepted and no cutover is authorized by any of the above",
+    );
+  });
+
+  it("states that a required gate which did not hold is a BLOCKED verdict", () => {
+    expect(runbookFlat).toContain(
+      "a required gate that did not hold is a BLOCKED verdict, and a gate that cannot hold must be corrected rather than reported around",
+    );
+  });
+
+  it("records the candidate's logs as not-yet-obtainable rather than clean", () => {
+    expect(runbookFlat).toContain("NOT OBTAINABLE IN STATE 1 — not verified, not clean");
+    // "Not yet obtainable" and "impossible" are different claims, and only the
+    // weaker one is supported: state 1 is reversible by an authorized mutation.
+    expect(runbookFlat).toContain('**"Not yet obtainable" and "impossible" are different words.**');
+  });
+
+  it("corrects the row that conflated absence from the deployment with 0%", () => {
+    expect(runbookFlat).toContain(
+      "STATE 1 — ABSENT from the active deployment.** It holds no percentage at all",
+    );
+    expect(runbookFlat).not.toContain("| Candidate traffic | **0%** — absent from the active");
+  });
+
+  it("leaves the candidate in place as evidence", () => {
+    expect(runbookFlat).toContain("unmodified and undeleted");
+  });
+});
+
+describe("the correction introduces no Cloudflare write path", () => {
+  it("still permits only `versions upload`, never a deploy, as the spawned command", () => {
+    expect(PRODUCTION_VERSION_UPLOAD_SPEC.args.slice(0, 2)).toEqual(["versions", "upload"]);
+    expect(PRODUCTION_VERSION_UPLOAD_SPEC.args).not.toContain("deploy");
+    expect(PRODUCTION_VERSION_UPLOAD_SPEC.args).not.toContain("--percentage");
+  });
+
+  it("adds no deploy, traffic or delete command to any release script", () => {
+    // §6 documents the cutover; it must not hand the operator a runnable
+    // traffic-moving command that the release tooling would perform itself.
+    const releaseScripts = [
+      "scripts/release/upload-worker-version.mjs",
+      "scripts/release/capture-worker-version-bindings.mjs",
+      "scripts/release/verify-binding-preservation.mjs",
+    ];
+    for (const path of releaseScripts) {
+      const source = read(path);
+      expect(source, path).not.toContain("versions deploy");
+      expect(source, path).not.toContain("--percentage");
+    }
+  });
+
+  it("keeps the rejected-candidate preservation rule intact", () => {
+    expect(runbookFlat).toContain("a candidate that is not accepted is evidence, not rubbish");
   });
 });
 
@@ -763,8 +1330,15 @@ describe("the runbook prescribes the MECHANICAL release sequence", () => {
     );
     expect(runbook).toContain("--release-provenance .forever-build/worker-version-provenance.json");
     expect(runbookFlat).toContain("An operator never retypes the candidate UUID");
-    expect(runbookFlat).toContain("workerVersionIdentityOk: true");
-    expect(runbookFlat).toContain("BINDINGS_PRESERVED");
+
+    // POSITIONAL, not "appears somewhere". Asserting the two tokens anywhere in
+    // the document made this control forgeable: any later section that merely
+    // MENTIONS them — a status table, an incident record — satisfied the check
+    // while step 7's actual gate could be deleted. Mutation control 26 removes
+    // precisely this sentence, so the sentence is what must be pinned.
+    expect(runbookFlat).toContain(
+      "Only when step 6 reports both `workerVersionIdentityOk: true` and `BINDINGS_PRESERVED` does preview acceptance begin",
+    );
   });
 
   it("states that a substring test is NOT proof, and lists what it accepted", () => {

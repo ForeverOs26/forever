@@ -4,9 +4,11 @@
  * Extended by FOREVER-PR138-MERGE-BLOCKER-CORRECTION-002 from 8 to 20, then by
  * FOREVER-PR138-WORKER-VERSION-PINNING-CORRECTION-004 from 20 to 28, then by
  * FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001 from 28 to 39, then by
- * FOREVER-PR139-REVIEW-CORRECTIONS-001 from 39 to 42.
+ * FOREVER-PR139-REVIEW-CORRECTIONS-001 from 39 to 42, then by
+ * FOREVER-PR141-PR142-EVIDENCE-REVIEW-CORRECTIONS-007 from 42 to 45, then by
+ * FOREVER-PR141-PR142-FINAL-GATE-CORRECTIONS-008 from 45 to 49.
  *
- * Forty-two edits to REAL source, configuration, tests and documentation, each
+ * Forty-nine edits to REAL source, configuration, tests and documentation, each
  * of which must make a NAMED assertion fail. A guard that has never been seen
  * to fail is not a guard, and this correction exists precisely because a safety
  * property was believed rather than measured — twice.
@@ -80,6 +82,29 @@
  *   40. accept an external same-version Wrangler as the release uploader;
  *   41. report `resolvedFromRepository` as a truthiness test again;
  *   42. let the loopback network guard permit a non-loopback destination.
+ *
+ * THE THREE PR141 EVIDENCE CONTROLS — the ways the corrected candidate-log
+ * lifecycle could be un-corrected. §6 briefly concluded that candidate logs are
+ * possible only after the atomic cutover, reasoning that "0% means zero
+ * invocations". Cloudflare's Version Overrides documentation refutes that: a
+ * version at 0% INSIDE the current deployment is invocable by an explicit
+ * per-request header, and those invocations are observable. Each control
+ * restores one piece of the retracted claim:
+ *
+ *   43. restore the post-cutover-only conclusion;
+ *   44. claim again that a 0% candidate cannot be invoked;
+ *   45. point step 11 back at a post-cutover-only log gate.
+ *
+ * THE FOUR PR141 HARD-GATE CONTROLS — the ways a mandatory gate could be
+ * softened back into advice. §6 established that a pre-cutover candidate-log
+ * gate EXISTS and then permitted A4 after `NOT VERIFIED` or
+ * `DECLINED BY OWNER`, which made the gate waivable by the party it gates. Each
+ * control restores one piece of that:
+ *
+ *   46. let `NOT VERIFIED` reach A4;
+ *   47. let `DECLINED BY OWNER` act as a waiver;
+ *   48. let A1 proceed when A3's evidence access is already unavailable;
+ *   49. restore the overbroad "any browser session" claim.
  *
  * CONTROLS 27 AND 37 WERE RETARGETED, not merely moved. Control 27 attacked a
  * ternary in the version gate; control 37 attacked a comparison whose only
@@ -679,6 +704,108 @@ const mutations = [
     to: "  const allowed = true;",
     tests: [CONTAINMENT_TEST],
     reason: /LOOPBACK_GUARD|GUARD_NOT_VACUOUS|FOREVER_LOOPBACK_GUARD_BLOCKED/,
+  },
+  // -------------------------------------------------------------------------
+  // FOREVER-PR141-PR142-EVIDENCE-REVIEW-CORRECTIONS-007
+  //
+  // §6 briefly concluded that candidate logs are possible only after the atomic
+  // cutover, because "0% means zero invocations". Cloudflare's Version
+  // Overrides documentation refutes that directly. These three controls restore
+  // the retracted claims one at a time and require the contract suite to catch
+  // each, so the wrong conclusion cannot drift back in unnoticed.
+  // -------------------------------------------------------------------------
+  {
+    name: "43. the post-cutover-only conclusion is restored",
+    file: RUNBOOK,
+    from: "**The corrected conclusion: state 3 is the FIRST technically valid stage for\ncandidate logs, and it is BEFORE the atomic cutover.**",
+    to: "**The first technically valid stage is therefore AFTER the atomic cutover.**",
+    tests: [RUNBOOK_TEST],
+    reason: /AFTER the atomic cutover|FIRST technically valid stage/,
+  },
+  {
+    name: "44. a 0% candidate is claimed to be uninvokable again",
+    file: RUNBOOK,
+    from: "| 2 — in the current deployment at 0%, no override sent   | **No — but not because 0% forbids it** | nothing has invoked it yet; normal traffic is routed by percentage and 0% is never selected                                             |",
+    to: "| 2 — in the current deployment at 0%, no override sent   | **No**                                 | 0% means zero invocations, so there is nothing to log                                                                                  |",
+    tests: [RUNBOOK_TEST],
+    reason: /zero invocations|0% version inside the deployment|retracted/,
+  },
+  {
+    name: "45. step 11 points the operator back to a post-cutover-only gate",
+    file: RUNBOOK,
+    from:
+      "    Log verification is possible EARLIER than the cutover, at step 11b, using\n" +
+      "    Cloudflare's documented Version Overrides mechanism — see §6. Step 16b\n" +
+      "    remains a required post-cutover acceptance check but is NOT the first\n" +
+      "    possible candidate-log stage.",
+    to:
+      "    Log verification is a REQUIRED gate at step 16b, which is the first point\n" +
+      "    at which this candidate can produce a log at all.",
+    tests: [RUNBOOK_TEST],
+    reason:
+      /first point at which this candidate can produce a log|retracted|EARLIER than the cutover/,
+  },
+  // -------------------------------------------------------------------------
+  // FOREVER-PR141-PR142-FINAL-GATE-CORRECTIONS-008
+  //
+  // The corrected §6 established that a pre-cutover candidate-log gate exists,
+  // and then let the Owner walk past it. A gate the gated party may waive is
+  // not a gate. These four controls each restore one way the hard gate could be
+  // softened back into advice, and require a NAMED assertion to catch it.
+  //
+  //   46. let `NOT VERIFIED` reach A4;
+  //   47. let `DECLINED BY OWNER` act as a waiver;
+  //   48. let A1 proceed when A3's evidence access is already unavailable;
+  //   49. restore the overbroad "any browser session" claim.
+  // -------------------------------------------------------------------------
+  {
+    name: "46. NOT VERIFIED becomes an Owner decision instead of a block",
+    file: RUNBOOK,
+    from:
+      "  `NOT VERIFIED`** — not a pass, and not a failure of the candidate. **It is\n" +
+      "  still BLOCKING.** `NOT VERIFIED` does not reach A4; the release halts here and\n" +
+      "  the state-2 deployment is reverted to the previous version alone at 100%.\n" +
+      "  There is no Owner decision that converts it into permission to cut over.",
+    to:
+      "  `NOT VERIFIED`** — not a pass, and not a failure of the candidate. The Owner\n" +
+      "  decides whether to proceed to A4 with the gate explicitly declined and\n" +
+      "  recorded as such.",
+    tests: [RUNBOOK_TEST],
+    reason: /proceed to A4 with the gate|still BLOCKING|does not reach A4|NOT VERIFIED/,
+  },
+  {
+    name: "47. DECLINED BY OWNER is restored as a route to the cutover",
+    file: RUNBOOK,
+    from:
+      "**A4 — the atomic cutover. HARD-GATED.** A4 may be requested only when ALL FIVE\n" +
+      "of the following are true. This is a conjunction, not a checklist to weigh:",
+    to:
+      "**A4 — the atomic cutover.** Requested only after A1–A3 have produced a PASS, or\n" +
+      "after the Owner has explicitly declined the pre-cutover gate. It must state:",
+    tests: [RUNBOOK_TEST],
+    reason: /HARD-GATED|explicitly declined the pre-cutover gate|ALL FIVE|conjunction/,
+  },
+  {
+    name: "48. A1 proceeds although A3's log-read access is already unavailable",
+    file: RUNBOOK,
+    from:
+      "   **If read access cannot be demonstrated, A1 is not performed.** The release\n" +
+      "   is recorded as `NOT VERIFIED` and remains BLOCKED BEFORE CUTOVER, with the",
+    to:
+      "   **If read access cannot be demonstrated, A1 may still be performed** and the\n" +
+      "   question settled afterwards, with the release recorded as `NOT VERIFIED`, with the",
+    tests: [RUNBOOK_TEST],
+    reason: /read access cannot be demonstrated|A1 is not performed|BEFORE A1 IS PERFORMED/,
+  },
+  {
+    name: "49. the overbroad 'any browser session' determination is restored",
+    file: RUNBOOK,
+    from:
+      "**Determination: YES for scripted, header-bearing probes. NO for the ordinary\n" +
+      "Owner browser acceptance session.**",
+    to: "**Determination: YES for scripted, header-bearing probes. NO for any browser\nsession.**",
+    tests: [RUNBOOK_TEST],
+    reason: /any browser session|ordinary Owner browser acceptance session|universal claim/,
   },
 ];
 
