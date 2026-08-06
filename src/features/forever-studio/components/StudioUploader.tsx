@@ -27,7 +27,7 @@ import {
   isArchiveUploadAvailable,
   isArchiveUploadDisplayedUnavailable,
 } from "../archive-capability";
-import { describePublicationOutcome } from "../publication-outcome";
+import { describePublicationOutcome, STORAGE_VERIFICATION_GUIDANCE } from "../publication-outcome";
 import { studioGetOverview, studioProcessJob, studioStartJob } from "../studio.functions";
 import {
   additionalMaterialWindows,
@@ -1026,14 +1026,31 @@ function ResultPanel(props: { result: StudioJobResult; failedUploads: string[] }
       */}
       {outcome.clientObservedFailure ? (
         <p className="text-center text-sm text-destructive" data-block="client-failed-uploads">
-          {outcome.clientFailedUploadCount} file(s) failed to upload from this browser and were
-          skipped: {outcome.clientFailedUploadNames.join(", ")}. Upload them again any time.
+          {outcome.clientFailedUploadCount} file(s) did not complete from this browser and were
+          skipped: {outcome.clientFailedUploadNames.join(", ")}. The browser could not confirm
+          completion, so whether their bytes reached storage is unresolved.
         </p>
       ) : null}
       {/*
-        CRITICAL SERVER WARNINGS ARE RENDERED DIRECTLY. A source that never
-        arrived, or that was rejected, is not a note for later enrichment, and
-        it must not be reachable only by opening a collapsed section.
+        THE SAFE GUIDANCE FOR AN UNRESOLVED DELIVERY PROBLEM. This block used to
+        say "Upload them again any time". On the present evidence that is unsafe:
+        a browser-side failure report does not establish that the object is
+        absent, so re-uploading may duplicate an object that already exists, may
+        repeat the same silent failure, and destroys the forensic state needed to
+        tell which. Diagnosis first — see `publication-outcome.ts`.
+      */}
+      {outcome.deliveryProblem ? (
+        <p
+          className="rounded-lg border border-destructive/40 p-3 text-center text-sm font-medium text-destructive"
+          data-block="storage-verification-guidance"
+        >
+          {STORAGE_VERIFICATION_GUIDANCE}
+        </p>
+      ) : null}
+      {/*
+        CRITICAL SERVER WARNINGS ARE RENDERED DIRECTLY. A source that did not
+        reach the page, or that was rejected, is not a note for later enrichment,
+        and it must not be reachable only by opening a collapsed section.
       */}
       {outcome.serverObservedCriticalProblem ? (
         <div
@@ -1057,10 +1074,11 @@ function ResultPanel(props: { result: StudioJobResult; failedUploads: string[] }
         </div>
       ) : null}
       {/*
-        Retained or deferred material: the ORIGINAL is stored and intact, only
-        the public copy is missing. Visible — never buried — but not styled or
-        counted as a failure, because nothing is lost and there is no Owner
-        action to take.
+        Retained or deferred material. This is the ONE place a retention claim is
+        made, and it is the one place the evidence supports it: these classes are
+        exactly those whose server status mechanically states the original was
+        retained. Visible — never buried — but not styled or counted as a
+        failure, because there is no Owner action to take.
       */}
       {outcome.retainedWarnings.length ? (
         <div
@@ -1069,7 +1087,7 @@ function ResultPanel(props: { result: StudioJobResult; failedUploads: string[] }
         >
           <p>
             {outcome.retainedWarnings.length} file(s) were kept privately and are not on the public
-            page. Nothing was lost.
+            page. Processing reported the original as retained.
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             {outcome.retainedWarnings.slice(0, 20).map((warning, index) => (

@@ -34,6 +34,7 @@ import {
   isCriticalWarning,
   producedNoContent,
   RETAINED_WARNING_CLASSES,
+  STORAGE_VERIFICATION_GUIDANCE,
   WARNING_CLASSIFICATION,
   type WarningClass,
 } from "../publication-outcome";
@@ -88,7 +89,13 @@ describe("the Owner's exact observed run is never reported as success", () => {
     // The precise regression: this screen must never again claim completeness.
     expect(outcome.title).not.toBe("Published");
     expect(outcome.description).not.toContain("The page is live now");
-    expect(outcome.description).toContain("never finished uploading");
+    // FOREVER-PR141-PR142-FINAL-GATE-CORRECTIONS-008: the wording states what
+    // was OBSERVED — an unconfirmed transfer and a failed lookup — rather than
+    // the physical claim "never finished uploading", which this evidence does
+    // not support in either direction.
+    expect(outcome.title).toBe("Publication failed — empty page created");
+    expect(outcome.description).toContain("could not confirm completion");
+    expect(outcome.description).toContain("physical storage state is unresolved");
   });
 
   it("names every failed file so the Owner can tell WHICH ones to re-upload", () => {
@@ -468,6 +475,202 @@ describe("publication outcome levels", () => {
     expect(outcome.level).toBe("partial");
     expect(outcome.producedNothing).toBe(false);
     expect(outcome.title).toBe("Partly published");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FOREVER-PR141-PR142-FINAL-GATE-CORRECTIONS-008
+//
+// The first revision made the verdict honest about COMPLETENESS and then made
+// two claims the evidence does not support:
+//
+//   - it asserted physical storage state — "never finished uploading",
+//     "Nothing was lost" — in both directions, from a `statObject` miss and a
+//     browser-side failure report. Both are NEGATIVE READS through the same
+//     client and credential whose behaviour is in question;
+//   - it told the Owner to upload the files again. On unresolved storage state
+//     that may duplicate an object that already exists, may repeat the same
+//     silent failure, and destroys the forensic state needed to tell which.
+//
+// These assertions sweep the WHOLE reachable outcome space rather than the four
+// hand-picked cases, so a new branch cannot reintroduce either claim unnoticed.
+// ---------------------------------------------------------------------------
+
+/** Every outcome `describePublicationOutcome` can produce, enumerated. */
+function everyOutcome() {
+  const codes = [...Object.keys(WARNING_CLASSIFICATION), "an_unknown_future_code"];
+  const warningSets: StudioWarningSummary[][] = [[], ...codes.map((code) => [warn(code)])];
+  warningSets.push(codes.map((code) => warn(code)));
+  const uploadSets = [[], ["one.jpg"], OWNER_FAILED_FILES];
+  const countSets = [null, counts(0, 0, 0), counts(0, 0, 1), counts(12, 12, 30)];
+  const statuses = ["published", "failed", "processing", "queued"] as const;
+
+  const all = [];
+  for (const status of statuses) {
+    for (const warnings of warningSets) {
+      for (const failedUploads of uploadSets) {
+        for (const c of countSets) {
+          all.push(
+            describePublicationOutcome({
+              status,
+              pagePath: c ? "/projects/x" : null,
+              counts: c,
+              warnings,
+              failedUploads,
+            }),
+          );
+        }
+      }
+    }
+  }
+  return all;
+}
+
+describe("critical delivery paths never overstate what is known", () => {
+  const all = everyOutcome();
+  const delivery = all.filter((outcome) => outcome.deliveryProblem);
+  const critical = all.filter(
+    (outcome) => outcome.clientObservedFailure || outcome.serverObservedCriticalProblem,
+  );
+
+  it("exercises a non-trivial slice of the outcome space", () => {
+    // A guard that finds nothing is not a guard.
+    expect(all.length).toBeGreaterThan(400);
+    expect(delivery.length).toBeGreaterThan(50);
+    expect(critical.length).toBeGreaterThan(50);
+  });
+
+  it("never claims physical absence, and never claims nothing was lost", () => {
+    // BOTH directions are unevidenced. "never arrived" asserts the bytes are
+    // gone; "Nothing was lost" asserts they are safe. The observation — a
+    // failed lookup — distinguishes neither.
+    for (const outcome of critical) {
+      const text = `${outcome.title} ${outcome.description}`;
+      for (const banned of [
+        "never arrived",
+        "never finished uploading",
+        "did not arrive",
+        "was lost",
+        "were lost",
+        "Nothing was lost",
+        "nothing was lost",
+        "nothing is lost",
+      ]) {
+        expect(text, `${banned} :: ${text}`).not.toContain(banned);
+      }
+    }
+  });
+
+  it("never advises an immediate re-upload on any critical path", () => {
+    for (const outcome of critical) {
+      const text = `${outcome.title} ${outcome.description}`;
+      for (const banned of [
+        "Upload them again",
+        "upload them again",
+        "supply them again",
+        "try again",
+        "Try again",
+        "re-upload",
+        "upload it again",
+      ]) {
+        expect(text, `${banned} :: ${text}`).not.toContain(banned);
+      }
+    }
+  });
+
+  it("carries the storage-verification guidance on every delivery path", () => {
+    expect(STORAGE_VERIFICATION_GUIDANCE).toBe(
+      "Do not upload these files again yet. Storage verification is required.",
+    );
+    for (const outcome of delivery) {
+      expect(outcome.description, outcome.title).toContain(STORAGE_VERIFICATION_GUIDANCE);
+    }
+    // And never on a path where there is no delivery problem to verify.
+    for (const outcome of all.filter((o) => !o.deliveryProblem)) {
+      expect(outcome.description, outcome.title).not.toContain(STORAGE_VERIFICATION_GUIDANCE);
+    }
+  });
+
+  it("renders no success-style heading on any critical path", () => {
+    for (const outcome of critical) {
+      expect(outcome.ok, outcome.title).toBe(false);
+      expect(outcome.title, outcome.title).not.toBe("Published");
+      // A failed-level verdict must not LEAD with the success word, even when
+      // qualified afterwards. "Published, but empty" did exactly that, and the
+      // heading is the only part of the screen a reader reliably takes in.
+      if (outcome.level === "failed") {
+        expect(outcome.title.startsWith("Published"), outcome.title).toBe(false);
+      }
+    }
+  });
+
+  it("never collapses a critical warning into the enrichment group", () => {
+    for (const outcome of all) {
+      for (const warning of outcome.enrichmentWarnings) {
+        expect(isCriticalWarning(warning), warning.code).toBe(false);
+      }
+      // Every critical warning the run produced is exposed for direct render.
+      expect(outcome.criticalWarnings.every(isCriticalWarning)).toBe(true);
+    }
+  });
+});
+
+describe("the four publication states stay distinct", () => {
+  const of = (input: Parameters<typeof describePublicationOutcome>[0]) =>
+    describePublicationOutcome(input);
+
+  it("NO PAGE PUBLISHED reads 'Not published'", () => {
+    const outcome = of({
+      status: "failed",
+      pagePath: null,
+      counts: null,
+      warnings: [],
+      failedUploads: [],
+    });
+    expect(outcome.level).toBe("failed");
+    expect(outcome.title).toBe("Not published");
+  });
+
+  it("AN INCOMPLETE PAGE WITH USABLE CONTENT reads 'Partly published'", () => {
+    const outcome = of({
+      status: "published",
+      pagePath: "/projects/x",
+      counts: counts(12, 12, 30),
+      warnings: [warn("file_upload_missing")],
+      failedUploads: [],
+    });
+    expect(outcome.level).toBe("partial");
+    expect(outcome.title).toBe("Partly published");
+  });
+
+  it("AN EMPTY PAGE AFTER A CRITICAL DELIVERY PROBLEM reads as a failure", () => {
+    const outcome = of({
+      status: "published",
+      pagePath: "/projects/x",
+      counts: counts(0, 0, 0),
+      warnings: [warn("file_upload_missing")],
+      failedUploads: OWNER_FAILED_FILES,
+    });
+    expect(outcome.level).toBe("failed");
+    expect(outcome.title).toBe("Publication failed — empty page created");
+    expect(outcome.title.startsWith("Published")).toBe(false);
+  });
+
+  it("A LEGITIMATE FACTS-ONLY PUBLICATION still reads 'Published'", () => {
+    // THE DURABLE PRODUCT RULE, restated against the stricter heading: an empty
+    // page with no critical warning is a normal facts-only update, and it keeps
+    // the success heading. The stricter wording must not have swept it up.
+    const outcome = of({
+      status: "published",
+      pagePath: "/projects/x",
+      counts: counts(0, 0, 0),
+      warnings: [warn("duplicate_media_ignored")],
+      failedUploads: [],
+    });
+    expect(outcome.level).toBe("complete");
+    expect(outcome.ok).toBe(true);
+    expect(outcome.title).toBe("Published");
+    expect(outcome.deliveryProblem).toBe(false);
   });
 });
 

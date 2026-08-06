@@ -371,14 +371,67 @@ describe("upload target pairing", () => {
     // server's, because the server redacts filenames and the two observations
     // carry no shared identifier
     // (FOREVER-PR141-PR142-EVIDENCE-REVIEW-CORRECTIONS-007).
+    //
+    // The wording is "did not complete", not "failed to upload", because the
+    // browser observed an unconfirmed transfer and not a proven absence
+    // (FOREVER-PR141-PR142-FINAL-GATE-CORRECTIONS-008).
     expect(
-      screen.getByText(/failed to upload from this browser and were skipped/),
+      screen.getByText(/did not complete from this browser and were skipped/),
     ).toHaveTextContent("deed.pdf");
     expect(deliveredFiles()).toEqual({
       "jobs/job-1/staging/00-q3.pdf": "PRICE-BYTES",
       "jobs/job-1/staging/01-deed.pdf": "DEED-BYTES",
       "jobs/job-1/staging/02-level-2.pdf": "PLAN-BYTES",
     });
+  });
+
+  // 8b ------------------------------------------------------------------------
+  /**
+   * THE RENDERED CRITICAL DELIVERY PATH, asserted on the DOM the Owner sees.
+   *
+   * FOREVER-PR141-PR142-FINAL-GATE-CORRECTIONS-008. The module-level suite pins
+   * the strings; this pins what actually reaches the screen. A delivery problem
+   * whose physical R2 state is unresolved must not produce a re-upload
+   * instruction, must not assert that anything was or was not lost, and must
+   * carry the storage-verification guidance where the Owner will read it.
+   */
+  it("renders no re-upload instruction and no loss claim for a failed delivery", async () => {
+    uploaded.toSignedUrl.mockImplementation(async (path: string) =>
+      path.endsWith("01-deed.pdf") ? { error: new Error("HTTP 500") } : { error: null },
+    );
+    renderUploader();
+    await screen.findByRole("button", { name: "Publish now" });
+    await addTo("Price List", file("q3.pdf", "PRICE-BYTES"));
+    await addTo("Documents / Legal", file("deed.pdf", "DEED-BYTES"));
+    await publish();
+    await screen.findByRole("heading", { name: "Partly published" });
+
+    // The safe guidance is present, verbatim, and is not hidden behind a
+    // <details> the Owner has to open.
+    const guidance = document.querySelector('[data-block="storage-verification-guidance"]');
+    expect(guidance).not.toBeNull();
+    expect(guidance).toHaveTextContent(
+      "Do not upload these files again yet. Storage verification is required.",
+    );
+    expect(guidance?.closest("details")).toBeNull();
+
+    const panel = document.body.textContent ?? "";
+    // No retry instruction, in any of the shapes the screen used to carry.
+    for (const banned of [
+      "Upload them again",
+      "upload them again",
+      "supply them again",
+      "try again",
+      "Try again",
+    ]) {
+      expect(panel, banned).not.toContain(banned);
+    }
+    // No claim about physical storage state in EITHER direction.
+    for (const banned of ["Nothing was lost", "nothing was lost", "never arrived", "was lost"]) {
+      expect(panel, banned).not.toContain(banned);
+    }
+    // And the honest statement of what IS known is there.
+    expect(panel).toContain("whether their bytes reached storage is unresolved");
   });
 
   // Refusals ------------------------------------------------------------------

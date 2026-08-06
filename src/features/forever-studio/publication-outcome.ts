@@ -60,8 +60,44 @@
  *    taxonomy is below.
  *
  * 3. IT LEFT CRITICAL WARNINGS INSIDE A COLLAPSED "notes for later enrichment"
- *    SECTION. A source that never arrived, or that was rejected, is not a note.
- *    `criticalWarnings` exists so the caller can render those directly.
+ *    SECTION. A source that did not reach the page, or that was rejected, is
+ *    not a note. `criticalWarnings` exists so the caller can render those
+ *    directly.
+ *
+ * ---------------------------------------------------------------------------
+ * THE EVIDENCE BOUNDARY (FOREVER-PR141-PR142-FINAL-GATE-CORRECTIONS-008)
+ * ---------------------------------------------------------------------------
+ *
+ * A `file_upload_missing` warning, and the `delivery_failure` class generally,
+ * DO NOT PROVE THAT BYTES NEVER REACHED R2. The whole of what is observed is:
+ *
+ *   - the browser could not confirm completion of the transfer;
+ *   - processing could not find the declared object through its storage path.
+ *
+ * Both are NEGATIVE READS, through the same client and the same credentialed
+ * code path whose behaviour is itself in question. They are consistent with at
+ * least three unresolved possibilities: the bytes never arrived; the bytes
+ * arrived but the acknowledgement (or CORS on the response) failed; or an
+ * object exists under a location this environment cannot enumerate. See
+ * `tests/r2-object-key-contract.test.ts` for the full forensic statement.
+ *
+ * TWO CONSEQUENCES ARE BINDING ON EVERY STRING THIS MODULE PRODUCES:
+ *
+ * 1. **No wording may assert physical absence.** Not "never arrived", not "the
+ *    bytes were lost", and — equally — not "nothing was lost". Both directions
+ *    are claims this evidence cannot support. Only `retained_private` and
+ *    `deferred_publication` may state that the original is retained, because
+ *    for those the server status mechanically proves it.
+ *
+ * 2. **No wording may recommend an immediate re-upload.** Until the physical R2
+ *    state and the transport defect are understood, re-uploading may duplicate
+ *    an object that already exists, or repeat the same failure, and it destroys
+ *    the forensic state needed to diagnose either. The safe guidance is
+ *    `STORAGE_VERIFICATION_GUIDANCE`, below.
+ *
+ * THIS MODULE DOES NOT REPAIR THE TRANSPORT DEFECT. It corrects what the screen
+ * SAYS about a failed run. The real browser/R2 transfer failure is unresolved,
+ * and nothing here authorizes another manual upload.
  *
  * ---------------------------------------------------------------------------
  * THE THREE LEVELS
@@ -71,7 +107,9 @@
  *                   carries no content AND a critical problem was observed.
  *                   That second clause is the measured case: an empty page
  *                   produced BECAUSE the uploads failed is a failure, not a
- *                   success with a note.
+ *                   success with a note. Its heading says so without leading
+ *                   with the word "Published" —
+ *                   "Publication failed — empty page created".
  *   - `partial`   — a page exists and carries content, but a critical problem
  *                   was observed.
  *   - `complete`  — a page exists and no critical problem was observed.
@@ -85,8 +123,13 @@ import type { StudioJobResult, StudioJobStatus, StudioWarningSummary } from "./s
 /**
  * What a warning code MEANS. Six classes, and only the first two are critical.
  *
- *   - `delivery_failure`     — the bytes never arrived. The Owner must supply
- *                              the file again; nothing else can recover it.
+ *   - `delivery_failure`     — the declared object could not be found through
+ *                              its storage path when processing looked for it.
+ *                              **This does NOT establish that the bytes never
+ *                              reached R2.** See THE EVIDENCE BOUNDARY below.
+ *                              Physical storage state is unresolved, and
+ *                              storage verification is required before any
+ *                              retry.
  *   - `source_rejected`      — the bytes arrived but the source could not be
  *                              used in the role it was filed under. Only a
  *                              corrected or different file changes the outcome.
@@ -120,7 +163,11 @@ export type WarningClass =
  * Each classification is justified by the message the server actually emits.
  */
 export const WARNING_CLASSIFICATION: Readonly<Record<string, WarningClass>> = {
-  // "was declared but never arrived in storage; continuing without it."
+  // The server emits: "was declared but never arrived in storage; continuing
+  // without it." That sentence is the SERVER'S OWN MESSAGE and is reproduced
+  // here only to justify the classification. It is a report of a failed lookup,
+  // not a proof of physical absence — see THE EVIDENCE BOUNDARY above. This
+  // module never repeats that phrasing in anything it renders.
   file_upload_missing: "delivery_failure",
 
   // "could not be read back." / "could not be parsed as JSON; the file was
@@ -177,11 +224,27 @@ export const WARNING_CLASSIFICATION: Readonly<Record<string, WarningClass>> = {
 export const CRITICAL_WARNING_CLASSES = ["delivery_failure", "source_rejected"] as const;
 
 /**
- * The classes that describe material which arrived intact but is not on the
- * public page. Visible, but not alarming, and NOT a failure: the Owner has lost
- * nothing and there is no action for them to take.
+ * The classes that describe material the server's own status mechanically
+ * proves it RETAINED: the original is stored, and only the public derivative is
+ * absent. Visible, but not alarming, and NOT a failure — there is no action for
+ * the Owner to take. This is the one place a retention claim is evidenced, and
+ * it is the only place one may be made.
  */
 export const RETAINED_WARNING_CLASSES = ["retained_private", "deferred_publication"] as const;
+
+/**
+ * THE ONLY SAFE GUIDANCE FOR A DELIVERY PROBLEM, until the physical R2 state
+ * and the transport defect are understood.
+ *
+ * The screen previously said "Upload them again any time" and "Upload them
+ * again to fill it in". Both are unsafe on the present evidence: the browser's
+ * failure report does not establish that the object is absent, so a re-upload
+ * may duplicate an object that already exists, may repeat the same silent
+ * failure, and destroys the forensic state required to tell which. Diagnosis
+ * comes first.
+ */
+export const STORAGE_VERIFICATION_GUIDANCE =
+  "Do not upload these files again yet. Storage verification is required.";
 
 /**
  * Unknown codes classify as `enrichment_note` so an unrecognised warning can
@@ -245,6 +308,16 @@ export interface PublicationOutcome {
   readonly serverEnrichmentNoteCount: number;
   readonly serverObservedCriticalProblem: boolean;
 
+  /**
+   * True when EITHER observer saw a delivery problem — the browser could not
+   * confirm completion, or processing could not find a declared object through
+   * its storage path. It is the flag that means "physical storage state is
+   * unresolved", and it is what a caller renders
+   * `STORAGE_VERIFICATION_GUIDANCE` against. It is NOT a claim that anything is
+   * physically absent.
+   */
+  readonly deliveryProblem: boolean;
+
   /** Server warnings that must be rendered directly, never collapsed. */
   readonly criticalWarnings: readonly StudioWarningSummary[];
   /** Retained / deferred material: shown plainly, but not as a failure. */
@@ -258,9 +331,9 @@ export interface PublicationOutcome {
  *
  * A null `counts` block means the run reported no tally, which is not the same
  * as reporting zero. Treating null as empty would make the screen assert an
- * emptiness it cannot know, and "Published, but empty" is a strong claim: it
- * tells the Owner their page has nothing on it. It is only made when the run
- * actually counted, and counted nothing.
+ * emptiness it cannot know, and "Publication failed — empty page created" is a
+ * strong claim: it tells the Owner their page has nothing on it. It is only
+ * made when the run actually counted, and counted nothing.
  */
 export function producedNoContent(counts: StudioJobResult["counts"]): boolean {
   if (!counts) return false;
@@ -300,9 +373,11 @@ export function describePublicationOutcome(input: {
   const serverObservedCriticalProblem = criticalWarnings.length > 0;
   const anyCriticalProblem = clientObservedFailure || serverObservedCriticalProblem;
 
-  // Only a DELIVERY problem justifies "did not finish uploading". A rejected
-  // source arrived; saying it did not would send the Owner to fix the wrong
-  // thing, which is the same class of error this whole correction is about.
+  // Only a DELIVERY problem justifies wording about an unconfirmed transfer. A
+  // rejected source arrived; saying it did not would send the Owner to fix the
+  // wrong thing, which is the same class of error this whole correction is
+  // about. Note the ceiling on what this boolean means: an unconfirmed transfer
+  // and a failed lookup, NOT a proven absence — see THE EVIDENCE BOUNDARY.
   const deliveryProblem = clientObservedFailure || byClass.delivery_failure > 0;
   const producedNothing = producedNoContent(input.counts);
   // `status` is the authority on whether the run published, and it is the ONLY
@@ -324,6 +399,7 @@ export function describePublicationOutcome(input: {
     serverHarmlessDuplicateCount: byClass.harmless_duplicate,
     serverEnrichmentNoteCount: byClass.enrichment_note,
     serverObservedCriticalProblem,
+    deliveryProblem,
     criticalWarnings,
     retainedWarnings,
     enrichmentWarnings,
@@ -335,9 +411,11 @@ export function describePublicationOutcome(input: {
       level: "failed",
       ok: false,
       title: "Not published",
-      description: anyCriticalProblem
-        ? "No page was published, and some files did not make it through. Nothing was lost — check the details below and try again."
-        : "No page was published. Nothing was lost — you can try again.",
+      description: deliveryProblem
+        ? `No page was published by this run, and some files did not complete. The browser could not confirm completion for them, so whether their bytes reached storage is unresolved. ${STORAGE_VERIFICATION_GUIDANCE}`
+        : anyCriticalProblem
+          ? "No page was published by this run, and some files could not be used. Check the details below."
+          : "No page was published by this run.",
     };
   }
 
@@ -346,10 +424,15 @@ export function describePublicationOutcome(input: {
       ...base,
       level: "failed",
       ok: false,
-      title: "Published, but empty",
+      // NOT a "Published…" heading. A run whose every source failed and which
+      // produced 0 units / 0 prices / 0 media is a failure, and the heading is
+      // the only part of this screen a reader reliably takes in. "Published,
+      // but empty" led with the success word and qualified it afterwards, which
+      // is the same defect as the constant "Published" it replaced.
+      title: "Publication failed — empty page created",
       description: deliveryProblem
-        ? "The page went live with no units, prices or media, because the files it needed never finished uploading. Upload them again to fill it in."
-        : "The page went live with no units, prices or media, because the files it needed could not be used. Check the details below and supply them again.",
+        ? `An empty page was created with no units, prices or media. The browser could not confirm completion for the source files, and processing could not find the declared objects through their storage path — physical storage state is unresolved. ${STORAGE_VERIFICATION_GUIDANCE}`
+        : "An empty page was created with no units, prices or media, because the source files that reached processing could not be used. Check the details below.",
     };
   }
 
@@ -360,7 +443,7 @@ export function describePublicationOutcome(input: {
       ok: false,
       title: "Partly published",
       description: deliveryProblem
-        ? "The page is live, but some files did not finish uploading and are not on it yet. Upload them again to complete it."
+        ? `The page is live, but some files did not complete and are not on it. The browser could not confirm completion for them, so whether their bytes reached storage is unresolved. ${STORAGE_VERIFICATION_GUIDANCE}`
         : "The page is live, but some files could not be used and are not on it yet. Check the details below.",
     };
   }
