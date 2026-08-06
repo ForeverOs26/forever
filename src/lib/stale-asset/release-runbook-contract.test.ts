@@ -12,11 +12,20 @@
  * named assertion rather than being noticed after the next release.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { check, resolveConfig } from "prettier";
 import { describe, expect, it } from "vitest";
+
+import {
+  PREUPLOAD_EXPLICIT_BINDINGS_MARKER,
+  SUPERSEDED_PREUPLOAD_MARKERS,
+} from "./explicit-plain-text-bindings";
+import {
+  GENERATED_WORKER_CONFIG_PATH,
+  PRODUCTION_VERSION_UPLOAD_SPEC,
+} from "./worker-variable-preservation";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 const runbook = read("docs/FOREVER_PRODUCTION_RELEASE_RUNBOOK.md");
@@ -522,6 +531,118 @@ describe("the runbook preserves deployment-managed Worker variables", () => {
 });
 
 /**
+ * FOREVER-PR140-CORRECTIONS-002.
+ *
+ * Four documentation facts the independent review found stated wrongly or not at
+ * all. Each is a safety statement — an operator reading the wrong one draws the
+ * wrong conclusion about what a release holds, what it proves and what ran — so
+ * each is pinned rather than trusted to survive an edit.
+ */
+describe("the runbook describes the explicit-binding release truthfully", () => {
+  it("calls the upload-specification digest a SALTED VERIFICATION digest, not a content address", () => {
+    expect(runbookFlat).toContain("salted verification digest");
+    expect(runbookFlat).toContain("not a content address");
+    expect(runbookFlat).toContain("not reproducible");
+    expect(runbookFlat).toContain("not comparable across releases");
+    // And it distinguishes the two digests rather than describing both as one.
+    expect(runbookFlat).toContain("The two digests are not the same kind of thing");
+    expect(runbookFlat).toContain(
+      "`releaseManifestSha256` is an ordinary, reproducible SHA-256 of a value-free file",
+    );
+    // The superseded wording is gone.
+    expect(runbookFlat).not.toContain("normalized upload-specification SHA-256");
+  });
+
+  it("states which process holds the release inputs, and which two do not", () => {
+    expect(runbookFlat).toContain("Exactly which process holds what");
+    expect(runbookFlat).toContain("The wrapper process DOES hold both release inputs");
+    expect(runbookFlat).toContain("The PREUPLOAD child does NOT");
+    expect(runbookFlat).toContain("The Wrangler child does NOT either");
+    expect(runbookFlat).toContain("deleted from its environment");
+    expect(runbookFlat).toContain(
+      "Wrangler receives the two values through **exactly one channel**",
+    );
+    expect(runbookFlat).toContain(
+      "The specification is deleted once the launcher returns or throws",
+    );
+    expect(runbookFlat).toContain("A lost exclusive-create race is the same fail-closed STOP");
+  });
+
+  it("names the CURRENT Wrangler serialization proof and no stale one", () => {
+    expect(runbook).toContain("wrangler-plain-text-serialization.test.ts");
+    expect(runbookFlat).toContain("An equivalent proof exists for the mechanism that replaced it");
+    // The deleted proof is described as deleted, never cited as evidence.
+    expect(runbookFlat).toContain("That inherit proof is deleted");
+    expect(runbook).not.toContain("wrangler-inherit-serialization");
+    expect(runbookFlat).not.toContain(
+      "The proof has been deleted rather than left to defend a mechanism",
+    );
+    // And the claim it supports stays inside what it can measure.
+    expect(runbookFlat).toContain("It is evidence about WRANGLER's serialization only");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FOREVER-PR140-CORRECTIONS-002 — the release-check mapping, including the
+// explicit actionlint N/A waiver
+// ---------------------------------------------------------------------------
+
+describe("the release-check mapping records what runs and what is not applicable", () => {
+  it("publishes a mapping of every claimed gate to the command that produces it", () => {
+    expect(runbook).toContain("## 2d. RELEASE CHECK MAPPING");
+    for (const command of [
+      "npm run build",
+      "npx vitest run",
+      "npm run release:verify-bindings",
+      "npm run release:wrangler-gate",
+      "npm run release:keep-vars-mutations",
+    ]) {
+      expect(runbook, command).toContain(command);
+    }
+  });
+
+  it("records actionlint as an explicit N/A waiver, in the exact wording", () => {
+    expect(runbook).toContain(
+      "`actionlint: N/A — repository contains no GitHub Actions workflows`",
+    );
+    expect(runbookFlat).toContain("owner-approved, repository-state-specific waiver");
+  });
+
+  it("refuses the two ways a waiver becomes a lie", () => {
+    // A workflow created to satisfy a linter, and a check claimed as passing.
+    expect(runbookFlat).toContain("A workflow was **not** created to satisfy the check");
+    expect(runbookFlat).toContain("`actionlint` was **not** installed");
+    expect(runbookFlat).toContain("the check is **not** reported as passing");
+  });
+
+  it("expires the waiver automatically the moment a workflow file exists", () => {
+    expect(runbookFlat).toContain("The waiver expires automatically");
+    expect(runbookFlat).toContain(
+      "If any file is added under `.github/workflows`, this waiver is void",
+    );
+  });
+
+  it("forbids presenting an absent CI as a successful status check", () => {
+    expect(runbookFlat).toContain("Absence of CI is never a green status check");
+    expect(runbookFlat).toContain("no status checks at all");
+    expect(runbookFlat).toContain('An empty check list means "nothing ran"');
+  });
+
+  it("scopes lint rather than editing shared configuration for one checkout", () => {
+    expect(runbookFlat).toContain("Why lint is scoped rather than repository-wide");
+    expect(runbookFlat).toContain("environmental limitation of this working copy");
+    expect(runbookFlat).toContain("not** a reason to edit the ESLint configuration");
+  });
+
+  it("the waiver is TRUE of this repository right now", () => {
+    // The waiver is repository-state-specific, so the state is measured rather
+    // than assumed: the moment a workflow exists, this fails and the waiver in
+    // the runbook must be replaced by a real actionlint run.
+    expect(existsSync(resolve(process.cwd(), ".github/workflows"))).toBe(false);
+  });
+});
+
+/**
  * FOREVER-PR138-MERGE-BLOCKER-CORRECTION-002.
  *
  * The independent review of the correction above returned CHANGES_REQUIRED on
@@ -599,11 +720,32 @@ describe("the runbook prescribes the MECHANICAL release sequence", () => {
     expect(runbook).not.toContain('includes("--keep-vars")');
   });
 
-  it("publishes the canonical specification as data, and derives the text from it", () => {
+  /**
+   * FOREVER-PR140-FINAL-REVIEW-003 — the published argv is DERIVED, never
+   * retyped.
+   *
+   * This assertion used to restate the argv as a hard-coded literal, and the
+   * literal was the SUPERSEDED one: §2b published
+   * `--config .output/server/wrangler.json`, the immutable generated
+   * configuration. That is the artefact `verifyUploadSpec` refuses by name with
+   * `wrong_config_path` — it declares neither deployment-managed plain-text
+   * binding, so an upload performed with it produces the 10-binding shape both
+   * rejected candidates came back with, and mutation control 29 exists to keep
+   * it refused. So the runbook published, as the canonical upload, a command the
+   * release tooling would have rejected outright, while §2 step 4 in the same
+   * document printed the correct one — and the assertion that was supposed to
+   * catch exactly that drift was pinning the wrong value.
+   *
+   * Deriving from `PRODUCTION_VERSION_UPLOAD_SPEC` means the runbook and the
+   * argv the wrapper spawns cannot disagree without this failing.
+   */
+  it("publishes the canonical specification as data, DERIVED from it rather than retyped", () => {
     expect(runbook).toContain("PRODUCTION_VERSION_UPLOAD_SPEC");
     expect(runbook).toContain(
-      '"versions", "upload", "--keep-vars", "--config", ".output/server/wrangler.json"',
+      PRODUCTION_VERSION_UPLOAD_SPEC.args.map((token) => `"${token}"`).join(", "),
     );
+    // And the refused path is never published as the canonical one.
+    expect(runbook).not.toContain(`"--config", "${GENERATED_WORKER_CONFIG_PATH}"`);
     expect(runbookFlat).toContain("derived from** that specification");
     expect(runbook).toContain("`shell: false`");
   });
@@ -613,8 +755,30 @@ describe("the runbook prescribes the MECHANICAL release sequence", () => {
     expect(runbookFlat).toContain("never falls back to a PATH lookup");
   });
 
-  it("refuses to spawn Wrangler before the preflight passed", () => {
-    expect(runbook).toContain("PREUPLOAD_CONTRACT_OK");
+  /**
+   * FOREVER-PR140-FINAL-REVIEW-003 — the spawn gate names the marker the
+   * preflight actually emits.
+   *
+   * §2b told the operator the wrapper refuses to spawn Wrangler "unless it
+   * produced `PREUPLOAD_CONTRACT_OK`", and this assertion pinned that string.
+   * That marker was superseded twice — once by the pinned-inheritance contract
+   * and again by the explicit-binding contract — and §2 step 3 of the same
+   * document already said it is never emitted again. The gate §2b described was
+   * therefore unobservable: an operator watching for it would never see it, and
+   * the assertion guarding the sentence was satisfied by the very words that
+   * declare the marker dead.
+   */
+  it("names the CURRENT PREUPLOAD marker as the spawn gate, never a superseded one", () => {
+    expect(runbook).toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
+    // A superseded marker may appear ONCE, and only after the sentence that
+    // declares it superseded — never as an instruction to watch for it.
+    const supersededNotice = runbook.indexOf("The superseded");
+    expect(supersededNotice).toBeGreaterThan(-1);
+    for (const superseded of SUPERSEDED_PREUPLOAD_MARKERS) {
+      const occurrences = runbook.split(superseded).length - 1;
+      expect(occurrences, superseded).toBe(1);
+      expect(runbook.indexOf(superseded), superseded).toBeGreaterThan(supersededNotice);
+    }
   });
 
   it("keeps every safety property the earlier corrections established", () => {

@@ -1,45 +1,49 @@
 /**
- * FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001 — EMPIRICAL
- * serialization proof.
- * Containment corrected by FOREVER-PR139-REVIEW-CORRECTIONS-001 (P2-2, P2-3).
+ * FOREVER-PR140-CORRECTIONS-002 — EMPIRICAL serialization proof for the
+ * EXPLICIT `plain_text` mechanism.
  *
  * ---------------------------------------------------------------------------
- * WHY CONFIGURATION INSPECTION IS NOT ENOUGH
+ * WHY THIS FILE EXISTS AGAIN, AND WHAT IT IS ALLOWED TO CLAIM
  * ---------------------------------------------------------------------------
  *
- * The superseded PREUPLOAD contract inspected argv and the generated
- * configuration and returned PASS for an upload that could not have preserved
- * anything. Everything it checked was true; none of it described the bytes that
- * left the machine. So this suite does not inspect configuration — it runs the
- * REAL, repository-locked Wrangler and reads the multipart metadata Wrangler
- * actually emits.
+ * PR #139 shipped an offline proof that the repository-locked Wrangler forwards
+ * a pinned `inherit` `version_id` verbatim. That proof was correct about
+ * Wrangler and irrelevant about Cloudflare, which refused the result with HTTP
+ * 400 [code: 10057]. It was deleted along with the mechanism it defended.
  *
- * An earlier reading of Wrangler's bundled source suggested it strips
- * `version_id`, because one code path destructures only `{ binding }`. That
- * inference was WRONG: unsafe-declared bindings take a different path and
- * `version_id` is forwarded verbatim. This test exists so the empirical answer
- * is re-measured on every run instead of being remembered.
+ * PR #140 replaced inheritance with two explicit `plain_text` records — and
+ * shipped NO Wrangler-side proof at all, so the new mechanism rested on
+ * inspecting the configuration this repository writes. That is exactly the gap
+ * the superseded PREUPLOAD contract had: everything it checked was true, and
+ * none of it described the bytes that leave the machine.
+ *
+ * So the proof is restored for the new mechanism, with the narrower claim the
+ * previous one should have carried:
+ *
+ *   PROVEN HERE — that the repository-locked Wrangler, handed a specification in
+ *   the exact shape this release path generates, serializes exactly two
+ *   `plain_text` binding records, with the right names, carrying the values the
+ *   specification supplied, with zero `inherit` records and no duplicate name.
+ *
+ *   NOT PROVEN HERE, AND NOT CLAIMED — anything about what Cloudflare does with
+ *   that request. This suite never reaches Cloudflare and could not measure it.
+ *   Post-upload capture and comparison (§2 step 6 of the runbook) remain the
+ *   only evidence of what the API actually produced.
  *
  * ---------------------------------------------------------------------------
  * WHICH WRANGLER — THE SAME FILE THE PRODUCTION UPLOAD RUNS
  * ---------------------------------------------------------------------------
  *
  * The entry point is not a path this file composes. It is whatever
- * `resolveRepositoryWrangler` authorizes — the same shared, fail-closed
- * resolver `scripts/release/wrangler-version-gate.mjs` uses, and therefore the
- * same resolver the production upload wrapper consumes. An external
- * installation reporting the same version resolves to nothing here exactly as
- * it resolves to nothing there, so this proof is about the executable that
- * actually performs releases.
+ * `resolveRepositoryWrangler` authorizes — the same shared, fail-closed resolver
+ * `scripts/release/wrangler-version-gate.mjs` uses, and therefore the same
+ * resolver the production upload wrapper consumes. An external installation
+ * reporting the same version resolves to nothing here exactly as it resolves to
+ * nothing there.
  *
  * ---------------------------------------------------------------------------
  * CONTAINMENT — MEASURED, NOT ASSUMED
  * ---------------------------------------------------------------------------
- *
- * The previous version of this file asserted `expect(request.url).not.toMatch(
- * /api\.cloudflare\.com/)`. `request.url` is a PATH; it can never contain a
- * host, and only requests that had already reached the loopback mock were
- * inspected at all. What is enforced now:
  *
  *   - a PROCESS-LEVEL guard (`loopback-network-guard.cjs`) is preloaded into the
  *     Wrangler child. Sockets, TLS, DNS, `http`/`https` and `fetch` are all
@@ -58,22 +62,25 @@
  *     every configuration and cache root redirected into a throwaway directory,
  *     synthetic Cloudflare credentials only, metrics and update checks off. The
  *     operator's real Wrangler/OAuth configuration is unreachable rather than
- *     merely unused;
+ *     merely unused, and no `FOREVER_RELEASE_*` input can travel because nothing
+ *     of the parent environment is spread;
  *   - no Worker version is created: the mock returns a synthetic response and
  *     nothing is uploaded anywhere.
  *
  * ---------------------------------------------------------------------------
- * WHAT IS CAPTURED, AND WHAT IS DISCARDED
+ * THE VALUES IN THIS FILE ARE SYNTHETIC, AND THEY STAY IN THE REQUEST
  * ---------------------------------------------------------------------------
  *
- * The multipart request body IS materialized in memory, because parsing a
- * multipart document requires reading it. It is never persisted, never logged
- * and never retained: `extractMetadataPart` returns the parsed `metadata` part
- * and the body buffer goes out of scope with the request handler. Only that one
- * part is kept. The Worker code bytes, the asset contents, the request headers
- * other than `Host`, the credential and the multipart boundaries are all
- * discarded unparsed — but this suite does not claim the body was "dropped
- * unread", because it was read.
+ * The origin is a `.test` host that cannot resolve; the provider is a documented
+ * identifier from `studio-types.ts`. They are asserted INSIDE the captured
+ * metadata — that is the point of the proof — and asserted to be absent from the
+ * guard log, which is the only artefact this run writes.
+ *
+ * The multipart body IS materialized in memory, because parsing a multipart
+ * document requires reading it. Only the `metadata` part is retained; the Worker
+ * code bytes, the asset contents, every header other than `Host`, the credential
+ * and the boundaries are discarded unparsed. This suite does not claim the body
+ * was "dropped unread", because it was read.
  */
 
 import { spawn } from "node:child_process";
@@ -92,6 +99,13 @@ import {
   type IsolatedConfigRoot,
 } from "./contained-child-environment";
 import {
+  EXPLICIT_PLAIN_TEXT_BINDINGS,
+  PLAIN_TEXT_BINDING_TYPE,
+  REFUSED_INHERIT_BINDING_TYPE,
+  REFUSED_INHERIT_LATEST,
+  buildExplicitPlainTextBindings,
+} from "./explicit-plain-text-bindings";
+import {
   allowedDestinations,
   blockedDestinations,
   loopbackGuardEnv,
@@ -99,21 +113,26 @@ import {
   readLoopbackGuardLog,
   type LoopbackGuardRecord,
 } from "./loopback-network-guard";
-import {
-  INHERIT_BINDING_TYPE,
-  PINNED_INHERITANCE_BINDINGS,
-  buildPinnedInheritanceBindings,
-} from "./pinned-binding-inheritance";
+import { RELEASE_VALUE_ENV_KEYS } from "./release-child-environment";
 import { SUPPORTED_WRANGLER_VERSION } from "./worker-variable-preservation";
 import { CANONICAL_WRANGLER_ENTRY, resolveRepositoryWrangler } from "./wrangler-identity";
 
 /** Dummy. Not a production identifier, not a credential. */
 const DUMMY_ACCOUNT_ID = SYNTHETIC_CLOUDFLARE_ACCOUNT_ID;
 const DUMMY_WORKER_NAME = "forever-offline-serialization-fixture";
-/** Dummy stand-in for the verified 100% live version. */
-const DUMMY_LIVE_VERSION = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
 /** Dummy stand-in for the version the mock pretends to create. Never real. */
 const DUMMY_CREATED_VERSION = "2b3c4d5e-6f70-4b8c-9d0e-1f2a3b4c5d6e";
+
+/**
+ * SYNTHETIC release values, in the shape the contract accepts.
+ *
+ * `.test` is a reserved TLD and cannot resolve; `r2` is one of the two
+ * documented providers. Neither is a production value and neither is a secret.
+ */
+const SYNTHETIC_VALUES = {
+  SUPABASE_URL: "https://serialization-fixture.supabase.test",
+  STUDIO_STORAGE_WRITE_PROVIDER: "r2",
+} as const;
 
 const REPO = process.cwd();
 const WRANGLER_MANIFEST = resolve(REPO, "node_modules/wrangler/package.json");
@@ -130,12 +149,9 @@ interface Capture {
 /**
  * Extracts ONLY the `metadata` part from a multipart body.
  *
- * The body must be materialized to be parsed — a multipart document cannot be
- * split without being read. It is read HERE and nowhere else: the buffer is a
- * parameter, the boundary is used to split and then discarded, every part that
- * is not `metadata` is skipped without being turned into a retained value, and
- * nothing about the body is written to disk, logged or asserted against as a
- * whole.
+ * The boundary is used to split and then discarded, every part that is not
+ * `metadata` is skipped without being turned into a retained value, and nothing
+ * about the body is written to disk or logged.
  */
 function extractMetadataPart(body: Buffer, contentType: string): Record<string, unknown> | null {
   const match = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType);
@@ -162,7 +178,7 @@ function startMock(capture: Capture): Promise<{ server: Server; port: number }> 
     request.on("end", () => {
       capture.requests.push(`${request.method} ${request.url?.split("?")[0] ?? ""}`);
       // The one header retained. It is the destination the client BELIEVED it
-      // was talking to, which is the fact a path-only assertion could not reach.
+      // was talking to, which is the fact a path-only assertion cannot reach.
       capture.hostHeaders.push(String(request.headers.host ?? ""));
       const json = (body: unknown) => {
         response.writeHead(200, { "content-type": "application/json" });
@@ -214,13 +230,11 @@ function startMock(capture: Capture): Promise<{ server: Server; port: number }> 
  * process-level guard and a constructed environment.
  *
  * `spawn`, never `spawnSync`: a synchronous spawn blocks this process's event
- * loop, so the in-process mock could never accept the connection and the run
- * would fail with a misleading "connectivity" error.
+ * loop, so the in-process mock could never accept the connection.
  *
  * The guard is installed as a direct `--require` NODE ARGUMENT rather than
  * through `NODE_OPTIONS`, so the child environment can keep `NODE_OPTIONS`
- * absent entirely — the parent's must not travel, and an inherited one is
- * exactly what P2-3 found.
+ * absent entirely.
  */
 function runWrangler(input: {
   readonly configPath: string;
@@ -267,15 +281,10 @@ function runWrangler(input: {
  *
  * Wrangler 4.118.0 calls the `update-check` package, which fetches
  * `registry.npmjs.org` unless a cache file inside `os.tmpdir()` is newer than
- * its interval. Wrangler exposes no flag for it. The child's temporary
- * directory is ours, so the cache is SEEDED as already-current and the request
- * is never made.
- *
- * This was found by the guard, not by reading the source: the previous
- * containment assertion could not see an outbound request to npm at all, and
- * this run really did make one. Seeding is the disablement; the guard blocking
- * it would have been a second line of defence, and the suite asserts BOTH — no
- * blocked destination at all, which is only true if the check never fired.
+ * its interval. Wrangler exposes no flag for it. The child's temporary directory
+ * is ours, so the cache is SEEDED as already-current and the request is never
+ * made — and the suite asserts the guard blocked NOTHING, which is only true if
+ * the check never fired.
  */
 function seedWranglerUpdateCheckCache(isolatedRoot: IsolatedConfigRoot): void {
   const cacheDirectory = join(isolatedRoot.tempDirectory, "update-check");
@@ -295,11 +304,13 @@ let guardLogPath = "";
 let guardRecords: readonly LoopbackGuardRecord[] = [];
 let listenerPort = 0;
 
+const serializedBindings = () => (capture.metadata?.bindings ?? []) as Record<string, unknown>[];
+
 beforeAll(async () => {
   const { server, port } = await startMock(capture);
   listenerPort = port;
-  workspace = mkdtempSync(join(tmpdir(), "forever-inherit-serialization-"));
-  isolated = createIsolatedConfigRoot("forever-inherit-serialization-home-");
+  workspace = mkdtempSync(join(tmpdir(), "forever-plain-text-serialization-"));
+  isolated = createIsolatedConfigRoot("forever-plain-text-serialization-home-");
   seedWranglerUpdateCheckCache(isolated);
   guardLogPath = join(workspace, "loopback-guard.jsonl");
   writeFileSync(guardLogPath, "", "utf8");
@@ -311,15 +322,15 @@ beforeAll(async () => {
   );
   writeFileSync(join(workspace, "public", ".keep"), "");
 
-  // The same shape the release path generates: the build output plus exactly
-  // the two pinned inherit records.
+  // The same shape the release path generates: a build output plus exactly the
+  // two explicit `plain_text` records, built by the production function.
   const configuration = {
     name: DUMMY_WORKER_NAME,
     main: "index.mjs",
     compatibility_date: "2026-07-30",
     compatibility_flags: ["nodejs_compat"],
     keep_vars: true,
-    unsafe: { bindings: buildPinnedInheritanceBindings(DUMMY_LIVE_VERSION) },
+    unsafe: { bindings: buildExplicitPlainTextBindings(SYNTHETIC_VALUES) },
   };
   const configPath = join(workspace, "wrangler.json");
   writeFileSync(configPath, JSON.stringify(configuration, null, 2));
@@ -408,64 +419,72 @@ describe("containment", () => {
     expect(SYNTHETIC_CLOUDFLARE_API_TOKEN).toBe("dummy-token-not-a-credential");
     expect(DUMMY_ACCOUNT_ID).toBe("00000000000000000000000000000000");
     // The guard log is the only artefact this run writes, and it carries
-    // destination metadata only.
+    // destination metadata only — no credential, no path, and NO BINDING VALUE.
     const raw = readFileSync(guardLogPath, "utf8");
     expect(raw).not.toContain(SYNTHETIC_CLOUDFLARE_API_TOKEN);
     expect(raw).not.toContain("authorization");
     expect(raw).not.toContain("/client/v4");
+    expect(raw.includes(SYNTHETIC_VALUES.SUPABASE_URL)).toBe(false);
+    expect(raw.includes("supabase.test")).toBe(false);
+  });
+
+  it("could not have inherited a release input, because the environment is constructed", () => {
+    // `buildContainedChildEnv` never spreads the parent environment, so no
+    // `FOREVER_RELEASE_*` variable can travel into this child even when one is
+    // exported in the shell running the suite.
+    const built = buildContainedChildEnv({
+      isolated: isolated as IsolatedConfigRoot,
+      parentEnv: {
+        ...Object.fromEntries(RELEASE_VALUE_ENV_KEYS.map((key) => [key, "must-not-travel"])),
+        SystemRoot: process.env.SystemRoot,
+      },
+    });
+    for (const key of RELEASE_VALUE_ENV_KEYS) {
+      expect(key in built, key).toBe(false);
+    }
   });
 });
 
-describe("what Wrangler actually serialized", () => {
+describe("what Wrangler actually serialized for two explicit plain_text bindings", () => {
   it("emitted multipart metadata carrying a bindings array", () => {
     expect(capture.metadata).not.toBeNull();
     expect(Array.isArray(capture.metadata?.bindings)).toBe(true);
   });
 
-  it("forwarded BOTH pinned inherit bindings with version_id intact", () => {
-    const bindings = capture.metadata?.bindings as Record<string, unknown>[];
-    for (const name of PINNED_INHERITANCE_BINDINGS) {
+  it("forwarded EXACTLY TWO plain_text records, by name, with the supplied values", () => {
+    const bindings = serializedBindings();
+    const plainText = bindings.filter(
+      (binding) => binding.type === PLAIN_TEXT_BINDING_TYPE && binding.name !== undefined,
+    );
+    expect(plainText).toHaveLength(EXPLICIT_PLAIN_TEXT_BINDINGS.length);
+    expect(plainText.map((binding) => String(binding.name)).sort()).toEqual(
+      [...EXPLICIT_PLAIN_TEXT_BINDINGS].sort(),
+    );
+    for (const name of EXPLICIT_PLAIN_TEXT_BINDINGS) {
       expect(bindings).toContainEqual({
         name,
-        type: INHERIT_BINDING_TYPE,
-        version_id: DUMMY_LIVE_VERSION,
+        type: PLAIN_TEXT_BINDING_TYPE,
+        text: SYNTHETIC_VALUES[name],
       });
     }
   });
 
-  it("did not strip version_id, and did not replace it with `latest`", () => {
-    const bindings = capture.metadata?.bindings as Record<string, unknown>[];
-    const inherited = bindings.filter((binding) => binding.type === INHERIT_BINDING_TYPE);
-    expect(inherited).toHaveLength(PINNED_INHERITANCE_BINDINGS.length);
-    for (const binding of inherited) {
-      expect(binding.version_id).toBe(DUMMY_LIVE_VERSION);
-      expect(binding.version_id).not.toBe("latest");
-      expect(binding).toHaveProperty("version_id");
+  it("emitted ZERO inherit records, and no `latest` anywhere in the metadata", () => {
+    const bindings = serializedBindings();
+    expect(
+      bindings.filter((binding) => binding.type === REFUSED_INHERIT_BINDING_TYPE),
+    ).toHaveLength(0);
+    for (const binding of bindings) {
+      expect(binding).not.toHaveProperty("version_id");
     }
-  });
-
-  it("emitted exactly two inherit records — no omission, no duplicate, no third", () => {
-    const bindings = capture.metadata?.bindings as Record<string, unknown>[];
-    const names = bindings
-      .filter((binding) => binding.type === INHERIT_BINDING_TYPE)
-      .map((binding) => binding.name);
-    expect([...names].sort()).toEqual([...PINNED_INHERITANCE_BINDINGS].sort());
-    expect(new Set(names).size).toBe(names.length);
+    const serialized = JSON.stringify(capture.metadata);
+    expect(serialized).not.toContain(`"${REFUSED_INHERIT_BINDING_TYPE}"`);
+    expect(serialized).not.toContain(`"${REFUSED_INHERIT_LATEST}"`);
   });
 
   it("carries no duplicate binding name anywhere in the metadata", () => {
-    const bindings = capture.metadata?.bindings as Record<string, unknown>[];
-    const names = bindings.map((binding) => String(binding.name));
+    const names = serializedBindings().map((binding) => String(binding.name));
     expect(new Set(names).size).toBe(names.length);
-  });
-
-  it("includes NO plain-text value on any binding", () => {
-    const bindings = capture.metadata?.bindings as Record<string, unknown>[];
-    for (const binding of bindings) {
-      for (const field of ["text", "value", "json", "content"]) {
-        expect(binding).not.toHaveProperty(field);
-      }
-    }
   });
 
   it("declares no vars block in the serialized metadata", () => {
@@ -474,8 +493,8 @@ describe("what Wrangler actually serialized", () => {
 
   it("still transmits generic keep_bindings as SECONDARY protection", () => {
     // Retained deliberately for the six secrets and the other supported
-    // categories. It is no longer the mechanism the two plain-text bindings
-    // depend on — that is what the inherit records above are for.
+    // categories. It is not the mechanism the two plain-text bindings depend on
+    // — the explicit records above are.
     expect(capture.metadata?.keep_bindings).toEqual([
       "plain_text",
       "json",
@@ -484,16 +503,11 @@ describe("what Wrangler actually serialized", () => {
     ]);
   });
 
-  it("matches the approved specification exactly — names, type and source version", () => {
-    const bindings = capture.metadata?.bindings as Record<string, unknown>[];
-    const approved = buildPinnedInheritanceBindings(DUMMY_LIVE_VERSION);
-    const serialized = bindings
-      .filter((binding) => binding.type === INHERIT_BINDING_TYPE)
-      .map((binding) => ({
-        name: binding.name,
-        type: binding.type,
-        version_id: binding.version_id,
-      }))
+  it("matches the approved specification exactly — names, type and text", () => {
+    const approved = buildExplicitPlainTextBindings(SYNTHETIC_VALUES);
+    const serialized = serializedBindings()
+      .filter((binding) => binding.type === PLAIN_TEXT_BINDING_TYPE)
+      .map((binding) => ({ name: binding.name, type: binding.type, text: binding.text }))
       .sort((a, b) => String(a.name).localeCompare(String(b.name)));
     expect(serialized).toEqual(
       [...approved].sort((a, b) => a.name.localeCompare(b.name)).map((record) => ({ ...record })),

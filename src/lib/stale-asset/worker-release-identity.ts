@@ -91,9 +91,24 @@ export function isWorkerVersionId(value: unknown): value is string {
  * A receipt that cannot answer those cannot distinguish a correct release from
  * the one that produced `3540bc64`. Schema 2 adds the two digests that close
  * that gap, so a future sanitized receipt mechanically correlates all four
- * facts: the expected former live UUID, the normalized upload-specification
- * SHA-256, the immutable release-manifest SHA-256, and the resulting candidate
+ * facts: the expected former live UUID, the upload-specification VERIFICATION
+ * DIGEST, the immutable release-manifest SHA-256, and the resulting candidate
  * UUID.
+ *
+ * THE TWO DIGESTS ARE NOT THE SAME KIND OF THING (PR140 review, F7).
+ *
+ *   - `releaseManifestSha256` is an ordinary, reproducible SHA-256 of a
+ *     value-free file. Anyone holding that file can recompute it;
+ *   - `uploadSpecificationSha256` is a SALTED VERIFICATION DIGEST: SHA-256 over
+ *     a per-release random salt followed by the normalized specification. The
+ *     salt lives only in the upload wrapper's memory and is never written, so
+ *     this value is NOT a content address, NOT reproducible by a later reader,
+ *     and NOT comparable across releases. It exists to bind "verified" to
+ *     "consumed" WITHIN one release, and it is salted because
+ *     `STUDIO_STORAGE_WRITE_PROVIDER` has two possible values — a bare digest of
+ *     a document whose every other byte is knowable would be a two-guess oracle.
+ *     The field name is schema-2 and is deliberately not renamed; the meaning is
+ *     documented here rather than inferred from the name.
  *
  * STILL VALUE-FREE. Two UUIDs and two digests. No binding value, no credential,
  * no account identifier, no raw Wrangler output.
@@ -112,7 +127,13 @@ export const WORKER_VERSION_PROVENANCE_FIELDS_V1 = [
 
 export const WORKER_VERSION_PROVENANCE_FIELDS_V2 = [
   ...WORKER_VERSION_PROVENANCE_FIELDS_V1,
-  /** SHA-256 of the NORMALIZED ephemeral upload specification that was verified. */
+  /**
+   * The SALTED verification digest of the ephemeral upload specification.
+   *
+   * Not a content address and not reproducible later — see the schema note
+   * above. Named `...Sha256` because the schema is fixed; it IS a SHA-256, taken
+   * over a per-release salt plus the normalized document.
+   */
   "uploadSpecificationSha256",
   /** SHA-256 of the immutable local release manifest the candidate was built from. */
   "releaseManifestSha256",

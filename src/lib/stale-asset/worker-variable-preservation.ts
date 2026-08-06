@@ -109,12 +109,16 @@ export const GENERATED_WORKER_CONFIG_PATH = ".output/server/wrangler.json";
 
 /**
  * The EPHEMERAL, UPLOAD-ONLY specification Wrangler is actually handed
- * (FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001).
+ * (FOREVER-STUDIO-EXPLICIT-BINDINGS-FIX-002).
  *
- * It is the immutable generated configuration plus exactly the two pinned
- * `inherit` bindings for SUPABASE_URL and STUDIO_STORAGE_WRITE_PROVIDER. It is
- * generated per release, verified, hashed, consumed, and never committed —
+ * It is the immutable generated configuration plus exactly two EXPLICIT
+ * `plain_text` bindings for SUPABASE_URL and STUDIO_STORAGE_WRITE_PROVIDER. It
+ * is generated per release, verified, hashed, consumed, and never committed —
  * `.output` is ignored in its entirety.
+ *
+ * IT CARRIES VALUES, so it is created immediately before the spawn and deleted
+ * whether the upload succeeds or fails. See
+ * `src/lib/stale-asset/ephemeral-upload-specification.ts`.
  *
  * It lives BESIDE the generated configuration deliberately: `main` and
  * `assets.directory` are relative and Wrangler resolves them against the
@@ -122,7 +126,9 @@ export const GENERATED_WORKER_CONFIG_PATH = ".output/server/wrangler.json";
  * else would reference a different bundle and a different asset set while
  * looking correct.
  *
- * See `src/lib/stale-asset/pinned-binding-inheritance.ts`.
+ * See `src/lib/stale-asset/explicit-plain-text-bindings.ts`. The superseded
+ * pinned-`inherit` mechanism was removed after the production API rejected it
+ * with HTTP 400 [code: 10057].
  */
 export const UPLOAD_SPECIFICATION_PATH = ".output/server/wrangler.upload.json";
 
@@ -158,15 +164,17 @@ export const SUPPORTED_WRANGLER_VERSION = "4.118.0";
  * token-by-token and spawned with `shell: false`. Nothing is concatenated,
  * interpolated or word-split, so there is no text for a shell to reinterpret.
  *
- * PINNED INHERITANCE (FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001).
- * `--config` now names the verified EPHEMERAL upload specification rather than
- * the immutable generated configuration. That file is the generated
- * configuration plus the two explicit `inherit` bindings pinned to the verified
- * 100% live version; the generated configuration itself is never modified.
+ * EXPLICIT PLAIN-TEXT BINDINGS (FOREVER-STUDIO-EXPLICIT-BINDINGS-FIX-002).
+ * `--config` names the verified EPHEMERAL upload specification rather than the
+ * immutable generated configuration. That file is the generated configuration
+ * plus two EXPLICIT `plain_text` bindings carrying the release-supplied values;
+ * the generated configuration itself is never modified.
+ *
  * `--keep-vars` is retained as documented secondary protection for the six
- * secrets and the other supported categories — it is NO LONGER the mechanism
- * the two plain-text variables depend on, because it was passed correctly on
- * candidate 3540bc64 and preserved nothing.
+ * secrets and the other supported categories — it is NOT the mechanism the two
+ * plain-text variables depend on, because it was passed correctly on candidate
+ * 3540bc64 and preserved nothing. Declaring the two bindings explicitly removes
+ * every dependency on what Cloudflare considers the latest version.
  */
 export const PRODUCTION_VERSION_UPLOAD_ARGV = [
   "versions",
@@ -408,15 +416,16 @@ export function verifyUploadSpec(spec: unknown): {
       refuse(
         "wrong_config_path",
         `\`--config\` names the IMMUTABLE generated configuration ${GENERATED_WORKER_CONFIG_PATH}. ` +
-          "That file carries no pinned inheritance, so the upload would fall back to Cloudflare's " +
-          `implicit \`latest\` source. It must name ${UPLOAD_SPECIFICATION_PATH}.`,
+          "That file declares neither deployment-managed plain-text binding, so the upload would " +
+          `produce the 10-binding shape both rejected candidates had. It must name ` +
+          `${UPLOAD_SPECIFICATION_PATH}.`,
       );
     } else if (argv[index + 1] !== UPLOAD_SPECIFICATION_PATH) {
       refuse(
         "wrong_config_path",
         `\`--config\` must name exactly ${UPLOAD_SPECIFICATION_PATH} — the verified ephemeral ` +
-          "upload specification carrying the two pinned inherit bindings, not the reviewed JSONC " +
-          "source and not the immutable generated configuration.",
+          "upload specification carrying the two explicit plain-text bindings, not the reviewed " +
+          "JSONC source and not the immutable generated configuration.",
       );
     }
   }
@@ -612,9 +621,10 @@ export function verifyBindingPreservation(
             : "plain_text_binding_missing",
         binding: name,
         detail:
-          `${name} is absent from the candidate. Wrangler deletes deployment-managed vars ` +
-          `unless the upload passes ${KEEP_VARS_FLAG} (or the config sets ` +
-          `${KEEP_VARS_CONFIG_KEY}: true). Surviving secrets do not prove vars survived.`,
+          `${name} is absent from the candidate. It is declared EXPLICITLY as a plain_text ` +
+          `binding in the ephemeral upload specification; ${KEEP_VARS_FLAG} (and ` +
+          `${KEEP_VARS_CONFIG_KEY}: true) remain secondary protection for the secrets and were ` +
+          `never sufficient for this binding. Surviving secrets do not prove vars survived.`,
       });
     }
   }

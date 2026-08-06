@@ -37,11 +37,14 @@ import {
   buildUploadSpecification,
   normalizeUploadSpecification,
   verifyUploadSpecification,
-} from "./pinned-binding-inheritance";
+} from "./explicit-plain-text-bindings";
 import {
+  AUTHORIZE_UPLOAD_FLAG,
   IMMUTABLE_BUILD_OUTPUT_CHANGED_STOP,
+  UPLOAD_NOT_AUTHORIZED_STOP,
   UPLOAD_SPECIFICATION_DIGEST_MISMATCH_STOP,
   UPLOAD_SPECIFICATION_MISSING_STOP,
+  isUploadAuthorized,
   verifyThenLaunchUpload,
 } from "./release-upload-orchestration";
 import {
@@ -61,6 +64,16 @@ const DUMMY_GENERATED_CONFIG: Record<string, unknown> = {
   keep_vars: true,
   assets: { binding: "ASSETS", directory: "./public" },
 };
+
+/**
+ * SYNTHETIC release values. FOREVER-STUDIO-EXPLICIT-BINDINGS-FIX-002 replaced
+ * pinned inheritance with explicit `plain_text` bindings, so the fixture now
+ * carries values — synthetic ones, on a `.test` host that cannot resolve.
+ */
+const DUMMY_VALUES = {
+  SUPABASE_URL: "https://orchestration-fixture.supabase.test",
+  STUDIO_STORAGE_WRITE_PROVIDER: "supabase",
+} as const;
 
 /** A sanitized twelve-name live snapshot. Names only; no value exists here. */
 const DUMMY_LIVE_BINDING_NAMES = [
@@ -106,14 +119,12 @@ beforeEach(() => {
   // ---- the applicable offline PREUPLOAD verification, in full ---------------
   const specification = buildUploadSpecification({
     generatedConfig: DUMMY_GENERATED_CONFIG,
-    expectedLiveVersion: DUMMY_LIVE_VERSION,
+    values: DUMMY_VALUES,
   });
   const preupload = verifyUploadSpecification({
     specification,
     generatedConfig: DUMMY_GENERATED_CONFIG,
-    expectedLiveVersion: DUMMY_LIVE_VERSION,
-    liveSnapshotVersionId: DUMMY_LIVE_VERSION,
-    liveBindingNames: DUMMY_LIVE_BINDING_NAMES,
+    values: DUMMY_VALUES,
   });
   if (!preupload.ok || preupload.normalized === null) {
     throw new Error(
@@ -129,36 +140,43 @@ afterEach(() => {
   if (workspace) rmSync(workspace, { recursive: true, force: true });
 });
 
-const decide = () =>
+const decide = (
+  overrides: { readonly authorized?: boolean; readonly launch?: () => unknown } = {},
+) =>
   verifyThenLaunchUpload({
+    authorized: overrides.authorized ?? true,
     specificationPath,
     verifiedDigest,
     generatedConfigPath,
     generatedBytesBefore,
-    launch: launcherSpy,
+    launch: overrides.launch ?? launcherSpy,
   });
 
 describe("the dummy fixture really passed the offline PREUPLOAD contract", () => {
-  it("carries exactly the twelve-name source and the two pinned inherit records", () => {
+  it("carries exactly the twelve-name source and the two explicit plain_text records", () => {
     expect(DUMMY_LIVE_BINDING_NAMES).toHaveLength(EXPECTED_PRODUCTION_BINDING_COUNT);
     const specification = JSON.parse(readFileSync(specificationPath, "utf8")) as {
       unsafe: { bindings: { name: string; type: string; version_id: string }[] };
     };
     expect(specification.unsafe.bindings).toHaveLength(2);
     for (const binding of specification.unsafe.bindings) {
-      expect(binding.type).toBe("inherit");
-      expect(binding.version_id).toBe(DUMMY_LIVE_VERSION);
+      expect(binding.type).toBe("plain_text");
+      // No inheritance survives anywhere in the document: the production API
+      // rejects a pinned version_id with HTTP 400 [code: 10057].
+      expect(binding.version_id).toBeUndefined();
     }
+    expect(readFileSync(specificationPath, "utf8")).not.toContain("inherit");
   });
 });
 
-describe("PINNED_SPEC_CONSUMED: the verified bytes are the uploaded bytes", () => {
+describe("VERIFIED_SPEC_CONSUMED: the verified bytes are the uploaded bytes", () => {
   it("LAUNCHES when the specification is untouched — the positive control", () => {
     const decision = decide();
 
     expect(decision.stop).toBeNull();
     expect(decision.launched).toBe(true);
     expect(decision.consumedDigest).toBe(verifiedDigest);
+    expect(decision.launchAttempts).toBe(1);
     expect(launches).toBe(1);
   });
 
@@ -167,7 +185,7 @@ describe("PINNED_SPEC_CONSUMED: the verified bytes are the uploaded bytes", () =
     // final spawn decision — the exact window this guard exists to close.
     const tampered = buildUploadSpecification({
       generatedConfig: DUMMY_GENERATED_CONFIG,
-      expectedLiveVersion: "9f8e7d6c-5b4a-4392-8817-06f5e4d3c2b1",
+      values: { ...DUMMY_VALUES, STUDIO_STORAGE_WRITE_PROVIDER: "r2" },
     });
     writeFileSync(specificationPath, normalizeUploadSpecification(tampered), "utf8");
 
@@ -230,6 +248,101 @@ describe("PINNED_SPEC_CONSUMED: the verified bytes are the uploaded bytes", () =
     // never called, a refusal cannot reach Wrangler, Cloudflare or a socket.
     rmSync(specificationPath);
     expect(decide().launched).toBe(false);
+    expect(launches).toBe(0);
+  });
+});
+
+/**
+ * PR140 independent review, F5 — the four orchestration facts that used to be
+ * asserted by locating substrings in the wrapper's source and comparing their
+ * offsets. Each one is now measured from a real run of the decision with an
+ * injected launcher: the named STOP that came back, and how many times the
+ * launcher was actually invoked.
+ */
+describe("UPLOAD_AUTHORIZATION: authorization is a gate, not a comment", () => {
+  it("recognises ONLY the exact flag token", () => {
+    expect(AUTHORIZE_UPLOAD_FLAG).toBe("--authorize-upload");
+    expect(isUploadAuthorized(["node", "upload.mjs", AUTHORIZE_UPLOAD_FLAG])).toBe(true);
+    for (const lookalike of [
+      "--authorize-upload=false",
+      "--authorize-uploads",
+      "--no-authorize-upload",
+      " --authorize-upload",
+      "authorize-upload",
+    ]) {
+      expect(isUploadAuthorized(["node", "upload.mjs", lookalike]), lookalike).toBe(false);
+    }
+    expect(isUploadAuthorized([])).toBe(false);
+  });
+
+  it("ZERO launcher calls without authorization, even when every other gate holds", () => {
+    const decision = decide({ authorized: false });
+
+    expect(decision.stop).toBe(UPLOAD_NOT_AUTHORIZED_STOP);
+    expect(decision.launched).toBe(false);
+    expect(decision.launchAttempts).toBe(0);
+    expect(decision.result).toBeNull();
+    expect(launches).toBe(0);
+  });
+
+  it("EXACTLY ONE launcher call when authorized and every gate holds", () => {
+    const decision = decide({ authorized: true });
+
+    expect(decision.launched).toBe(true);
+    expect(decision.launchAttempts).toBe(1);
+    expect(launches).toBe(1);
+  });
+
+  it("does NOT retry a launcher that reports a non-zero exit", () => {
+    const decision = decide({
+      launch: () => {
+        launches += 1;
+        return { status: 1 };
+      },
+    });
+
+    // The failure is RETURNED, not interpreted. One attempt, no backoff, no loop.
+    expect(decision.launched).toBe(true);
+    expect(decision.launchAttempts).toBe(1);
+    expect(decision.result).toEqual({ status: 1 });
+    expect(launches).toBe(1);
+  });
+
+  it("does NOT retry a launcher that THROWS — the error propagates after one attempt", () => {
+    expect(() =>
+      decide({
+        launch: () => {
+          launches += 1;
+          throw new Error("wrangler could not be executed");
+        },
+      }),
+    ).toThrow("wrangler could not be executed");
+
+    expect(launches).toBe(1);
+  });
+
+  it("ZERO launcher calls when the specification changed after verification", () => {
+    const tampered = buildUploadSpecification({
+      generatedConfig: DUMMY_GENERATED_CONFIG,
+      values: { ...DUMMY_VALUES, STUDIO_STORAGE_WRITE_PROVIDER: "r2" },
+    });
+    writeFileSync(specificationPath, normalizeUploadSpecification(tampered), "utf8");
+
+    const decision = decide({ authorized: true });
+
+    expect(decision.stop).toBe(UPLOAD_SPECIFICATION_DIGEST_MISMATCH_STOP);
+    expect(decision.launchAttempts).toBe(0);
+    expect(launches).toBe(0);
+  });
+
+  it("refuses authorization FIRST — an unauthorized run reads nothing at all", () => {
+    // The specification is removed, so an authorized run would STOP on the
+    // missing file. An unauthorized run must report the authorization refusal
+    // instead, which is only possible if the flag is checked before any read.
+    rmSync(specificationPath);
+
+    expect(decide({ authorized: false }).stop).toBe(UPLOAD_NOT_AUTHORIZED_STOP);
+    expect(decide({ authorized: true }).stop).toBe(UPLOAD_SPECIFICATION_MISSING_STOP);
     expect(launches).toBe(0);
   });
 });

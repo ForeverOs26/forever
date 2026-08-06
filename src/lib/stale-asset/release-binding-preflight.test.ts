@@ -24,18 +24,21 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
-  PREUPLOAD_PINNED_INHERITANCE_MARKER,
-  SUPERSEDED_PREUPLOAD_MARKER,
+  PREUPLOAD_EXPLICIT_BINDINGS_MARKER,
+  RELEASE_VALUE_ENV_VARS,
+  SUPERSEDED_PREUPLOAD_MARKERS,
   buildUploadSpecification,
-  normalizeUploadSpecification,
-} from "./pinned-binding-inheritance";
+  projectFinalBindingSet,
+} from "./explicit-plain-text-bindings";
+import { RELEASE_VALUE_ENV_KEYS } from "./release-child-environment";
+import { UPLOAD_SPECIFICATION_PATH } from "./worker-variable-preservation";
 
 const SCRIPT = "scripts/release/verify-binding-preservation.mjs";
 const WRAPPER = "scripts/release/upload-worker-version.mjs";
@@ -46,6 +49,21 @@ const PROVENANCE = `${FIXTURES}/worker-version-provenance.json`;
 const LIVE_ID = "11111111-1111-4111-8111-111111111111";
 const CANDIDATE_ID = "22222222-2222-4222-8222-222222222222";
 
+/**
+ * Two live snapshots that are SCHEMA-VALID and reach the live-snapshot
+ * cross-check instead of failing earlier (PR140 review, F1).
+ *
+ * Both carry a complete, correct twelve-entry projection derived from the good
+ * live fixture, so every other rule in `verifyFinalBindingProjection` is
+ * satisfied and only the live cross-check can refuse them. A shortened
+ * projection would have been refused by the count rule as well, and mutation
+ * control 33 would have survived exactly as it did before.
+ */
+const LIVE_ELEVEN = `${FIXTURES}/live-bindings-eleven.json`;
+const LIVE_ELEVEN_ID = "44444444-4444-4444-8444-444444444444";
+const LIVE_MISSING_PLAIN_TEXT = `${FIXTURES}/live-bindings-missing-plain-text.json`;
+const LIVE_MISSING_PLAIN_TEXT_ID = "55555555-5555-4555-8555-555555555555";
+
 function run(script: string, ...args: string[]) {
   return spawnSync(process.execPath, [script, ...args], {
     cwd: process.cwd(),
@@ -55,26 +73,54 @@ function run(script: string, ...args: string[]) {
 }
 
 /**
- * Writes a valid ephemeral upload specification for a PREUPLOAD run.
- *
- * FOREVER-PINNED-BINDING-INHERITANCE-IMPLEMENTATION-001: PREUPLOAD now reads
- * the specification the upload will consume, so the tests must produce one the
- * same way the wrapper does — from the real immutable build output plus the two
- * pinned inherit records. Building it any other way would test a fiction.
+ * SYNTHETIC values. Never a production value, and never written anywhere the
+ * suite asserts against — the origin is a `.test` host that cannot resolve.
  */
-function writeUploadSpecification(expectedLiveVersion: string): string {
+const SYNTHETIC_SUPABASE_URL = "https://synthetic-project.supabase.test";
+const SYNTHETIC_WRITE_PROVIDER = "r2";
+const SYNTHETIC_DIGEST = "a".repeat(64);
+
+/**
+ * Writes the VALUE-FREE binding projection a PREUPLOAD run consumes.
+ *
+ * FOREVER-STUDIO-EXPLICIT-BINDINGS-FIX-002: PREUPLOAD no longer reads the
+ * value-carrying specification — it never sees a value at all. It reasons about
+ * the projection the wrapper derives, so the tests must derive one the same way,
+ * from the real immutable build output plus the two explicit records. Building
+ * it any other way would test a fiction.
+ */
+function writeBindingProjection(
+  overrides: Partial<Record<string, unknown>> = {},
+  liveBindingNames?: readonly string[],
+): string {
   const generatedConfig = JSON.parse(read(".output/server/wrangler.json")) as Record<
     string,
     unknown
   >;
-  const path = join(mkdtempSync(join(tmpdir(), "forever-preflight-spec-")), "wrangler.upload.json");
-  writeFileSync(
-    path,
-    normalizeUploadSpecification(
-      buildUploadSpecification({ generatedConfig, expectedLiveVersion }),
-    ),
-    "utf8",
+  const names =
+    liveBindingNames ??
+    (JSON.parse(read(LIVE)) as { bindings: { name: string }[] }).bindings.map(
+      (binding) => binding.name,
+    );
+  const projection = {
+    ...projectFinalBindingSet({
+      generatedConfig,
+      specification: buildUploadSpecification({
+        generatedConfig,
+        values: {
+          SUPABASE_URL: SYNTHETIC_SUPABASE_URL,
+          STUDIO_STORAGE_WRITE_PROVIDER: SYNTHETIC_WRITE_PROVIDER,
+        },
+      }),
+      liveBindingNames: names,
+    }),
+    ...overrides,
+  };
+  const path = join(
+    mkdtempSync(join(tmpdir(), "forever-preflight-projection-")),
+    "upload-binding-projection.json",
   );
+  writeFileSync(path, `${JSON.stringify(projection, null, 2)}\n`, "utf8");
   return path;
 }
 
@@ -82,13 +128,15 @@ const runPreflightUnpinned = (...args: string[]) => run(SCRIPT, ...args);
 const runPreflight = (...args: string[]) => {
   if (args.includes("--preupload")) {
     const index = args.indexOf("--expected-live-version");
-    const pinned = index === -1 ? LIVE_ID : args[index + 1];
     return run(
       SCRIPT,
       ...args,
-      ...(args.includes("--upload-specification")
+      ...(args.includes("--upload-binding-projection")
         ? []
-        : ["--upload-specification", writeUploadSpecification(pinned)]),
+        : ["--upload-binding-projection", writeBindingProjection()]),
+      ...(args.includes("--upload-specification-digest")
+        ? []
+        : ["--upload-specification-digest", SYNTHETIC_DIGEST]),
       ...(index !== -1 ? [] : ["--expected-live-version", LIVE_ID]),
     );
   }
@@ -610,13 +658,18 @@ describe("the upload wrapper refuses to spawn Wrangler unless every gate held", 
     expect(source).toContain("--authorize-upload");
   });
 
-  it("the pre-upload preflight mode PASSES on a valid live snapshot and pinned specification", () => {
+  it("the pre-upload preflight mode PASSES on a valid live snapshot and explicit projection", () => {
     const result = runPreflight("--preupload", "--live", LIVE);
     expect(result.status).toBe(0);
-    expect(output(result)).toContain(PREUPLOAD_PINNED_INHERITANCE_MARKER);
-    // The superseded marker verified INTENT and passed an upload that could not
-    // have preserved the two variables. It is never emitted again.
-    expect(output(result)).not.toContain(SUPERSEDED_PREUPLOAD_MARKER);
+    expect(output(result)).toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
+    expect(output(result)).toContain("inherit records    : 0");
+    expect(output(result)).toContain("projected bindings : 12");
+    // Both superseded markers described contracts that did not hold — one
+    // verified INTENT, the other verified a mechanism the API rejects with
+    // HTTP 400. Neither is ever emitted again.
+    for (const superseded of SUPERSEDED_PREUPLOAD_MARKERS) {
+      expect(output(result)).not.toContain(superseded);
+    }
   });
 
   it("the pre-upload preflight STOPS on an invalid live snapshot", () => {
@@ -626,10 +679,10 @@ describe("the upload wrapper refuses to spawn Wrangler unless every gate held", 
       `${FIXTURES}/snapshot-unknown-top-level-key.json`,
     );
     expect(result.status).toBe(1);
-    expect(output(result)).not.toContain(PREUPLOAD_PINNED_INHERITANCE_MARKER);
+    expect(output(result)).not.toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
   });
 
-  it("PREUPLOAD_PINNED_STOPS: refuses when the specification is missing entirely", () => {
+  it("PREUPLOAD_EXPLICIT_STOPS: refuses when the projection is missing entirely", () => {
     // Generic keep_vars as the only protection is exactly candidate 3540bc64.
     const result = runPreflightUnpinned(
       "--preupload",
@@ -637,34 +690,134 @@ describe("the upload wrapper refuses to spawn Wrangler unless every gate held", 
       LIVE,
       "--expected-live-version",
       LIVE_ID,
-      "--upload-specification",
+      "--upload-binding-projection",
       `${FIXTURES}/does-not-exist.json`,
+      "--upload-specification-digest",
+      SYNTHETIC_DIGEST,
     );
     expect(result.status).toBe(1);
     expect(output(result)).toContain("specification_malformed");
-    expect(output(result)).not.toContain(PREUPLOAD_PINNED_INHERITANCE_MARKER);
+    expect(output(result)).not.toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
   });
 
-  it("PREUPLOAD_PINNED_STOPS: refuses a specification pinned to a different version", () => {
-    const result = runPreflightUnpinned(
+  it("PREUPLOAD_EXPLICIT_STOPS: refuses a projection carrying any inherit record", () => {
+    const result = runPreflight(
       "--preupload",
       "--live",
       LIVE,
-      "--expected-live-version",
-      LIVE_ID,
-      "--upload-specification",
-      writeUploadSpecification(CANDIDATE_ID),
+      "--upload-binding-projection",
+      writeBindingProjection({ inheritRecordCount: 1 }),
     );
     expect(result.status).toBe(1);
-    expect(output(result)).toContain("inherit_record_version_mismatch");
-    expect(output(result)).not.toContain(PREUPLOAD_PINNED_INHERITANCE_MARKER);
+    expect(output(result)).toContain("inherit_record_present");
+    expect(output(result)).toContain("10057");
+    expect(output(result)).not.toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
   });
 
-  it("PREUPLOAD_PINNED_RECORDS: a passing run records the specification digest", () => {
+  it("PREUPLOAD_EXPLICIT_STOPS: refuses a projection that lost a plain-text binding", () => {
+    const projection = writeBindingProjection();
+    const parsed = JSON.parse(readFileSync(projection, "utf8")) as {
+      bindings: { name: string }[];
+    };
+    const shortened = writeBindingProjection({
+      bindings: parsed.bindings.filter((binding) => binding.name !== "SUPABASE_URL"),
+    });
+    const result = runPreflight(
+      "--preupload",
+      "--live",
+      LIVE,
+      "--upload-binding-projection",
+      shortened,
+    );
+    expect(result.status).toBe(1);
+    expect(output(result)).toContain("SUPABASE_URL");
+    expect(output(result)).toContain("final_binding_count_wrong");
+    expect(output(result)).not.toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
+  });
+
+  /**
+   * MUTATION CONTROL 33, reached through the EXECUTED preflight (PR140 review,
+   * F1).
+   *
+   * The contract-level proof lives in `explicit-plain-text-bindings.test.ts`.
+   * This is the same gate reached the way a release reaches it: a committed
+   * snapshot that satisfies the closed schema, an expected-live UUID that
+   * matches it, and a complete, correct projection — so the ONLY thing wrong is
+   * the live Worker the release proposes to reproduce.
+   */
+  it("PREUPLOAD_LIVE_SNAPSHOT: refuses a schema-valid live snapshot with fewer than twelve", () => {
+    const result = runPreflight(
+      "--preupload",
+      "--live",
+      LIVE_ELEVEN,
+      "--expected-live-version",
+      LIVE_ELEVEN_ID,
+      // Derived from the GOOD live fixture: a complete, correct twelve.
+      "--upload-binding-projection",
+      writeBindingProjection(),
+    );
+    const text = output(result);
+
+    expect(result.status).toBe(1);
+    expect(text).toContain("live_snapshot_binding_count_wrong");
+    expect(text).toContain("live bindings      : 11");
+    expect(text).toContain("explicit bindings  : REFUSED");
+    expect(text).not.toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
+    // Nothing else fired: the projection itself is correct.
+    expect(text).not.toContain("final_binding_count_wrong");
+    expect(text).not.toContain("preserved_binding_missing");
+  });
+
+  it("PREUPLOAD_LIVE_SNAPSHOT: refuses a twelve-binding live snapshot missing a plain-text name", () => {
+    const result = runPreflight(
+      "--preupload",
+      "--live",
+      LIVE_MISSING_PLAIN_TEXT,
+      "--expected-live-version",
+      LIVE_MISSING_PLAIN_TEXT_ID,
+      "--upload-binding-projection",
+      writeBindingProjection(),
+    );
+    const text = output(result);
+
+    expect(result.status).toBe(1);
+    expect(text).toContain("live_snapshot_plain_text_missing");
+    expect(text).toContain("SUPABASE_URL");
+    // The COUNT rule is satisfied — twelve live names — so this is the second
+    // live-snapshot rule refusing on its own.
+    expect(text).toContain("live bindings      : 12");
+    expect(text).not.toContain("live_snapshot_binding_count_wrong");
+    expect(text).not.toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
+  });
+
+  it("PREUPLOAD_EXPLICIT_STOPS: refuses a missing or malformed specification digest", () => {
+    for (const digest of [undefined, "not-a-digest"]) {
+      const result = runPreflightUnpinned(
+        "--preupload",
+        "--live",
+        LIVE,
+        "--expected-live-version",
+        LIVE_ID,
+        "--upload-binding-projection",
+        writeBindingProjection(),
+        ...(digest === undefined ? [] : ["--upload-specification-digest", digest]),
+      );
+      expect(result.status).toBe(1);
+      expect(output(result)).not.toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
+    }
+  });
+
+  it("PREUPLOAD_EXPLICIT_RECORDS: a passing run records the specification digest", () => {
     const result = runPreflight("--preupload", "--live", LIVE);
     // The upload wrapper re-hashes the file immediately before spawning, so the
     // digest is what binds "verified" to "consumed".
-    expect(output(result)).toMatch(/upload spec sha256 : [0-9a-f]{64}/);
+    expect(output(result)).toMatch(/upload spec digest : [0-9a-f]{64}/);
+  });
+
+  it("PREUPLOAD_VALUE_FREE: the preflight never prints a binding value", () => {
+    const result = runPreflight("--preupload", "--live", LIVE);
+    expect(output(result)).not.toContain(SYNTHETIC_SUPABASE_URL);
+    expect(output(result)).not.toContain("supabase.test");
   });
 
   it("the version gate reports the supported version and never uses a shell", () => {
@@ -674,9 +827,234 @@ describe("the upload wrapper refuses to spawn Wrangler unless every gate held", 
   }, 120_000);
 });
 
+/**
+ * FOREVER-PR140-CORRECTIONS-002 — the REAL wrapper, end to end, offline.
+ *
+ * Everything below runs `scripts/release/upload-worker-version.mjs` itself, with
+ * synthetic release inputs and WITHOUT `--authorize-upload`, and measures what
+ * the run actually did rather than what its source says.
+ *
+ * HOW A CHILD'S ENVIRONMENT IS OBSERVED. A tiny reporter is preloaded through
+ * `NODE_OPTIONS=--require`, which Node applies to the wrapper AND to every Node
+ * child that inherits its environment. On load it appends ONE line naming the
+ * script and stating, as booleans, whether the release-input keys are present
+ * and whether any environment value equals the sentinel. The sentinel itself
+ * never crosses back, so no assertion here can print it.
+ *
+ * The wrapper's own record is the NON-VACUITY control: the wrapper legitimately
+ * holds both inputs, so the reporter must see them there. A reporter that saw
+ * nothing anywhere would report "absent" for a child it never observed.
+ */
+describe("the real upload wrapper, offline, with synthetic release inputs", () => {
+  /** Synthetic. A reserved `.test` host that cannot resolve. Never printed. */
+  const SENTINEL_SUPABASE_URL = "https://wrapper-sentinel.supabase.test";
+  const SENTINEL_WRITE_PROVIDER = "r2";
+
+  const REPORTER_SOURCE = `
+const fs = require("node:fs");
+const path = require("node:path");
+const log = process.env.FOREVER_CHILD_ENV_REPORT_LOG;
+if (log) {
+  const releaseKeys = ${JSON.stringify(RELEASE_VALUE_ENV_KEYS)};
+  const sentinel = ${JSON.stringify(SENTINEL_SUPABASE_URL)};
+  fs.appendFileSync(
+    log,
+    JSON.stringify({
+      script: process.argv[1] ? path.basename(process.argv[1]) : "(none)",
+      releaseKeysPresent: releaseKeys.filter((key) => key in process.env),
+      sentinelValueSeen: Object.values(process.env).some((value) => value === sentinel),
+    }) + "\\n",
+  );
+}
+`;
+
+  interface ChildRecord {
+    readonly script: string;
+    readonly releaseKeysPresent: string[];
+    readonly sentinelValueSeen: boolean;
+  }
+
+  interface WrapperRun {
+    readonly status: number | null;
+    readonly text: string;
+    readonly records: ChildRecord[];
+    readonly workDirectoriesLeftBehind: string[];
+  }
+
+  const releaseWorkDirectories = () =>
+    readdirSync(tmpdir()).filter(
+      (entry) =>
+        entry.startsWith("forever-release-work-") || entry.startsWith("forever-wrangler-output-"),
+    );
+
+  /** Runs the wrapper with the reporter installed and collects everything. */
+  function runWrapperOffline(
+    extraArgs: readonly string[] = [],
+    live: { readonly snapshot: string; readonly versionId: string } = {
+      snapshot: LIVE,
+      versionId: LIVE_ID,
+    },
+  ): WrapperRun {
+    const scratch = mkdtempSync(join(tmpdir(), "forever-wrapper-observed-"));
+    const reporter = join(scratch, "report-child-environment.cjs");
+    const logPath = join(scratch, "child-environments.jsonl");
+    writeFileSync(reporter, REPORTER_SOURCE, "utf8");
+    writeFileSync(logPath, "", "utf8");
+
+    const before = new Set(releaseWorkDirectories());
+    try {
+      const run = spawnSync(
+        process.execPath,
+        [WRAPPER, "--live", live.snapshot, "--expected-live-version", live.versionId, ...extraArgs],
+        {
+          cwd: process.cwd(),
+          encoding: "utf8",
+          shell: false,
+          env: {
+            ...process.env,
+            FORCE_COLOR: "0",
+            NO_COLOR: "1",
+            // Forward slashes: Node accepts them on every platform, and they
+            // avoid any question of how NODE_OPTIONS treats a backslash.
+            NODE_OPTIONS: `--require ${reporter.replace(/\\/g, "/")}`,
+            FOREVER_CHILD_ENV_REPORT_LOG: logPath,
+            [RELEASE_VALUE_ENV_VARS.SUPABASE_URL]: SENTINEL_SUPABASE_URL,
+            [RELEASE_VALUE_ENV_VARS.STUDIO_STORAGE_WRITE_PROVIDER]: SENTINEL_WRITE_PROVIDER,
+          },
+        },
+      );
+      const records = readFileSync(logPath, "utf8")
+        .split(/\r?\n/)
+        .filter((line) => line.trim().length > 0)
+        .map((line) => JSON.parse(line) as ChildRecord);
+      return {
+        status: run.status,
+        text: `${run.stdout ?? ""}${run.stderr ?? ""}`,
+        records,
+        workDirectoriesLeftBehind: releaseWorkDirectories().filter((entry) => !before.has(entry)),
+      };
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  }
+
+  const recordFor = (run: WrapperRun, script: string) =>
+    run.records.find((record) => record.script === script);
+
+  /** ONE authorization-free run, measured many ways. Spawning is expensive. */
+  let dryRun: WrapperRun;
+  beforeAll(() => {
+    dryRun = runWrapperOffline();
+  }, 240_000);
+
+  it("completes the DRY RUN with every gate held", () => {
+    expect(dryRun.text, dryRun.text).toContain("DRY RUN");
+    expect(dryRun.text).toContain(PREUPLOAD_EXPLICIT_BINDINGS_MARKER);
+    expect(dryRun.status).toBe(0);
+  });
+
+  it("REPORTER_NOT_VACUOUS: the wrapper's own process shows both release inputs", () => {
+    const wrapper = recordFor(dryRun, basename(WRAPPER));
+
+    expect(wrapper, "the reporter never observed the wrapper process").toBeDefined();
+    // The wrapper is the one process permitted to hold them. If the reporter
+    // could not see them HERE, its silence about the child would prove nothing.
+    expect([...(wrapper?.releaseKeysPresent ?? [])].sort()).toEqual(
+      [...RELEASE_VALUE_ENV_KEYS].sort(),
+    );
+    expect(wrapper?.sentinelValueSeen).toBe(true);
+  });
+
+  it("PREUPLOAD_CHILD_STRIPPED: the preflight child receives NEITHER release input", () => {
+    const preflight = recordFor(dryRun, "verify-binding-preservation.mjs");
+
+    expect(preflight, "the preflight child never ran").toBeDefined();
+    expect(preflight?.releaseKeysPresent).toEqual([]);
+    // Nor the value under some other name.
+    expect(preflight?.sentinelValueSeen).toBe(false);
+  });
+
+  it("NO_LAUNCHER_WITHOUT_AUTHORIZATION: no Wrangler upload child is started", () => {
+    // The upload spawn inherits the wrapper's environment, so a Wrangler child
+    // started by it would carry the reporter and appear in this log — the
+    // preflight record above proves inherited children ARE observed. The version
+    // probe deliberately runs under a constructed environment and is therefore
+    // outside this measurement; it performs no upload.
+    expect(dryRun.records.map((record) => record.script)).not.toContain("wrangler.js");
+    expect(dryRun.text).toContain("this program does not authorize one");
+  });
+
+  it("writes NO value-carrying file and leaves NO temporary directory behind", () => {
+    expect(existsSync(resolve(process.cwd(), UPLOAD_SPECIFICATION_PATH))).toBe(false);
+    expect(dryRun.workDirectoriesLeftBehind).toEqual([]);
+  });
+
+  it("echoes NEITHER value, in stdout or stderr", () => {
+    expect(dryRun.text.includes(SENTINEL_SUPABASE_URL)).toBe(false);
+    expect(dryRun.text.includes("supabase.test")).toBe(false);
+    // The variable NAMES are printed — that is how an operator knows what to
+    // set — and the values are not.
+    for (const key of RELEASE_VALUE_ENV_KEYS) expect(dryRun.text).toContain(key);
+  });
+
+  /**
+   * FOREVER-PR140-FINAL-REVIEW-003 — the release-owned temporary directory is
+   * released on a STOP, measured where the measurement is not vacuous.
+   *
+   * The dry-run and pre-existing-specification cases above both assert that no
+   * `forever-release-work-*` directory survives, and NEITHER of them can fail:
+   * the pre-existing-specification STOP happens before `mkdtempSync` is ever
+   * reached, so there is no directory to leave behind. A preflight refusal is
+   * the one path an UNAUTHORIZED run can take that reaches `stop()` with a
+   * directory already created — the wrapper makes it to hold the value-free
+   * projection it hands the preflight child.
+   */
+  it("RELEASE_WORK_DIRECTORY_RELEASED: a STOP after the work directory exists still cleans it", () => {
+    const run = runWrapperOffline([], {
+      snapshot: LIVE_ELEVEN,
+      versionId: LIVE_ELEVEN_ID,
+    });
+
+    // The refusal came from the preflight, which only runs once the work
+    // directory holds the projection — so the cleanup below is a real one.
+    expect(run.status).toBe(1);
+    expect(run.text).toContain("live_snapshot_binding_count_wrong");
+    expect(run.text).toContain("the binding preflight did not produce PASS");
+    expect(run.text).toContain("Wrangler was NOT spawned");
+
+    expect(run.workDirectoriesLeftBehind).toEqual([]);
+    expect(run.records.map((record) => record.script)).not.toContain("wrangler.js");
+    expect(existsSync(resolve(process.cwd(), UPLOAD_SPECIFICATION_PATH))).toBe(false);
+  }, 180_000);
+
+  it("STOPS when a specification from another run is already present, and preserves it", () => {
+    // The documented fail-closed refusal. The pre-existing file belongs to a
+    // crashed or concurrent release and is evidence, so it is neither
+    // overwritten nor deleted — see also the exclusive-create race tests in
+    // `explicit-plain-text-bindings.test.ts`.
+    const specification = resolve(process.cwd(), UPLOAD_SPECIFICATION_PATH);
+    const foreign = '{"owner":"another release"}\n';
+    writeFileSync(specification, foreign, "utf8");
+    try {
+      const run = runWrapperOffline();
+
+      expect(run.status).toBe(1);
+      expect(run.text).toContain("already exists");
+      expect(run.text).toContain("Wrangler was NOT spawned");
+      expect(readFileSync(specification, "utf8")).toBe(foreign);
+      expect(run.records.map((record) => record.script)).not.toContain("wrangler.js");
+      expect(run.workDirectoriesLeftBehind).toEqual([]);
+    } finally {
+      rmSync(specification, { force: true });
+    }
+  }, 180_000);
+});
+
 describe("preflight fixtures carry no production value", () => {
   const fixtureFiles = [
     "live-bindings.json",
+    "live-bindings-eleven.json",
+    "live-bindings-missing-plain-text.json",
     "candidate-preserved-bindings.json",
     "candidate-rejected-bindings.json",
     "candidate-valued-bindings.json",

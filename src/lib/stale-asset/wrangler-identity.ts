@@ -56,12 +56,23 @@
  * ONE RESOLVER, BOTH PATHS
  * ---------------------------------------------------------------------------
  *
- * `scripts/release/wrangler-version-gate.mjs` (and therefore the production
- * upload wrapper, which consumes it) and
- * `src/lib/stale-asset/wrangler-inherit-serialization.test.ts` both call this
- * module. The offline serialization proof and the production upload are
- * therefore proven to run THE SAME FILE, which is the only thing that makes the
- * offline proof evidence about the production path at all.
+ * `scripts/release/wrangler-version-gate.mjs` — and therefore the production
+ * upload wrapper, which consumes it — `wrangler-identity.test.ts`, and the
+ * offline serialization proof all call this module, so identity is decided in
+ * exactly one place for every path that can reach an upload.
+ *
+ * WHICH SERIALIZATION PROOF. Under pinned inheritance the third caller asserted
+ * that Wrangler forwards a pinned `inherit` `version_id` verbatim. It did — and
+ * the production API refused the result with HTTP 400 [code: 10057], because
+ * that proof measured Wrangler where the open question was Cloudflare. It was
+ * deleted with the mechanism it defended.
+ *
+ * FOREVER-PR140-CORRECTIONS-002 restored an EQUIVALENT proof for the mechanism
+ * that replaced it: `wrangler-plain-text-serialization.test.ts` runs this same
+ * authorized launcher against a loopback listener and reads the multipart
+ * metadata Wrangler emits for two explicit `plain_text` records. The claim it
+ * supports is correspondingly narrower and correspondingly true — it is about
+ * what WRANGLER serializes, never about what Cloudflare accepts.
  *
  * Nothing here reads a credential, contacts a network or performs an upload.
  * The single spawn is `--version`, under a minimal synthetic environment.

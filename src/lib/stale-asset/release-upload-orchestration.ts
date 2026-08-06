@@ -39,24 +39,72 @@
  *
  * `launch` is invoked at exactly one place, after every guard has passed. There
  * is no early return that reaches it and no branch that skips a check.
+ *
+ * ---------------------------------------------------------------------------
+ * THE AUTHORIZATION GATE MOVED HERE TOO (PR140 review, F5)
+ * ---------------------------------------------------------------------------
+ *
+ * `--authorize-upload` was enforced only by the wrapper's control flow, and the
+ * suite proved it by locating two substrings in the wrapper's source and
+ * comparing their offsets. That establishes the order of two characters in a
+ * file — not that an unauthorized run launches nothing.
+ *
+ * Authorization is now a required INPUT to this decision, refused first and
+ * before any file is read, and the returned decision reports `launchAttempts`.
+ * So the four facts the review asked for — no authorization means zero launches,
+ * an authorized run launches exactly once, a failed launch is not retried, and a
+ * digest or structure mismatch launches nothing — are all read off a real run.
  */
 
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 
 /** The named STOPs. Asserted by name, never by message text. */
+export const UPLOAD_NOT_AUTHORIZED_STOP = "upload_not_authorized";
 export const UPLOAD_SPECIFICATION_MISSING_STOP = "upload_specification_missing";
 export const UPLOAD_SPECIFICATION_DIGEST_MISMATCH_STOP = "upload_specification_digest_mismatch";
+export const UPLOAD_SPECIFICATION_STRUCTURE_INVALID_STOP = "upload_specification_structure_invalid";
 export const IMMUTABLE_BUILD_OUTPUT_CHANGED_STOP = "immutable_build_output_changed";
 
+/**
+ * The one flag that authorizes an upload, as data.
+ *
+ * Named here rather than in the wrapper so the flag the wrapper tests and the
+ * flag the decision requires are the same string, and so a behavioural test can
+ * assert the decision instead of the wrapper's source text (PR140 review, F5).
+ */
+export const AUTHORIZE_UPLOAD_FLAG = "--authorize-upload";
+
+/**
+ * Whether an argv authorizes an upload.
+ *
+ * EXACT TOKEN EQUALITY. `--authorize-upload=false`, `--authorize-uploads` and a
+ * value that merely contains the flag are all UNauthorized — the same class of
+ * substring defect §2b of the runbook exists to record.
+ */
+export function isUploadAuthorized(argv: readonly string[]): boolean {
+  return argv.some((token) => token === AUTHORIZE_UPLOAD_FLAG);
+}
+
 export type UploadLaunchStop =
+  | typeof UPLOAD_NOT_AUTHORIZED_STOP
   | typeof UPLOAD_SPECIFICATION_MISSING_STOP
   | typeof UPLOAD_SPECIFICATION_DIGEST_MISMATCH_STOP
+  | typeof UPLOAD_SPECIFICATION_STRUCTURE_INVALID_STOP
   | typeof IMMUTABLE_BUILD_OUTPUT_CHANGED_STOP;
 
 export interface UploadLaunchDecision<T> {
   /** TRUE only when `launch` was actually invoked. */
   readonly launched: boolean;
+  /**
+   * How many times `launch` was invoked. Zero or one, never more.
+   *
+   * Reported so "there is no automatic retry" is a MEASURED fact in the returned
+   * decision rather than a claim about the source. A non-zero exit from the
+   * launcher is passed straight back in `result`; nothing here inspects it, and
+   * there is no loop for a caller to re-enter.
+   */
+  readonly launchAttempts: number;
   /** The named refusal, or null when the upload was launched. */
   readonly stop: UploadLaunchStop | null;
   /** Operator-facing explanation. Carries no path, digest secret or raw output. */
@@ -68,7 +116,14 @@ export interface UploadLaunchDecision<T> {
 }
 
 function refuse<T>(stop: UploadLaunchStop, message: string): UploadLaunchDecision<T> {
-  return { launched: false, stop, message, consumedDigest: null, result: null };
+  return {
+    launched: false,
+    launchAttempts: 0,
+    stop,
+    message,
+    consumedDigest: null,
+    result: null,
+  };
 }
 
 /**
@@ -87,6 +142,17 @@ function refuse<T>(stop: UploadLaunchStop, message: string): UploadLaunchDecisio
  * — a specification that changed after PREUPLOAD has not been through PREUPLOAD.
  */
 export function verifyThenLaunchUpload<T>(input: {
+  /**
+   * Whether the operator explicitly authorized an upload.
+   *
+   * PR140 review, F5: the authorization gate lived only in the wrapper's control
+   * flow and was asserted only by reading the wrapper's source text. It is a
+   * required input here, checked BEFORE anything else, so "no
+   * `--authorize-upload` means zero launcher calls" is proven by running the
+   * decision rather than by matching characters. The wrapper still exits early
+   * in dry-run mode — this is a second, independent refusal on the same fact.
+   */
+  readonly authorized: boolean;
   /** Absolute path to the ephemeral upload specification. */
   readonly specificationPath: string;
   /** The digest PREUPLOAD agreed with. */
@@ -95,10 +161,43 @@ export function verifyThenLaunchUpload<T>(input: {
   readonly generatedConfigPath: string;
   /** The generated configuration's bytes, read before the preflight ran. */
   readonly generatedBytesBefore: Buffer;
+  /**
+   * How the digest is computed over the specification's bytes.
+   *
+   * FOREVER-STUDIO-EXPLICIT-BINDINGS-FIX-002. The specification now carries
+   * `SUPABASE_URL` and `STUDIO_STORAGE_WRITE_PROVIDER`, and the latter has two
+   * possible values — so a BARE SHA-256 of a document whose every other byte is
+   * knowable is a two-guess oracle for a production setting. The wrapper
+   * therefore supplies a per-release SALTED digest, and the salt never leaves
+   * its memory. Defaults to a bare SHA-256 for callers hashing value-free bytes.
+   */
+  readonly digest?: (raw: string) => string;
+  /**
+   * Re-proves the STRUCTURE of the bytes about to be uploaded, not just their
+   * digest.
+   *
+   * The digest proves the file did not change since PREUPLOAD. It cannot prove
+   * PREUPLOAD verified the right thing if the two ever disagreed about which
+   * document they were describing. Re-parsing here means the contract is
+   * asserted against the exact bytes Wrangler will read, at the last possible
+   * moment.
+   */
+  readonly revalidate?: (raw: string) => { readonly ok: boolean; readonly detail: string };
   /** Invoked once, only after every guard above has passed. */
   readonly launch: () => T;
 }): UploadLaunchDecision<T> {
   const { specificationPath, verifiedDigest, generatedConfigPath, generatedBytesBefore } = input;
+  const digest = input.digest ?? ((raw: string) => createHash("sha256").update(raw).digest("hex"));
+
+  // FIRST, before a single byte is read. An unauthorized run must not be
+  // distinguishable from an authorized one by what it touched.
+  if (!input.authorized) {
+    return refuse(
+      UPLOAD_NOT_AUTHORIZED_STOP,
+      `no ${AUTHORIZE_UPLOAD_FLAG} was supplied. An upload is a separately authorized action; ` +
+        "this decision never launches one on its own.",
+    );
+  }
 
   if (!existsSync(specificationPath)) {
     return refuse(
@@ -107,9 +206,8 @@ export function verifyThenLaunchUpload<T>(input: {
     );
   }
 
-  const consumedDigest = createHash("sha256")
-    .update(readFileSync(specificationPath, "utf8"))
-    .digest("hex");
+  const raw = readFileSync(specificationPath, "utf8");
+  const consumedDigest = digest(raw);
 
   // MUTATION CONTROL 37 attacks exactly this comparison, and is now detected by
   // the injected launcher being called rather than by the source text differing.
@@ -121,6 +219,13 @@ export function verifyThenLaunchUpload<T>(input: {
     );
   }
 
+  if (input.revalidate) {
+    const revalidation = input.revalidate(raw);
+    if (!revalidation.ok) {
+      return refuse(UPLOAD_SPECIFICATION_STRUCTURE_INVALID_STOP, revalidation.detail);
+    }
+  }
+
   if (!readFileSync(generatedConfigPath).equals(generatedBytesBefore)) {
     return refuse(
       IMMUTABLE_BUILD_OUTPUT_CHANGED_STOP,
@@ -129,11 +234,17 @@ export function verifyThenLaunchUpload<T>(input: {
     );
   }
 
+  // ONE invocation, counted. A launcher that throws propagates untouched and a
+  // launcher that returns a non-zero status is returned untouched: there is no
+  // catch, no backoff and no second attempt anywhere in this function.
+  const result = input.launch();
+
   return {
     launched: true,
+    launchAttempts: 1,
     stop: null,
     message: null,
     consumedDigest,
-    result: input.launch(),
+    result,
   };
 }

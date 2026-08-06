@@ -483,11 +483,13 @@ describe("no shell is involved anywhere in the release upload path", () => {
     expect(wrapper).toContain("...PRODUCTION_VERSION_UPLOAD_SPEC.args");
     expect(wrapper).toContain("--authorize-upload");
     // The wrapper refuses to spawn until the preflight has produced PASS under
-    // the PINNED contract. The superseded marker must not appear anywhere: it
-    // passed an upload that could not have preserved the two variables, and
-    // reusing it would make every historical evidence file ambiguous.
-    expect(wrapper).toContain("PREUPLOAD_PINNED_INHERITANCE_MARKER");
+    // the EXPLICIT-BINDING contract. Neither superseded marker may appear: one
+    // passed an upload that could not have preserved the two variables, the
+    // other passed a mechanism the production API rejects with HTTP 400, and
+    // reusing either would make every historical evidence file ambiguous.
+    expect(wrapper).toContain("PREUPLOAD_EXPLICIT_BINDINGS_MARKER");
     expect(wrapper).not.toContain("PREUPLOAD_CONTRACT_OK");
+    expect(wrapper).not.toContain("PREUPLOAD_PINNED_INHERITANCE_OK");
     expect(wrapper).toContain("the binding preflight did not produce PASS");
   });
 
@@ -524,11 +526,24 @@ describe("no shell is involved anywhere in the release upload path", () => {
 
   it("UPLOAD_RECEIPT_SANITIZED: consumes structured output and writes only canonical provenance", () => {
     const wrapper = read("scripts/release/upload-worker-version.mjs");
-    expect(wrapper).toContain("WRANGLER_OUTPUT_FILE_PATH");
+    // FOREVER-PR140-CORRECTIONS-002, F2. Wrangler's output-file path is now set
+    // by the shared child-environment builder, which is the same place both
+    // release inputs are DELETED. What the builder produces — the exact output
+    // FILE, no output DIRECTORY override, and neither release input — is proven
+    // by spawning a real child in `release-child-environment.test.ts`; what is
+    // asserted here is that the wrapper uses it rather than assembling its own.
+    expect(wrapper).toContain("src/lib/stale-asset/release-child-environment.ts");
+    expect(wrapper).toContain("buildUploadChildEnv");
+    expect(wrapper).toContain("buildPreuploadChildEnv");
+    expect(wrapper).not.toMatch(/env:\s*\{\s*\.\.\.process\.env/);
     expect(wrapper).toContain("parseWranglerVersionUploadReceipt");
     expect(wrapper).toContain("serializeWorkerVersionProvenance");
     expect(wrapper).toContain("--receipt <path>");
-    expect(wrapper).toContain("rmSync(outputDirectory, { recursive: true, force: true })");
+    // FOREVER-STUDIO-EXPLICIT-BINDINGS-FIX-002: every task-owned directory is
+    // released through one function that runs on the STOP path too, not only at
+    // the end of the happy path.
+    expect(wrapper).toContain("rmSync(directory, { recursive: true, force: true })");
+    expect(wrapper).toContain("releaseOwnedDirectories");
     expect(wrapper).not.toContain('stdio: "inherit"');
     expect(wrapper).toContain("Raw upload output is not echoed");
   });
