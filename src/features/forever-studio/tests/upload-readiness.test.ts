@@ -42,7 +42,7 @@ describe("explicit upload-complete readiness boundary", () => {
       "text/html",
     );
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.warnings.some((warning) => warning.code === "media_sanitization_limit")).toBe(
       true,
     );
@@ -63,8 +63,8 @@ describe("explicit upload-complete readiness boundary", () => {
     expect(await resumeDueJobs(world.deps, OWNER)).toEqual({ resumed: 0, results: [] });
     expect((await world.data.getJob(started.jobId))?.processing_requested_at).toBeNull();
 
-    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("published");
-    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("published");
+    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("completed");
+    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("completed");
     expect(world.executor.store.projects).toHaveLength(1);
   });
 
@@ -86,7 +86,7 @@ describe("explicit upload-complete readiness boundary", () => {
     world.advanceMinutes(20);
     expect((await resumeDueJobs(world.deps, OWNER)).resumed).toBe(1);
     expect(world.executor.store.projects).toHaveLength(1);
-    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("published");
+    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("completed");
     expect(world.executor.store.projects).toHaveLength(1);
   });
 

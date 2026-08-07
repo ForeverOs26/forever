@@ -40,8 +40,12 @@ const SAFE_MESSAGES: Record<string, string> = {
   // FOREVER-STUDIO-UNPUBLISHED-INGESTION-001. Both are fail-closed refusals, so
   // both are permanent: the same upload would be refused identically on retry,
   // and the message has to tell the Owner which deliberate action clears it.
+  //
+  // The message names ONE recovery, deliberately. Suggesting a different
+  // project name would invite a second row for one real project — the ambiguous
+  // duplicate the guard exists to prevent — so it is not offered.
   studio_published_project_collision:
-    "This upload matches a project that is already published. Nothing was changed. Unpublish that project in Studio first, or upload under a different project name.",
+    "This upload matches a project that is already published. Nothing was changed. To replace what is published, unpublish that project in Studio first, then upload again.",
   studio_ingestion_publication_rejected:
     "This upload tried to set publication status, which uploads are not allowed to do. Nothing was changed. Publish from the project page in Studio instead.",
   studio_request_failed:

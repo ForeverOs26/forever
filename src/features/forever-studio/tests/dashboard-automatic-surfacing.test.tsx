@@ -160,7 +160,7 @@ describe("the dashboard when only exhausted jobs remain", () => {
     endpoints.resumePending.mockReset().mockResolvedValue({ resumed: 0, results: [] });
     endpoints.processJob.mockReset().mockResolvedValue({
       jobId: "job-capped",
-      status: "published",
+      status: "completed",
       workflow: "new_development",
       attemptCount: STUDIO_AUTOMATIC_RETRY_LIMIT + 1,
       pagePath: "/projects/capped-project",

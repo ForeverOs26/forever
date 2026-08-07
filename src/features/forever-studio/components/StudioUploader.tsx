@@ -391,7 +391,7 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
             });
           });
         } catch (error) {
-          // A retried job that already published cannot re-plan; fall
+          // A retried job that already finished cannot re-plan; fall
           // through to the processing call, which reports the final result.
           if (error instanceof Error && error.name === "job_already_published") break;
           throw error;
@@ -441,7 +441,7 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
           jobId: id,
           stage: "processing",
         });
-      } else if (result.status !== "published") {
+      } else if (result.status !== "completed") {
         setPhase({ step: "ready" });
       } else {
         setPhase({ step: "result", result, failedUploads });

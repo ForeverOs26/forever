@@ -76,7 +76,7 @@ const counts = (units: number, prices: number, media: number, warnings = 0) => (
 describe("the Owner's exact observed run is never reported as success", () => {
   it("reconstructs it: 4 unconfirmed transfers, 3 failed lookups, 0/0/0 → FAILED", () => {
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/the-title-sierra",
       counts: counts(0, 0, 0, 3),
@@ -117,7 +117,7 @@ describe("the Owner's exact observed run is never reported as success", () => {
     // the client's own record is the only place the names survive. Naming them
     // is for VERIFICATION, not for a re-upload — storage state is unresolved.
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: counts(0, 0, 0),
@@ -135,7 +135,7 @@ describe("the Owner's exact observed run is never reported as success", () => {
 describe("client and server observations are independent, and stay independent", () => {
   it("exposes no combined, summed or reconciled skip count at all", () => {
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: counts(5, 5, 5),
@@ -150,7 +150,7 @@ describe("client and server observations are independent, and stay independent",
 
   it("reports 1 and 1 for one file both observers saw — never 1-as-a-total", () => {
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: counts(5, 5, 5),
@@ -164,7 +164,7 @@ describe("client and server observations are independent, and stay independent",
 
   it("reports a browser-side abandon the server never heard about", () => {
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: counts(5, 5, 5),
@@ -179,7 +179,7 @@ describe("client and server observations are independent, and stay independent",
 
   it("reports a server-side rejection the browser never noticed", () => {
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: counts(5, 5, 5),
@@ -196,7 +196,7 @@ describe("client and server observations are independent, and stay independent",
     // A rejected source reached storage. Telling the Owner it failed to upload
     // would send them to fix the wrong thing.
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: counts(5, 5, 5),
@@ -234,7 +234,7 @@ describe("a persisted warning message can never reach the screen unsafely", () =
 
   it("hands the caller only safe messages, in every warning group", () => {
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: counts(3, 3, 0),
@@ -259,7 +259,7 @@ describe("a persisted warning message can never reach the screen unsafely", () =
 
   it("attributes a delivery problem to the observer that actually saw it", () => {
     const serverOnly = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: counts(3, 3, 0),
@@ -272,7 +272,7 @@ describe("a persisted warning message can never reach the screen unsafely", () =
     expect(serverOnly.description).not.toContain("the browser could not confirm completion");
 
     const clientOnly = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: counts(3, 3, 0),
@@ -402,7 +402,7 @@ describe("the warning vocabulary is audited, not guessed", () => {
 describe("critical sources are exposed for direct rendering", () => {
   it("splits warnings into critical, retained and collapsible groups", () => {
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: counts(4, 4, 4),
@@ -433,7 +433,7 @@ describe("critical sources are exposed for direct rendering", () => {
   it("never leaves a critical warning inside the collapsible group", () => {
     for (const code of Object.keys(WARNING_CLASSIFICATION)) {
       const outcome = describePublicationOutcome({
-        status: "published",
+        status: "completed",
         publicStatus: "published",
         pagePath: "/projects/x",
         counts: counts(1, 1, 1),
@@ -457,7 +457,7 @@ describe("critical sources are exposed for direct rendering", () => {
 describe("publication outcome levels", () => {
   it("COMPLETE only when a page published and no critical problem was seen", () => {
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: counts(12, 12, 30),
@@ -471,7 +471,7 @@ describe("publication outcome levels", () => {
 
   it("PARTIAL when the page has content but a source was lost or rejected", () => {
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: counts(12, 12, 30),
@@ -501,7 +501,7 @@ describe("publication outcome levels", () => {
     // that produces no public page is legitimate, and demanding a path here
     // would invent a product rule and fail healthy runs.
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: null,
       counts: counts(1, 1, 1),
@@ -517,7 +517,7 @@ describe("publication outcome levels", () => {
     // facts-only update legitimately produces no units, prices or media.
     // Reclassifying it would create an approval gate that does not exist.
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: counts(0, 0, 0),
@@ -530,7 +530,7 @@ describe("publication outcome levels", () => {
 
   it("does not degrade a publication for a harmless duplicate", () => {
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: counts(9, 9, 9),
@@ -548,7 +548,7 @@ describe("publication outcome levels", () => {
     // conflate a platform-side derivative limit with a lost source, which is
     // the exact conflation this correction exists to stop.
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: counts(9, 9, 0),
@@ -572,7 +572,7 @@ describe("publication outcome levels", () => {
 
   it("an unknown tally with a lost source is PARTIAL, never 'empty'", () => {
     const outcome = describePublicationOutcome({
-      status: "published",
+      status: "completed",
       publicStatus: "published",
       pagePath: "/projects/x",
       counts: null,
@@ -610,7 +610,7 @@ function everyOutcome() {
   warningSets.push(codes.map((code) => warn(code)));
   const uploadSets = [[], ["one.jpg"], OWNER_UNCONFIRMED_FILES];
   const countSets = [null, counts(0, 0, 0), counts(0, 0, 1), counts(12, 12, 30)];
-  const statuses = ["published", "failed", "processing", "received"] as const;
+  const statuses = ["completed", "failed", "processing", "received"] as const;
   // Both lanes are enumerated: a project ingestion reports "draft", a resale
   // ingestion "published", and a run that never completed reports null. Every
   // invariant below therefore has to hold for draft wording too.
@@ -750,7 +750,7 @@ describe("the four publication states stay distinct", () => {
 
   it("AN INCOMPLETE PAGE WITH USABLE CONTENT reads 'Partly published'", () => {
     const outcome = of({
-      status: "published",
+      status: "completed",
       pagePath: "/projects/x",
       publicStatus: "published",
       counts: counts(12, 12, 30),
@@ -763,7 +763,7 @@ describe("the four publication states stay distinct", () => {
 
   it("AN EMPTY PAGE AFTER A CRITICAL DELIVERY PROBLEM reads as a failure", () => {
     const outcome = of({
-      status: "published",
+      status: "completed",
       pagePath: "/projects/x",
       publicStatus: "published",
       counts: counts(0, 0, 0),
@@ -780,7 +780,7 @@ describe("the four publication states stay distinct", () => {
     // page with no critical warning is a normal facts-only update, and it keeps
     // the success heading. The stricter wording must not have swept it up.
     const outcome = of({
-      status: "published",
+      status: "completed",
       pagePath: "/projects/x",
       publicStatus: "published",
       counts: counts(0, 0, 0),
@@ -808,7 +808,7 @@ describe("no success wording may survive a lost or rejected source", () => {
     ];
     for (const one of cases) {
       const outcome = describePublicationOutcome({
-        status: "published",
+        status: "completed",
         publicStatus: "published",
         pagePath: "/projects/x",
         ...one,

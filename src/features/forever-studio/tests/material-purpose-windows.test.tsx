@@ -181,7 +181,7 @@ describe("Studio upload windows", () => {
     endpoints.getOverview.mockReset().mockResolvedValue(OVERVIEW);
     endpoints.startJob.mockReset().mockResolvedValue({ jobId: "job-1", uploads: [] });
     endpoints.processJob.mockReset().mockResolvedValue({
-      status: "published",
+      status: "completed",
       pagePath: "/projects/x",
       warnings: [],
       counts: null,

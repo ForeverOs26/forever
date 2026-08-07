@@ -27,7 +27,7 @@ export async function runStudioScheduledTickSafely(): Promise<void> {
       // Counts only — never job ids, filenames, facts, or paths.
       console.info(
         `[studio-scheduled] due=${summary.due} advanced=${summary.advanced} ` +
-          `published=${summary.published} failed=${summary.failed} skipped=${summary.skipped}`,
+          `completed=${summary.completed} failed=${summary.failed} skipped=${summary.skipped}`,
       );
     }
   } catch (error) {

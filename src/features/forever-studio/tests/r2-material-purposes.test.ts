@@ -109,7 +109,7 @@ describe("all fourteen windows on the R2 direct lane", () => {
 
     await uploadAllViaTransport(world, started.uploads, contents);
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
 
     const job = await world.deps.data.getJob(started.jobId);
     expect(job!.files).toHaveLength(14);
@@ -145,7 +145,7 @@ describe("all fourteen windows on the R2 direct lane", () => {
       "package.zip": buildZip([{ name: "readme.txt", data: Buffer.from("notes") }]),
     });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
 
     // Nothing here has a safe public derivative: the public bucket stays empty.
     expect(world.r2.keys(TEST_R2_BUCKETS.publicMedia)).toEqual([]);
@@ -166,7 +166,7 @@ describe("structured artifacts still obey the window that admitted them", () => 
     });
     await uploadAllViaTransport(world, started.uploads, { "document.json": priceList });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(world.executor.store.prices.length).toBeGreaterThan(0);
   });
 
@@ -182,7 +182,7 @@ describe("structured artifacts still obey the window that admitted them", () => 
     });
     await uploadAllViaTransport(world, started.uploads, { "price-list.json": priceList });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.warnings.map((warning) => warning.code)).toContain("structured_purpose_mismatch");
     expect(world.executor.store.prices).toHaveLength(0);
     // The refusal names no filename and no storage location.
@@ -234,7 +234,7 @@ describe("a ZIP under a NON-archive window, on the resumable lane", () => {
     for (let round = 0; round < 12 && result.status === "processing"; round += 1) {
       result = await processUploadJob(world.deps, OWNER, job.jobId);
     }
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
 
     const entries = await world.deps.data.listArchiveEntries(plan.archiveId);
     expect(entries).toHaveLength(2);

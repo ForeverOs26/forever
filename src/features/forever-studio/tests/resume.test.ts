@@ -28,7 +28,7 @@ describe("automatic durable resume", () => {
     expect((await world.data.getJob(started.jobId))?.processing_requested_at).toBeNull();
 
     const processed = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(processed.status).toBe("published");
+    expect(processed.status).toBe("completed");
     // The ingestion committed a project — as a DRAFT. `publicProjects()` is the
     // public RLS predicate, and nothing became publicly visible.
     expect(world.executor.store.projects).toHaveLength(1);

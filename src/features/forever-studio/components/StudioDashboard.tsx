@@ -227,11 +227,11 @@ export function StudioDashboard() {
     void queryClient.invalidateQueries({ queryKey: STUDIO_OVERVIEW_KEY });
 
   const settleOwnerRetry = (result: StudioJobResult): boolean => {
-    if (result.status === "published") {
+    if (result.status === "completed") {
       clearOwnerRetryTimers(result.jobId);
       putOwnerRetry(result.jobId, {
-        phase: "published",
-        status: "published",
+        phase: "completed",
+        status: "completed",
         message: "Retry succeeded. The project result is ready.",
         errorCode: null,
         errorStage: null,
@@ -676,7 +676,7 @@ export function StudioDashboard() {
                   <span className="text-xs text-muted-foreground">{job.creatorEmail ?? ""}</span>
                   <Badge
                     variant={
-                      displayStatus === "published"
+                      displayStatus === "completed"
                         ? "default"
                         : displayStatus === "failed"
                           ? "destructive"
@@ -728,7 +728,7 @@ export function StudioDashboard() {
                           {ownerRetry.attemptCount}
                         </p>
                       ) : null}
-                      {ownerRetry.phase === "published" && ownerRetry.pagePath ? (
+                      {ownerRetry.phase === "completed" && ownerRetry.pagePath ? (
                         <Button asChild size="sm" variant="outline">
                           <a href={ownerRetry.pagePath}>Open published result</a>
                         </Button>

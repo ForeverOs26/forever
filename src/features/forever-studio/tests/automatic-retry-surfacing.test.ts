@@ -350,7 +350,7 @@ describe("five exhausted jobs cannot starve the queue", () => {
     // The tick saw exactly the eligible job — the exhausted ones were never
     // even offered, so they are not "skipped", they are absent.
     expect(tick.due).toBe(1);
-    expect(tick.published).toBe(1);
+    expect(tick.completed).toBe(1);
     expect(tick.skipped).toBe(0);
     expect(world.data.jobs.get(due)!.status).toBe("published");
     capped.forEach((id, index) => {
@@ -412,7 +412,7 @@ describe("Owner-controlled retry of an exhausted job", () => {
     // Exactly what the dashboard Retry control calls. No SQL, no hand-editing.
     const result = await processUploadJob(world.deps, OWNER, jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const job = world.data.jobs.get(jobId)!;
     expect(job.attempt_count).toBeGreaterThan(attemptsBefore);
     expect(job.attempt_count).toBe(attemptsBefore + 1);
@@ -471,8 +471,10 @@ describe("Owner-controlled retry of an exhausted job", () => {
     // Exactly one request claimed and published. The losers report the state
     // they observed rather than inventing a second attempt — the claim is the
     // single winner, not the response.
-    expect(results.filter((result) => result.status === "published")).toHaveLength(1);
+    // The RESULT vocabulary is external and truthful: 'completed'.
+    expect(results.filter((result) => result.status === "completed")).toHaveLength(1);
     expect(results.every((result) => result.status !== "failed")).toBe(true);
+    // The PERSISTED row keeps the database's own legacy value, unmigrated.
     expect(world.data.jobs.get(jobId)!.status).toBe("published");
     // One claim, so exactly one increment...
     expect(world.data.jobs.get(jobId)!.attempt_count).toBe(attemptsBefore + 1);
@@ -507,7 +509,7 @@ describe("Owner-controlled retry of an exhausted job", () => {
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     // (15) Exactly one project, (16) the SAME six objects reused untouched,
     // (17) nothing in Supabase Storage, (18) the provider unchanged.
     expect(world.executor.store.projects).toHaveLength(1);

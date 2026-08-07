@@ -33,6 +33,7 @@ import {
 import { slugify } from "@/import/persistence-projection";
 
 import {
+  externalJobStatus,
   isStudioAmenityCategory,
   isStudioMaterialPurpose,
   projectPagePath,
@@ -345,15 +346,30 @@ function publicationPatchBatch(
 const INGESTION_PUBLISHES = false;
 
 /**
- * The public-visibility predicate, stated once.
+ * TWO DIFFERENT QUESTIONS, deliberately not one predicate.
  *
- * It is exactly the RLS predicate the public projection uses
+ * `isPubliclyVisible` is the RLS predicate the public projection uses
  * (`20260718113000_progressive_ingestion_v1.sql`: `is_active = true AND
- * public_status = 'published'`), so "published" here means the same thing an
- * anonymous visitor's read means, not merely a column value.
+ * public_status = 'published'`). It answers "can an anonymous visitor read this
+ * RIGHT NOW?", and it is what a UI surface reports as `isPublic`.
+ *
+ * `isPublishedProject` answers "is this project's publication state PUBLISHED?"
+ * — the column alone, with no reference to `is_active`.
+ *
+ * The ingestion collision guard must use the SECOND one. `is_active = false`
+ * only means a published project is not visible at this moment; it does not
+ * make it a safe ingestion target, because reactivating it — a separate,
+ * ordinary operation that touches only `is_active` — would immediately expose
+ * whatever an upload had silently written into its graph. Guarding on
+ * visibility would therefore leave exactly the hole this change exists to
+ * close, merely deferred until the project is switched back on.
  */
-function isPubliclyPublished(project: { public_status: string; is_active: boolean }): boolean {
-  return project.is_active && project.public_status === "published";
+function isPubliclyVisible(project: { public_status: string; is_active: boolean }): boolean {
+  return project.is_active && isPublishedProject(project);
+}
+
+function isPublishedProject(project: { public_status: string }): boolean {
+  return project.public_status === "published";
 }
 
 /**
@@ -386,7 +402,11 @@ export function assertUnpublishedIngestionPayload(project: ProgressiveProjectPay
 }
 
 /**
- * FAIL CLOSED on a collision with a LIVE published project.
+ * FAIL CLOSED on a collision with a PUBLISHED project.
+ *
+ * Keyed on `public_status` alone — see `isPublishedProject`. A published but
+ * currently inactive project is still a published project, and is still
+ * refused.
  *
  * Called before the batch is built and before any write, so a published
  * project's graph is never touched: no automatic unpublish, no silent update of
@@ -396,15 +416,15 @@ export function assertUnpublishedIngestionPayload(project: ProgressiveProjectPay
  * enrich mutates it in place — so there is no safe way to absorb this upload,
  * and inventing one is not this change's job.
  *
- * Not retryable: an automatic retry would re-collide identically. The Owner
- * unpublishes deliberately (`setProjectPublication`) or uploads under a
- * different slug.
+ * Not retryable: an automatic retry would re-collide identically. THE ONE
+ * SUPPORTED RECOVERY is an explicit Owner-controlled unpublish
+ * (`setProjectPublication`) before the upload is retried. Re-uploading the same
+ * real project under a different name is NOT offered as a remedy: it would
+ * create a second row for one real project — the ambiguous duplicate this guard
+ * exists to prevent.
  */
-function assertNoPublishedProjectCollision(project: {
-  public_status: string;
-  is_active: boolean;
-}): void {
-  if (!isPubliclyPublished(project)) return;
+function assertNoPublishedProjectCollision(project: { public_status: string }): void {
+  if (!isPublishedProject(project)) return;
   throw new StudioError(
     "studio_published_project_collision",
     safeMessageFor("studio_published_project_collision"),
@@ -608,14 +628,16 @@ export async function startUploadJob(
 }
 
 // ---------------------------------------------------------------------------
-// Job processing: claim → gather → atomic publish → finalize
+// Job processing: claim → gather → atomic ingest → finalize
 // ---------------------------------------------------------------------------
 
 function jobResultFromRow(job: StudioJobRow): StudioJobResult {
   const stored = (job.result_summary ?? {}) as Partial<StudioJobResult>;
   return {
     jobId: job.id,
-    status: job.status,
+    // The persisted state machine says 'published' for any finished job. This
+    // is the boundary where that legacy internal value stops.
+    status: externalJobStatus(job.status),
     workflow: job.workflow,
     attemptCount: job.attempt_count,
     pagePath: stored.pagePath ?? null,
@@ -785,7 +807,7 @@ export async function resumeDueJobs(
       logStudioFailure("automatic_resume_job_skipped", error);
     }
   }
-  return { resumed: results.filter((r) => r.status === "published").length, results };
+  return { resumed: results.filter((r) => r.status === "completed").length, results };
 }
 
 // ---------------------------------------------------------------------------
@@ -800,7 +822,14 @@ export interface StudioScheduledTickResult {
   due: number;
   /** Claim-scoped slice advancements performed. */
   advanced: number;
-  published: number;
+  /**
+   * Jobs that reached their terminal SUCCESS state on this tick. Named for
+   * completion, not publication: a project ingestion completes without
+   * publishing anything (FOREVER-STUDIO-UNPUBLISHED-INGESTION-001), so a
+   * `published=` counter in the scheduler's log line would assert something
+   * that did not happen.
+   */
+  completed: number;
   failed: number;
   /** Jobs skipped pre-claim (claim lost, membership change, malformed row). */
   skipped: number;
@@ -810,7 +839,8 @@ export interface StudioScheduledTickResult {
  * Execution principals for a SCHEDULED attempt: authorization is (as always)
  * the job creator's CURRENT active membership, and the attempt executes under
  * that same membership's authority — the Owner/Trusted Publisher upload
- * remains the publication authorization; the scheduler adds none of its own.
+ * remains the INGESTION authorization; the scheduler adds none of its own, and
+ * neither authorizes publication.
  * Audit metadata records executed_via=scheduled_runner truthfully.
  */
 async function resolveScheduledJobPrincipals(
@@ -855,7 +885,7 @@ export async function runScheduledStudioTick(
   const result: StudioScheduledTickResult = {
     due: 0,
     advanced: 0,
-    published: 0,
+    completed: 0,
     failed: 0,
     skipped: 0,
   };
@@ -905,8 +935,8 @@ export async function runScheduledStudioTick(
           // automatic budget, exactly like the dashboard's background resume.
           { attemptKind: "automatic" },
         );
-        if (outcome.status === "published") {
-          result.published += 1;
+        if (outcome.status === "completed") {
+          result.completed += 1;
           break;
         }
         if (outcome.status !== "processing") {
@@ -966,7 +996,7 @@ async function claimAndProcess(
     ? await deps.data.requestJobProcessing(jobRow.id, token, STALE_PROCESSING_SECONDS)
     : await deps.data.claimJob(jobRow.id, token, STALE_PROCESSING_SECONDS);
   if (!claimed) {
-    // Already published, terminally failed, or freshly held by another worker.
+    // Already completed, terminally failed, or freshly held by another worker.
     const current = await deps.data.getJob(jobRow.id);
     if (!current) throw new StudioAccessError("job_not_found");
     return jobResultFromRow(current);
@@ -1122,8 +1152,8 @@ export async function processClaimedJob(
   const providerId = jobStorageProvider(claimed);
   let provider: StudioStorageProvider | undefined;
   let materials: GatheredMaterials | undefined;
-  // Set the moment the atomic publication transaction commits. From then on
-  // this attempt's public objects belong to the published page and must
+  // Set the moment the atomic ingestion transaction commits. From then on
+  // this attempt's public objects belong to the committed project and must
   // never be removed, and the job must never be reported as failed.
   const commitState = { committed: false };
   const heartbeat = makeHeartbeat(deps, claimed.id, token);
@@ -1226,8 +1256,8 @@ export async function processClaimedJob(
     const safe = toSafeError(error, mapFailureCode(error));
 
     if (commitState.committed) {
-      // The publication committed; a later error (audit, hygiene) must never
-      // fail the result or remove the published page's media.
+      // The ingestion committed; a later error (audit, hygiene) must never
+      // fail the result or remove the committed project's media.
       logStudioFailure("post_commit_error_ignored", error);
       try {
         const current = await deps.data.getJob(claimed.id);
@@ -1237,16 +1267,16 @@ export async function processClaimedJob(
       }
       return {
         ...jobResultFromRow(claimed),
-        status: "published",
+        status: "completed",
         warnings: materials ? warningSummaries(materials.warnings) : [],
       };
     }
 
     // Not committed by us (as far as we observed). Re-read the job before
-    // touching storage: if it is published, only delete our copies when the
-    // recorded winning attempt is provably a DIFFERENT attempt — if our own
-    // publish committed but its response was lost, our objects ARE the page's
-    // media and must be kept. If the job state cannot be read, retain our
+    // touching storage: if it reached its terminal state, only delete our
+    // copies when the recorded winning attempt is provably a DIFFERENT attempt
+    // — if our own commit landed but its response was lost, our objects ARE the
+    // project's media and must be kept. If the job state cannot be read, retain our
     // objects (deterministic retention: the winner's post-commit sweep
     // removes foreign prefixes) rather than risk deleting committed media.
     let currentState: StudioJobRow | null | undefined;
@@ -1514,10 +1544,10 @@ async function finalizeProject(
   commitState.committed = true;
 
   if (summary.replayed) {
-    // Another attempt already published this job; our token-scoped copies
-    // are orphans (the page references the winner's paths). Remove only ours
+    // Another attempt already completed this job; our token-scoped copies
+    // are orphans (the project references the winner's paths). Remove only ours
     // — never the durably settled archive-entry objects, which the winner's
-    // publication references.
+    // committed ingestion references.
     await removeGroupedByBucket(provider, materials.publicObjects);
   } else {
     // We won: sweep every job object the publication does not reference
@@ -1549,7 +1579,9 @@ async function finalizeProject(
 
   return {
     jobId: job.id,
-    status: "published",
+    // The job COMPLETED. It did not publish: `publicStatus` below carries the
+    // only publication claim this result makes, and for a project it is 'draft'.
+    status: "completed",
     workflow: job.workflow,
     attemptCount: job.attempt_count,
     pagePath: resultPayload.pagePath,
@@ -1723,7 +1755,9 @@ async function finalizeResale(
 
   return {
     jobId: job.id,
-    status: "published",
+    // Completed — and for the resale lane it also genuinely published, which
+    // `publicStatus: "published"` below is what says so.
+    status: "completed",
     workflow: job.workflow,
     attemptCount: job.attempt_count,
     pagePath: resalePagePath(published.slug),
@@ -2224,8 +2258,10 @@ export async function getProjectDetail(
     publicStatus: row.public_status,
     isActive: row.is_active,
     // The same predicate the ingestion collision guard uses, and the same one
-    // the public RLS policy applies. Stated once, in `isPubliclyPublished`.
-    isPublic: isPubliclyPublished(row),
+    // Visibility, not publication state: exactly the public RLS predicate.
+    // Deliberately NOT the predicate the ingestion collision guard uses — see
+    // `isPubliclyVisible` vs `isPublishedProject`.
+    isPublic: isPubliclyVisible(row),
     facts: {
       name: str(row.name),
       developerName: str(row.developer_name_raw),
@@ -2333,7 +2369,8 @@ export async function getOverview(deps: StudioDeps, actor: StudioActor): Promise
     jobs: jobs.map((job) => ({
       id: job.id,
       workflow: job.workflow,
-      status: job.status,
+      // Job summaries cross to the browser: convert the persisted value.
+      status: externalJobStatus(job.status),
       projectSlug: job.project_slug,
       listingId: job.listing_id,
       creatorEmail: job.creator_email,

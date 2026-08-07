@@ -17,6 +17,17 @@
  * enrich `project.publish` branch, and `publicProjects()` as the exact RLS
  * predicate the anonymous public reads through (`is_active AND
  * public_status='published'`). The real SQL is covered by studio.postgres.sql.
+ *
+ * TWO PREDICATES, KEPT APART (independent-review correction 1). The collision
+ * guard keys on `public_status` ALONE. A published project that is switched off
+ * (`is_active = false`) is invisible right now but is still published, and
+ * absorbing an upload into it would expose the write the moment it is switched
+ * back on — so it is refused identically. `publicProjects()` answers the other
+ * question (visibility) and is used only where visibility is the claim.
+ *
+ * TWO STATUS VOCABULARIES, ALSO KEPT APART (correction 4). The database still
+ * stores `status = 'published'` for a finished job; every browser-facing
+ * surface reports `completed`. Both halves are asserted here.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -26,11 +37,14 @@ import type { ProgressiveBatch } from "@/features/forever-ingestion/batch-types"
 import { StudioError } from "../server/errors";
 import {
   assertUnpublishedIngestionPayload,
+  getOverview,
   getProjectDetail,
+  getUploadJobStatus,
   processUploadJob,
   setProjectPublication,
   startUploadJob,
 } from "../server/service";
+import { externalJobStatus } from "../studio-types";
 import { makeWorld, uploadAll, OWNER, PUBLISHER, type FakeWorld } from "./fakes";
 
 async function runJob(
@@ -81,7 +95,7 @@ describe("a new project processed through Studio is an unpublished draft", () =>
     });
 
     // The ingestion completed: this is a success, not a blocked run.
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.errorCode).toBeNull();
     expect(world.executor.store.projects).toHaveLength(1);
 
@@ -160,7 +174,7 @@ describe("an existing unpublished draft can be updated and stays unpublished", (
     });
     expect(second.result.projectSlug).toBe(first.result.projectSlug);
 
-    expect(second.result.status).toBe("published");
+    expect(second.result.status).toBe("completed");
     expect(second.result.publicStatus).toBe("draft");
     // One project, updated — never a duplicate.
     expect(world.executor.store.projects).toHaveLength(1);
@@ -256,10 +270,148 @@ describe("an upload that collides with a published project fails closed", () => 
 
     const { result } = await runJob(world, OWNER, collidingUpload("Now allowed"));
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.publicStatus).toBe("draft");
     expect(world.executor.store.projects[0].short_description).toBe("Now allowed");
     expect(world.executor.publicProjects()).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // PUBLISHED BUT NOT CURRENTLY VISIBLE — the guard must still refuse.
+  // -------------------------------------------------------------------------
+
+  describe("a PUBLISHED project that is switched off (is_active=false)", () => {
+    /**
+     * `is_active=false` makes a published project invisible right now, and
+     * nothing more. It is reachable through ordinary operations — this world
+     * builds it the real way: the project is deactivated, then published, and
+     * `setProjectPublication` writes `public_status` WITHOUT touching
+     * `is_active` (its enrich batch carries only `publish`), so the row lands on
+     * published + inactive exactly as production would.
+     *
+     * Guarding on VISIBILITY instead of publication state would let an upload
+     * silently rewrite this project's graph, and reactivating it — a separate,
+     * ordinary operation — would then expose whatever had been written. The
+     * guard keys on `public_status` alone, so the hole never opens.
+     */
+    async function publishedButInactive(world: FakeWorld) {
+      const first = await runJob(world, OWNER, {
+        workflow: "new_development",
+        projectFacts: { name: LIVE_NAME },
+        files: [],
+      });
+      const slug = first.result.projectSlug!;
+      // Always re-read: the executor commits by REPLACING its store with a
+      // clone, so any row reference held across an ingest is stale.
+      const row = () => world.executor.store.projects.find((p) => p.slug === slug)!;
+      row().is_active = false;
+      await setProjectPublication(world.deps, OWNER, { slug, publish: true });
+
+      // The precondition this whole block exists for, asserted rather than
+      // assumed: published, inactive, and therefore NOT publicly visible.
+      expect(row().public_status).toBe("published");
+      expect(row().is_active).toBe(false);
+      expect(world.executor.publicProjects()).toHaveLength(0);
+      return { slug, row, before: graphSnapshot(world) };
+    }
+
+    it("is refused, non-retryably, exactly like a visible published project", async () => {
+      const world = makeWorld();
+      await publishedButInactive(world);
+
+      const { result } = await runJob(world, OWNER, collidingUpload("Would have been absorbed"));
+
+      expect(result.status).toBe("failed");
+      expect(result.errorCode).toBe("studio_published_project_collision");
+      expect(result.retryable).toBe(false);
+    });
+
+    it("stops before batch construction and before the transaction is entered", async () => {
+      const world = makeWorld();
+      await publishedButInactive(world);
+      const batchesBefore = world.executor.store.batches.length;
+      const calls = recordPublishCalls(world);
+
+      await runJob(world, OWNER, collidingUpload("Rejected"));
+
+      expect(calls).toHaveLength(0);
+      // Nothing was ingested either: the refused upload wrote no batch row.
+      expect(world.executor.store.batches).toHaveLength(batchesBefore);
+    });
+
+    it("changes neither the project, its child graph, nor its publication or activity state", async () => {
+      const world = makeWorld();
+      const { slug, before } = await publishedButInactive(world);
+
+      await runJob(world, OWNER, collidingUpload("Would have been absorbed"));
+
+      // The whole graph, byte-for-byte.
+      expect(graphSnapshot(world)).toBe(before);
+      const after = world.executor.store.projects.find((p) => p.slug === slug)!;
+      // Publication state unchanged — not published, and NOT auto-unpublished.
+      expect(after.public_status).toBe("published");
+      // Activity state unchanged — the guard does not reactivate it either.
+      expect(after.is_active).toBe(false);
+      expect(after.short_description).toBeNull();
+      // No duplicate: still exactly one row, for this slug and in total.
+      expect(world.executor.store.projects.filter((p) => p.slug === slug)).toHaveLength(1);
+      expect(world.executor.store.projects).toHaveLength(1);
+      // Still not publicly visible, and reactivating it would expose only what
+      // was already there.
+      expect(world.executor.publicProjects()).toHaveLength(0);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3b. The job-status vocabularies stay separated
+// ---------------------------------------------------------------------------
+
+describe("the persisted job status never reaches a browser-facing surface", () => {
+  it("keeps the database on 'published' while every external surface says 'completed'", async () => {
+    // THE ISOLATION BOUNDARY. `studio_upload_jobs.status` still stores
+    // 'published' — `studio_claim_job` and `studio_publish_project` key off that
+    // exact literal, so renaming it would be a migration. What must never
+    // happen is that legacy word escaping to a reader as a publication claim.
+    const world = makeWorld();
+    const { started, result } = await runJob(world, OWNER, {
+      workflow: "new_development",
+      projectFacts: { name: "Vocabulary Split" },
+      files: [],
+    });
+
+    // INTERNAL: unchanged, unmigrated.
+    expect((await world.data.getJob(started.jobId))?.status).toBe("published");
+
+    // EXTERNAL: truthful, on every surface a browser can read.
+    expect(result.status).toBe("completed");
+    expect((await getUploadJobStatus(world.deps, OWNER, started.jobId)).status).toBe("completed");
+    const overview = await getOverview(world.deps, OWNER);
+    expect(overview.jobs.map((job) => job.status)).toEqual(["completed"]);
+    // And the only publication claim the result makes is the honest one.
+    expect(result.publicStatus).toBe("draft");
+  });
+
+  it("maps every persisted value explicitly, and invents none", () => {
+    expect(externalJobStatus("published")).toBe("completed");
+    expect(externalJobStatus("received")).toBe("received");
+    expect(externalJobStatus("processing")).toBe("processing");
+    expect(externalJobStatus("failed")).toBe("failed");
+  });
+
+  it("reports a resale upload as completed AND publicly published", async () => {
+    // The two fields answer different questions, and the resale lane is what
+    // proves they are not the same field wearing two names.
+    const world = makeWorld();
+    const { result } = await runJob(world, OWNER, {
+      workflow: "resale_listing",
+      resaleFacts: { title: "Sea View 2BR", price: 12_500_000 },
+      files: [],
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.publicStatus).toBe("published");
+    expect(result.listingId).not.toBeNull();
   });
 });
 

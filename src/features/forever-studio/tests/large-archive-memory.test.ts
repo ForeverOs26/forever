@@ -111,7 +111,7 @@ describe("large-archive bounded memory (≈290 MiB genuine ZIP)", () => {
         if (slices > 60) throw new Error("did not settle within 60 slices");
       }
 
-      expect(result.status).toBe("published");
+      expect(result.status).toBe("completed");
       const rows = await world.deps.data.listJobArchiveEntries(jobId);
       expect(rows).toHaveLength(entries.length);
       expect(rows.filter((row) => row.state === "published_public")).toHaveLength(2);
@@ -172,7 +172,7 @@ describe("large-archive bounded memory (≈290 MiB genuine ZIP)", () => {
         slices += 1;
         if (slices > 40) throw new Error("resume did not settle");
       }
-      expect(resumed.status).toBe("published");
+      expect(resumed.status).toBe("completed");
       const rows = await world.deps.data.listJobArchiveEntries(jobId);
       expect(rows.every((row) => row.state === "retained_private")).toBe(true);
       console.log(

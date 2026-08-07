@@ -82,10 +82,13 @@ function result(
     status,
     workflow: job.workflow,
     attemptCount: job.attemptCount + 1,
-    pagePath: status === "published" ? `/projects/${job.projectSlug}` : null,
+    pagePath: status === "completed" ? `/projects/${job.projectSlug}` : null,
     projectSlug: job.projectSlug,
     listingId: null,
-    publicStatus: status === "published" ? "published" : null,
+    // This suite's fixtures model a run that DID publish (the resale lane, or a
+    // job processed before unpublished ingestion), because its subject is the
+    // published-result affordance. A project ingestion would report "draft".
+    publicStatus: status === "completed" ? "published" : null,
     counts: null,
     warnings: [],
     errorCode: status === "failed" ? "object_stat_failed" : null,
@@ -230,7 +233,7 @@ describe("Owner-controlled Retry result inspection", () => {
   });
 
   it("(1, 23) immediately published shows success and the safe result action", async () => {
-    endpoints.processJob.mockResolvedValue(result(JOB_A, "published"));
+    endpoints.processJob.mockResolvedValue(result(JOB_A, "completed"));
     renderDashboard();
     await settle();
     await clickRetry();
@@ -259,7 +262,7 @@ describe("Owner-controlled Retry result inspection", () => {
 
   it("(3, 13) processing then published polls once and stops on success", async () => {
     endpoints.processJob.mockResolvedValue(result(JOB_A, "processing"));
-    endpoints.getJobStatus.mockResolvedValue(result(JOB_A, "published"));
+    endpoints.getJobStatus.mockResolvedValue(result(JOB_A, "completed"));
     renderDashboard();
     await settle();
     await clickRetry();
@@ -551,7 +554,7 @@ describe("the absolute Owner Retry deadline covers submission and observation", 
   });
 
   it("(2) an immediate published response still settles normally", async () => {
-    endpoints.processJob.mockResolvedValue(result(JOB_A, "published"));
+    endpoints.processJob.mockResolvedValue(result(JOB_A, "completed"));
     renderDashboard();
     await settle();
     await clickRetry();
@@ -636,7 +639,7 @@ describe("the absolute Owner Retry deadline covers submission and observation", 
     await clickRetry();
     await advance(DEADLINE + 1);
 
-    gate.resolve(result(JOB_A, "published"));
+    gate.resolve(result(JOB_A, "completed"));
     await settle();
 
     expect(pageText()).toMatch(TIMEOUT_MESSAGE);
@@ -684,7 +687,7 @@ describe("the absolute Owner Retry deadline covers submission and observation", 
     await clickRetry();
     await advance(DEADLINE + 1);
 
-    endpoints.getJobStatus.mockResolvedValueOnce(result(JOB_A, "published"));
+    endpoints.getJobStatus.mockResolvedValueOnce(result(JOB_A, "completed"));
     fireEvent.click(refreshButton());
     await settle();
 
@@ -809,7 +812,7 @@ describe("safe manual-Retry rendering", () => {
   });
 
   it("(22) never asks for file selection or re-upload", async () => {
-    endpoints.processJob.mockResolvedValue(result(JOB_A, "published"));
+    endpoints.processJob.mockResolvedValue(result(JOB_A, "completed"));
     renderDashboard();
     await settle();
     await clickRetry();

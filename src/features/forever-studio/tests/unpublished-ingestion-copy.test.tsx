@@ -106,7 +106,7 @@ async function submit() {
 
 /** What the server returns for a project ingestion now: a DRAFT. */
 const DRAFT_RESULT = {
-  status: "published",
+  status: "completed",
   pagePath: "/projects/x",
   publicStatus: "draft",
   warnings: [],
@@ -117,7 +117,7 @@ const DRAFT_RESULT = {
 
 /** What the resale lane returns: it really did publish. */
 const PUBLISHED_LISTING_RESULT = {
-  status: "published",
+  status: "completed",
   pagePath: "/resale/y",
   publicStatus: "published",
   warnings: [],

@@ -278,8 +278,13 @@ Things worth knowing:
   creates a duplicate.
 - Uploading to a project that is already **published** is refused, and
   nothing about that project is changed. Nothing is unpublished for you and
-  no live page is quietly rewritten. Unpublish it first if you meant to
-  replace what is live, or upload under a different project name.
+  no live page is quietly rewritten. To replace what is published,
+  **unpublish that project first, then upload again.** That is the one
+  supported way through — do not re-upload the same project under a different
+  name to get around it, because that creates a second project for one real
+  development.
+  This applies to a published project even while it is switched off and not
+  currently visible: published is published.
 - Phone photos and videos work as they are: iPhone HEIC/HEIF photos and
   MP4/MOV videos are recognized by their actual content. A file whose bytes
   do not match its name (or an unrecognized format) is kept safely private

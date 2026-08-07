@@ -7,8 +7,17 @@
  * exclusively through the server functions in studio.functions.ts.
  *
  * Durable product rule: an upload by an authenticated Owner or Trusted
- * Publisher IS direct publication authorization. Incomplete business data
- * never creates a follow-on approval or publication gate.
+ * Publisher is authorization to INGEST — never to publish. A project upload
+ * creates or updates an UNPUBLISHED draft; publication is a separate,
+ * separately authorized action (`studioSetProjectPublication`). A resale
+ * listing upload is a different lane and still publishes on upload.
+ *
+ * Incomplete business data still never creates a follow-on approval or
+ * publication gate on the ingestion itself — that rule is unchanged.
+ *
+ * See `StudioPersistedJobStatus` vs `StudioJobStatus` below: the database's job
+ * state machine still stores the word `published` for a finished job, and that
+ * legacy internal value is converted before it reaches this contract.
  */
 
 import type { StudioArchiveUploadCapability } from "./archive-capability";
@@ -493,7 +502,50 @@ export function additionalMaterialWindows(workflow: StudioWorkflow): StudioMater
   return STUDIO_MATERIAL_WINDOWS.filter((window) => !primary.has(window.purpose));
 }
 
-export type StudioJobStatus = "received" | "processing" | "published" | "failed";
+/**
+ * THE DATABASE'S OWN JOB STATE MACHINE — internal, persisted, and NOT truthful
+ * about publication since FOREVER-STUDIO-UNPUBLISHED-INGESTION-001.
+ *
+ * `studio_upload_jobs.status` stores `'published'` for a finished job, and
+ * `studio_claim_job` / `studio_publish_project` / `studio_fail_job` all key off
+ * that exact literal. Since a project ingestion now finishes WITHOUT publishing
+ * anything, the stored word is a legacy internal value: it means "this job
+ * reached its terminal success state", not "a project was published".
+ *
+ * Renaming the persisted value would be a database migration, so it is kept
+ * exactly as it is and ISOLATED here. It must not leave the server: every
+ * browser-facing surface reports `StudioJobStatus` instead, and
+ * `externalJobStatus` is the one conversion between them.
+ */
+export type StudioPersistedJobStatus = "received" | "processing" | "published" | "failed";
+
+/**
+ * WHAT THE BROWSER SEES — the truthful external contract.
+ *
+ * `completed` replaces the persisted `published`, because a finished project
+ * ingestion produced an unpublished draft and a finished resale ingestion
+ * produced a listing. Whether anything actually became public is a SEPARATE
+ * field (`StudioJobResult.publicStatus`), which is the only thing that may be
+ * read as a publication claim.
+ */
+export type StudioJobStatus = "received" | "processing" | "completed" | "failed";
+
+/**
+ * The single conversion from the persisted state machine to the external one.
+ *
+ * Deliberately total and explicit rather than a cast: if the database vocabulary
+ * ever grows a value, this stops compiling instead of leaking it.
+ */
+export function externalJobStatus(status: StudioPersistedJobStatus): StudioJobStatus {
+  switch (status) {
+    case "published":
+      return "completed";
+    case "received":
+    case "processing":
+    case "failed":
+      return status;
+  }
+}
 
 export type StudioJobFileStatus =
   | "declared"

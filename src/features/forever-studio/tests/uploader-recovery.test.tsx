@@ -142,7 +142,7 @@ describe("StudioUploader incident recovery", () => {
       )
       .mockResolvedValueOnce({ archiveId: "arch-9" });
     endpoints.processJob.mockResolvedValue({
-      status: "published",
+      status: "completed",
       pagePath: null,
       warnings: [],
       counts: null,
@@ -183,7 +183,7 @@ describe("StudioUploader incident recovery", () => {
       // body (undefined) right around the safe-storage transition, the next
       // poll reads normally.
       endpoints.processJob.mockResolvedValueOnce(undefined).mockResolvedValue({
-        status: "published",
+        status: "completed",
         pagePath: null,
         warnings: [],
         counts: null,

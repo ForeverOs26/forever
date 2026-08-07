@@ -415,7 +415,7 @@ describe.runIf(process.env.FOREVER_MEMORY_BENCHMARK === "1")(
             sampleInterSliceLive();
             if (slices > 80) throw new Error("did not settle within 80 slices");
           }
-          expect(result.status).toBe("published");
+          expect(result.status).toBe("completed");
           const rows = await world.deps.data.listJobArchiveEntries(jobId);
           expect(rows).toHaveLength(entries.length);
           expect(rows.every((row) => row.state !== "pending")).toBe(true);

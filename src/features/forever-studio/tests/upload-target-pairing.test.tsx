@@ -195,7 +195,7 @@ describe("upload target pairing", () => {
     endpoints.getOverview.mockReset().mockResolvedValue(OVERVIEW);
     endpoints.startJob.mockReset();
     endpoints.processJob.mockReset().mockResolvedValue({
-      status: "published",
+      status: "completed",
       pagePath: "/projects/x",
       warnings: [],
       counts: null,
@@ -454,7 +454,7 @@ describe("upload target pairing", () => {
    */
   it("renders a historically persisted file_upload_missing warning safely", async () => {
     endpoints.processJob.mockResolvedValue({
-      status: "published",
+      status: "completed",
       pagePath: "/projects/x",
       counts: { buildings: 0, units: 3, prices: 3, media: 0, warnings: 1 },
       warnings: [

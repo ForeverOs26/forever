@@ -443,7 +443,7 @@ describe("explicit material purpose — end-to-end publication", () => {
     uploadAll(world, started.uploads, { "document.pdf": tinyPdf() });
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     // The price-list lane ran because the WINDOW said price list.
     expect(result.warnings.some((warning) => warning.code === PRICE_LANE)).toBe(true);
     const files = await jobFiles(world, started.jobId);
@@ -461,7 +461,7 @@ describe("explicit material purpose — end-to-end publication", () => {
     uploadAll(world, started.uploads, { "price-list.pdf": tinyPdf() });
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     // The filename would have routed it into price extraction; the window won.
     expect(result.warnings.some((warning) => warning.code === PRICE_LANE)).toBe(false);
     const files = await jobFiles(world, started.jobId);
@@ -502,7 +502,7 @@ describe("explicit material purpose — end-to-end publication", () => {
     uploadAll(world, started.uploads);
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const media = world.executor.store.media;
     expect(media).toHaveLength(1);
     // "gallery", not "master_plan": the window decided, not the filename.
@@ -522,7 +522,7 @@ describe("explicit material purpose — end-to-end publication", () => {
     });
     uploadAll(world, started.uploads);
 
-    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("published");
+    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("completed");
     const media = world.executor.store.media;
     expect(media).toHaveLength(1);
     expect(media[0].title).toMatch(/^Construction update /);
@@ -546,7 +546,7 @@ describe("explicit material purpose — end-to-end publication", () => {
     });
     uploadAll(world, started.uploads);
 
-    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("published");
+    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("completed");
     const files = await jobFiles(world, started.jobId);
     // Five windows, five distinct purposes, all preserved on one job.
     expect(files.map((file) => file.materialPurpose)).toEqual([
@@ -584,7 +584,7 @@ describe("explicit material purpose — end-to-end publication", () => {
       files: [],
     });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(world.executor.store.projects).toHaveLength(1);
   });
 
@@ -598,7 +598,7 @@ describe("explicit material purpose — end-to-end publication", () => {
     uploadAll(world, started.uploads);
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
     // Missing categories never block publication and never queue a review.
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.pagePath).toBeTruthy();
   });
 });
@@ -619,7 +619,7 @@ describe("explicit material purpose — byte safety is unchanged", () => {
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
     // The job still publishes: one bad file never blocks the rest.
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.warnings.some((warning) => warning.code === "media_class_mismatch")).toBe(true);
 
     const files = await jobFiles(world, started.jobId);
@@ -650,7 +650,7 @@ describe("explicit material purpose — byte safety is unchanged", () => {
     });
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const files = await jobFiles(world, started.jobId);
     const file = fileNamed(files, "brochure.pdf");
     expect(file.materialPurpose).toBe("brochure");
@@ -676,7 +676,7 @@ describe("explicit material purpose — byte safety is unchanged", () => {
     });
     uploadAll(world, started.uploads);
 
-    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("published");
+    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("completed");
     const file = fileNamed(await jobFiles(world, started.jobId), "photo.jpg");
     expect(file.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(file.observedSize).toBe(magicBytesFor("photo.jpg").length);
@@ -709,7 +709,7 @@ describe("explicit material purpose — archives and legacy jobs", () => {
     });
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
 
     const types = world.executor.store.media.map((item) => item.media_type).sort();
     // Archive entries used their in-archive paths (photo + floor plan), and the
@@ -743,7 +743,7 @@ describe("explicit material purpose — archives and legacy jobs", () => {
     uploadAll(world, started.uploads);
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     // The legacy row keeps the category it was DECLARED with. Asserted per
     // file, not as a sorted set: re-classifying the filenames instead would
     // produce the same two media types swapped between the two files, and a
@@ -783,7 +783,7 @@ describe("explicit material purpose — retry and idempotency", () => {
     expect(fileNamed(afterFailure, "shot.jpg").materialPurpose).toBe("construction_photo");
 
     const retried = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(retried.status).toBe("published");
+    expect(retried.status).toBe("completed");
     expect(world.executor.store.projects).toHaveLength(1);
 
     const afterRetry = await jobFiles(world, started.jobId);
@@ -792,7 +792,7 @@ describe("explicit material purpose — retry and idempotency", () => {
     expect(fileNamed(afterRetry, "shot.jpg").materialPurpose).toBe("construction_photo");
 
     // A duplicate request stays idempotent.
-    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("published");
+    expect((await processUploadJob(world.deps, OWNER, started.jobId)).status).toBe("completed");
     expect(world.executor.store.projects).toHaveLength(1);
   });
 });
@@ -809,7 +809,7 @@ describe("explicit material purpose — no review, readiness or approval gate", 
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
     // One call: upload IS the authorization. No intermediate approval status.
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const project = world.executor.store.projects[0];
     const provenance = JSON.stringify(project?.field_provenance ?? {});
     expect(provenance).toContain("owner_provided");

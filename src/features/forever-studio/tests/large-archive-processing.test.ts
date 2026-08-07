@@ -76,7 +76,7 @@ describe("large-archive sliced processing", () => {
     await uploadMixedArchive(world, jobId);
     const { result } = await drive(world, jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.projectSlug).toBe("archive-manor");
     const project = world.executor.store.projects[0];
     expect(project.name).toBe("Archive Manor");
@@ -136,7 +136,7 @@ describe("large-archive sliced processing", () => {
     expect(row?.processing_token).toBeNull();
 
     const { result, calls } = await drive(world, jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(calls).toBeGreaterThanOrEqual(1);
     const settled = await world.deps.data.listJobArchiveEntries(jobId);
     expect(settled.every((entry) => entry.state === "retained_private")).toBe(true);
@@ -194,7 +194,7 @@ describe("large-archive sliced processing", () => {
     world.advanceMinutes(16); // stale window elapses
 
     const { result } = await drive(world, jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     // Outcomes settled before the crash were never reprocessed or rewritten.
     const after = await world.deps.data.listJobArchiveEntries(jobId);
     for (const entry of after) {
@@ -209,12 +209,12 @@ describe("large-archive sliced processing", () => {
     const jobId = await startArchiveJob(world, OWNER);
     await uploadMixedArchive(world, jobId);
     const { result } = await drive(world, jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const mediaBefore = structuredClone(world.executor.store.media);
     const objectsBefore = [...world.storage.objects.keys()].sort();
 
     const replay = await processUploadJob(world.deps, OWNER, jobId);
-    expect(replay.status).toBe("published");
+    expect(replay.status).toBe("completed");
     expect(world.executor.store.media).toEqual(mediaBefore);
     expect([...world.storage.objects.keys()].sort()).toEqual(objectsBefore);
   });
@@ -234,7 +234,7 @@ describe("large-archive sliced processing", () => {
     await uploadArchiveParts(world, OWNER, jobId, "second.zip", b.parts, b.totalSize);
 
     const { result } = await drive(world, jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(world.executor.store.media).toHaveLength(3);
     const entries = await world.deps.data.listJobArchiveEntries(jobId);
     const dup = entries.find((entry) => entry.entry_name === "gallery/x-again.jpg");
@@ -249,7 +249,7 @@ describe("large-archive sliced processing", () => {
     });
     const a = buildZipParts([jpegEntry("photos/x.jpg")], PART);
     await uploadArchiveParts(world, OWNER, firstJob, "day-one.zip", a.parts, a.totalSize);
-    expect((await drive(world, firstJob)).result.status).toBe("published");
+    expect((await drive(world, firstJob)).result.status).toBe("completed");
     expect(world.executor.store.media).toHaveLength(1);
 
     const secondJob = await startArchiveJob(world, OWNER, {
@@ -262,7 +262,7 @@ describe("large-archive sliced processing", () => {
     );
     await uploadArchiveParts(world, OWNER, secondJob, "day-two.zip", b.parts, b.totalSize);
     const { result } = await drive(world, secondJob);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(world.executor.store.media).toHaveLength(2);
     const entries = await world.deps.data.listJobArchiveEntries(secondJob);
     const skipped = entries.find((entry) => entry.entry_name === "again/x.jpg");
@@ -292,7 +292,7 @@ describe("large-archive sliced processing", () => {
     );
 
     const { result } = await drive(world, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     // Nothing expanded: zero entry rows, no entry-derived public objects.
     expect(await world.deps.data.listJobArchiveEntries(started.jobId)).toHaveLength(0);
     const archives = await world.deps.data.listJobArchives(started.jobId);
@@ -316,7 +316,7 @@ describe("large-archive sliced processing", () => {
     );
     await uploadArchiveParts(world, OWNER, jobId, "mixed.zip", mixed.parts, mixed.totalSize);
     const { result } = await drive(world, jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const entries = await world.deps.data.listJobArchiveEntries(jobId);
     const damaged = entries.find((entry) => entry.entry_name === "photos/damaged.jpg");
     expect(damaged?.state).toBe("failed");
@@ -346,7 +346,7 @@ describe("large-archive sliced processing", () => {
       },
     );
     const { result } = await drive(world, jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const archives = await world.deps.data.listJobArchives(jobId);
     expect(archives[0].status).toBe("rejected");
     expect(archives[0].error_code).toBe("archive_part_integrity_failed");
@@ -367,7 +367,7 @@ describe("large-archive sliced processing", () => {
     );
     await uploadArchiveParts(world, OWNER, jobId, "video.zip", archive.parts, archive.totalSize);
     const { result } = await drive(world, jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const entries = await world.deps.data.listJobArchiveEntries(jobId);
     const video = entries.find((entry) => entry.entry_name === "video/big-walkthrough.mp4");
     expect(video?.state).toBe("retained_private");
@@ -397,7 +397,7 @@ describe("large-archive sliced processing", () => {
       skipConfirm: true,
     });
     const { result } = await drive(world, jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const archives = await world.deps.data.listJobArchives(jobId);
     expect(archives[0].status).toBe("rejected");
     expect(archives[0].error_code).toBe("archive_upload_incomplete");
@@ -423,7 +423,7 @@ describe("large-archive sliced processing", () => {
       archive.totalSize,
     );
     const { result } = await drive(world, jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const entries = await world.deps.data.listJobArchiveEntries(jobId);
     const outcome = {
       state: "failed" as const,
@@ -474,7 +474,7 @@ describe("large-archive sliced processing", () => {
     world.storage.put(PUBLIC_IMAGE_BUCKET, `studio/${jobId}/deadattempt/00-orphan.jpg`, "junk");
 
     const { result } = await drive(world, jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const entries = await world.deps.data.listJobArchiveEntries(jobId);
     const published = entries.filter((entry) => entry.state === "published_public");
     expect(published).toHaveLength(2);

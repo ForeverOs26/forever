@@ -457,7 +457,7 @@ export function describePublicationOutcome(input: {
   // project ingestion reports `published` as its job lifecycle state while
   // deliberately leaving the project a draft; `publicStatus` is what separates
   // those two questions. See DRAFT VS LIVE above.
-  const completed = input.status === "published";
+  const completed = input.status === "completed";
   const isPublic = input.publicStatus === "published";
 
   const base = {

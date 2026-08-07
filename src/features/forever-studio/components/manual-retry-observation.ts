@@ -27,7 +27,7 @@ export const STUDIO_OWNER_RETRY_OBSERVATION = Object.freeze({
 export type StudioOwnerRetryPhase =
   | "submitting"
   | "observing"
-  | "published"
+  | "completed"
   | "failed"
   | "terminally_nonretryable"
   | "missing"

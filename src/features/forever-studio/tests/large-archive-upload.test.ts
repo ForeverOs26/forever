@@ -303,7 +303,7 @@ describe("planJobArchiveUpload", () => {
       projectFacts: { name: "Done Project" },
     });
     const result = await processUploadJob(world.deps, OWNER, jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     await expect(
       planJobArchiveUpload(world.deps, OWNER, {
         jobId,

@@ -24,7 +24,7 @@ import type {
   StudioArchiveEntryState,
   StudioArchiveStatus,
   StudioJobFile,
-  StudioJobStatus,
+  StudioPersistedJobStatus,
   StudioMaterialPurpose,
   StudioMaterialPurposeSource,
   StudioRole,
@@ -83,7 +83,12 @@ export interface StudioJobRow {
   workflow: StudioWorkflow;
   project_slug: string | null;
   listing_id: string | null;
-  status: StudioJobStatus;
+  /**
+   * The DATABASE's own value, verbatim — `'published'` for a finished job even
+   * when that job published nothing. Never hand this to a browser-facing
+   * result; convert it with `externalJobStatus` first.
+   */
+  status: StudioPersistedJobStatus;
   processing_token: string | null;
   processing_requested_at: string | null;
   content_fingerprint: string | null;

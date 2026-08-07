@@ -65,7 +65,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       { "price-list.json": CORALINA_PRICE_LIST },
     );
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.projectSlug).toBe("the-title-coralina-kamala");
     expect(result.pagePath).toBe("/projects/the-title-coralina-kamala");
     // FOREVER-STUDIO-UNPUBLISHED-INGESTION-001: ingestion is complete and
@@ -116,7 +116,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       { "price-list.json": RAINPALM_PRICE_LIST },
     );
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     // Incomplete business data still never gates the INGESTION — it produced a
     // complete draft with warnings. What it does not do is publish.
     expect(result.publicStatus).toBe("draft");
@@ -149,7 +149,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       files: [{ name: "pool-view.jpg", materialPurpose: "project_photo" }],
     });
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.warnings.some((warning) => warning.code === "project_exists_updated")).toBe(true);
     expect(world.executor.store.projects).toHaveLength(1);
     expect(world.executor.store.projects[0].developer_name_raw).toBe("Tonsai Company");
@@ -184,7 +184,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       { "price-list.json": JSON.stringify(updated) },
     );
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(world.executor.store.projects).toHaveLength(1);
     expect(world.executor.store.prices.some((row) => row.price === 99_999_999)).toBe(true);
   });
@@ -207,7 +207,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       ],
     });
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const gallery = world.executor.store.media.filter((row) => row.media_type === "gallery");
     expect(gallery).toHaveLength(2);
     expect(gallery[0].title).toMatch(/^Construction update \d{4}-\d{2}-\d{2}$/);
@@ -234,7 +234,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       projectFacts: { shortDescription: "Owner-managed publisher project" },
       files: [],
     });
-    expect(facts.result.status).toBe("published");
+    expect(facts.result.status).toBe("completed");
 
     const updated = JSON.parse(RAINPALM_PRICE_LIST) as {
       unit_inventory: Array<Record<string, { value: unknown } | undefined>>;
@@ -251,7 +251,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       },
       { "price-list.json": JSON.stringify(updated) },
     );
-    expect(prices.result.status).toBe("published");
+    expect(prices.result.status).toBe("completed");
     expect(world.executor.store.prices.some((row) => row.price === 88_888_888)).toBe(true);
 
     const media = await runJob(
@@ -270,7 +270,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
         "owner-update-2.jpg": Buffer.concat([tinyJpeg(), Buffer.from("second")]),
       },
     );
-    expect(media.result.status).toBe("published");
+    expect(media.result.status).toBe("completed");
 
     const counts = {
       projects: world.executor.store.projects.length,
@@ -281,7 +281,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       warnings: world.executor.store.warnings.length,
     };
     for (const job of [created.started, facts.started, prices.started, media.started]) {
-      expect((await processUploadJob(world.deps, OWNER, job.jobId)).status).toBe("published");
+      expect((await processUploadJob(world.deps, OWNER, job.jobId)).status).toBe("completed");
     }
     expect({
       projects: world.executor.store.projects.length,
@@ -309,7 +309,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     uploadAll(world, started.uploads.slice(0, 2), { "broken-price-list.json": "{not-json" });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.warnings.map((w) => w.code)).toEqual(
       expect.arrayContaining(["file_unreadable", "file_upload_missing"]),
     );
@@ -387,7 +387,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
 
     world.executor.failOnUnitCode = null;
     const retried = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(retried.status).toBe("published");
+    expect(retried.status).toBe("completed");
     expect(world.executor.store.units).toHaveLength(1);
     expect(world.executor.store.projects).toHaveLength(1);
     expect(world.executor.store.batches).toHaveLength(1);
@@ -395,7 +395,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     // Re-entering a published job is a read, not a re-publication.
     const before = world.executor.store.batches.length;
     const again = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(again.status).toBe("published");
+    expect(again.status).toBe("completed");
     expect(world.executor.store.batches).toHaveLength(before);
   });
 
@@ -412,7 +412,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       processUploadJob(world.deps, OWNER, started.jobId),
     ]);
     const statuses = [a.status, b.status];
-    expect(statuses.filter((s) => s === "published").length).toBeGreaterThanOrEqual(1);
+    expect(statuses.filter((s) => s === "completed").length).toBeGreaterThanOrEqual(1);
     // Never two projects from the same job.
     expect(world.executor.store.projects).toHaveLength(1);
     expect(world.executor.store.batches).toHaveLength(1);
@@ -482,7 +482,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     });
     uploadAll(world, started.uploads);
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.projectSlug).toMatch(/^new-project-\d{4}-\d{2}-\d{2}-[0-9a-f]{8}$/);
     expect(world.executor.store.projects).toHaveLength(1);
     expect(world.executor.publicProjects()).toHaveLength(0);
@@ -513,7 +513,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       },
       { "project-facts.json": facts },
     );
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.projectSlug).toBe("brochure-derived-name");
   });
 
@@ -524,7 +524,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       projectSlug: "brand-new-slug",
       files: [{ name: "photo.jpg", materialPurpose: "project_photo" }],
     });
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.warnings.some((w) => w.code === "project_missing_created")).toBe(true);
     expect(world.executor.store.projects[0].name).toBe("Brand New Slug");
   });
@@ -553,7 +553,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       },
       { "dossier.zip": Buffer.from("PK zip placeholder") },
     );
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.counts?.units).toBe(21);
     expect(world.executor.store.media.map((m) => m.media_type)).toContain("gallery");
   });
@@ -574,7 +574,7 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
       },
       { "bomb.zip": Buffer.from("PK\x03\x04 pretend bomb") },
     );
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.warnings.some((w) => w.code === "archive_rejected_unsafe")).toBe(true);
     // The photo published; nothing from the rejected archive did.
     expect(world.executor.store.media).toHaveLength(1);

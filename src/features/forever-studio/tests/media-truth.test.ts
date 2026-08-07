@@ -254,7 +254,7 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(
       result.warnings.filter((warning) => warning.code === "media_sanitization_unsupported"),
     ).toHaveLength(2);
@@ -343,7 +343,7 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
     const serverLogs = errorSpy.mock.calls.flat().map(String).join("\n");
     errorSpy.mockRestore();
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const keys = world.storage.publicKeys(PUBLIC_IMAGE_BUCKET);
     // Every .jpg the Owner filed under Project Photos publishes. One of these
     // names embeds a "Documents" folder, which the filename classifier used to
@@ -411,7 +411,7 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.warnings.some((warning) => warning.code === "media_sanitization_failed")).toBe(
       true,
     );
@@ -438,7 +438,7 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(
       result.warnings.some((warning) => warning.code === "media_sanitization_unsupported"),
     ).toBe(true);
@@ -463,7 +463,7 @@ describe("FOREVER-MEDIA-TRUTH-001 Studio integration", () => {
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(1);
     const archive = (await world.data.getJob(started.jobId))!.files[0];
     expect(archive.status).toBe("uploaded");
@@ -594,7 +594,7 @@ describe("FOREVER-MEDIA-TRUTH-001 dimension / pixel-count boundary", () => {
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(0);
     expect(result.warnings.some((warning) => warning.code === "media_sanitization_failed")).toBe(
       true,
@@ -793,7 +793,7 @@ describe("FOREVER-MEDIA-TRUTH-001 ICC / color-profile policy", () => {
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(0);
     expect(
       result.warnings.some((warning) => warning.code === "media_color_profile_unsupported"),

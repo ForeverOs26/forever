@@ -228,7 +228,7 @@ describe("provider persistence", () => {
     world.flags.writeProvider = "supabase";
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     // The job still processed on R2 end to end.
     expect(world.storage.uploadCalls).toEqual([]);
     expect(world.storage.signedUploads).toEqual([]);
@@ -345,7 +345,7 @@ describe("Supabase Storage call sites on an R2 job", () => {
   it("makes zero signed-upload, upload or public-object calls", async () => {
     const world = r2World();
     const { result } = await runPhotoJob(world);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
 
     // NOT VACUOUS: the job genuinely did the whole job — verified the stored
     // bytes and published a derivative — and did all of it on R2. Without
@@ -384,7 +384,7 @@ describe("Supabase Storage call sites on an R2 job", () => {
   it("publishes a same-origin Forever media URL, never an R2 or r2.dev host", async () => {
     const world = r2World();
     const { result } = await runPhotoJob(world);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const urls = world.executor.store.media.map((row) => row.url);
     expect(urls.length).toBeGreaterThan(0);
     for (const url of urls) {

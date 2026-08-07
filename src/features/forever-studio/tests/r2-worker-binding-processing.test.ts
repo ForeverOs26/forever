@@ -142,7 +142,7 @@ describe("Worker processing uses native R2 bindings for every object operation",
       processUploadJob(world.deps, OWNER, started.jobId),
     );
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     // (5) The Worker made ZERO server-side S3 requests during processing.
     expect(world.workerR2.serverFetchAttempts).toEqual([]);
     // (1) Object stat went through the private-sources binding.
@@ -224,7 +224,7 @@ describe("Worker processing uses native R2 bindings for every object operation",
       runScheduledStudioTick(world.deps, {}),
     );
 
-    expect(tick.published).toBe(1);
+    expect(tick.completed).toBe(1);
     expect(world.workerR2.serverFetchAttempts).toEqual([]);
     expect(world.workerR2.callsFor("private_source").some((call) => call.op === "head")).toBe(true);
     expect(world.workerR2.callsFor("public_media").some((call) => call.op === "put")).toBe(true);
@@ -300,7 +300,7 @@ describe("the real provider registry resolves bindings from the Worker environme
     const scheduled = await withWorkerRuntime(world.workerR2.env, () =>
       runScheduledStudioTick(world.deps, {}),
     );
-    expect(scheduled.published).toBe(1);
+    expect(scheduled.completed).toBe(1);
     const scheduledCalls = world.workerR2.calls.length;
     expect(scheduledCalls).toBeGreaterThan(0);
 
@@ -309,7 +309,7 @@ describe("the real provider registry resolves bindings from the Worker environme
     const fetched = await withWorkerRuntime(world.workerR2.env, () =>
       processUploadJob(world.deps, OWNER, started.jobId),
     );
-    expect(fetched.status).toBe("published");
+    expect(fetched.status).toBe("completed");
     // Neither path made a single server-side S3 request.
     expect(world.workerR2.serverFetchAttempts).toEqual([]);
   });
@@ -613,7 +613,7 @@ describe("bounded automatic retries", () => {
       processUploadJob(world.deps, OWNER, started.jobId),
     );
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const job = await world.deps.data.getJob(started.jobId);
     // History preserved: the attempt count only ever went UP, and the spent
     // automatic budget is left standing as the record of what happened. It has
@@ -650,7 +650,7 @@ describe("bounded automatic retries", () => {
     );
 
     expect(tick.advanced).toBe(0);
-    expect(tick.published).toBe(0);
+    expect(tick.completed).toBe(0);
     expect(resumed.resumed).toBe(0);
     const after = world.data.jobs.get(started.jobId)!;
     expect(after.attempt_count).toBe(attemptsBefore);
@@ -680,7 +680,7 @@ describe("bounded automatic retries", () => {
       processUploadJob(world.deps, OWNER, started.jobId),
     );
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const job = await world.deps.data.getJob(started.jobId);
     // History preserved: the attempt count only ever went UP. Nothing here
     // reset it, zeroed it, or rewrote it to make the recovery look cleaner.
@@ -765,7 +765,7 @@ describe("an existing failed R2 job recovers without re-upload", () => {
       processUploadJob(world.deps, OWNER, started.jobId),
     );
 
-    expect(recovered.status).toBe("published");
+    expect(recovered.status).toBe("completed");
     // (15) No re-upload: the private bucket is byte-identical in membership,
     // and every write the binding performed went to PUBLIC media.
     expect(privateSourceKeys(world).slice().sort()).toEqual(objectsBefore);
@@ -799,7 +799,7 @@ describe("an existing failed R2 job recovers without re-upload", () => {
     const again = await withWorkerRuntime(world.workerR2.env, () =>
       processUploadJob(world.deps, OWNER, started.jobId),
     );
-    expect(again.status).toBe("published");
+    expect(again.status).toBe("completed");
     expect(world.executor.store.projects).toHaveLength(1);
   });
 

@@ -339,7 +339,7 @@ describe("processing the completed archive", () => {
     for (let round = 0; round < 12 && result.status === "processing"; round += 1) {
       result = await processUploadJob(world.deps, OWNER, job.jobId);
     }
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
 
     const row = await world.deps.data.getArchive(uploaded.archiveId);
     expect(row!.status).toBe("completed");
