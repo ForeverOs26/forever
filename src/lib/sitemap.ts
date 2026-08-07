@@ -9,6 +9,8 @@
  * known-fictitious seed slugs (see `@/lib/public-truth`).
  */
 
+import { PUBLIC_SITE_ORIGIN } from "./site-origin";
+
 /**
  * Absolute origin the public site is served from.
  *
@@ -18,16 +20,19 @@
  * production build. It is a public identifier, never a credential, so inlining
  * it into the client bundle is intended.
  *
+ * It is declared ONCE, in `@/lib/site-origin`, and re-exported here so this
+ * module's existing consumers are unchanged. The same value now also decides
+ * whether a request may start a Studio upload, and two origin constants that
+ * could drift apart would make that decision unreviewable.
+ *
  * The fallback is the live public origin, so a build that forgets the variable
  * still advertises the host the site is actually served from. It previously
  * named the superseded Lovable project host the site was first built on, which
  * is how robots.txt came to point crawlers at a dead foreign domain (F-019).
- * That hostname must never return here — `sitemap.test.ts` fails the build if
+ * That hostname must never return there — `sitemap.test.ts` fails the build if
  * any origin, sitemap or robots output mentions it again.
  */
-export const PUBLIC_SITE_ORIGIN = (
-  import.meta.env.VITE_PUBLIC_SITE_ORIGIN ?? "https://forever.phuketre22.workers.dev"
-).replace(/\/+$/, "");
+export { PUBLIC_SITE_ORIGIN };
 
 export const SITEMAP_BASE_URL = PUBLIC_SITE_ORIGIN;
 

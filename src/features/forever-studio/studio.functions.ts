@@ -8,6 +8,13 @@
  * ever reaches the browser. Handlers dynamically import the server modules
  * so no service-role code can reach the client bundle; this file itself
  * carries only wiring and zod validation.
+ *
+ * The three endpoints that ALLOCATE an upload — start-job, archive plan and
+ * archive confirm — additionally run requireStudioUploadOrigin as their first
+ * act, so a request from anywhere but the declared production origin creates no
+ * job row, no audit entry, no signed target, no archive row and no multipart
+ * upload (Issue #103). Read endpoints are untouched: a version preview stays
+ * fully usable for release verification.
  */
 
 import { createServerFn } from "@tanstack/react-start";
@@ -117,9 +124,14 @@ export const studioStartJob = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { startUploadJob } = await import("./server/service");
     const { runStudioEndpoint } = await import("./server/errors");
-    return runStudioEndpoint("upload_start", () =>
-      startUploadJob(context.deps, context.actor, data),
-    );
+    const { requireStudioUploadOrigin } = await import("./server/upload-origin.server");
+    return runStudioEndpoint("upload_start", async () => {
+      // Issue #103. The FIRST thing this endpoint does, before the job row,
+      // the audit entry and every signed upload target exist: a request that
+      // did not come from the declared production origin creates nothing.
+      await requireStudioUploadOrigin();
+      return startUploadJob(context.deps, context.actor, data);
+    });
   });
 
 export const studioProcessJob = createServerFn({ method: "POST" })
@@ -211,9 +223,13 @@ export const studioPlanArchiveUpload = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { planJobArchiveUpload } = await import("./server/service");
     const { runStudioEndpoint } = await import("./server/errors");
-    return runStudioEndpoint("archive_plan", () =>
-      planJobArchiveUpload(context.deps, context.actor, data),
-    );
+    const { requireStudioUploadOrigin } = await import("./server/upload-origin.server");
+    return runStudioEndpoint("archive_plan", async () => {
+      // Issue #103, before the archive row, the multipart upload and every
+      // signed part target exist.
+      await requireStudioUploadOrigin();
+      return planJobArchiveUpload(context.deps, context.actor, data);
+    });
   });
 
 /**
@@ -230,9 +246,14 @@ export const studioConfirmArchiveUpload = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { confirmJobArchiveUpload } = await import("./server/service");
     const { runStudioEndpoint } = await import("./server/errors");
-    return runStudioEndpoint("archive_confirm", () =>
-      confirmJobArchiveUpload(context.deps, context.actor, data),
-    );
+    const { requireStudioUploadOrigin } = await import("./server/upload-origin.server");
+    return runStudioEndpoint("archive_confirm", async () => {
+      // Issue #103. Confirmation is the completion half of the SAME multipart
+      // allocation planning creates: an origin that may not plan one may not
+      // finish one either, and completion is what writes the stored object.
+      await requireStudioUploadOrigin();
+      return confirmJobArchiveUpload(context.deps, context.actor, data);
+    });
   });
 
 /** Durable, public-safe processing progress for one owned job. */

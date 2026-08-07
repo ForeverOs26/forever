@@ -340,6 +340,16 @@ uploaded. Those are the two facts that make such a release verifiable at all.
    specific version, including its own asset set. Confirm the version-prefix in
    that URL belongs to the candidate UUID recorded in step 4. **Any 5xx on a
    public route is a stop** — a candidate that returns 500 is never cut over.
+   8a. **A preview is a read-only surface for Studio.** Version previews stay
+   enabled and stay part of this sequence, but a preview origin is not the
+   declared production origin, so Studio's upload screen renders a notice there
+   instead of the upload windows and the server refuses every upload-allocating
+   request with `studio_upload_origin_not_allowed` (Issue #103). That refusal is
+   the EXPECTED result on a preview and never a candidate defect — treating it
+   as one, or working around it, would restore the failure mode it exists to
+   prevent. Nothing is created by a refused request, so no cleanup follows.
+   Upload verification belongs after cutover, on the production origin, under
+   its own Owner authorization.
 9. **Validate the full transitive route-chunk graph** on the candidate: crawl the
    documents, collect every `/assets/*` reference transitively, and require
    HTTP 200 for all of them. A single 404 here is a stop.

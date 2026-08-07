@@ -97,7 +97,12 @@ import {
 import { STUDIO_MATERIAL_WINDOWS } from "../studio-types";
 import { assertLocalR2Endpoint } from "./local-r2";
 import { withWorkerRuntime } from "./local-r2-binding";
+import { withProductionUploadOrigin } from "./upload-origin-fixture";
 import { makeWorld, OWNER, TEST_R2_BUCKETS, uploadAllViaTransport, type FakeWorld } from "./fakes";
+
+// The uploader renders an upload interface only on the declared production
+// origin (Issue #103), so these suites run on it.
+withProductionUploadOrigin();
 
 // ---------------------------------------------------------------------------
 // Worlds
