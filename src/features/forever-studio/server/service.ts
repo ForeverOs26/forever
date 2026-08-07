@@ -1447,7 +1447,9 @@ async function finalizeProject(
       await deps.data.getObjectCreatedBy("project", existing.id),
     );
     // BEFORE the batch is built and before any write. An upload that lands on
-    // a live published project stops here with the published project untouched.
+    // ANY published project stops here with that project untouched — including
+    // one currently switched off (`is_active = false`), which is invisible
+    // right now but is still published.
     assertNoPublishedProjectCollision(existing);
   }
   const mode: "create" | "enrich" = existing ? "enrich" : "create";
@@ -1525,8 +1527,9 @@ async function finalizeProject(
     projectSlug: slug,
     warnings: warningSummaries(batch.warnings ?? []),
     workflow: job.workflow,
-    // Which attempt's token-scoped storage objects the publication uses —
-    // lets every cleanup path tell the winner's objects from orphans.
+    // Which attempt's token-scoped storage objects the COMMITTED INGESTION
+    // references — lets every cleanup path tell the winner's objects from
+    // orphans. Nothing here is published; these are the project's media.
     attempt: attemptPrefixFromToken(token),
   };
 
@@ -1550,9 +1553,10 @@ async function finalizeProject(
     // committed ingestion references.
     await removeGroupedByBucket(provider, materials.publicObjects);
   } else {
-    // We won: sweep every job object the publication does not reference
-    // (foreign attempts' orphans), then audit. Both are post-commit hygiene —
-    // non-destructive to the publication and non-fatal on failure.
+    // We won: sweep every job object the COMMITTED INGESTION does not
+    // reference (foreign attempts' orphans), then audit. Both are post-commit
+    // hygiene — non-destructive to the committed project and non-fatal on
+    // failure.
     await cleanupUnreferencedJobObjects(
       provider,
       job.id,
@@ -2257,7 +2261,6 @@ export async function getProjectDetail(
     name: row.name,
     publicStatus: row.public_status,
     isActive: row.is_active,
-    // The same predicate the ingestion collision guard uses, and the same one
     // Visibility, not publication state: exactly the public RLS predicate.
     // Deliberately NOT the predicate the ingestion collision guard uses — see
     // `isPubliclyVisible` vs `isPublishedProject`.

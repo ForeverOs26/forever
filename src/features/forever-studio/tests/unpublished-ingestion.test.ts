@@ -348,7 +348,8 @@ describe("an upload that collides with a published project fails closed", () => 
       // The whole graph, byte-for-byte.
       expect(graphSnapshot(world)).toBe(before);
       const after = world.executor.store.projects.find((p) => p.slug === slug)!;
-      // Publication state unchanged — not published, and NOT auto-unpublished.
+      // Publication state unchanged: it REMAINS published, and the refused
+      // upload did not automatically unpublish it.
       expect(after.public_status).toBe("published");
       // Activity state unchanged — the guard does not reactivate it either.
       expect(after.is_active).toBe(false);

@@ -105,19 +105,26 @@
  * THE THREE LEVELS
  * ---------------------------------------------------------------------------
  *
- *   - `failed`    — the job did not publish a page at all, OR a page exists but
- *                   carries no content AND a critical problem was observed.
- *                   That second clause is the measured case: an empty page
- *                   produced BECAUSE its declared sources never reached
+ *   - `failed`    — the job produced nothing at all, OR it produced something
+ *                   that carries no content AND a critical problem was
+ *                   observed. That second clause is the measured case: an empty
+ *                   result produced BECAUSE its declared sources never reached
  *                   processing is a failure, not a success with a note. Its
- *                   heading says so without leading with the word "Published" —
- *                   "Publication failed — empty page created".
- *   - `partial`   — a page exists and carries content, but a critical problem
- *                   was observed.
- *   - `complete`  — a page exists and no critical problem was observed.
+ *                   heading says so without leading with a success word —
+ *                   "Publication failed — empty page created" for a published
+ *                   run, "Failed — empty draft created" for a draft.
+ *   - `partial`   — the result carries content, but a critical problem was
+ *                   observed.
+ *   - `complete`  — the result exists and no critical problem was observed.
  *
- * An empty page with NO critical problem stays `complete`. That case is not the
- * defect being repaired and reclassifying it would be inventing a product rule.
+ * "Page" above is the LIVE case (a resale listing, or a project published
+ * before this change). A project ingestion produces an unpublished draft, and
+ * every level reads the same way with "draft" in place of "page" — see DRAFT VS
+ * LIVE below.
+ *
+ * An empty result with NO critical problem stays `complete`. That case is not
+ * the defect being repaired and reclassifying it would be inventing a product
+ * rule.
  *
  * ---------------------------------------------------------------------------
  * DRAFT VS LIVE (FOREVER-STUDIO-UNPUBLISHED-INGESTION-001)
@@ -127,8 +134,13 @@
  * UNPUBLISHED draft, and publication is a separate authorized action. A resale
  * listing upload still does publish. One module serves both, so the wording is
  * chosen from what the run actually made public — `publicStatus` — and never
- * from the job's lifecycle status, which reads `published` for a completed job
- * in either lane and would therefore describe every new draft as live.
+ * from the job's lifecycle status, which reads `completed` for a finished job
+ * in EITHER lane and so cannot distinguish a draft from a live page.
+ *
+ * (`status` here is the external `StudioJobStatus`. The database's own
+ * `StudioPersistedJobStatus` still stores the legacy word `published` for a
+ * finished job; that value is converted by `externalJobStatus` on the server
+ * and never reaches this module.)
  *
  * `publicStatus` is also the honest answer for a job processed BEFORE this
  * change: those really did publish, they carry `publicStatus: "published"` in
@@ -453,10 +465,11 @@ export function describePublicationOutcome(input: {
   // public page, so requiring it here would invent a product rule and report
   // healthy runs as failures.
   //
-  // `status` is NOT the authority on whether anything became PUBLIC. A completed
-  // project ingestion reports `published` as its job lifecycle state while
-  // deliberately leaving the project a draft; `publicStatus` is what separates
-  // those two questions. See DRAFT VS LIVE above.
+  // `status` is NOT the authority on whether anything became PUBLIC. A finished
+  // project ingestion reports `completed` while deliberately leaving the project
+  // a draft, and a finished resale ingestion reports the same `completed` having
+  // published; `publicStatus` is what separates those two questions. See DRAFT
+  // VS LIVE above.
   const completed = input.status === "completed";
   const isPublic = input.publicStatus === "published";
 

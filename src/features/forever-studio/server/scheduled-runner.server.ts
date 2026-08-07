@@ -12,8 +12,8 @@
  *     HTTP endpoint, NO user Auth token, and NO browser session involved;
  *   - claims only explicitly processing-requested Studio jobs whose source
  *     membership is currently active (enforced inside studio_list_due_jobs);
- *   - the Owner/Trusted Publisher upload remains the publication
- *     authorization — the runner adds none of its own;
+ *   - the Owner/Trusted Publisher upload remains the INGESTION authorization
+ *     — the runner adds none of its own, and neither authorizes publication;
  *   - performs bounded claim-scoped slices per invocation and never throws:
  *     a failing tick is logged (redacted) and the next cron tick retries.
  */

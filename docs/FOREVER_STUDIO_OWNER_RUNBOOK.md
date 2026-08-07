@@ -568,7 +568,7 @@ authorized execution window:
 5. Observe the new action-specific message, `Retry started. Waiting for the
 result.` This observer reads only that exact job; it never invokes automatic
    resume or submits Retry again.
-6. Wait for the published or safe failed terminal result. The 14-minute clock
+6. Wait for the completed or safe failed terminal result. The 14-minute clock
    starts the instant you press Retry and covers the **whole** action — sending
    the request as well as watching it — so it always reaches a truthful end
    state inside the 15-minute target, even if the request itself never answers.
@@ -610,7 +610,7 @@ timeout never authorizes a new job, a second repair, or a second Retry.
 ## Where your files live (Cloudflare R2)
 
 Nothing about how you use Studio changes. You pick the project, the workflow
-and the upload window, choose your files, and press Publish. What changed
+and the upload window, choose your files, and submit. What changed
 underneath is **where the heavy files are kept**.
 
 - Supabase still holds your account, your projects, developers, units, prices,
