@@ -936,7 +936,7 @@ checked against a command rather than taken on trust.
 | lint                           | `npx eslint <changed files>`                                                   | required, scoped — see below                                 |
 | formatting                     | `npx prettier --check <changed files>`                                         | required, scoped                                             |
 | candidate preview log check    | —                                                                              | **N/A — platform limitation, see §6**                        |
-| pre-cutover candidate log gate | step 11b, Version Overrides — see §6                                           | **required — `PASS`, or the §6 measured-blackout exception** |
+| pre-cutover candidate log gate | step 11b, Version Overrides — see §6                                           | **required — must read `PASS` before A4** — one §6 exception |
 | repository CI                  | `quality-gate` on the pull request                                             | required                                                     |
 | `actionlint`                   | `actionlint` inside `quality-gate` (pinned, checksum-verified)                 | required — enforced in CI                                    |
 
@@ -964,12 +964,16 @@ Its only honest values are `PASS`, `STOP`, `NOT VERIFIED` or
 `DECLINED BY OWNER`. It is not `N/A`: the mechanism exists, and its recorded
 value is a release fact rather than an absence.
 
-**`PASS` permits the A4 cutover authorization; the ONE measured exception in §6
-is the only other route.** `STOP`, `NOT VERIFIED` and `DECLINED BY OWNER` are all
-honest, reportable outcomes and all three are BLOCKING — except for the single
-value `NOT VERIFIED — TWO-VERSION OBSERVABILITY BLACKOUT MEASURED`, which reaches
-A4 only under §6's eleven-fact conjunction and only by making step 16b the hard
-gate. That exception never rewrites the recorded status to `PASS`.
+**Only `PASS` permits the A4 cutover authorization.** `STOP`, `NOT VERIFIED` and
+`DECLINED BY OWNER` are all honest, reportable outcomes and all three are
+BLOCKING.
+
+**That rule has exactly one exception, and §6 defines it.** The single value
+`NOT VERIFIED — TWO-VERSION OBSERVABILITY BLACKOUT MEASURED` reaches A4 only
+under §6's eleven-fact conjunction, and only by carrying step 16b as the hard
+gate that owes the missing evidence. It never rewrites the recorded status to
+`PASS`, and no other cause of `NOT VERIFIED` qualifies.
+
 `DECLINED BY OWNER` is not a waiver: it is recorded, in full, as
 
     GATE DECLINED — RELEASE REMAINS BLOCKED BEFORE CUTOVER
