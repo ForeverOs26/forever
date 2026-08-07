@@ -10,6 +10,8 @@
  * assembly, and the bundle-boundary tests pin that.
  */
 
+import { DEFAULT_PUBLIC_SITE_ORIGIN } from "@/lib/site-origin";
+
 import { StudioAccessError } from "../contracts";
 import type { StudioStorage } from "../contracts";
 import type { StudioStorageProviderId } from "../../studio-types";
@@ -35,8 +37,15 @@ export const DEFAULT_R2_BUCKETS = {
   projectArchives: "forever-project-archives",
 } as const;
 
-/** Origin the `/media/…` route is served from when nothing is configured. */
-export const DEFAULT_PUBLIC_MEDIA_ORIGIN = "https://forever.phuketre22.workers.dev";
+/**
+ * Origin the `/media/…` route is served from when nothing is configured.
+ *
+ * Media may legitimately be served from somewhere other than the site (that is
+ * what `FOREVER_PUBLIC_MEDIA_ORIGIN` is for), so this stays its own name with
+ * its own precedence — but its DEFAULT is the site's, declared once in
+ * `@/lib/site-origin`, so the two literals cannot drift apart.
+ */
+export const DEFAULT_PUBLIC_MEDIA_ORIGIN = DEFAULT_PUBLIC_SITE_ORIGIN;
 
 export function readPublicMediaOrigin(env: NodeJS.ProcessEnv = process.env): string {
   return (

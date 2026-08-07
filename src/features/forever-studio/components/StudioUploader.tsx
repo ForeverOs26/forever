@@ -8,6 +8,13 @@
  * upload tokens issued by the authorized server boundary; processing and
  * publication then happen server-side in one call. A failed step leaves a
  * retryable job — nothing uploaded is ever lost.
+ *
+ * Because the bytes leave the DEVICE, the address this page is open on decides
+ * whether they can arrive at all: private storage accepts a browser write from
+ * the declared production origin and nowhere else. On any other origin — a
+ * Cloudflare version preview, above all — this page renders a warning instead
+ * of an upload interface (Issue #103). That is a courtesy, not a boundary: the
+ * server refuses the same request on its own authority.
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
+import { PUBLIC_SITE_ORIGIN } from "@/lib/site-origin";
 import { useStaleAssetRecoveryAttestation } from "@/lib/stale-asset/useStaleAssetAttestation";
 import { beginConsequentialAction, runStudioWriteAction } from "@/lib/stale-asset/write-safety";
 import {
@@ -28,6 +36,13 @@ import {
   isArchiveUploadDisplayedUnavailable,
 } from "../archive-capability";
 import { describePublicationOutcome, STORAGE_VERIFICATION_GUIDANCE } from "../publication-outcome";
+import {
+  isStudioUploadOriginAllowed,
+  studioProductionUrl,
+  STUDIO_UPLOAD_PREVIEW_LINK_LABEL,
+  STUDIO_UPLOAD_PREVIEW_NOTE,
+  STUDIO_UPLOAD_PREVIEW_TITLE,
+} from "../studio-upload-origin";
 import { studioGetOverview, studioProcessJob, studioStartJob } from "../studio.functions";
 import {
   additionalMaterialWindows,
@@ -206,6 +221,27 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
    * Studio shell mounting and never by the router resolving some other route.
    */
   useStaleAssetRecoveryAttestation(overview.isSuccess);
+
+  // FAIL-CLOSED UPLOAD ORIGIN (Issue #103).
+  //
+  // Answered from the address bar and the build's configured production
+  // origin, never from a server response, so it needs no query and cannot be
+  // delayed, cached or forged into "allowed". Anything that is not an exact
+  // match — a version preview, a lookalike host, http instead of https, an
+  // unexpected port, or no window at all — renders the warning instead of the
+  // upload interface. Every return below it is a rendered upload surface, so
+  // this precedes all of them.
+  const browserOrigin = typeof window === "undefined" ? null : window.location.origin;
+  if (!isStudioUploadOriginAllowed(browserOrigin, PUBLIC_SITE_ORIGIN)) {
+    return (
+      <UploadOriginNotice
+        productionUrl={studioProductionUrl(
+          PUBLIC_SITE_ORIGIN,
+          typeof window === "undefined" ? null : window.location.pathname,
+        )}
+      />
+    );
+  }
 
   if (overview.isError) {
     // Only a server-proven denial settles as denied; a transient fetch or
@@ -545,6 +581,46 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
         Your upload publishes immediately. Missing information never blocks publication.
       </p>
     </form>
+  );
+}
+
+/**
+ * What an Owner sees on a version this build may not upload from (Issue #103).
+ *
+ * There is no upload interface here at all — no windows, no pickers, no submit
+ * — because an enabled control that cannot work is worse than an absent one:
+ * it is what let two real submissions be started, staged and lost. It says why,
+ * says that nothing is broken, and offers the two moves that are actually
+ * useful: the same Studio route on the production origin, and the way back into
+ * this preview, which stays fully usable for read-only release checks.
+ *
+ * The production link is built from the BUILD's configured origin and never
+ * from the current location, so a preview can never link to itself. It renders
+ * only when that origin is usable; a broken link would be its own small lie.
+ */
+function UploadOriginNotice(props: { productionUrl: string | null }) {
+  return (
+    <div className="mx-auto max-w-md space-y-4 py-12 text-center">
+      <h2 className="text-lg font-semibold">{STUDIO_UPLOAD_PREVIEW_TITLE}</h2>
+      <p role="status" className="text-sm text-muted-foreground">
+        {STUDIO_UPLOAD_PREVIEW_NOTE}
+      </p>
+      {props.productionUrl ? (
+        <p>
+          <a
+            href={props.productionUrl}
+            className="text-sm font-medium underline underline-offset-4"
+          >
+            {STUDIO_UPLOAD_PREVIEW_LINK_LABEL}
+          </a>
+        </p>
+      ) : null}
+      <p>
+        <Link to="/studio" className="text-xs text-muted-foreground underline underline-offset-4">
+          Back to Studio
+        </Link>
+      </p>
+    </div>
   );
 }
 

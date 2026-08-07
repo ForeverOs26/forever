@@ -170,6 +170,39 @@ Then:
    and construction windows.
 3. Tap **Publish now**.
 
+### Upload only from the main Forever address
+
+Uploads work from **one** address: the production origin the deployment
+declares (`FOREVER_SITE_ORIGIN`, falling back to `VITE_PUBLIC_SITE_ORIGIN`).
+Files travel from your device straight to private storage, and private storage
+accepts a browser upload from that address and from no other.
+
+A **version-preview address** — the temporary
+`<version>-<worker>.<subdomain>.workers.dev` URL used to check a release before
+it goes live — is therefore not an upload address. Open Studio there and the
+upload screen shows a short notice and a link back to the main address instead
+of the upload windows. Everything else on a preview still works: sign in, the
+dashboard, project and listing pages, reading a job's status.
+
+This is enforced twice, and the second one is the real boundary:
+
+- the upload screen does not appear on any other address;
+- the server refuses to create the job at all. A refused request is answered
+  with the stable code `studio_upload_origin_not_allowed` and creates
+  **nothing** — no job, no upload credential, no archive, no stored file, no
+  audit entry. There is nothing to clean up afterwards.
+
+If you see that notice, you are on the wrong address. Follow the link, sign in,
+and upload from there. Do not retry on the preview: it cannot succeed.
+
+> **For whoever deploys:** `FOREVER_SITE_ORIGIN` and `VITE_PUBLIC_SITE_ORIGIN`
+> must state the **same** origin. The second is a build variable baked into the
+> bundle; the first is read at runtime. Setting the runtime one alone, without a
+> build carrying the same value, hides the uploader on the very address the
+> server would have accepted. Running Forever locally (`npm run dev`) counts as
+> a different address too: set both to your local origin, e.g.
+> `http://localhost:3000`, to use the uploader there.
+
 ### Upload windows
 
 Instead of one general "materials" box, Studio shows a separate window for

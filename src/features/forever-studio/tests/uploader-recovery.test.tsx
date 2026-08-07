@@ -58,6 +58,11 @@ vi.mock("../components/archive-upload", async (importOriginal) => {
 });
 
 import { StudioUploader } from "../components/StudioUploader";
+import { withProductionUploadOrigin } from "./upload-origin-fixture";
+
+// The uploader renders an upload interface only on the declared production
+// origin (Issue #103), so this suite runs on it.
+withProductionUploadOrigin();
 
 const OVERVIEW = {
   session: { role: "owner", email: "owner@example.com", displayName: "Owner" },

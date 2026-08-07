@@ -27,6 +27,8 @@ const CLIENT_REACHABLE = [
   "src/features/forever-studio/studio-types.ts",
   "src/features/forever-studio/studio.functions.ts",
   "src/features/forever-studio/studio-auth.ts",
+  "src/features/forever-studio/studio-upload-origin.ts",
+  "src/lib/site-origin.ts",
   "src/features/forever-studio/amenity-editor-state.ts",
   "src/features/forever-studio/components/StudioDashboard.tsx",
   "src/features/forever-studio/components/StudioUploader.tsx",
