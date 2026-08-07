@@ -118,6 +118,21 @@
  *
  * An empty page with NO critical problem stays `complete`. That case is not the
  * defect being repaired and reclassifying it would be inventing a product rule.
+ *
+ * ---------------------------------------------------------------------------
+ * DRAFT VS LIVE (FOREVER-STUDIO-UNPUBLISHED-INGESTION-001)
+ * ---------------------------------------------------------------------------
+ *
+ * A project upload no longer publishes anything: it creates or updates an
+ * UNPUBLISHED draft, and publication is a separate authorized action. A resale
+ * listing upload still does publish. One module serves both, so the wording is
+ * chosen from what the run actually made public — `publicStatus` — and never
+ * from the job's lifecycle status, which reads `published` for a completed job
+ * in either lane and would therefore describe every new draft as live.
+ *
+ * `publicStatus` is also the honest answer for a job processed BEFORE this
+ * change: those really did publish, they carry `publicStatus: "published"` in
+ * their stored summary, and they keep the live wording they earned.
  */
 
 import type { StudioJobResult, StudioJobStatus, StudioWarningSummary } from "./studio-types";
@@ -329,6 +344,13 @@ export interface PublicationOutcome {
   readonly ok: boolean;
   /** True when the page carries no units, no prices and no media. */
   readonly producedNothing: boolean;
+  /**
+   * Whether this run made anything PUBLICLY VISIBLE. False for every project
+   * ingestion, which produces an unpublished draft. A caller uses it to decide
+   * whether a public page link or a share action may be offered at all —
+   * neither resolves for a draft.
+   */
+  readonly isPublic: boolean;
 
   // --- The BROWSER's own observation. Independent. -------------------------
   /** Files this browser abandoned. Real names; the browser is allowed them. */
@@ -394,6 +416,12 @@ export function producedNoContent(counts: StudioJobResult["counts"]): boolean {
 export function describePublicationOutcome(input: {
   readonly status: StudioJobStatus;
   readonly pagePath: string | null;
+  /**
+   * What the run made public: `"published"` only when a public page exists.
+   * A project ingestion reports `"draft"`; a failed run reports null. See
+   * DRAFT VS LIVE above — this, not `status`, decides the live/draft wording.
+   */
+  readonly publicStatus: string | null;
   readonly counts: StudioJobResult["counts"];
   readonly warnings: readonly StudioWarningSummary[];
   readonly failedUploads: readonly string[];
@@ -419,14 +447,21 @@ export function describePublicationOutcome(input: {
   // and a failed lookup, NOT a proven absence — see THE EVIDENCE BOUNDARY.
   const deliveryProblem = clientObservedFailure || byClass.delivery_failure > 0;
   const producedNothing = producedNoContent(input.counts);
-  // `status` is the authority on whether the run published, and it is the ONLY
-  // authority. `pagePath` is documented as "the public page path WHEN A PAGE
-  // EXISTS" — it is legitimately null for a published run that produces no
+  // `status` is the authority on whether the run COMPLETED, and it is the ONLY
+  // authority for that. `pagePath` is documented as "the public page path WHEN A
+  // PAGE EXISTS" — it is legitimately null for a completed run that produces no
   // public page, so requiring it here would invent a product rule and report
   // healthy runs as failures.
-  const published = input.status === "published";
+  //
+  // `status` is NOT the authority on whether anything became PUBLIC. A completed
+  // project ingestion reports `published` as its job lifecycle state while
+  // deliberately leaving the project a draft; `publicStatus` is what separates
+  // those two questions. See DRAFT VS LIVE above.
+  const completed = input.status === "published";
+  const isPublic = input.publicStatus === "published";
 
   const base = {
+    isPublic,
     producedNothing,
     clientFailedUploadNames: [...input.failedUploads],
     clientFailedUploadCount,
@@ -457,46 +492,59 @@ export function describePublicationOutcome(input: {
     .filter(Boolean)
     .join(", and ");
 
-  if (!published) {
+  // A run that did not complete saved nothing — in either lane. "Not published"
+  // was the old heading, and for a draft lane it names the wrong goal: a project
+  // upload was never trying to publish, so failing to publish is not what
+  // happened. What happened is that nothing was saved.
+  if (!completed) {
     return {
       ...base,
       level: "failed",
       ok: false,
-      title: "Not published",
+      title: "Not saved",
       description: deliveryProblem
-        ? `No page was published by this run, and some files did not complete: ${deliveryEvidence}, so whether their bytes reached storage is unresolved. ${STORAGE_VERIFICATION_GUIDANCE}`
+        ? `Nothing was saved by this run, and some files did not complete: ${deliveryEvidence}, so whether their bytes reached storage is unresolved. ${STORAGE_VERIFICATION_GUIDANCE}`
         : anyCriticalProblem
-          ? "No page was published by this run, and some files could not be used. Check the details below."
-          : "No page was published by this run.",
+          ? "Nothing was saved by this run, and some files could not be used. Check the details below."
+          : "Nothing was saved by this run.",
     };
   }
+
+  // The noun for the thing this run produced. A draft is not a page: it has no
+  // public route, so calling it one would restate the defect being repaired.
+  const thing = isPublic ? "page" : "draft";
 
   if (producedNothing && anyCriticalProblem) {
     return {
       ...base,
       level: "failed",
       ok: false,
-      // NOT a "Published…" heading. A run whose every source failed and which
+      // NOT a success heading. A run whose every source failed and which
       // produced 0 units / 0 prices / 0 media is a failure, and the heading is
       // the only part of this screen a reader reliably takes in. "Published,
       // but empty" led with the success word and qualified it afterwards, which
       // is the same defect as the constant "Published" it replaced.
-      title: "Publication failed — empty page created",
+      title: isPublic ? "Publication failed — empty page created" : "Failed — empty draft created",
       description: deliveryProblem
-        ? `An empty page was created with no units, prices or media: ${deliveryEvidence} — physical storage state is unresolved. ${STORAGE_VERIFICATION_GUIDANCE}`
-        : "An empty page was created with no units, prices or media, because the source files that reached processing could not be used. Check the details below.",
+        ? `An empty ${thing} was created with no units, prices or media: ${deliveryEvidence} — physical storage state is unresolved. ${STORAGE_VERIFICATION_GUIDANCE}`
+        : `An empty ${thing} was created with no units, prices or media, because the source files that reached processing could not be used. Check the details below.`,
     };
   }
+
+  // What is true of the thing right now. A draft is explicitly NOT live, and
+  // saying so is the whole point: the Owner has to know a further, deliberate
+  // step stands between this upload and the public site.
+  const state = isPublic ? "The page is live" : "The draft is saved and is not on the public site";
 
   if (anyCriticalProblem) {
     return {
       ...base,
       level: "partial",
       ok: false,
-      title: "Partly published",
+      title: isPublic ? "Partly published" : "Draft saved with problems",
       description: deliveryProblem
-        ? `The page is live, but some files did not complete and are not on it: ${deliveryEvidence}, so whether their bytes reached storage is unresolved. ${STORAGE_VERIFICATION_GUIDANCE}`
-        : "The page is live, but some files could not be used and are not on it yet. Check the details below.",
+        ? `${state}, but some files did not complete and are not on it: ${deliveryEvidence}, so whether their bytes reached storage is unresolved. ${STORAGE_VERIFICATION_GUIDANCE}`
+        : `${state}, but some files could not be used and are not on it yet. Check the details below.`,
     };
   }
 
@@ -504,7 +552,9 @@ export function describePublicationOutcome(input: {
     ...base,
     level: "complete",
     ok: true,
-    title: "Published",
-    description: "The page is live now. Anything missing can be added later.",
+    title: isPublic ? "Published" : "Draft saved",
+    description: isPublic
+      ? "The page is live now. Anything missing can be added later."
+      : "Saved as an unpublished draft. It is not on the public site — review it, then publish it when you are ready. Anything missing can be added later.",
   };
 }

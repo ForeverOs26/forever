@@ -37,6 +37,13 @@ const SAFE_MESSAGES: Record<string, string> = {
   studio_job_not_claimed: "This job is being processed by another request.",
   studio_job_not_found: "This upload job no longer exists.",
   publication_failed: "The page could not be published just now. It will be retried.",
+  // FOREVER-STUDIO-UNPUBLISHED-INGESTION-001. Both are fail-closed refusals, so
+  // both are permanent: the same upload would be refused identically on retry,
+  // and the message has to tell the Owner which deliberate action clears it.
+  studio_published_project_collision:
+    "This upload matches a project that is already published. Nothing was changed. Unpublish that project in Studio first, or upload under a different project name.",
+  studio_ingestion_publication_rejected:
+    "This upload tried to set publication status, which uploads are not allowed to do. Nothing was changed. Publish from the project page in Studio instead.",
   studio_request_failed:
     "Forever Studio hit a temporary problem completing this request. Please try again.",
 };

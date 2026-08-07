@@ -36,7 +36,7 @@ describe("resume principal separation", () => {
     const project = world.executor.store.projects[0];
     const provenance = project.field_provenance as Record<string, { status?: string }>;
     const audit = world.data.audits.find(
-      (entry) => entry.action === "studio_project_created_published",
+      (entry) => entry.action === "studio_project_created_draft",
     );
 
     expect.soft(resumed.resumed).toBe(1);
@@ -126,7 +126,7 @@ describe("resume principal separation", () => {
     const project = world.executor.store.projects[0];
     const provenance = project.field_provenance as Record<string, { status?: string }>;
     const audit = world.data.audits.find(
-      (entry) => entry.action === "studio_project_created_published",
+      (entry) => entry.action === "studio_project_created_draft",
     );
 
     expect(provenance.name?.status).toBe("owner_provided");
@@ -158,7 +158,7 @@ describe("resume principal separation", () => {
     const project = world.executor.store.projects[0];
     const provenance = project.field_provenance as Record<string, { status?: string }>;
     const audit = world.data.audits.find(
-      (entry) => entry.action === "studio_project_created_published",
+      (entry) => entry.action === "studio_project_created_draft",
     );
 
     expect(provenance.name?.status).toBe("trusted_publisher_provided");

@@ -105,7 +105,7 @@ function renderUploader() {
 
 async function submitZip() {
   renderUploader();
-  const publish = await screen.findByRole("button", { name: "Publish now" });
+  const publish = await screen.findByTestId("studio-upload-submit");
   // The archive goes into the window the Owner would use for a full package.
   const input = screen.getByLabelText("Full Project Archive / Other Package", {
     selector: 'input[type="file"]',
@@ -163,7 +163,7 @@ describe("StudioUploader incident recovery", () => {
       fireEvent.click(resume);
     });
 
-    await screen.findByRole("heading", { name: "Published" });
+    await screen.findByRole("heading", { name: "Draft saved" });
     // The SAME job resumed — no duplicate job — and processing ran only after
     // the archive upload completed.
     expect(endpoints.startJob).toHaveBeenCalledTimes(1);
@@ -199,7 +199,7 @@ describe("StudioUploader incident recovery", () => {
       expect(screen.queryByText(/Cannot read properties/)).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Retry processing" })).not.toBeInTheDocument();
 
-      await screen.findByRole("heading", { name: "Published" }, { timeout: 10000 });
+      await screen.findByRole("heading", { name: "Draft saved" }, { timeout: 10000 });
       expect(endpoints.processJob).toHaveBeenCalledTimes(2);
     },
   );
@@ -244,7 +244,7 @@ describe("StudioUploader incident recovery", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     });
-    expect(await screen.findByRole("button", { name: "Publish now" })).toBeVisible();
+    expect(await screen.findByTestId("studio-upload-submit")).toBeVisible();
   });
 
   it("still settles a server-proven denial as access denied", async () => {

@@ -43,7 +43,7 @@ async function runJob(
 }
 
 describe("FOREVER-STUDIO-001 orchestrator", () => {
-  it("publishes a Coralina-like new development directly from one upload", async () => {
+  it("drafts a Coralina-like new development completely from one upload", async () => {
     const world = makeWorld();
     const { started, result } = await runJob(
       world,
@@ -68,9 +68,14 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     expect(result.status).toBe("published");
     expect(result.projectSlug).toBe("the-title-coralina-kamala");
     expect(result.pagePath).toBe("/projects/the-title-coralina-kamala");
-    // Direct publication with NO follow-on gate.
-    expect(result.publicStatus).toBe("published");
-    expect(world.executor.publicProjects().map((row) => row.slug)).toContain(
+    // FOREVER-STUDIO-UNPUBLISHED-INGESTION-001: ingestion is complete and
+    // whole, and the project is a DRAFT. There is still no follow-on gate on
+    // the ingestion itself — incomplete data never blocked it and still does
+    // not — but the result is not public until it is published deliberately.
+    expect(result.publicStatus).toBe("draft");
+    // `publicProjects()` is the RLS predicate the anonymous public reads
+    // through: is_active AND public_status='published'. No public route exists.
+    expect(world.executor.publicProjects().map((row) => row.slug)).not.toContain(
       "the-title-coralina-kamala",
     );
     // Whole committed Coralina inventory in one atomic batch.
@@ -91,12 +96,14 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     expect(provenance.name.status).not.toBe("owner_verified");
     // Ordinary Studio input never claims Forever-verified.
     expect(project.forever_verified).toBe(false);
-    expect(world.data.audits.some((row) => row.action === "studio_project_created_published")).toBe(
+    expect(world.data.audits.some((row) => row.action === "studio_project_created_draft")).toBe(
       true,
     );
+    // The audit log must never attribute a publication to an upload.
+    expect(world.data.audits.some((row) => row.action.endsWith("_published"))).toBe(false);
   });
 
-  it("publishes a Rainpalm-like incomplete project with warnings, never a gate", async () => {
+  it("drafts a Rainpalm-like incomplete project with warnings, never a gate", async () => {
     const world = makeWorld();
     const { result } = await runJob(
       world,
@@ -110,7 +117,9 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     );
 
     expect(result.status).toBe("published");
-    expect(result.publicStatus).toBe("published");
+    // Incomplete business data still never gates the INGESTION — it produced a
+    // complete draft with warnings. What it does not do is publish.
+    expect(result.publicStatus).toBe("draft");
     expect(result.counts?.units).toBe(21);
     expect(result.counts?.prices).toBe(9);
     expect(result.warnings.some((warning) => warning.code === "price_missing")).toBe(true);
@@ -437,20 +446,14 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     );
   });
 
-  it("supports explicit unpublish and republish", async () => {
+  it("supports explicit publish and unpublish, and only through that action", async () => {
     const world = makeWorld();
     await runJob(world, OWNER, {
       workflow: "new_development",
       projectFacts: { name: "Toggle Project" },
       files: [],
     });
-    expect(world.executor.publicProjects()).toHaveLength(1);
-
-    const down = await setProjectPublication(world.deps, OWNER, {
-      slug: "toggle-project",
-      publish: false,
-    });
-    expect(down.publicStatus).toBe("draft");
+    // The upload published nothing: the separate action is the ONLY way in.
     expect(world.executor.publicProjects()).toHaveLength(0);
 
     const up = await setProjectPublication(world.deps, OWNER, {
@@ -459,9 +462,19 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     });
     expect(up.publicStatus).toBe("published");
     expect(world.executor.publicProjects()).toHaveLength(1);
+
+    const down = await setProjectPublication(world.deps, OWNER, {
+      slug: "toggle-project",
+      publish: false,
+    });
+    expect(down.publicStatus).toBe("draft");
+    expect(world.executor.publicProjects()).toHaveLength(0);
+    // Deliberately two publication patches, not three: this world's clock is
+    // frozen, so a third would be byte-identical to the first and the ingestion
+    // layer would (correctly) replay it instead of re-applying it.
   });
 
-  it("publishes with NO name, NO slug, and NO business data (deterministic identity)", async () => {
+  it("drafts with NO name, NO slug, and NO business data (deterministic identity)", async () => {
     const world = makeWorld();
     const started = await startUploadJob(world.deps, OWNER, {
       workflow: "new_development",
@@ -471,7 +484,8 @@ describe("FOREVER-STUDIO-001 orchestrator", () => {
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
     expect(result.status).toBe("published");
     expect(result.projectSlug).toMatch(/^new-project-\d{4}-\d{2}-\d{2}-[0-9a-f]{8}$/);
-    expect(world.executor.publicProjects()).toHaveLength(1);
+    expect(world.executor.store.projects).toHaveLength(1);
+    expect(world.executor.publicProjects()).toHaveLength(0);
     expect(result.warnings.some((w) => w.code === "project_name_derived")).toBe(true);
 
     // A retry of the SAME job converges on the SAME project — no random duplicate.

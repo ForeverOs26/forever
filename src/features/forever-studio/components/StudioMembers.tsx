@@ -166,9 +166,10 @@ export function StudioMembers() {
           {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
         </form>
         <p className="text-xs text-muted-foreground">
-          Publishers can add and update projects, prices, media, and resale listings, and publish
-          immediately. If the email already has an account, no password is needed. There is no
-          public self-registration, and passwords are never shown or stored in plain text.
+          Publishers can add and update projects, prices, media, and resale listings. A project
+          upload saves an unpublished draft; publishing it is a separate action. If the email
+          already has an account, no password is needed. There is no public self-registration, and
+          passwords are never shown or stored in plain text.
         </p>
       </section>
     </div>

@@ -455,7 +455,7 @@ describe("the archive window when the resumable lane is available", () => {
     expect(screen.getByText("brochure.pdf")).toBeTruthy();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+      fireEvent.click(screen.getByTestId("studio-upload-submit"));
     });
 
     expect(endpoints.startJob).toHaveBeenCalledTimes(1);
@@ -493,7 +493,7 @@ describe("a mixed submission on a deployment without the resumable lane", () => 
     expect(screen.getByText("brochure.pdf")).toBeTruthy();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+      fireEvent.click(screen.getByTestId("studio-upload-submit"));
     });
 
     // Nothing was created: no job, no ordinary upload, no archive call.
@@ -519,7 +519,7 @@ describe("a mixed submission on a deployment without the resumable lane", () => 
       );
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+      fireEvent.click(screen.getByTestId("studio-upload-submit"));
     });
 
     expect(endpoints.startJob).toHaveBeenCalledTimes(1);

@@ -2,12 +2,15 @@
  * Forever Studio upload flow — the heart of FOREVER-STUDIO-001.
  *
  * One coherent path on phone, tablet, and desktop:
- *   pick workflow → add what exists (files, a few facts) → Publish now.
+ *   pick workflow → add what exists (files, a few facts) → save an unpublished
+ *   draft (a resale listing, which is a different lane, still publishes).
  *
  * Files go straight from the device to storage via short-lived signed
  * upload tokens issued by the authorized server boundary; processing and
- * publication then happen server-side in one call. A failed step leaves a
- * retryable job — nothing uploaded is ever lost.
+ * ingestion then happen server-side in one call. That call does not publish a
+ * project: it writes an unpublished draft, and publication is a separate
+ * authorized action. A failed step leaves a retryable job — nothing uploaded is
+ * ever lost.
  *
  * Because the bytes leave the DEVICE, the address this page is open on decides
  * whether they can arrive at all: private storage accepts a browser write from
@@ -459,7 +462,7 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
     return (
       <StatusPanel
         title={`Uploading ${phase.done}/${phase.total}…`}
-        body="Keep this page open until every file finishes and the processing request reaches the server. Closing now leaves the upload private and it will not publish automatically."
+        body="Keep this page open until every file finishes and the processing request reaches the server. Closing now leaves the upload private and it will not be processed automatically."
       />
     );
   }
@@ -472,7 +475,10 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
   if (phase.step === "processing") {
     return (
       <StatusPanel
-        title="Publishing…"
+        // Lane-neutral: this panel serves a project upload (which saves a
+        // draft) and a resale upload (which publishes). "Publishing…" was true
+        // for only one of them.
+        title="Processing…"
         body="Keep this page open until Forever confirms the processing request. After that confirmation, an interrupted job resumes automatically."
       />
     );
@@ -491,12 +497,12 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
   if (phase.step === "error") {
     return (
       <div className="mx-auto max-w-md space-y-4 py-12 text-center">
-        <h2 className="text-lg font-semibold">Not published yet</h2>
+        <h2 className="text-lg font-semibold">Not saved yet</h2>
         <p className="text-sm text-muted-foreground">{phase.message}</p>
         <p className="text-xs text-muted-foreground">
           {phase.stage === "upload"
-            ? "Uploaded parts are kept privately. Resume to upload only what is still missing — nothing restarts from zero, and nothing publishes until every part is safely stored."
-            : "Uploaded files remain private. Retry to confirm processing; a job that never reaches that boundary will not publish automatically."}
+            ? "Uploaded parts are kept privately. Resume to upload only what is still missing — nothing restarts from zero, and nothing is saved until every part is safely stored."
+            : "Uploaded files remain private. Retry to confirm processing; a job that never reaches that boundary is not processed automatically."}
         </p>
         <div className="flex justify-center gap-2">
           {phase.jobId ? (
@@ -574,11 +580,24 @@ export function StudioUploader(props: { workflow?: StudioWorkflow; slug?: string
         onRemove={removeSelection}
       />
 
-      <Button type="submit" className="h-12 w-full text-base">
-        Publish now
+      {/*
+        A PROJECT UPLOAD DOES NOT PUBLISH. It creates or updates an unpublished
+        draft; publishing is a separate, deliberate action on the project page.
+        A resale listing upload still publishes, so it keeps its own wording.
+        "Missing information never blocks" stays true in both lanes — that
+        product rule is unchanged, and only the publication claim was false.
+
+        The test id is a STABLE HANDLE for that lane-dependent label: tests
+        that merely need "the submit button" address it by id, so they are not
+        coupled to publication copy they are not about.
+      */}
+      <Button type="submit" className="h-12 w-full text-base" data-testid="studio-upload-submit">
+        {isResale ? "Publish now" : "Save as draft"}
       </Button>
       <p className="text-center text-xs text-muted-foreground">
-        Your upload publishes immediately. Missing information never blocks publication.
+        {isResale
+          ? "Your listing publishes immediately. Missing information never blocks publication."
+          : "Your upload is saved as an unpublished draft for review — it does not go on the public site. Missing information never blocks it."}
       </p>
     </form>
   );
@@ -696,7 +715,7 @@ function MaterialWindows(props: {
             relabelled) but moves the less usual windows into this disclosure.
             The count states, on the closed summary, that material is inside —
             and the group opens itself when it holds any — so "everything can be
-            reviewed before Publish now" needs no hunting. It is an INDICATOR,
+            reviewed before submitting" needs no hunting. It is an INDICATOR,
             never a step: it asks for nothing and blocks nothing.
           */}
           <summary className="cursor-pointer text-sm font-medium">
@@ -1069,6 +1088,7 @@ function ResultPanel(props: { result: StudioJobResult; failedUploads: string[] }
   const outcome = describePublicationOutcome({
     status: result.status,
     pagePath: result.pagePath,
+    publicStatus: result.publicStatus,
     counts: result.counts,
     warnings: result.warnings,
     failedUploads: props.failedUploads,
@@ -1190,23 +1210,31 @@ function ResultPanel(props: { result: StudioJobResult; failedUploads: string[] }
           </ul>
         </details>
       ) : null}
+      {/*
+        A DRAFT HAS NO PUBLIC ROUTE. "Open page" and "Share" are offered only
+        when the run actually made something public — `outcome.isPublic`, not
+        the mere presence of `pagePath`, which is the path the project WOULD
+        occupy once published and 404s until then. Offering them for a draft
+        would hand the Owner a dead link to send to a client, which is the same
+        false claim of liveness this screen exists to stop making.
+      */}
       <div className="grid gap-2">
-        {result.pagePath ? (
+        {outcome.isPublic && result.pagePath ? (
           <Button asChild className="h-12 text-base">
             <a href={result.pagePath} target="_blank" rel="noreferrer">
               Open page
             </a>
           </Button>
         ) : null}
-        {pageUrl ? (
+        {outcome.isPublic && pageUrl ? (
           <Button variant="outline" onClick={() => void share()}>
             Share
           </Button>
         ) : null}
         {result.projectSlug ? (
-          <Button asChild variant="outline">
+          <Button asChild variant={outcome.isPublic ? "outline" : "default"}>
             <Link to="/studio/project/$slug" params={{ slug: result.projectSlug }}>
-              Edit details
+              {outcome.isPublic ? "Edit details" : "Review draft"}
             </Link>
           </Button>
         ) : null}

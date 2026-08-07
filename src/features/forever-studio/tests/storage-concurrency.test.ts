@@ -159,11 +159,14 @@ describe("audit failure after a committed publication", () => {
     uploadAll(world, started.uploads);
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    // The user-visible result is SUCCESS — the publication committed.
+    // The user-visible result is SUCCESS — the ingestion committed.
     expect(result.status).toBe("published");
     expect(result.errorCode).toBeNull();
-    // Nothing was rolled back or deleted because of the audit outage.
-    expect(world.executor.publicProjects()).toHaveLength(1);
+    // Nothing was rolled back or deleted because of the audit outage. The
+    // committed project is a draft: the audit outage must not change that
+    // either way.
+    expect(world.executor.store.projects).toHaveLength(1);
+    expect(world.executor.publicProjects()).toHaveLength(0);
     expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(1);
     expect((await world.data.getJob(started.jobId))?.status).toBe("published");
     // The diagnostic was logged server-side, redacted.

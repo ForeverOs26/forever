@@ -6,8 +6,10 @@ production rollout is **BLOCKED** until the six Owner gates in
 2026-07-23.
 
 Forever Studio is your publishing tool. You sign in on your phone, tablet,
-or computer, upload the materials you have, and the public page goes live
-immediately. Missing information never blocks anything — add it later.
+or computer, and upload the materials you have. A project upload saves an
+**unpublished draft** — it is not on the public site until you publish it, which
+is a separate action on the project page. A resale listing still publishes on
+upload. Missing information never blocks anything — add it later.
 
 ## One-time setup (done once, by whoever deploys)
 
@@ -168,7 +170,9 @@ Then:
 2. Put each file into the window that says what it is (see **Upload
    windows** below), using **Choose files** — or **Take photo** in the photo
    and construction windows.
-3. Tap **Publish now**.
+3. Tap **Save as draft** (**Publish now** for a resale listing).
+4. For a project, review the draft, then publish it deliberately: open it from
+   the dashboard and tap **Publish**.
 
 ### Upload only from the main Forever address
 
@@ -262,14 +266,20 @@ its own. What you upload there is kept privately and may be used to fill in
 the developer details shown on the project page; it does not create a
 separate developer section, and uploading it publishes nothing on its own.
 
-Forever uploads the files, extracts what it can, creates or updates the
-page, and publishes it. You then get four buttons: **Open page**, **Share**,
-**Edit**, **Unpublish**.
+Forever uploads the files, extracts what it can, and creates or updates the
+project as an **unpublished draft**. It does not publish it. You then get a
+**Review draft** button; publishing is a separate tap on the project page.
+(A resale listing does publish on upload, and keeps **Open page**, **Share**,
+**Edit**, **Unpublish**.)
 
 Things worth knowing:
 
 - Uploading to a project that already exists **updates** it — it never
   creates a duplicate.
+- Uploading to a project that is already **published** is refused, and
+  nothing about that project is changed. Nothing is unpublished for you and
+  no live page is quietly rewritten. Unpublish it first if you meant to
+  replace what is live, or upload under a different project name.
 - Phone photos and videos work as they are: iPhone HEIC/HEIF photos and
   MP4/MOV videos are recognized by their actual content. A file whose bytes
   do not match its name (or an unrecognized format) is kept safely private
@@ -278,16 +288,16 @@ Things worth knowing:
   a different window. If you put a PDF into **Project Photos** it is not
   quietly re-filed as a document: it stays the photo you said it was, is
   kept private because it cannot be shown as a photo, and you get a short
-  note. Everything else in the same upload still publishes.
+  note. Everything else in the same upload is still saved to the draft.
 - A price-list PDF that cannot be read automatically is kept safely and the
-  page still publishes; you can add a reviewed price list later.
+  draft is still saved; you can add a reviewed price list later.
 - A ZIP that fails the safety checks (damaged, suspicious, or too large) is
-  kept unopened and privately; the rest of the upload still publishes.
+  kept unopened and privately; the rest of the upload is still saved.
 - If the connection drops, nothing is lost: the upload is saved as a job
   with a **Retry** button. Long uploads keep themselves alive; a genuinely
   interrupted one is picked up automatically.
 - Every change records who made it. If the audit log itself ever hiccups,
-  your publication still completes — the page is never lost to bookkeeping.
+  your upload still completes — the draft is never lost to bookkeeping.
 
 ## Fixing and completing information later
 
@@ -302,8 +312,8 @@ On `/studio` → **Manage publishers** (only you see this):
 
 - **Invite**: enter their email, a temporary password (10+ characters), and
   a name. Share the password with them directly. They can then do
-  everything you do with projects and listings — including publishing
-  immediately — but they cannot manage publishers.
+  everything you do with projects and listings — including publishing a
+  reviewed draft — but they cannot manage publishers.
 - **Disable** cuts a publisher's access instantly (their history remains).
   **Enable** restores it. You cannot disable yourself or the last owner.
 - Each publisher sees only **their own** uploads and errors. Only you see

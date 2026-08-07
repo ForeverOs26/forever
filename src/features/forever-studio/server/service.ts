@@ -8,12 +8,15 @@
  * compose the unchanged forever_progressive_ingest.
  *
  * Durable product rule enforced here:
- *   An upload by an authenticated Owner or Trusted Publisher IS direct
- *   publication authorization. Incomplete business data never creates a
- *   follow-on approval or publication gate. Missing facts become warnings
- *   and absent fields; unreadable files are retained privately; failures
- *   leave a retryable job that resumes automatically. Every write is
- *   project-isolated, transactional, and idempotent under retry.
+ *   An upload by an authenticated Owner or Trusted Publisher is authorization
+ *   to INGEST — never to publish. Incomplete business data still never creates
+ *   a follow-on approval or publication gate on the ingestion itself: missing
+ *   facts become warnings and absent fields; unreadable files are retained
+ *   privately; failures leave a retryable job that resumes automatically. Every
+ *   write is project-isolated, transactional, and idempotent under retry.
+ *
+ *   Publication is a SEPARATE, explicitly authorized action
+ *   (`setProjectPublication`). See UNPUBLISHED INGESTION below.
  */
 
 import type {
@@ -315,6 +318,98 @@ function publicationPatchBatch(
       },
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// UNPUBLISHED INGESTION (FOREVER-STUDIO-UNPUBLISHED-INGESTION-001)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE SERVER-ENFORCED POLICY: Studio ingestion never publishes.
+ *
+ * `studio_publish_project(p_publish := false)` leaves publication entirely to
+ * `forever_progressive_ingest`, whose own create path has always written
+ * `public_status = 'draft'` ("saved, NEVER auto-published") and whose enrich
+ * path changes `public_status` only when the batch carries an explicit
+ * top-level `project.publish`. Studio's ingestion batches never carry one — see
+ * `assertUnpublishedIngestionPayload` — so an enrich preserves whatever status
+ * the project already had.
+ *
+ * This is a CONSTANT, deliberately not a setting, an argument or a flag. There
+ * is no code path, request field, environment variable or stored job value that
+ * can make ingestion publish. Publication happens only through
+ * `setProjectPublication`, which is separately authenticated and separately
+ * audited, and which is the sole remaining producer of a
+ * `project.publish = true` batch (`publicationPatchBatch`).
+ */
+const INGESTION_PUBLISHES = false;
+
+/**
+ * The public-visibility predicate, stated once.
+ *
+ * It is exactly the RLS predicate the public projection uses
+ * (`20260718113000_progressive_ingestion_v1.sql`: `is_active = true AND
+ * public_status = 'published'`), so "published" here means the same thing an
+ * anonymous visitor's read means, not merely a column value.
+ */
+function isPubliclyPublished(project: { public_status: string; is_active: boolean }): boolean {
+  return project.is_active && project.public_status === "published";
+}
+
+/**
+ * FAIL CLOSED: no ingestion batch may carry a publication decision.
+ *
+ * Ingestion field maps are built from two allow-lists (`manualProjectFields`,
+ * `projectFieldsFromFacts`), neither of which can emit `publish` — so reaching
+ * this throw means a payload was assembled from something other than those
+ * allow-lists. That is exactly the case that must not be tolerated silently:
+ * on a create the payload is spread to the batch top level (`{ slug, ...fields
+ * }`), which is the precise position `forever_progressive_ingest` reads
+ * `publish` from on enrich.
+ *
+ * Rejecting rather than stripping is the point. A stripped value is an accepted
+ * value that happened not to take effect; a rejected one proves ingestion never
+ * accepted a publication instruction at all. Not retryable: the same payload
+ * would be rejected identically forever.
+ *
+ * Exported so `unpublished-ingestion.test.ts` can prove the backstop directly.
+ * It is unreachable while both allow-lists hold, and a test that could only
+ * reach it by breaking them would be testing the mock, not the guard.
+ */
+export function assertUnpublishedIngestionPayload(project: ProgressiveProjectPayload): void {
+  if (!("publish" in project)) return;
+  throw new StudioError(
+    "studio_ingestion_publication_rejected",
+    safeMessageFor("studio_ingestion_publication_rejected"),
+    false,
+  );
+}
+
+/**
+ * FAIL CLOSED on a collision with a LIVE published project.
+ *
+ * Called before the batch is built and before any write, so a published
+ * project's graph is never touched: no automatic unpublish, no silent update of
+ * live public content, and no ambiguous duplicate (the slug is the identity, so
+ * there is no second row to create). The repository has no isolated
+ * draft-revision mechanism — there is one `projects` row per slug and every
+ * enrich mutates it in place — so there is no safe way to absorb this upload,
+ * and inventing one is not this change's job.
+ *
+ * Not retryable: an automatic retry would re-collide identically. The Owner
+ * unpublishes deliberately (`setProjectPublication`) or uploads under a
+ * different slug.
+ */
+function assertNoPublishedProjectCollision(project: {
+  public_status: string;
+  is_active: boolean;
+}): void {
+  if (!isPubliclyPublished(project)) return;
+  throw new StudioError(
+    "studio_published_project_collision",
+    safeMessageFor("studio_published_project_collision"),
+    false,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1316,11 +1411,15 @@ async function finalizeProject(
   const manualName = typeof manual.fields.name === "string" ? manual.fields.name : undefined;
   const slug = deriveProjectSlug(job, manualName, materials.derivedName);
   const existing = await deps.data.findProjectBySlug(slug);
-  if (existing)
+  if (existing) {
     assertObjectAccess(
       principals.authorization,
       await deps.data.getObjectCreatedBy("project", existing.id),
     );
+    // BEFORE the batch is built and before any write. An upload that lands on
+    // a live published project stops here with the published project untouched.
+    assertNoPublishedProjectCollision(existing);
+  }
   const mode: "create" | "enrich" = existing ? "enrich" : "create";
   const extraWarnings: ProgressiveWarning[] = [...materials.warnings];
 
@@ -1377,6 +1476,9 @@ async function finalizeProject(
     mode === "create"
       ? ({ slug, ...fields, field_provenance: provenance } as ProgressiveProjectPayload)
       : { slug, set: fields, field_provenance: provenance };
+  // The create branch spreads `fields` to the batch top level — the exact
+  // position a publication decision would be read from. Nothing may arrive there.
+  assertUnpublishedIngestionPayload(project);
 
   const batch = await buildProgressiveBatch(deps.reader, {
     mode,
@@ -1398,12 +1500,15 @@ async function finalizeProject(
     attempt: attemptPrefixFromToken(token),
   };
 
-  // ONE atomic transaction: ingest graph + publish + finalize job.
+  // ONE atomic transaction: ingest graph + finalize job. It does NOT publish —
+  // see INGESTION_PUBLISHES. `summary.public_status` is therefore the ingest's
+  // own verdict: 'draft' for a create, and the project's unchanged prior status
+  // for an enrich (which, by the collision guard above, is never 'published').
   const summary = await deps.data.publishProject({
     jobId: job.id,
     token,
     batch,
-    publish: true,
+    publish: INGESTION_PUBLISHES,
     result: resultPayload,
   });
   commitState.committed = true;
@@ -1426,7 +1531,10 @@ async function finalizeProject(
     await recordAuditSafely(deps, {
       actor_id: principals.execution.userId,
       actor_email: principals.execution.email,
-      action: mode === "create" ? "studio_project_created_published" : "studio_project_updated",
+      // Never "…_published": this transaction publishes nothing. The audit log
+      // is the record an Owner reads back to learn what became public, so it
+      // must not attribute a publication to an upload.
+      action: mode === "create" ? "studio_project_created_draft" : "studio_project_updated_draft",
       table_name: "projects",
       record_id: summary.project_id,
       metadata: {
@@ -2115,7 +2223,9 @@ export async function getProjectDetail(
     name: row.name,
     publicStatus: row.public_status,
     isActive: row.is_active,
-    isPublic: row.is_active && row.public_status === "published",
+    // The same predicate the ingestion collision guard uses, and the same one
+    // the public RLS policy applies. Stated once, in `isPubliclyPublished`.
+    isPublic: isPubliclyPublished(row),
     facts: {
       name: str(row.name),
       developerName: str(row.developer_name_raw),

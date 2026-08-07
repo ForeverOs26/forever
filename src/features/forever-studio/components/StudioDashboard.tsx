@@ -55,7 +55,7 @@ import {
 export const STUDIO_OVERVIEW_KEY = ["studio", "overview"] as const;
 
 const WORKFLOW_HINTS: Record<StudioWorkflow, string> = {
-  new_development: "Brochure, price list, plans, photos — publish a new project.",
+  new_development: "Brochure, price list, plans, photos — start a new project draft.",
   project_update: "Add or correct materials on an existing project.",
   price_availability_update: "New price list or availability change.",
   construction_media_update: "Construction progress photos and videos.",
@@ -237,7 +237,11 @@ export function StudioDashboard() {
         errorStage: null,
         attemptCount: result.attemptCount,
         retryable: false,
-        pagePath: result.pagePath,
+        // Only a run that actually published has a public result to open. A
+        // project ingestion produces a draft, whose `pagePath` is the route the
+        // project WOULD occupy once published and 404s until then — offering it
+        // as "Open published result" would be a dead link and a false claim.
+        pagePath: result.publicStatus === "published" ? result.pagePath : null,
       });
       retryLocksRef.current.delete(result.jobId);
       invalidateOverview();
@@ -251,7 +255,7 @@ export function StudioDashboard() {
         status: "failed",
         message: terminal
           ? "This job is terminally nonretryable. A separately authorized repair is required before Retry can be used."
-          : "The retry finished safely but did not publish. Review the code below before retrying.",
+          : "The retry finished safely but did not complete. Review the code below before retrying.",
         errorCode: result.errorCode,
         errorStage: result.errorStage,
         attemptCount: result.attemptCount,
@@ -499,8 +503,9 @@ export function StudioDashboard() {
           {data.session.displayName ?? data.session.email ?? "Publisher"}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {data.session.role === "owner" ? "Owner" : "Trusted Publisher"} · an upload publishes
-          immediately; missing details can be added later.
+          {data.session.role === "owner" ? "Owner" : "Trusted Publisher"} · a project upload saves
+          an unpublished draft for review; publish it separately when it is ready. Missing details
+          can be added later.
         </p>
         {data.activeJobs > 0 ? (
           <p className="mt-3 rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
