@@ -409,6 +409,15 @@ uploaded. Those are the two facts that make such a release verifiable at all.
     read produces a deployment mutation that can only ever end in
     `NOT VERIFIED`, and is forbidden.
 
+    **MEASURED EXCEPTION.** On this Worker, an authorized A1–A3 sequence has
+    been measured to produce no log records at all while the deployment holds
+    two versions — for the candidate AND for the rollback version serving 100%.
+    Where that specific blackout is what blocks the gate, step 11b is recorded
+    as `NOT VERIFIED — TWO-VERSION OBSERVABILITY BLACKOUT MEASURED` and a
+    separately authorized A4 becomes possible under the eleven-fact conjunction
+    in §6, which makes step 16b the hard gate. The status is never rewritten to
+    `PASS`, and no other cause of `NOT VERIFIED` qualifies — see §6.
+
     **A browser session against the candidate is NOT part of this step.** It is
     unavailable for the ordinary Owner browser acceptance session under
     Forever's current workers.dev-only architecture, because normal navigation
@@ -469,6 +478,19 @@ deploy` invocation. No intermediate percentage. **The starting point is §6
     **A failure here is a rollback trigger under §5, not a note.** If logs
     cannot be read at all, the release is NOT accepted: hold at §5 rollback
     readiness and obtain an Owner decision before proceeding to step 17.
+
+    **UNDER THE §6 MEASURED-BLACKOUT EXCEPTION THIS STEP IS THE HARD GATE, not
+    an acceptance check.** When A4 proceeded with step 11b recorded as
+    `NOT VERIFIED — TWO-VERSION OBSERVABILITY BLACKOUT MEASURED`, the candidate
+    log evidence that step 11b could not produce is owed HERE: verify membership
+    and weights, run the step 15 smoke set, create safe `GET`/`HEAD`
+    invocations, and obtain ACTUAL logs attributed to the exact candidate UUID
+    with no release, missing-environment, exception or unexplained runtime
+    failure. Empty beyond the canonical ingestion window, unreadable, or
+    carrying such an error → restore the previous version alone at 100%
+    immediately and verify recovery. Studio stays under the §6 absolute hold
+    until this step records `POST-CUTOVER PASS`.
+
 17. **The Owner opens Studio fresh and confirms the authenticated dashboard
     renders.** This is the acceptance gate. Asset-level checks cannot replace it.
 18. **Roll back immediately if the authenticated check fails.** Reallocate
@@ -902,21 +924,21 @@ Added by `FOREVER-PR140-CORRECTIONS-002`. Every gate a release claims is listed
 here with the command that produces it, so a claim in a PR description can be
 checked against a command rather than taken on trust.
 
-| Check                          | Command                                                                        | Status                                    |
-| ------------------------------ | ------------------------------------------------------------------------------ | ----------------------------------------- |
-| production build               | `npm run build`                                                                | required                                  |
-| full test suite                | `npx vitest run`                                                               | required                                  |
-| release binding preflight      | `npm run release:verify-bindings`                                              | required                                  |
-| Wrangler identity gate         | `npm run release:wrangler-gate`                                                | required                                  |
-| mutation controls (49)         | `npm run release:keep-vars-mutations`                                          | required                                  |
-| offline Wrangler serialization | `npx vitest run src/lib/stale-asset/wrangler-plain-text-serialization.test.ts` | required                                  |
-| network containment            | `npx vitest run src/lib/stale-asset/release-network-containment.test.ts`       | required                                  |
-| lint                           | `npx eslint <changed files>`                                                   | required, scoped — see below              |
-| formatting                     | `npx prettier --check <changed files>`                                         | required, scoped                          |
-| candidate preview log check    | —                                                                              | **N/A — platform limitation, see §6**     |
-| pre-cutover candidate log gate | step 11b, Version Overrides — see §6                                           | **required — must read `PASS` before A4** |
-| repository CI                  | `quality-gate` on the pull request                                             | required                                  |
-| `actionlint`                   | `actionlint` inside `quality-gate` (pinned, checksum-verified)                 | required — enforced in CI                 |
+| Check                          | Command                                                                        | Status                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| production build               | `npm run build`                                                                | required                                                     |
+| full test suite                | `npx vitest run`                                                               | required                                                     |
+| release binding preflight      | `npm run release:verify-bindings`                                              | required                                                     |
+| Wrangler identity gate         | `npm run release:wrangler-gate`                                                | required                                                     |
+| mutation controls (49)         | `npm run release:keep-vars-mutations`                                          | required                                                     |
+| offline Wrangler serialization | `npx vitest run src/lib/stale-asset/wrangler-plain-text-serialization.test.ts` | required                                                     |
+| network containment            | `npx vitest run src/lib/stale-asset/release-network-containment.test.ts`       | required                                                     |
+| lint                           | `npx eslint <changed files>`                                                   | required, scoped — see below                                 |
+| formatting                     | `npx prettier --check <changed files>`                                         | required, scoped                                             |
+| candidate preview log check    | —                                                                              | **N/A — platform limitation, see §6**                        |
+| pre-cutover candidate log gate | step 11b, Version Overrides — see §6                                           | **required — must read `PASS` before A4** — one §6 exception |
+| repository CI                  | `quality-gate` on the pull request                                             | required                                                     |
+| `actionlint`                   | `actionlint` inside `quality-gate` (pinned, checksum-verified)                 | required — enforced in CI                                    |
 
 ### `candidate preview log check: N/A — the platform cannot emit it`
 
@@ -928,10 +950,12 @@ and so the omission can never be read as a check that passed.
 
 **An N/A here is not a green check.** It means the evidence does not exist for
 the PREVIEW URL, not that the candidate is healthy, and not that no earlier log
-evidence is obtainable. The gate is not cancelled and it does not move to after
-the cutover: it is satisfied at **step 11b**, before the cutover, using Version
-Overrides against a candidate included in the deployment at 0% — see §6. Step
-16b is an additional post-cutover acceptance check, not the first opportunity.
+evidence is obtainable. The gate is not cancelled: it is attempted at **step
+11b**, before the cutover, using Version Overrides against a candidate included
+in the deployment at 0% — see §6. Step 16b is an additional post-cutover
+acceptance check, not the first opportunity. **Where §6's measured two-version
+blackout is what defeats step 11b, and only there, the unmet evidence is owed at
+step 16b, which becomes the hard gate** — the gate is relocated, never dropped.
 
 ### `pre-cutover candidate log gate (step 11b): required — must read PASS before A4`
 
@@ -942,7 +966,15 @@ value is a release fact rather than an absence.
 
 **Only `PASS` permits the A4 cutover authorization.** `STOP`, `NOT VERIFIED` and
 `DECLINED BY OWNER` are all honest, reportable outcomes and all three are
-BLOCKING. `DECLINED BY OWNER` is not a waiver: it is recorded, in full, as
+BLOCKING.
+
+**That rule has exactly one exception, and §6 defines it.** The single value
+`NOT VERIFIED — TWO-VERSION OBSERVABILITY BLACKOUT MEASURED` reaches A4 only
+under §6's eleven-fact conjunction, and only by carrying step 16b as the hard
+gate that owes the missing evidence. It never rewrites the recorded status to
+`PASS`, and no other cause of `NOT VERIFIED` qualifies.
+
+`DECLINED BY OWNER` is not a waiver: it is recorded, in full, as
 
     GATE DECLINED — RELEASE REMAINS BLOCKED BEFORE CUTOVER
 
@@ -1414,6 +1446,157 @@ outcome is already known to be unreadable is a mutation made for nothing.
    blocks A4 if it is off. Prerequisite 3 is different: it is knowable in
    advance, which is precisely why it must be known in advance.
 
+### THE TWO-VERSION OBSERVABILITY BLACKOUT — measured on this Worker, and the narrow exception it creates
+
+Added by `FOREVER-PR145-TWO-VERSION-OBSERVABILITY-BLACKOUT-001` after the A1–A3
+sequence was authorized, executed in full, and completed `NOT VERIFIED`.
+
+Prerequisite 3 was satisfied honestly and A1 still produced no evidence, because
+that prerequisite tests the wrong thing: it proves the credential can **read**
+observability, and the failure is that the platform stops **recording**.
+
+**What was measured.** Worker `forever`, 2026-08-07, with
+`observability.enabled: true`, `head_sampling_rate: 1`, `logs.persist: true` and
+`invocation_logs: true` unchanged throughout, and a credential whose telemetry
+access was positively proven (all four endpoints HTTP 200):
+
+| Phase                       | Active deployment                  | Events recorded                  |
+| --------------------------- | ---------------------------------- | -------------------------------- |
+| before A1                   | previous version alone at 100%     | normal — 22 events in 15 minutes |
+| A1 → restore (8 minutes)    | candidate at 0% + previous at 100% | **ZERO**                         |
+| after restoring one version | previous version alone at 100%     | resumes in the first bucket      |
+
+The blackout window covered the complete 57-URL A2 override probe set, six
+deliberate **override-free control requests to the version serving 100% of
+traffic**, and at least one `*/5 * * * *` cron tick. `wrangler tail` was silent
+across the identical window. Both transports went blind together, which is what
+distinguishes "not recorded" from "not readable".
+
+**Scope of this claim, stated deliberately.** This is an empirically measured
+behaviour of the `forever` Worker on its current `workers.dev` deployment shape.
+It is **not** asserted here as a documented or universal Cloudflare limitation,
+and no Cloudflare documentation is cited for it. A later measurement may narrow,
+widen or overturn it; until then this runbook follows the measurement, exactly as
+§2c follows a measured production response over a published schema.
+
+**Step 11b's recorded status does NOT become `PASS`.** It is recorded, in full,
+as
+
+    NOT VERIFIED — TWO-VERSION OBSERVABILITY BLACKOUT MEASURED
+
+An empty A3 is an absence of evidence in every other paragraph of this section,
+and it is an absence of evidence here. What follows relocates **where** the
+evidence must be produced. It does not manufacture evidence that was never
+obtained, and it does not relabel the gate.
+
+#### The exception, and the eleven facts it requires
+
+A separately authorized A4 is permitted **only** for a candidate whose evidence
+is blocked by this measured blackout and by nothing else, and only when ALL
+ELEVEN of the following are proven and recorded. This is a conjunction, not a
+checklist to weigh. A single unproven item returns the release to the unmodified
+hard gate above.
+
+1. exact candidate provenance — source commit, source tree, `CLIENT_ASSET_ID` —
+   and the immutable candidate Worker version UUID;
+2. the exact previous Worker version UUID, proven readable and deployable as the
+   rollback target;
+3. a successful `quality-gate` run for the candidate's exact source SHA;
+4. candidate/live binding fingerprint equality AND configuration equality —
+   compatibility date, flags, bindings, secret presence, routes and Cron;
+5. positive, non-mutating Observability API read authorization — prerequisite 2,
+   demonstrated rather than assumed;
+6. the COMPLETE candidate-attributed A2 override probe set, executed in full;
+7. zero probe failures and zero 5xx across that set;
+8. candidate identity confirmed on the production origin by the version-specific
+   public discriminator — `/forever-client-assets.json` returning the
+   candidate's own `CLIENT_ASSET_ID` under the override header, and the previous
+   version's without it;
+9. the three-phase blackout experiment above, performed on this Worker for this
+   release: recording before the two-version deployment, zero recording during it
+   for BOTH the candidate and the override-free rollback controls, and immediate
+   recovery after returning to a single version;
+10. production restored to the previous version alone at 100%, verified from the
+    control plane, with the candidate preserved and undeleted;
+11. the Owner's explicit acceptance of this measured platform limitation, and a
+    separate A4 authorization that names it.
+
+**Item 9 is what keeps this narrow.** Without it the exception would excuse any
+empty A3 — including one caused by a broken candidate, a wrong UUID or an
+unauthorized credential. With it, the operator has demonstrated that recording
+stopped for a version that is known-good and serving all traffic, which is the
+only finding that makes the candidate's silence uninformative rather than
+damning.
+
+**What the exception does NOT do.** It does not waive step 16b, weaken any
+binding, asset, provenance, migration or storage safeguard, permit a percentage
+rollout (§0 stands), move the Owner acceptance gate at step 17, or authorize
+anything in Studio.
+
+#### Post-cutover step 16b becomes the HARD GATE for this exception
+
+When A4 proceeds under this exception, the evidence step 11b could not produce is
+**owed at step 16b**, and step 16b stops being an acceptance check and becomes
+the gate:
+
+1. deploy the candidate alone at 100% in ONE atomic `wrangler versions deploy`;
+2. immediately re-read the authoritative deployment and verify membership, the
+   exact candidate UUID, and weights totalling 100% with the candidate as the
+   only active version;
+3. run the complete production smoke set of step 15;
+4. create safe `GET`/`HEAD` invocations against the production origin;
+5. obtain ACTUAL logs attributed to the exact candidate Worker version UUID;
+6. verify no candidate release error, no missing-environment error, no unhandled
+   exception and no unexplained runtime failure.
+
+**Failure here is a ROLLBACK TRIGGER, not a note.** If the logs are still empty
+after the canonical ingestion window, cannot be read at all, or carry a release
+or runtime error, immediately restore
+`cd228ccf-22b2-44d2-a742-7ab17515fdc7` alone at 100% in one atomic invocation,
+then verify the control-plane state and re-run the production smoke set. The §5
+rollback boundary is unchanged.
+
+The single-version state is what makes this reachable: the blackout was measured
+to END the moment the deployment returns to one version, so at state 5 the
+candidate is both the only active version and an observable one.
+
+#### Studio stays under an ABSOLUTE HOLD until step 16b passes
+
+Until step 16b is recorded as `POST-CUTOVER PASS`, and regardless of how healthy
+the public surface looks:
+
+- no authenticated Studio `POST`;
+- no upload-target allocation;
+- no job or archive creation;
+- no Coralina upload;
+- no project publication.
+
+An authenticated `studioConfirmArchiveUpload` production-origin probe and the
+real Coralina upload workflow each require their own separate Owner
+authorization, requested only **after** `POST-CUTOVER PASS`.
+
+#### Candidate eligibility when only this runbook has changed
+
+Correcting this document moves `main` past the candidate's source commit. The
+already-built candidate remains eligible **only** when a mechanical Git
+comparison proves that every commit after its source SHA is confined to this
+runbook correction, with no runtime, application, build, dependency, Worker
+configuration or migration change:
+
+```
+git diff --name-only <candidate-source-sha> <governance-sha>
+```
+
+must list `docs/FOREVER_PRODUCTION_RELEASE_RUNBOOK.md` and nothing else. Record
+as five separate facts: the candidate source SHA, the governance SHA, the
+candidate's successful `quality-gate` run, the governance PR's successful checks,
+and that exact comparison. A single non-docs path in that output ends the
+candidate's eligibility, and a new candidate is built.
+
+**Do not rebuild or replace the candidate merely because this document changed.**
+A rebuild produces a new Worker version UUID and discards every gate already
+proven against the existing one, for a change that cannot reach the runtime.
+
 ### The `--keep-vars` hazard applies to the state-2 deployment too — UNPROVEN, so MEASURE
 
 The measured incident behind §2a is that a version operation without
@@ -1501,6 +1684,12 @@ of the following are true. This is a conjunction, not a checklist to weigh:
    carrying the candidate UUID, with no candidate release error in it;
 5. **step 11b has the exact final status `PASS`.**
 
+**Conditions 4 and 5 have exactly one alternative**, and it is the measured
+two-version observability blackout above: step 11b recorded as
+`NOT VERIFIED — TWO-VERSION OBSERVABILITY BLACKOUT MEASURED`, with all eleven
+facts of that exception proven and step 16b carried as the hard gate. Conditions
+1, 2 and 3 hold unchanged in every case. No other substitution exists.
+
 The A4 authorization request must then state:
 
 1. the exact candidate Worker version UUID being cut over to;
@@ -1526,6 +1715,15 @@ may be carried into an A4 request as an accepted risk:
 - no attributable candidate log events;
 - binding verification failure;
 - any override probe failure.
+
+**ONE MEASURED EXCEPTION, AND ONLY ONE.**
+`NOT VERIFIED — TWO-VERSION OBSERVABILITY BLACKOUT MEASURED` is the single
+outcome that may reach an A4 authorization, and only under the eleven-fact
+conjunction in "THE TWO-VERSION OBSERVABILITY BLACKOUT" above, which moves the
+unmet evidence to step 16b as a hard gate rather than excusing it. Every other
+entry in this list — and every other cause of `NOT VERIFIED`, including a
+candidate error, an unreadable credential or a query that was never run —
+remains blocking and unwaivable.
 
 **`DECLINED BY OWNER` IS NOT A WAIVER.** It is recorded, in full, as
 
