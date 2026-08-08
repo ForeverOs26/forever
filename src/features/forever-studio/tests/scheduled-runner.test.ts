@@ -83,7 +83,7 @@ describe("scheduled autonomous runner", () => {
         const summary = await runScheduledStudioTick(world.deps, { maxSlices: 3 });
         ticks += 1;
         world.advanceMinutes(5); // cron cadence between invocations
-        if (summary.published > 0) break;
+        if (summary.completed > 0) break;
         if (ticks > 30) throw new Error("scheduled ticks did not complete the job");
       }
 
@@ -125,12 +125,12 @@ describe("scheduled autonomous runner", () => {
 
       // After the stale window the next ticks recover and finish the job.
       world.advanceMinutes(16);
-      let published = 0;
-      for (let tick = 0; tick < 30 && published === 0; tick += 1) {
-        published = (await runScheduledStudioTick(world.deps)).published;
+      let completed = 0;
+      for (let tick = 0; tick < 30 && completed === 0; tick += 1) {
+        completed = (await runScheduledStudioTick(world.deps)).completed;
         world.advanceMinutes(5);
       }
-      expect(published).toBe(1);
+      expect(completed).toBe(1);
       const rows = await world.deps.data.listJobArchiveEntries(jobId);
       // Outcomes settled before the interruption were never re-processed.
       for (const before of settledBefore) {
@@ -166,7 +166,7 @@ describe("scheduled autonomous runner", () => {
     const { parts, totalSize } = buildZipParts([jpegEntry("photos/a.jpg")], PART);
     await uploadArchiveParts(world, PUBLISHER, jobId, "disabled.zip", parts, totalSize);
     const first = await processUploadJob(world.deps, PUBLISHER, jobId);
-    expect(["processing", "published"]).toContain(first.status);
+    expect(["processing", "completed"]).toContain(first.status);
 
     const membership = (await world.data.getMembership(PUBLISHER.userId))!;
     await world.data.upsertMembership({ ...membership, is_active: false });
@@ -181,7 +181,7 @@ describe("scheduled autonomous runner", () => {
     await uploadAndRequestThenCloseBrowser(world);
     world.flags.partnerDemo = true;
     const summary = await runScheduledStudioTick(world.deps);
-    expect(summary).toEqual({ due: 0, advanced: 0, published: 0, failed: 0, skipped: 0 });
+    expect(summary).toEqual({ due: 0, advanced: 0, completed: 0, failed: 0, skipped: 0 });
   });
 
   it("respects its per-invocation slice budget", { timeout: 120_000 }, async () => {
@@ -189,7 +189,7 @@ describe("scheduled autonomous runner", () => {
     await uploadAndRequestThenCloseBrowser(world);
     const summary = await runScheduledStudioTick(world.deps, { maxSlices: 2 });
     expect(summary.advanced).toBe(2); // stopped at the budget with work left
-    expect(summary.published).toBe(0);
+    expect(summary.completed).toBe(0);
     // The default budget is bounded too.
     expect(SCHEDULED_TICK_MAX_SLICES).toBeLessThanOrEqual(24);
   });

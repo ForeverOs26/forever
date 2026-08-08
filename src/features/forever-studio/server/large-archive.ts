@@ -63,6 +63,7 @@ import {
   ARCHIVE_PART_BYTES,
   archivePartCountForSize,
   isStudioMaterialPurpose,
+  externalJobStatus,
   JOB_SOURCE_BUDGET_BYTES,
   LARGE_ARCHIVE_MAX_BYTES,
   MAX_ARCHIVES_PER_JOB,
@@ -388,9 +389,13 @@ export async function planArchiveUpload(
   // size decision and must never be able to cost an archive its purpose.
   const materialPurpose = assertNewDirectMaterialPurpose(input.materialPurpose);
   if (job.status === "published") {
+    // The CODE is the persisted, stable identifier the browser and
+    // `write-safety.ts` both match on, and renaming it would break that
+    // contract for no truthfulness gain. The MESSAGE is what a person reads, so
+    // it states what actually happened: the job finished. It did not publish.
     throw new StudioAccessError(
       "job_already_published",
-      "This upload already published. Start a new upload to add more archives.",
+      "This upload has already finished. Start a new upload to add more archives.",
     );
   }
   const fileName = input.fileName.trim();
@@ -1876,7 +1881,8 @@ export async function buildJobProgress(
   const pending = total("pending");
   return {
     jobId: job.id,
-    status: job.status,
+    // Progress crosses to the browser: convert the persisted job status.
+    status: externalJobStatus(job.status),
     archives: progressArchives,
     discovered: entries.length,
     processed: entries.length - pending,

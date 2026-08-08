@@ -196,7 +196,7 @@ describe("large-archive transport — entry routing (the two explicit cases)", (
     await uploadArchive(world, jobId, "documents.zip", misleadingEntries(), "document_legal");
     const result = await drive(world, jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(Object.values(await entryCategories(world, jobId))).toEqual([
       "legal-document",
       "legal-document",
@@ -242,7 +242,7 @@ describe("large-archive transport — entry routing (the two explicit cases)", (
     );
     const result = await drive(world, jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     // The good photo published; the incompatible entry stayed private with a
     // truthful warning and was NOT re-filed under a document window.
     expect(world.executor.store.media).toHaveLength(1);
@@ -414,7 +414,7 @@ describe("large-archive transport — the lane itself carries no meaning", () =>
       Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(64)]),
     );
     const smallResult = await processUploadJob(small.deps, OWNER, started.jobId);
-    expect(smallResult.status).toBe("published");
+    expect(smallResult.status).toBe("completed");
 
     const typesOf = (world: FakeWorld) =>
       world.executor.store.media.map((item) => item.media_type).sort();

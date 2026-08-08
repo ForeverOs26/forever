@@ -81,7 +81,7 @@ describe("private staging and byte verification", () => {
     uploadAll(world, started.uploads, { "malware.jpg": Buffer.from("MZ this is not an image") });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    expect(result.status).toBe("published"); // never blocks
+    expect(result.status).toBe("completed"); // never blocks
     expect(result.warnings.some((w) => w.code === "media_class_mismatch")).toBe(true);
     // Nothing forged reached the public bucket.
     expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(0);
@@ -100,7 +100,7 @@ describe("private staging and byte verification", () => {
     uploadAll(world, started.uploads, { "Price List.pdf": big });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.warnings.some((w) => w.code === "file_too_large_to_parse")).toBe(true);
     expect(world.executor.store.units).toHaveLength(0);
   });
@@ -195,7 +195,7 @@ describe("private staging and byte verification", () => {
     }
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const publicPaths = world.storage.publicKeys(PUBLIC_IMAGE_BUCKET);
     expect(publicPaths).toHaveLength(1);
     expect(publicPaths[0]).toMatch(/\/00-[a-f0-9]{16}\.jpg$/);
@@ -217,7 +217,7 @@ describe("private staging and byte verification", () => {
     uploadAll(world, started.uploads, { "hero.jpg": big });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const job = await world.data.getJob(started.jobId);
     const file = job!.files[0];
     // Full digest + exact size from the actual stored bytes, streamed.
@@ -247,7 +247,7 @@ describe("private staging and byte verification", () => {
     uploadAll(world, started.uploads, { "big-fake.jpg": fakeJpg, "big-fake.mp4": fakeMp4 });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    expect(result.status).toBe("published"); // never blocks
+    expect(result.status).toBe("completed"); // never blocks
     expect(
       result.warnings.filter((w) => w.code === "media_class_mismatch").length,
     ).toBeGreaterThanOrEqual(2);
@@ -265,7 +265,7 @@ describe("private staging and byte verification", () => {
     uploadAll(world, started.uploads); // actual bytes are tiny
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const file = (await world.data.getJob(started.jobId))!.files[0];
     expect(file.declaredMismatch).toBe(true);
     expect(file.observedSize).not.toBe(123_456_789);
@@ -290,7 +290,7 @@ describe("private staging and byte verification", () => {
     });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(
       result.warnings.filter((warning) => warning.code === "media_sanitization_unsupported"),
     ).toHaveLength(3);
@@ -312,7 +312,7 @@ describe("private staging and byte verification", () => {
     uploadAll(world, started.uploads, { "mystery.mp4": unknown });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.warnings.some((w) => w.code === "media_class_mismatch")).toBe(true);
     // Only the real photo was published; the unknown container stays private.
     expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(1);

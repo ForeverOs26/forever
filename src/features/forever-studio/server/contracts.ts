@@ -24,7 +24,7 @@ import type {
   StudioArchiveEntryState,
   StudioArchiveStatus,
   StudioJobFile,
-  StudioJobStatus,
+  StudioPersistedJobStatus,
   StudioMaterialPurpose,
   StudioMaterialPurposeSource,
   StudioRole,
@@ -83,7 +83,12 @@ export interface StudioJobRow {
   workflow: StudioWorkflow;
   project_slug: string | null;
   listing_id: string | null;
-  status: StudioJobStatus;
+  /**
+   * The DATABASE's own value, verbatim — `'published'` for a finished job even
+   * when that job published nothing. Never hand this to a browser-facing
+   * result; convert it with `externalJobStatus` first.
+   */
+  status: StudioPersistedJobStatus;
   processing_token: string | null;
   processing_requested_at: string | null;
   content_fingerprint: string | null;
@@ -449,8 +454,10 @@ export interface StudioData {
   ): Promise<StudioJobRow | null>;
 
   /**
-   * Single-winner claim; null if already published, freshly held elsewhere,
-   * or failed with retryable=false (a terminal failure is never reclaimed).
+   * Single-winner claim; null if the job already reached its terminal success
+   * state (`StudioPersistedJobStatus` `'published'`), is freshly held
+   * elsewhere, or failed with retryable=false (a terminal failure is never
+   * reclaimed).
    */
   claimJob(jobId: string, token: string, staleSeconds: number): Promise<StudioJobRow | null>;
   /**
@@ -466,7 +473,14 @@ export interface StudioData {
     message: string;
     retryable: boolean;
   }): Promise<void>;
-  /** Atomic ingest + publish + finalize (one transaction). */
+  /**
+   * Atomic ingest + optional publish + finalize (one transaction).
+   *
+   * `publish` is the RPC's `p_publish`. Studio ingestion always passes `false`
+   * (see `INGESTION_PUBLISHES`), so for an upload this transaction ingests and
+   * finalizes the job WITHOUT publishing; the parameter exists because the SQL
+   * function supports both.
+   */
   publishProject(input: {
     jobId: string;
     token: string;

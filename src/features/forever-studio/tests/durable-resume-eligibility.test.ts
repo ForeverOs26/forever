@@ -44,7 +44,7 @@ describe("durable resume eligibility", () => {
         projectFacts: { name: `Newer completed project ${index}` },
         files: [],
       });
-      expect((await processUploadJob(world.deps, OWNER, newer.jobId)).status).toBe("published");
+      expect((await processUploadJob(world.deps, OWNER, newer.jobId)).status).toBe("completed");
       world.advanceMinutes(1);
     }
 

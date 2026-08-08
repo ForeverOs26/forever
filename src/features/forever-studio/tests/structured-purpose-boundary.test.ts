@@ -304,7 +304,7 @@ describe("structured purpose — direct files", () => {
     const { result } = await runDirect(world, "prices.json", "price_list", PRICE_LIST_JSON, {
       projectName: "Price Window",
     });
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const outcome = structuredOutcome(world, result);
     expect(outcome.pricesApplied).toBe(true);
     expect(outcome.unitsApplied).toBe(true);
@@ -320,7 +320,7 @@ describe("structured purpose — direct files", () => {
       PRICE_LIST_JSON,
       { projectName: "Photo Window" },
     );
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const outcome = structuredOutcome(world, result);
     expect(outcome.pricesApplied).toBe(false);
     expect(outcome.unitsApplied).toBe(false);
@@ -341,7 +341,7 @@ describe("structured purpose — direct files", () => {
       PRICE_LIST_JSON,
       { projectName: "Documents Window" },
     );
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(structuredOutcome(world, result).pricesApplied).toBe(false);
     expect(structuredOutcome(world, result).mismatchWarning).toBe(true);
     expect((await jobFile(world, jobId, "prices.json")).category).toBe("legal-document");
@@ -356,7 +356,7 @@ describe("structured purpose — direct files", () => {
       PRICE_LIST_JSON,
       { projectName: "Construction Window" },
     );
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(structuredOutcome(world, result).pricesApplied).toBe(false);
     expect(structuredOutcome(world, result).mismatchWarning).toBe(true);
   });
@@ -367,7 +367,7 @@ describe("structured purpose — direct files", () => {
       const { result } = await runDirect(world, "prices.json", purpose, PRICE_LIST_JSON, {
         projectName: `Window ${purpose}`,
       });
-      expect(result.status, purpose).toBe("published");
+      expect(result.status, purpose).toBe("completed");
       const outcome = structuredOutcome(world, result);
       expect(outcome.pricesApplied, purpose).toBe(false);
       expect(outcome.unitsApplied, purpose).toBe(false);
@@ -380,7 +380,7 @@ describe("structured purpose — direct files", () => {
     const { result } = await runDirect(world, "project-facts.json", "price_list", FACTS_JSON, {
       projectName: "Owner Typed Name",
     });
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const outcome = structuredOutcome(world, result);
     // Neither the facts nor the derived identity crossed the boundary.
     expect(outcome.developer).toBeNull();
@@ -395,7 +395,7 @@ describe("structured purpose — direct files", () => {
     // sort the material for them.
     const world = makeWorld();
     const { result } = await runDirect(world, "project-facts.json", "project_archive", FACTS_JSON);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const outcome = structuredOutcome(world, result);
     expect(outcome.developer).toBe("Boundary Estates Co.");
     expect(outcome.projectName).toBe("Structured Facts Manor");
@@ -416,7 +416,7 @@ describe("structured purpose — direct files", () => {
       world.storage.put(target.bucket, target.path, magicBytesFor(target.name));
     }
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     // The photo publishes as gallery media; the payment-plan PDF keeps its
     // window and its private handling — unchanged by this correction.
     expect(world.executor.store.media.map((item) => item.media_type)).toEqual(["gallery"]);
@@ -435,7 +435,7 @@ describe("structured purpose — small inline ZIP lane", () => {
   it("5. does NOT adopt a price list inside a ZIP filed under Project Photos", async () => {
     const world = makeWorld();
     const { result } = await runInlineZip(world, "project_photo", "Inline Photos ZIP");
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const outcome = structuredOutcome(world, result);
     expect(outcome.pricesApplied).toBe(false);
     expect(outcome.unitsApplied).toBe(false);
@@ -448,7 +448,7 @@ describe("structured purpose — small inline ZIP lane", () => {
   it("7. DOES adopt a price list inside a ZIP filed under Full Project Archive", async () => {
     const world = makeWorld();
     const { result } = await runInlineZip(world, "project_archive", "Inline Package ZIP");
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const outcome = structuredOutcome(world, result);
     expect(outcome.pricesApplied).toBe(true);
     expect(outcome.unitsApplied).toBe(true);
@@ -471,7 +471,7 @@ describe("structured purpose — small inline ZIP lane", () => {
       world.storage.put(target.bucket, target.path, inlineZipBytes(target.name));
     }
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const outcome = structuredOutcome(world, result);
     expect(outcome.developer).toBeNull();
     expect(outcome.projectName).toBe("Legal ZIP");
@@ -483,7 +483,7 @@ describe("structured purpose — large resumable ZIP lane", () => {
   it("6. does NOT adopt a price list inside a large ZIP filed under Project Photos", async () => {
     const world = makeWorld();
     const { jobId, result } = await runLargeZip(world, "project_photo", "Large Photos ZIP");
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const outcome = structuredOutcome(world, result);
     expect(outcome.pricesApplied).toBe(false);
     expect(outcome.unitsApplied).toBe(false);
@@ -507,7 +507,7 @@ describe("structured purpose — large resumable ZIP lane", () => {
   it("8. DOES adopt a price list inside a large ZIP filed under Full Project Archive", async () => {
     const world = makeWorld();
     const { jobId, result } = await runLargeZip(world, "project_archive", "Large Package ZIP");
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const outcome = structuredOutcome(world, result);
     expect(outcome.pricesApplied).toBe(true);
     expect(outcome.unitsApplied).toBe(true);
@@ -526,8 +526,8 @@ describe("structured purpose — the two lanes agree", () => {
       const large = makeWorld();
       const smallRun = await runInlineZip(small, purpose, "Lane Parity");
       const largeRun = await runLargeZip(large, purpose, "Lane Parity");
-      expect(smallRun.result.status, purpose).toBe("published");
-      expect(largeRun.result.status, purpose).toBe("published");
+      expect(smallRun.result.status, purpose).toBe("completed");
+      expect(largeRun.result.status, purpose).toBe("completed");
       expect(structuredOutcome(large, largeRun.result), purpose).toEqual(
         structuredOutcome(small, smallRun.result),
       );
@@ -549,7 +549,7 @@ describe("structured purpose — the mismatch warning", () => {
       PRICE_LIST_JSON,
       { projectName: "Warning Safety", siblingPhoto: true },
     );
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const warning = result.warnings.find(
       (entry) => entry.code === STRUCTURED_PURPOSE_MISMATCH_CODE,
     );
@@ -607,7 +607,7 @@ describe("structured purpose — retry and resume", () => {
     world.data.failAfterIngest = false;
 
     const retried = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(retried.status).toBe("published");
+    expect(retried.status).toBe("completed");
     const outcome = structuredOutcome(world, retried);
     expect(outcome.pricesApplied).toBe(false);
     expect(outcome.mismatchWarning).toBe(true);
@@ -615,7 +615,7 @@ describe("structured purpose — retry and resume", () => {
 
     // A duplicate request stays idempotent and does not re-decide anything.
     const again = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(again.status).toBe("published");
+    expect(again.status).toBe("completed");
     expect(world.executor.store.projects).toHaveLength(1);
     expect(world.executor.store.prices).toHaveLength(0);
   });
@@ -623,10 +623,10 @@ describe("structured purpose — retry and resume", () => {
   it("12b. keeps the refusal stable across every slice of a resumed large archive", async () => {
     const world = makeWorld();
     const { jobId, result } = await runLargeZip(world, "document_legal", "Resumed Boundary");
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(structuredOutcome(world, result).pricesApplied).toBe(false);
     const replay = await processUploadJob(world.deps, OWNER, jobId);
-    expect(replay.status).toBe("published");
+    expect(replay.status).toBe("completed");
     expect(world.executor.store.prices).toHaveLength(0);
     expect(world.executor.store.projects).toHaveLength(1);
   });
@@ -652,7 +652,7 @@ describe("structured purpose — legacy stored data", () => {
     expect(structuredPurposeScopeForFile(stored).purposeSource).toBe("filename_fallback");
 
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const outcome = structuredOutcome(world, result);
     expect(outcome.pricesApplied).toBe(true);
     expect(outcome.mismatchWarning).toBe(false);
@@ -717,7 +717,7 @@ describe("structured purpose — Owner values keep precedence", () => {
       world.storage.put(target.bucket, target.path, Buffer.from(FACTS_JSON));
     }
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const project = world.executor.store.projects[0];
     // The artifact was admitted, yet the Owner's typed values still win.
     expect(project.name).toBe("Owner Chosen Name");

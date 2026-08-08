@@ -741,7 +741,7 @@ describe("the uploader on an origin it may not upload from", () => {
         window.label,
       ).toBeNull();
     }
-    expect(screen.queryByRole("button", { name: "Publish now" })).toBeNull();
+    expect(screen.queryByTestId("studio-upload-submit")).toBeNull();
     expect(document.querySelectorAll('input[type="file"]')).toHaveLength(0);
     expect(document.querySelectorAll("form")).toHaveLength(0);
     // Nothing was even attempted.
@@ -828,7 +828,7 @@ describe("the uploader on an origin it may not upload from", () => {
     renderUploader();
     await settle();
 
-    expect(screen.getByRole("button", { name: "Publish now" })).toBeTruthy();
+    expect(screen.getByTestId("studio-upload-submit")).toBeTruthy();
     expect(screen.queryByText(STUDIO_UPLOAD_PREVIEW_TITLE)).toBeNull();
     for (const window of STUDIO_MATERIAL_WINDOWS) {
       expect(

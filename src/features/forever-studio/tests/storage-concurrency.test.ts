@@ -82,7 +82,7 @@ describe("claim-scoped storage side effects", () => {
     // The claim goes stale; worker B recovers and publishes.
     world.advanceMinutes(20);
     const winner = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(winner.status).toBe("published");
+    expect(winner.status).toBe("completed");
     const winnerKeys = world.storage.publicKeys(PUBLIC_IMAGE_BUCKET);
     expect(winnerKeys).toHaveLength(1);
     const winnerJob = await world.data.getJob(started.jobId);
@@ -95,7 +95,7 @@ describe("claim-scoped storage side effects", () => {
     const staleResult = await processClaimedJob(world.deps, OWNER, staleClaim!, "stale-A-token");
 
     // A's continuation reports the job's true (published) state...
-    expect(staleResult.status).toBe("published");
+    expect(staleResult.status).toBe("completed");
     // ...the winner's public object survives byte-for-byte at the same path...
     const keysAfter = world.storage.publicKeys(PUBLIC_IMAGE_BUCKET);
     expect(keysAfter).toEqual(winnerKeys);
@@ -137,7 +137,7 @@ describe("claim-scoped storage side effects", () => {
     world.data.failAfterIngest = false;
     const retried = await processUploadJob(world.deps, OWNER, started.jobId);
     spy.mockRestore();
-    expect(retried.status).toBe("published");
+    expect(retried.status).toBe("completed");
     const finalKeys = world.storage.publicKeys(PUBLIC_IMAGE_BUCKET);
     expect(finalKeys).toHaveLength(1);
     expect(finalKeys[0]).not.toBe(orphans[0]);
@@ -159,11 +159,14 @@ describe("audit failure after a committed publication", () => {
     uploadAll(world, started.uploads);
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
 
-    // The user-visible result is SUCCESS — the publication committed.
-    expect(result.status).toBe("published");
+    // The user-visible result is SUCCESS — the ingestion committed.
+    expect(result.status).toBe("completed");
     expect(result.errorCode).toBeNull();
-    // Nothing was rolled back or deleted because of the audit outage.
-    expect(world.executor.publicProjects()).toHaveLength(1);
+    // Nothing was rolled back or deleted because of the audit outage. The
+    // committed project is a draft: the audit outage must not change that
+    // either way.
+    expect(world.executor.store.projects).toHaveLength(1);
+    expect(world.executor.publicProjects()).toHaveLength(0);
     expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(1);
     expect((await world.data.getJob(started.jobId))?.status).toBe("published");
     // The diagnostic was logged server-side, redacted.
@@ -176,7 +179,7 @@ describe("audit failure after a committed publication", () => {
     // A later re-entry is a read of the same success, not a retry.
     world.data.failAudit = false;
     const again = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(again.status).toBe("published");
+    expect(again.status).toBe("completed");
     expect(world.executor.store.batches).toHaveLength(1);
   });
 
@@ -193,7 +196,7 @@ describe("audit failure after a committed publication", () => {
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
     spy.mockRestore();
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(world.data.publicListings()).toHaveLength(1);
     expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET)).toHaveLength(1);
   });

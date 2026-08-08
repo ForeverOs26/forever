@@ -80,7 +80,7 @@ describe("truthful byte-verification lifecycle (≈297 MiB, 38 parts)", () => {
         });
         if (slices > 60) throw new Error("did not settle within 60 slices");
       }
-      expect(result.status).toBe("published");
+      expect(result.status).toBe("completed");
       for (const step of observed) {
         if (step.verified < 38) {
           expect(["uploaded_unverified", "byte_verifying", "rejected"]).toContain(step.status);

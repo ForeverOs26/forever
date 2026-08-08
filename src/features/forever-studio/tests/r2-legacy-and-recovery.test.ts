@@ -75,7 +75,7 @@ describe("legacy Supabase manifests", () => {
 
     world.flags.writeProvider = "r2";
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
 
     // Processed entirely on Supabase Storage; R2 was never touched.
     expect(world.storage.publicKeys(PUBLIC_IMAGE_BUCKET).length).toBe(1);
@@ -115,7 +115,7 @@ describe("legacy Supabase manifests", () => {
       files: [{ name: "second.jpg", materialPurpose: "project_photo" }],
     });
     await uploadAllViaTransport(world, fresh.uploads);
-    expect((await processUploadJob(world.deps, OWNER, fresh.jobId)).status).toBe("published");
+    expect((await processUploadJob(world.deps, OWNER, fresh.jobId)).status).toBe("completed");
 
     const urls = world.executor.store.media.map((row) => row.url);
     // The old rows still point at Supabase; the new one at Forever's route.
@@ -142,7 +142,7 @@ describe("retry, resume and scheduled continuation on R2", () => {
     expect(world.r2.keys(TEST_R2_BUCKETS.privateSources).length).toBe(1);
 
     const retried = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(retried.status).toBe("published");
+    expect(retried.status).toBe("completed");
     expect(world.executor.store.projects).toHaveLength(1);
     expect(world.storage.uploadCalls).toEqual([]);
   });
@@ -172,7 +172,7 @@ describe("retry, resume and scheduled continuation on R2", () => {
 
     const tick = await runScheduledStudioTick(world.deps);
     expect(tick.due).toBeGreaterThan(0);
-    expect(tick.published).toBe(1);
+    expect(tick.completed).toBe(1);
     const job = await world.deps.data.getJob(started.jobId);
     expect(job!.status).toBe("published");
     expect(world.storage.uploadCalls).toEqual([]);
@@ -194,7 +194,7 @@ describe("recovery", () => {
     // Only the first file's bytes ever reached storage.
     await uploadAllViaTransport(world, [started.uploads[0]]);
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.warnings.map((warning) => warning.code)).toContain("file_upload_missing");
     // The file that DID arrive still published.
     expect(world.r2.keys(TEST_R2_BUCKETS.publicMedia).length).toBe(1);
@@ -215,7 +215,7 @@ describe("recovery", () => {
     const fresh = await world.data.claimJob(started.jobId, freshToken, 900);
     expect(fresh).not.toBeNull();
     const published = await processClaimedJob(world.deps, OWNER, fresh!, freshToken);
-    expect(published.status).toBe("published");
+    expect(published.status).toBe("completed");
     const winners = world.r2.keys(TEST_R2_BUCKETS.publicMedia);
     expect(winners.length).toBe(1);
 
@@ -237,7 +237,7 @@ describe("recovery", () => {
       "notes.txt": magicBytesFor("notes.txt"),
     });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     // Nothing public, original still privately retained and readable.
     expect(world.r2.keys(TEST_R2_BUCKETS.publicMedia)).toEqual([]);
     const privateKeys = world.r2.keys(TEST_R2_BUCKETS.privateSources);

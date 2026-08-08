@@ -181,7 +181,7 @@ describe("server-side verification of the ACTUAL stored bytes", () => {
     });
     await uploadAllViaTransport(world, started.uploads, { "hero.jpg": bytes });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
 
     const job = await world.deps.data.getJob(started.jobId);
     const file = job!.files[0];
@@ -203,7 +203,7 @@ describe("server-side verification of the ACTUAL stored bytes", () => {
     // A PDF uploaded through the Project Photos window.
     await uploadAllViaTransport(world, started.uploads, { "hero.jpg": tinyPdf() });
     const result = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.warnings.map((warning) => warning.code)).toContain("media_class_mismatch");
     // Nothing entered the public bucket, and the original is still private.
     expect(world.r2.keys(TEST_R2_BUCKETS.publicMedia)).toEqual([]);

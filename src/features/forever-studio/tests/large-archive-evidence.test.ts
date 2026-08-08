@@ -97,7 +97,7 @@ describe("large-entry private evidence extraction", () => {
         slices += 1;
         if (slices > 60) throw new Error("did not settle within 60 slices");
       }
-      expect(result.status).toBe("published");
+      expect(result.status).toBe("completed");
 
       const rows = await world.deps.data.listJobArchiveEntries(jobId);
       const byName = new Map(rows.map((row) => [row.entry_name, row]));

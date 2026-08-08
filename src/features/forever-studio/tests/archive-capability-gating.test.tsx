@@ -222,7 +222,7 @@ describe("the archive window when the resumable lane is unavailable", () => {
     endpoints.startJob.mockReset().mockResolvedValue({ jobId: "job-1", uploads: [] });
     endpoints.processJob.mockReset().mockResolvedValue({
       jobId: "job-1",
-      status: "published",
+      status: "completed",
       warnings: [],
       counts: null,
       pagePath: null,
@@ -416,7 +416,7 @@ describe("the archive window when the resumable lane is available", () => {
     endpoints.startJob.mockReset().mockResolvedValue({ jobId: "job-1", uploads: [] });
     endpoints.processJob.mockReset().mockResolvedValue({
       jobId: "job-1",
-      status: "published",
+      status: "completed",
       warnings: [],
       counts: null,
       pagePath: null,
@@ -455,7 +455,7 @@ describe("the archive window when the resumable lane is available", () => {
     expect(screen.getByText("brochure.pdf")).toBeTruthy();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+      fireEvent.click(screen.getByTestId("studio-upload-submit"));
     });
 
     expect(endpoints.startJob).toHaveBeenCalledTimes(1);
@@ -493,7 +493,7 @@ describe("a mixed submission on a deployment without the resumable lane", () => 
     expect(screen.getByText("brochure.pdf")).toBeTruthy();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+      fireEvent.click(screen.getByTestId("studio-upload-submit"));
     });
 
     // Nothing was created: no job, no ordinary upload, no archive call.
@@ -519,7 +519,7 @@ describe("a mixed submission on a deployment without the resumable lane", () => 
       );
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+      fireEvent.click(screen.getByTestId("studio-upload-submit"));
     });
 
     expect(endpoints.startJob).toHaveBeenCalledTimes(1);
@@ -819,7 +819,7 @@ describe("the ordinary Coralina-equivalent path is untouched by the gate", () =>
       processUploadJob(world.deps, OWNER, started.jobId),
     );
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     // (18) No Supabase Storage object, ever.
     expect(world.storage.objects.size).toBe(0);
     // No re-upload: the private bucket membership is unchanged.

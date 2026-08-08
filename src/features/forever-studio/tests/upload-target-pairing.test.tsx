@@ -122,7 +122,7 @@ async function addTo(label: string, ...files: File[]) {
 
 async function publish() {
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+    fireEvent.click(screen.getByTestId("studio-upload-submit"));
   });
 }
 
@@ -195,7 +195,7 @@ describe("upload target pairing", () => {
     endpoints.getOverview.mockReset().mockResolvedValue(OVERVIEW);
     endpoints.startJob.mockReset();
     endpoints.processJob.mockReset().mockResolvedValue({
-      status: "published",
+      status: "completed",
       pagePath: "/projects/x",
       warnings: [],
       counts: null,
@@ -211,7 +211,7 @@ describe("upload target pairing", () => {
   // 1 -------------------------------------------------------------------------
   it("sends two files in different windows to their own targets", async () => {
     renderUploader();
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Price List", file("q3.pdf", "PRICE-BYTES"));
     await addTo("Documents / Legal", file("deed.pdf", "DEED-BYTES"));
     await publish();
@@ -225,7 +225,7 @@ describe("upload target pairing", () => {
   // 2 -------------------------------------------------------------------------
   it("keeps two IDENTICALLY NAMED files in different windows apart", async () => {
     renderUploader();
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Price List", file("scan.pdf", "IN-PRICE-LIST"));
     await addTo("Documents / Legal", file("scan.pdf", "IN-DOCUMENTS"));
     await publish();
@@ -246,7 +246,7 @@ describe("upload target pairing", () => {
   // 3 -------------------------------------------------------------------------
   it("keeps the SAME File object selected under two windows independent", async () => {
     renderUploader();
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     const shared = file("shared.jpg", "SHARED-BYTES");
     await addTo("Project Photos / Renders", shared);
     await addTo("Construction Photos", shared);
@@ -270,7 +270,7 @@ describe("upload target pairing", () => {
   it("is unaffected when the server returns its targets in REVERSED order", async () => {
     mockStartJob((targets) => [...targets].reverse());
     renderUploader();
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Price List", file("q3.pdf", "PRICE-BYTES"));
     await addTo("Documents / Legal", file("deed.pdf", "DEED-BYTES"));
     await addTo("Floor Plans", file("level-2.pdf", "PLAN-BYTES"));
@@ -293,7 +293,7 @@ describe("upload target pairing", () => {
   // 5 -------------------------------------------------------------------------
   it("survives a file being removed and re-added before submission", async () => {
     renderUploader();
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Price List", file("q3.pdf", "OLD-PRICE"));
     await addTo("Documents / Legal", file("deed.pdf", "DEED-BYTES"));
     await act(async () => {
@@ -312,7 +312,7 @@ describe("upload target pairing", () => {
   // 6 -------------------------------------------------------------------------
   it("pairs correctly with ONE large archive interleaved among ordinary files", async () => {
     renderUploader();
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Price List", file("q3.pdf", "PRICE-BYTES"));
     await addTo("Full Project Archive / Other Package", file("package.zip", "ZIP-BYTES"));
     await addTo("Documents / Legal", file("deed.pdf", "DEED-BYTES"));
@@ -335,7 +335,7 @@ describe("upload target pairing", () => {
   // 7 -------------------------------------------------------------------------
   it("pairs correctly with MULTIPLE large archives in different windows", async () => {
     renderUploader();
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Project Photos / Renders", file("photos.zip", "PHOTOS-ZIP"));
     await addTo("Price List", file("q3.pdf", "PRICE-BYTES"));
     await addTo("Documents / Legal", file("legal.zip", "LEGAL-ZIP"));
@@ -360,7 +360,7 @@ describe("upload target pairing", () => {
       path.endsWith("01-deed.pdf") ? { error: new Error("HTTP 500") } : { error: null },
     );
     renderUploader();
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Price List", file("q3.pdf", "PRICE-BYTES"));
     await addTo("Documents / Legal", file("deed.pdf", "DEED-BYTES"));
     await addTo("Floor Plans", file("level-2.pdf", "PLAN-BYTES"));
@@ -370,7 +370,7 @@ describe("upload target pairing", () => {
     // that failed to upload, so the verdict is no longer an unconditional
     // "Published". The old expectation encoded the defect it sits beside — the
     // very next assertion checks that a file failed and was skipped.
-    expect(await screen.findByRole("heading", { name: "Partly published" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Draft saved with problems" })).toBeVisible();
     // Named the file that actually failed — not a neighbour. The browser's own
     // record is labelled as the BROWSER's: it is reported separately from the
     // server's, because the server redacts filenames and the two observations
@@ -405,11 +405,11 @@ describe("upload target pairing", () => {
       path.endsWith("01-deed.pdf") ? { error: new Error("HTTP 500") } : { error: null },
     );
     renderUploader();
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Price List", file("q3.pdf", "PRICE-BYTES"));
     await addTo("Documents / Legal", file("deed.pdf", "DEED-BYTES"));
     await publish();
-    await screen.findByRole("heading", { name: "Partly published" });
+    await screen.findByRole("heading", { name: "Draft saved with problems" });
 
     // The safe guidance is present, verbatim, and is not hidden behind a
     // <details> the Owner has to open.
@@ -454,7 +454,7 @@ describe("upload target pairing", () => {
    */
   it("renders a historically persisted file_upload_missing warning safely", async () => {
     endpoints.processJob.mockResolvedValue({
-      status: "published",
+      status: "completed",
       pagePath: "/projects/x",
       counts: { buildings: 0, units: 3, prices: 3, media: 0, warnings: 1 },
       warnings: [
@@ -472,10 +472,10 @@ describe("upload target pairing", () => {
       listingId: null,
     });
     renderUploader();
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Price List", file("q3.pdf", "PRICE-BYTES"));
     await publish();
-    await screen.findByRole("heading", { name: "Partly published" });
+    await screen.findByRole("heading", { name: "Draft saved with problems" });
 
     // Every transfer completed from the browser's side, so this is the
     // SERVER-ONLY delivery path — the one the module suite never rendered.
@@ -541,7 +541,7 @@ describe("upload target pairing", () => {
     it(`refuses to upload anything when a target identity is ${label}`, async () => {
       mockStartJob(transform);
       const view = renderUploader();
-      await screen.findByRole("button", { name: "Publish now" });
+      await screen.findByTestId("studio-upload-submit");
       await addTo("Price List", file("q3.pdf", "PRICE-BYTES"));
       await addTo("Documents / Legal", file("deed.pdf", "DEED-BYTES"));
       await publish();
@@ -563,7 +563,7 @@ describe("upload target pairing", () => {
 
   it("uploads every file to the PRIVATE staging bucket and nowhere else", async () => {
     renderUploader();
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Project Photos / Renders", file("a.jpg", "A"));
     await addTo("Brochure", file("b.pdf", "B"));
     await publish();

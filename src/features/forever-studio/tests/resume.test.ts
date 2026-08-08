@@ -24,12 +24,15 @@ describe("automatic durable resume", () => {
     // upload set, so closing before processJob leaves the job inert.
     const resumed = await resumeDueJobs(world.deps, OWNER);
     expect(resumed).toEqual({ resumed: 0, results: [] });
-    expect(world.executor.publicProjects()).toHaveLength(0);
+    expect(world.executor.store.projects).toHaveLength(0);
     expect((await world.data.getJob(started.jobId))?.processing_requested_at).toBeNull();
 
     const processed = await processUploadJob(world.deps, OWNER, started.jobId);
-    expect(processed.status).toBe("published");
-    expect(world.executor.publicProjects()).toHaveLength(1);
+    expect(processed.status).toBe("completed");
+    // The ingestion committed a project — as a DRAFT. `publicProjects()` is the
+    // public RLS predicate, and nothing became publicly visible.
+    expect(world.executor.store.projects).toHaveLength(1);
+    expect(world.executor.publicProjects()).toHaveLength(0);
   });
 
   it("recovers a stale-processing job after its claim goes cold", async () => {

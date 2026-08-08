@@ -60,7 +60,7 @@ describe("Studio resale listings", () => {
       ],
     });
 
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(result.pagePath).toMatch(/^\/resale\/2-bedroom-sea-view-condo-kamala-/);
     const listing = world.data.listings[0];
     expect(listing.publication_status).toBe("published");
@@ -123,7 +123,7 @@ describe("Studio resale listings", () => {
       resaleFacts: { bedrooms: 3, locationText: "Rawai" },
       files: [{ name: "house.jpg", materialPurpose: "project_photo" }],
     });
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     const listing = world.data.listings[0];
     expect(listing.price).toBeNull();
     expect(listing.currency).toBeNull();
@@ -138,7 +138,7 @@ describe("Studio resale listings", () => {
       resaleFacts: { title: "Currency test", price: 100, currency: "baht" },
       files: [],
     });
-    expect(result.status).toBe("published");
+    expect(result.status).toBe("completed");
     expect(world.data.listings[0].currency).toBeNull();
     expect(result.warnings.some((w) => w.code === "currency_invalid_ignored")).toBe(true);
   });

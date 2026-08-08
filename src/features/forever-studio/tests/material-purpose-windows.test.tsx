@@ -168,7 +168,7 @@ function sentFiles(): SentFile[] {
 
 async function publish() {
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+    fireEvent.click(screen.getByTestId("studio-upload-submit"));
   });
 }
 
@@ -181,7 +181,7 @@ describe("Studio upload windows", () => {
     endpoints.getOverview.mockReset().mockResolvedValue(OVERVIEW);
     endpoints.startJob.mockReset().mockResolvedValue({ jobId: "job-1", uploads: [] });
     endpoints.processJob.mockReset().mockResolvedValue({
-      status: "published",
+      status: "completed",
       pagePath: "/projects/x",
       warnings: [],
       counts: null,
@@ -199,7 +199,7 @@ describe("Studio upload windows", () => {
 
   it("renders a separate, labelled window for every required material purpose", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
 
     for (const label of REQUIRED_WINDOWS) {
       const input = windowInput(label);
@@ -231,7 +231,7 @@ describe("Studio upload windows", () => {
   it("keeps every required window reachable on every workflow", async () => {
     for (const workflow of STUDIO_WORKFLOWS) {
       const view = renderUploader(workflow);
-      await screen.findByRole("button", { name: "Publish now" });
+      await screen.findByTestId("studio-upload-submit");
       for (const label of REQUIRED_WINDOWS) {
         // Present and operable whether it leads the workflow or sits under
         // "More material types" — a workflow narrows the common case, it never
@@ -269,7 +269,7 @@ describe("Studio upload windows", () => {
 
   it("offers camera capture in the photo and construction windows", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     for (const label of ["Project Photos / Renders", "Construction Photos"]) {
       expect(
         screen.getByLabelText(`Take a photo for ${label}`, { selector: 'input[type="file"]' }),
@@ -283,7 +283,7 @@ describe("Studio upload windows", () => {
 
   it("sends every direct file with the purpose of the window it was added to", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
 
     await addTo("Price List", file("document.pdf"));
     await addTo("Documents / Legal", file("price-list.pdf"));
@@ -324,7 +324,7 @@ describe("Studio upload windows", () => {
 
   it("never sends a direct file without a purpose", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Brochure", file("a.pdf"), file("b.pdf"));
     await addTo("Map / Location", file("c.png"));
     await publish();
@@ -335,7 +335,7 @@ describe("Studio upload windows", () => {
 
   it("survives JSON serialization of the request payload unchanged", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Unit Plans", file("scan001.pdf"));
     await addTo("Video", file("clip.mp4"));
     await publish();
@@ -352,7 +352,7 @@ describe("Studio upload windows", () => {
 
   it("uses only purposes the server allowlist recognizes", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     for (const window of STUDIO_MATERIAL_WINDOWS) {
       await addTo(window.label, file(`${window.purpose}.bin`));
     }
@@ -370,7 +370,7 @@ describe("Studio upload windows", () => {
 
   it("lists each selected file beneath the window it was added to", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Price List", file("q3.pdf"));
     await addTo("Floor Plans", file("level-2.pdf"));
 
@@ -384,7 +384,7 @@ describe("Studio upload windows", () => {
 
   it("removing one file leaves every other file's purpose untouched", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
 
     await addTo("Brochure", file("keep-brochure.pdf"));
     await addTo("Price List", file("drop-me.pdf"), file("keep-price.pdf"));
@@ -407,7 +407,7 @@ describe("Studio upload windows", () => {
 
   it("keeps two identically named files in different windows independent", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Price List", file("scan.pdf"));
     await addTo("Documents / Legal", file("scan.pdf"));
 
@@ -426,25 +426,25 @@ describe("Studio upload windows", () => {
 
   it("publishes with every window left empty", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await publish();
     expect(endpoints.startJob).toHaveBeenCalledTimes(1);
     expect(sentFiles()).toEqual([]);
-    expect(await screen.findByRole("heading", { name: "Published" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Draft saved" })).toBeVisible();
   });
 
   it("publishes when only one of fourteen windows was used", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Master Plan", file("site.pdf"));
     await publish();
-    expect(await screen.findByRole("heading", { name: "Published" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Draft saved" })).toBeVisible();
     expect(sentFiles()).toHaveLength(1);
   });
 
   it("shows no approval, readiness or verification gate anywhere in the flow", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Brochure", file("b.pdf"));
 
     // The single final action is still to publish.
@@ -462,18 +462,19 @@ describe("Studio upload windows", () => {
         String(forbidden),
       ).toHaveLength(0);
     }
+    // The caption states the DRAFT outcome and keeps the durable product rule:
+    // missing information still blocks nothing. It must not promise publication.
     expect(
       screen.getByText(
-        "Your upload publishes immediately. Missing information never blocks publication.",
-        {
-          exact: false,
-        },
+        "Your upload is saved as an unpublished draft for review — it does not go on the public site. Missing information never blocks it.",
+        { exact: false },
       ),
     ).toBeVisible();
 
     await publish();
-    // Upload → published. No intermediate state asked the Owner for anything.
-    expect(await screen.findByRole("heading", { name: "Published" })).toBeVisible();
+    // Upload → draft. No intermediate state asked the Owner for anything: the
+    // absence of a gate is what this test is about, and it is unchanged.
+    expect(await screen.findByRole("heading", { name: "Draft saved" })).toBeVisible();
   });
 
   // -------------------------------------------------------------------------
@@ -482,7 +483,7 @@ describe("Studio upload windows", () => {
 
   it("keeps every window within a 375 px viewport with no horizontal overflow", async () => {
     const view = renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo(
       "Documents / Legal",
       file("a-very-long-original-file-name-from-a-phone-camera-export-2026.pdf"),
@@ -524,7 +525,7 @@ describe("Studio upload windows", () => {
 
   it("keeps a LARGE archive's Owner-selected window and passes it to the archive lane", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     // Three ZIPs, three different windows. Under the old code all three left
     // the request entirely and were planned with no purpose at all.
     await addTo("Documents / Legal", file("legal.zip"));
@@ -554,7 +555,7 @@ describe("Studio upload windows", () => {
     for (const large of [true, false]) {
       largeArchiveLane.value = large;
       const view = renderUploader("new_development");
-      await screen.findByRole("button", { name: "Publish now" });
+      await screen.findByTestId("studio-upload-submit");
       await addTo("Documents / Legal", file("legal.zip"));
       await publish();
       seen.push(
@@ -573,7 +574,7 @@ describe("Studio upload windows", () => {
     // price_availability_update leads with the commercial windows, so Project
     // Photos moves into "More material types".
     renderUploader("price_availability_update");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     const disclosure = document.querySelector("details");
     expect(disclosure).not.toBeNull();
     expect(disclosure!.open).toBe(false);
@@ -589,19 +590,19 @@ describe("Studio upload windows", () => {
 
     // It is an indicator, not a gate: publication is unaffected.
     await publish();
-    expect(await screen.findByRole("heading", { name: "Published" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Draft saved" })).toBeVisible();
   });
 
   it("F4 — says 'file' not 'files' for a single selection", async () => {
     renderUploader("construction_media_update");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Price List", file("q3.pdf"));
     expect(document.querySelector("details summary")!.textContent).toContain("1 file selected");
   });
 
   it("F5 — the per-file Remove control is a comfortable phone touch target", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     await addTo("Brochure", file("b.pdf"));
     const remove = screen.getByRole("button", { name: "Remove b.pdf from Brochure" });
     // jsdom has no layout engine, so the intended size is proven from the
@@ -617,7 +618,7 @@ describe("Studio upload windows", () => {
 
   it("F6 — the Developer / Company Profile window promises no public developer page", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     const input = windowInput("Developer / Company Profile");
     const hint = document.getElementById(input.getAttribute("aria-describedby")!)!;
     // Truthful: private retention, and no promise of a section that does not
@@ -630,7 +631,7 @@ describe("Studio upload windows", () => {
 
   it("labels each picker with its window so assistive tech states the purpose", async () => {
     renderUploader("new_development");
-    await screen.findByRole("button", { name: "Publish now" });
+    await screen.findByTestId("studio-upload-submit");
     for (const window of STUDIO_MATERIAL_WINDOWS) {
       const input = windowInput(window.label);
       // Focusable (sr-only, not display:none) so the window is keyboard-usable.
