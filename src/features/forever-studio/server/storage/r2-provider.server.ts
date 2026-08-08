@@ -679,11 +679,17 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
     },
 
     async abortArchiveUpload({ state }) {
-      // NEVER destructive on the parts lane. Those part objects ARE the
-      // privately retained original archive, exactly as on the Supabase lane,
-      // and they must survive an abandoned upload. A restart plans a fresh
-      // archive id and therefore a fresh prefix, so nothing is resumed into or
-      // overwritten and there is nothing to release.
+      // NEVER destructive on the parts lane, for two independent reasons.
+      //
+      // There is nothing to release: the ONLY caller is `planArchiveUpload`'s
+      // `createArchive` failure path, which runs before any part target has
+      // been issued, so no part object can exist yet. The multipart lane had
+      // something to release there — an upload the platform would otherwise
+      // hold — and that is what this method was for.
+      //
+      // And if that ever changes, deleting would be wrong anyway: those part
+      // objects ARE the privately retained original archive, exactly as on the
+      // Supabase lane, whose abort is a no-op for the same reason.
       if (archiveLayoutOf(state) === "parts") return;
       if (state.completed || !state.objectKey || !state.multipartUploadId) return;
       // Best-effort and never fatal, by contract. On a Worker there is nothing

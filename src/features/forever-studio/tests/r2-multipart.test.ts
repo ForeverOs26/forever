@@ -25,6 +25,8 @@ import {
   startUploadJob,
 } from "../server/service";
 import { archiveStorageState } from "../server/storage/job-provider";
+import { archiveLayoutOf, type StudioArchiveGeometry } from "../server/storage/provider";
+import { LOGICAL_ARCHIVE_BUCKET, r2ArchiveObjectPath } from "../server/storage/r2-layout";
 import { ARCHIVE_PART_BYTES, type StudioMaterialPurpose } from "../studio-types";
 import { buildZipParts } from "./large-archive-fixtures";
 import { assertLocalR2Endpoint } from "./local-r2";
@@ -341,6 +343,106 @@ describe("an interrupted upload survives, because nothing can expire", () => {
     const keys = world.r2.keys(TEST_R2_BUCKETS.projectArchives);
     expect(keys).toContain(`studio/archives/${job.jobId}/${a.archiveId}/parts/00000`);
     expect(keys).toContain(`studio/archives/${job.jobId}/${b.archiveId}/parts/00000`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The LEGACY multipart lane, which rows written before the parts lane still use
+// ---------------------------------------------------------------------------
+
+describe("the legacy multipart lane still works off a Worker", () => {
+  /**
+   * New archives never create a multipart upload, so nothing in the ordinary
+   * flow reaches these branches any more. They still run in production for any
+   * archive row written before the parts lane, and the change's whole
+   * compatibility promise rests on them — so they are driven directly, through
+   * a state shaped exactly as `beginArchiveUpload` used to return.
+   */
+  function legacyState(world: FakeWorld, geometry: StudioArchiveGeometry) {
+    const provider = world.deps.storageProviders.get("r2");
+    const objectKey = r2ArchiveObjectPath(geometry.jobId, geometry.archiveId);
+    // A live multipart upload seeded into the harness, exactly as the OLD
+    // `beginArchiveUpload` left it: the assembled key plus its upload id.
+    const uploadId = "local-upload-legacy";
+    world.r2.uploads.set(uploadId, {
+      bucket: TEST_R2_BUCKETS.projectArchives,
+      key: `studio/${objectKey}`,
+      contentType: "application/zip",
+      parts: new Map(),
+      aborted: false,
+    });
+    return {
+      provider,
+      state: {
+        provider: "r2" as const,
+        bucket: LOGICAL_ARCHIVE_BUCKET,
+        objectKey,
+        multipartUploadId: uploadId,
+      },
+    };
+  }
+
+  const GEOMETRY = {
+    jobId: "00000000-0000-4000-8000-0000000000a1",
+    archiveId: "00000000-0000-4000-8000-0000000000a2",
+    declaredSize: 16,
+    partSize: 8,
+    partCount: 2,
+  };
+
+  it("uploads, lists via ListParts and completes into one assembled object", async () => {
+    const world = r2World();
+    const { provider, state } = legacyState(world, GEOMETRY);
+    expect(archiveLayoutOf(state)).toBe("multipart");
+
+    const targets = await provider.archivePartTargets({
+      geometry: GEOMETRY,
+      state,
+      indexes: [0, 1],
+    });
+    const bodies = [Buffer.alloc(8, 0x61), Buffer.alloc(8, 0x62)];
+    for (const target of targets) {
+      const transport = target.transport!;
+      if (transport.kind !== "r2_presigned_put") throw new Error("expected an R2 transport");
+      const response = await world.r2.fetchImpl(transport.url, {
+        method: "PUT",
+        headers: transport.headers,
+        body: new Uint8Array(bodies[target.index]) as unknown as BodyInit,
+      });
+      expect(response.ok).toBe(true);
+    }
+
+    // ListParts — this lane's resume authority — reports both parts.
+    const accepted = await provider.listAcceptedArchiveParts({ geometry: GEOMETRY, state });
+    expect([...accepted.keys()].sort()).toEqual([0, 1]);
+    expect(accepted.get(0)!.etag).toBeTruthy();
+
+    const completed = await provider.completeArchiveUpload({
+      geometry: GEOMETRY,
+      state,
+      parts: accepted,
+    });
+    expect(completed.completed).toBe(true);
+    const stored = world.r2.objects.get(
+      `${TEST_R2_BUCKETS.projectArchives}/studio/${state.objectKey}`,
+    );
+    expect(stored!.body.equals(Buffer.concat(bodies))).toBe(true);
+
+    // And the assembled object reads back through the multipart reader.
+    const reader = provider.archiveReader({ geometry: GEOMETRY, state: completed, totalSize: 16 });
+    expect((await reader.read(0, 16)).equals(Buffer.concat(bodies))).toBe(true);
+  });
+
+  it("reports a lost upload as such instead of an empty part list", async () => {
+    const world = r2World();
+    const { provider, state } = legacyState(world, GEOMETRY);
+
+    // R2's platform expiry removes the abandoned upload.
+    world.r2.expireUpload(state.multipartUploadId);
+
+    await expect(
+      provider.listAcceptedArchiveParts({ geometry: GEOMETRY, state }),
+    ).rejects.toMatchObject({ name: "archive_upload_lost" });
   });
 });
 

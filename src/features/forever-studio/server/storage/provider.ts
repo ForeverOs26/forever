@@ -122,10 +122,12 @@ export interface StudioArchiveStorageState {
  * the bytes actually are. The parts lane writes neither, so their joint absence
  * is what makes a state a parts state.
  *
- * Deliberately NOT `state.layout`: trusting a stored label over that evidence
- * would let one wrong or hand-edited field send an assembled archive down a
- * prefix listing, which would read an empty archive as legitimately empty.
- * Fail toward the layout the bytes are in.
+ * Deliberately NOT `state.layout`: a stored label is a claim, the markers are
+ * evidence, and one wrong or hand-edited field should not be able to send an
+ * assembled archive down a prefix listing. Nothing downstream would silently
+ * accept the result — confirm always checks every planned index, and the parted
+ * reader throws `studio_archive_part_unreadable` — so this is defence in depth
+ * rather than the only thing standing between a misroute and data loss.
  */
 export function archiveLayoutOf(state: StudioArchiveStorageState): StudioArchiveLayout {
   if (state.multipartUploadId || state.objectKey) return "multipart";

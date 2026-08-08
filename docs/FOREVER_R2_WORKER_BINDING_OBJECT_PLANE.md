@@ -295,6 +295,28 @@ deployment component**, and it is the one this document recommends.
 > Legacy archives are untouched and need no migration: a row carrying
 > `objectKey`/`multipartUploadId` still resolves to the multipart lane, which
 > still refuses on a Worker for the original reason.
+>
+> **Two costs this lane accepts, stated plainly.**
+>
+> 1. **Abandoned part objects are never reclaimed.** R2's own multipart expiry
+>    used to clear an abandoned upload; part objects do not expire, `abort` is a
+>    no-op and `discardArchiveParts` only removes wrong-sized parts during a
+>    confirm. So the parts of an archive that is never confirmed, or that is
+>    rejected for `archive_upload_incomplete` or `archive_part_integrity_failed`,
+>    stay in the archive bucket indefinitely — up to `LARGE_ARCHIVE_MAX_BYTES`
+>    each. This is the same behaviour the Supabase lane has always had, and it is
+>    the direct price of "the parts ARE the retained original". A retention sweep
+>    over `archives/{job}/{archive}/` for terminally-rejected archives is the
+>    obvious follow-up; it is deliberately not bundled here, because deleting
+>    retained source material needs its own decision.
+> 2. **A part's presigned PUT stays valid for its full TTL.** An `UploadPart`
+>    presign died at `CompleteMultipartUpload`; a plain object presign does not,
+>    so for up to `DEFAULT_PRESIGN_TTL_SECONDS` after acceptance the holder of
+>    that URL could overwrite that part of the retained archive. Nothing
+>    downstream trusts the bytes blindly — the per-part SHA-256 is verified
+>    before expansion, per-entry CRC-32 during it, and the parted reader
+>    re-checks each part's exact size on every read — and the Supabase lane has
+>    the same shape. It is recorded because it is newly true for R2.
 
 The original statement of the task follows, unchanged.
 

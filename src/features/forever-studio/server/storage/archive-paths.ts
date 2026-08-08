@@ -20,12 +20,15 @@ export function archivePartFolder(jobId: string, archiveId: string): string {
 /**
  * R2 parts-as-objects lane (FOREVER-R2-BINDING-NATIVE-MULTIPART-ARCHIVE-001).
  *
- * Archive-id scoped exactly as the assembled-object key was, so a restart after
- * an abandoned upload gets a FRESH archive row and therefore a FRESH prefix: an
- * abandoned upload can never be resumed into, or overwritten by, a later one.
+ * Archive-id scoped exactly as the assembled-object key was, so one prefix
+ * bounds everything one archive ever wrote, and two archives — including a
+ * rejected one and the retry that replaces it — never share a prefix.
  *
- * It lives under the same `archives/{job}/{archive}/` prefix the assembled
- * object used, so one prefix still bounds everything one archive ever wrote.
+ * Note this does NOT mean every re-plan gets a fresh prefix: re-presenting the
+ * identical manifest deliberately RESUMES the same archive id, and writing the
+ * remaining parts into the same prefix is exactly what makes resume work. What
+ * the scoping guarantees is that different bytes never land in one prefix,
+ * because any manifest difference produces a different archive id.
  */
 export function r2ArchivePartFolder(jobId: string, archiveId: string): string {
   return `archives/${jobId}/${archiveId}/parts`;
