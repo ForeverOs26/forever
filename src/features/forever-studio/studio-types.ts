@@ -1182,6 +1182,17 @@ export interface StudioArchiveProgress {
   entriesProcessed: number;
   entriesPublished: number;
   entriesRetained: number;
+  /**
+   * Retained entries that specifically NEED A DECISION — material naming a
+   * showroom in a different location from this project.
+   *
+   * A SUBSET of `entriesRetained`, never a separate total: those entries really
+   * are retained, and double-counting them would overstate the archive. It is
+   * surfaced on its own because "retained because we publish no videos yet" and
+   * "retained because this may be another project's material" ask completely
+   * different things of the Owner.
+   */
+  entriesManualReview: number;
   entriesSkipped: number;
   entriesFailed: number;
   warningCode: string | null;
@@ -1196,6 +1207,8 @@ export interface StudioJobProgress {
   processed: number;
   published: number;
   retained: number;
+  /** Subset of `retained` that needs the Owner's decision. See the per-archive field. */
+  manualReview: number;
   skippedDuplicates: number;
   failed: number;
   pending: number;

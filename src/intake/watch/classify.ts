@@ -111,7 +111,7 @@ export function classifyAttachment(
   messageTextHints: string[],
 ): AttachmentClassification {
   const filename = attachment.original_filename ?? "";
-  const { category } = classifyPath(filename);
+  const { category, matched_by } = classifyPath(filename);
   const filenameHints = textHints(filename);
 
   // A filename that explicitly says "master plan" is routed as the visual
@@ -128,7 +128,19 @@ export function classifyAttachment(
   // A category derived from the filename's own words (or the archive rule)
   // wins outright; extension-only media and unknown files fall through to
   // the weaker hint signals.
-  const isBareMedia = category === "photo" || category === "video" || category === "unknown";
+  //
+  // `matched_by` is what makes that sentence literally true. Without it a bare
+  // `scan0001.pdf` — which the shared classifier now calls a document rather
+  // than leaving `unknown` — would outrank the caption that says what it is,
+  // while a genuinely named `contract.pdf` must still outrank that caption.
+  // `archive` stays excluded even though it too comes from the extension: a
+  // ZIP is a container whose contents are unknown until it is opened, so a
+  // caption must never be allowed to declare what is inside it.
+  const isBareMedia =
+    category === "photo" ||
+    category === "video" ||
+    category === "unknown" ||
+    (matched_by === "extension" && category !== "archive");
   if (fromFilename !== null && !isBareMedia) {
     return { intake_category: category, bucket: fromFilename, from_text_hint: false };
   }

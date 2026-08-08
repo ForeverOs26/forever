@@ -26,7 +26,15 @@ describe("Fast Intake classifier", () => {
     expect(classifyPath("root-0/loose/clip.mov").category).toBe("video");
     expect(classifyPath("root-0/loose/bundle.zip").category).toBe("archive");
     expect(classifyPath("root-0/loose/notes.xyz").category).toBe("unknown");
-    expect(classifyPath("root-0/loose/random.pdf").category).toBe("unknown");
+    // A document with no folder and no keyword signal is still a DOCUMENT.
+    // `legal-document` is the conservative landing place: it is the one
+    // document category with no public media type, so the file is inventoried
+    // and retained privately instead of vanishing into `unknown`.
+    expect(classifyPath("root-0/loose/random.pdf").category).toBe("legal-document");
+    expect(classifyPath("root-0/loose/random.pdf").matched_by).toBe("extension");
+    // A NAMED document keeps its stronger signal, and says so.
+    expect(classifyPath("root-0/loose/contract.pdf").matched_by).toBe("keyword");
+    expect(classifyPath("root-0/loose/notes.xyz").matched_by).toBe("none");
   });
 
   it("only treats recognized json artifacts as structured (never a filename as proof)", () => {

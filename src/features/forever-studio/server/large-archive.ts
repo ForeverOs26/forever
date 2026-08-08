@@ -121,6 +121,7 @@ import {
   structuredPurposeScopeForArchiveEntry,
   type ExtractedFactFields,
 } from "./extraction";
+import { associateEntryWithProject, MANUAL_REVIEW_LOCATION_CONFLICT } from "./entry-association";
 import {
   createPublicDerivative,
   MAX_MEDIA_SANITIZE_BYTES,
@@ -944,6 +945,12 @@ interface EntryContext {
   seenHashes: Map<string, string>;
   /** SHA-256 of media already public on the target project (cross-job dedup). */
   existingProjectHashes: Set<string>;
+  /**
+   * Everything this job knows about WHERE the selected project is: the location
+   * submitted with the upload and the existing project's own. Consulted only by
+   * the showroom-association rule, which cannot fire when this is empty.
+   */
+  projectLocation: string[];
 }
 
 function settledOutcome(
@@ -1216,6 +1223,19 @@ async function routeEntry(
     return;
   }
 
+  // CAN this entry be tied to the selected project at all?
+  //
+  // A developer's package routinely carries a showroom folder labelled with the
+  // showroom's own location, and the filename classifier cannot see the
+  // problem: a show-unit photograph is a `.jpg` in a folder that says "Show
+  // Unit", so it would classify as `photo` and join the project gallery.
+  // Computed once here and consulted by BOTH settle paths below, so the answer
+  // cannot differ between the streaming and buffered lanes.
+  const association = associateEntryWithProject({
+    entryPath: row.entry_name,
+    projectLocation: ctx.projectLocation,
+  });
+
   // The archive-wide expansion budget bounds EVERY extraction, including the
   // streaming lane: beyond it, entries stay inside the privately retained
   // original parts (truthfully recorded as not independently extracted).
@@ -1278,11 +1298,18 @@ async function routeEntry(
       return;
     }
     ctx.seenHashes.set(streamed.sha256, row.display_label);
+    // Both reasons end in the same place — private, with independently
+    // retrievable evidence — but the Owner is told the one that actually
+    // decided it. An unassociable entry is not "too large"; it is unassociable,
+    // and it would still be retained at any size.
     await settle(
-      settledOutcome("retained_private", "entry_over_size_limit", token, at, {
-        ...streamedBase,
-        evidence: streamed.evidence,
-      }),
+      settledOutcome(
+        "retained_private",
+        association.needsManualReview ? MANUAL_REVIEW_LOCATION_CONFLICT : "entry_over_size_limit",
+        token,
+        at,
+        { ...streamedBase, evidence: streamed.evidence },
+      ),
     );
     return;
   }
@@ -1347,6 +1374,16 @@ async function routeEntry(
     );
   };
 
+  // BEFORE anything is adopted, published or parsed. An entry that cannot be
+  // tied to this project must not contribute a price list or a fact either —
+  // "we are not sure this belongs here" is a statement about the whole entry,
+  // not only about its pixels. It keeps independently retrievable evidence, so
+  // the Owner can look at it and decide.
+  if (association.needsManualReview) {
+    await settleRetained(MANUAL_REVIEW_LOCATION_CONFLICT);
+    return;
+  }
+
   const lowerName = row.entry_name.toLowerCase();
   const category = row.category as IntakeCategory;
   // The window the OWNER filed this ARCHIVE under, read back from durable
@@ -1410,6 +1447,14 @@ async function routeEntry(
 
   // --- Price-list PDF (bounded; unavailable on the Worker → retained) ------
   if (category === "price-list" && lowerName.endsWith(".pdf") && data.length <= MAX_PARSE_BYTES) {
+    // A SECOND price list is refused before extraction, not after. One upload
+    // adopts one price list; running the extractor again would burn the work
+    // and then report `price_list_retained_for_extraction`, which reads as
+    // "we will get to it later" when the truth is "we already have one".
+    if (archive.extracted?.priceList) {
+      await settleRetained("price_list_duplicate_ignored");
+      return;
+    }
     const extraction = await deps.extractPriceListPdf({
       projectSlug: job.project_slug ?? job.id,
       fileName: row.display_label,
@@ -1499,7 +1544,13 @@ async function routeEntry(
   }
 
   // --- Everything else: truthful private retention --------------------------
-  await settleRetained("retained_unrecognized");
+  // A DOCUMENT that was recognized as such says so. `retained_unrecognized`
+  // would be untrue of a facilities deck or a living-services brochure: Forever
+  // knows exactly what kind of thing it is, it simply has no public surface for
+  // it yet, and the Owner should be told the difference.
+  await settleRetained(
+    category === "legal-document" ? "document_retained_private" : "retained_unrecognized",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1538,8 +1589,27 @@ export async function runArchiveSlice(
     if (entry.state === "published_public") publishedCount += 1;
   }
   const existingProjectHashes = new Set<string>();
+  // What this job knows about the project's location. Both sources are used:
+  // a new development states it in the submitted facts, while an update to an
+  // existing project states it nowhere and must be read off the project.
+  const projectLocation: string[] = [];
+  const facts = job.facts as {
+    projectFacts?: { locationText?: unknown; address?: unknown };
+  } | null;
+  // What a NEW development states about itself, in the submitted facts.
+  for (const candidate of [facts?.projectFacts?.locationText, facts?.projectFacts?.address]) {
+    if (typeof candidate === "string" && candidate.trim()) projectLocation.push(candidate);
+  }
   if (job.project_slug) {
     const existing = await deps.fetchExisting(job.project_slug).catch(() => undefined);
+    // And what an EXISTING project already records — the only source an update
+    // has, because an update states no facts of its own.
+    const projectValues = existing?.project?.values as
+      | { location_name_raw?: unknown; location_area?: unknown }
+      | undefined;
+    for (const candidate of [projectValues?.location_name_raw, projectValues?.location_area]) {
+      if (typeof candidate === "string" && candidate.trim()) projectLocation.push(candidate);
+    }
     for (const item of Object.values(existing?.media ?? {})) {
       const metadata = (item.values as { metadata?: Record<string, unknown> }).metadata;
       const truth = (metadata?.studio as { media_truth?: { original?: { sha256?: string } } })
@@ -1548,7 +1618,12 @@ export async function runArchiveSlice(
       if (typeof sha === "string" && SHA256_HEX.test(sha)) existingProjectHashes.add(sha);
     }
   }
-  const ctx: EntryContext = { publishedCount, seenHashes, existingProjectHashes };
+  const ctx: EntryContext = {
+    publishedCount,
+    seenHashes,
+    existingProjectHashes,
+    projectLocation,
+  };
 
   for (const archive of archives) {
     if (archive.status === "rejected" || archive.status === "completed") continue;
@@ -1695,6 +1770,10 @@ const OUTCOME_WARNING_TEXT: Record<string, string> = {
   price_list_too_large_retained: "price-list artifact(s) were too large to adopt; retained.",
   price_list_unusable_retained: "price-list artifact(s) had no safely usable rows; retained.",
   retained_unrecognized: "archive item(s) were retained privately as source evidence.",
+  document_retained_private:
+    "document(s) were recognized and retained privately as source evidence; Forever does not publish this document type yet.",
+  [MANUAL_REVIEW_LOCATION_CONFLICT]:
+    "archive item(s) name a showroom in a different location from this project, so they were NOT added to it. They are retained privately and need your review — keep them only if they really belong to this project.",
   entry_over_size_limit:
     "archive item(s) exceed the public processing limit; each was extracted into independently retrievable private evidence and remains private.",
   archive_expansion_budget_reached:
@@ -1858,6 +1937,14 @@ export async function buildJobProgress(
     byArchive.set(entry.archive_id, list);
   }
 
+  /** Retained entries whose reason is "decide whether this belongs here". */
+  const manualReviewOf = (rows: StudioArchiveEntryRow[]) =>
+    rows.filter(
+      (entry) =>
+        entry.state === "retained_private" &&
+        entry.outcome_code === MANUAL_REVIEW_LOCATION_CONFLICT,
+    ).length;
+
   const progressArchives: StudioArchiveProgress[] = archives.map((archive, index) => {
     const archiveEntries = byArchive.get(archive.id) ?? [];
     const count = (state: string) => archiveEntries.filter((e) => e.state === state).length;
@@ -1872,6 +1959,7 @@ export async function buildJobProgress(
       entriesProcessed: archiveEntries.length - count("pending"),
       entriesPublished: count("published_public"),
       entriesRetained: count("retained_private"),
+      entriesManualReview: manualReviewOf(archiveEntries),
       entriesSkipped: count("skipped_duplicate"),
       entriesFailed: count("failed"),
       warningCode: archive.error_code,
@@ -1889,6 +1977,7 @@ export async function buildJobProgress(
     processed: entries.length - pending,
     published: total("published_public"),
     retained: total("retained_private"),
+    manualReview: manualReviewOf(entries),
     skippedDuplicates: total("skipped_duplicate"),
     failed: total("failed"),
     pending,
