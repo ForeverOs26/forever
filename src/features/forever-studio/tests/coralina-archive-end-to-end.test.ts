@@ -47,158 +47,19 @@ import {
   startUploadJob,
 } from "../server/service";
 import { ARCHIVE_PART_BYTES } from "../studio-types";
-import { buildZipParts, manifestForParts, patternBytes } from "./large-archive-fixtures";
+import {
+  BANGTAO_ENTRIES,
+  CORALINA_ENTRIES,
+  OVER_LIMIT_ENTRIES,
+  PRICE_LIST_ENTRIES,
+} from "./coralina-fixture";
+import { buildZipParts, manifestForParts } from "./large-archive-fixtures";
 import { assertLocalR2Endpoint } from "./local-r2";
 import { withWorkerRuntime } from "./local-r2-binding";
-import { magicBytesFor, makeWorld, OWNER, TEST_R2_BUCKETS, type FakeWorld } from "./fakes";
+import { makeWorld, OWNER, TEST_R2_BUCKETS, type FakeWorld } from "./fakes";
 
 const PROJECT_NAME = "The Title Coralina Kamala";
 const PROJECT_LOCATION = "Kamala, Phuket";
-
-/** Just over `maxFileBytes` (24 MiB) — the streaming-evidence branch. */
-const OVER_LIMIT = 25 * 1024 * 1024;
-
-/**
- * A real, decodable synthetic file of whatever kind the NAME implies, salted by
- * that name so no two entries collide with the duplicate detector.
- *
- * `magicBytesFor` is what the rest of the suite publishes with, so an image
- * here really does survive the public sanitizer — the difference between
- * "published" and "retained" in these assertions is the routing decision under
- * test, never a fixture that failed to decode.
- */
-function small(name: string): Buffer {
-  return magicBytesFor(name);
-}
-
-/**
- * The same file, grown past `maxFileBytes` so it takes the streaming-evidence
- * branch. The real magic bytes stay at the head, so the recorded media class is
- * the true one; the padding is one incompressible block repeated, which crosses
- * the size threshold while staying inside the 200:1 compression-ratio guard.
- */
-function large(name: string): Buffer {
-  const head = magicBytesFor(name);
-  const seed = [...name].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) >>> 0, 7);
-  const block = patternBytes(200 * 1024, seed);
-  const copies = Math.ceil((OVER_LIMIT - head.length) / block.length);
-  return Buffer.concat([head, ...Array.from({ length: copies }, () => block)], OVER_LIMIT);
-}
-
-/** The Coralina package, by its real paths. */
-const CORALINA_ENTRIES = [
-  // 11. Perspective — renders
-  {
-    name: "11. Perspective/Exterior/SKY POOL.jpg",
-    data: () => small("11. Perspective/Exterior/SKY POOL.jpg"),
-    method: 8 as const,
-  },
-  {
-    name: "11. Perspective/Interior/GRAND LOBBY.jpg",
-    data: () => small("11. Perspective/Interior/GRAND LOBBY.jpg"),
-    method: 8 as const,
-  },
-  // 12. Photo of Show Units — @Kamala belongs, @Bangtao is another showroom
-  {
-    name: "12. Photo of Show Units/Show Unit @Kamala/1 BR L 41 sqm/_DSC6667.jpg",
-    data: () => small("12. Photo of Show Units/Show Unit @Kamala/1 BR L 41 sqm/_DSC6667.jpg"),
-    method: 8 as const,
-  },
-  {
-    name: "12. Photo of Show Units/Show Unit @Bangtao/1BR M-31/1BR31 -  (1).jpg",
-    data: () => small("12. Photo of Show Units/Show Unit @Bangtao/1BR M-31/1BR31 -  (1).jpg"),
-    method: 8 as const,
-  },
-  {
-    name: "12. Photo of Show Units/Show Unit @Bangtao/2BR1-64/2BR64 -  (1).jpg",
-    data: () => small("12. Photo of Show Units/Show Unit @Bangtao/2BR1-64/2BR64 -  (1).jpg"),
-    method: 8 as const,
-  },
-  // 4. Master Plan — JPG sheets publish, the 151.4 MiB PDF cannot
-  {
-    name: "4. Master Plan/JPG/20251009_Coralina_Master Plan-09.jpg",
-    data: () => small("4. Master Plan/JPG/20251009_Coralina_Master Plan-09.jpg"),
-    method: 8 as const,
-  },
-  {
-    name: "4. Master Plan/Coralina Master Plan.pdf",
-    data: () => large("4. Master Plan/Coralina Master Plan.pdf"),
-    method: 8 as const,
-  },
-  // 5. Floor Plan — per-building JPGs publish, both large PDFs cannot
-  {
-    name: "5. Floor Plan/JPG/A/Coralina_Floor Plan_Part 1-08.jpg",
-    data: () => small("5. Floor Plan/JPG/A/Coralina_Floor Plan_Part 1-08.jpg"),
-    method: 8 as const,
-  },
-  {
-    name: "5. Floor Plan/PDF/Coralina Floor Plan Part 1.pdf",
-    data: () => large("5. Floor Plan/PDF/Coralina Floor Plan Part 1.pdf"),
-    method: 8 as const,
-  },
-  {
-    name: "5. Floor Plan/PDF/Coralina Floor Plan Part 2.pdf",
-    data: () => large("5. Floor Plan/PDF/Coralina Floor Plan Part 2.pdf"),
-    method: 8 as const,
-  },
-  // 6. Unit Plan — type sheets publish, the 26.6 MiB PDF cannot
-  {
-    name: "6. Unit Plan/JPG/2 Bedroom/20251014_Coralina_Unit Plan_Part3-17.jpg",
-    data: () => small("6. Unit Plan/JPG/2 Bedroom/20251014_Coralina_Unit Plan_Part3-17.jpg"),
-    method: 8 as const,
-  },
-  {
-    name: "6. Unit Plan/PDF/Coralina_Unit Plan_Part4.pdf",
-    data: () => large("6. Unit Plan/PDF/Coralina_Unit Plan_Part4.pdf"),
-    method: 8 as const,
-  },
-  // 9. Map
-  {
-    name: "9. Map/CORALINA Map 1.jpeg",
-    data: () => small("9. Map/CORALINA Map 1.jpeg"),
-    method: 8 as const,
-  },
-  // 8. Living Service + the loose facilities deck — official documents that
-  // used to classify as `unknown`
-  {
-    name: "8. Living Service/THE ESQUIRE Living Services.pdf",
-    data: () => small("8. Living Service/THE ESQUIRE Living Services.pdf"),
-    method: 8 as const,
-  },
-  {
-    name: "Coralina Facilities.pdf",
-    data: () => small("Coralina Facilities.pdf"),
-    method: 8 as const,
-  },
-  // Video — classified, but Forever publishes no video yet
-  {
-    name: "20260401 Coralina Facilities.mp4",
-    data: () => large("20260401 Coralina Facilities.mp4"),
-    method: 8 as const,
-  },
-  // The price list, and the SECOND one that must not be reapplied
-  {
-    name: "CLK - Price List V.2. - Updated 17.07.26.pdf",
-    data: () => small("CLK - Price List V.2. - Updated 17.07.26.pdf"),
-    method: 8 as const,
-  },
-  {
-    name: "CLK - Master Plan Price list V.2 - updated 17.07.26.pdf",
-    data: () => small("CLK - Master Plan Price list V.2 - updated 17.07.26.pdf"),
-    method: 8 as const,
-  },
-];
-
-const BANGTAO_ENTRIES = CORALINA_ENTRIES.filter((entry) => entry.name.includes("@Bangtao")).map(
-  (entry) => entry.name,
-);
-const OVER_LIMIT_ENTRIES = [
-  "4. Master Plan/Coralina Master Plan.pdf",
-  "5. Floor Plan/PDF/Coralina Floor Plan Part 1.pdf",
-  "5. Floor Plan/PDF/Coralina Floor Plan Part 2.pdf",
-  "6. Unit Plan/PDF/Coralina_Unit Plan_Part4.pdf",
-  "20260401 Coralina Facilities.mp4",
-];
 
 function workerWorld(): FakeWorld {
   const world = makeWorld({ r2Runtime: "worker" });
@@ -395,10 +256,7 @@ describe("the Coralina package through the archive lane, on a Worker", () => {
     // first is the ZIP's business, and pinning it would test the fixture's
     // ordering rather than the rule. What must hold is that exactly one is
     // applied and the other is explicitly refused as a repeat.
-    const priceListNames = [
-      "CLK - Price List V.2. - Updated 17.07.26.pdf",
-      "CLK - Master Plan Price list V.2 - updated 17.07.26.pdf",
-    ];
+    const priceListNames = PRICE_LIST_ENTRIES;
     const priceListOutcomes = priceListNames.map((name) => byName.get(name)!);
     for (const [index, outcome] of priceListOutcomes.entries()) {
       expect(outcome, priceListNames[index]).toBeDefined();

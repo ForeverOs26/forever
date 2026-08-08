@@ -1008,7 +1008,39 @@ function archiveStatusLine(archive: StudioJobProgress["archives"][number]): stri
   }
 }
 
-function ArchiveProcessingPanel(props: { progress: StudioJobProgress | null }) {
+/**
+ * The one archive outcome that asks the Owner a QUESTION.
+ *
+ * Everything else the panel reports is a statement of what happened. This is
+ * different: Forever found material naming a showroom in another location and
+ * deliberately did not add it, and only the Owner can say whether that was
+ * right. So it gets its own block with the count, the fact that the material is
+ * safe, and the actual reason — not a number buried in a summary line.
+ *
+ * It renders NOTHING at zero, because an alarm that is always on is not an
+ * alarm. And it names no filename and no storage path: the count and the reason
+ * are the whole message, exactly as every other Owner-facing archive string.
+ */
+function ManualReviewNotice(props: { count: number }) {
+  if (!props.count) return null;
+  return (
+    <p
+      data-block="manual-review-notice"
+      className="rounded-lg border border-border/40 bg-muted/30 p-3 text-sm"
+    >
+      <strong>
+        {props.count} {props.count === 1 ? "item needs" : "items need"} your review.
+      </strong>{" "}
+      {props.count === 1 ? "It names" : "They name"} a showroom in a different location from this
+      project, so {props.count === 1 ? "it was" : "they were"} kept private and not added.{" "}
+      {props.count === 1 ? "Keep it" : "Keep them"} only if the material really belongs to this
+      project.
+    </p>
+  );
+}
+
+/** Exported so the Owner-facing archive panel can be rendered under test. */
+export function ArchiveProcessingPanel(props: { progress: StudioJobProgress | null }) {
   const { progress } = props;
   const percent =
     progress && progress.discovered > 0
@@ -1059,6 +1091,7 @@ function ArchiveProcessingPanel(props: { progress: StudioJobProgress | null }) {
               {progress.failed ? ` · ${progress.failed} failed` : ""}
             </p>
           ) : null}
+          <ManualReviewNotice count={progress.manualReview} />
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">Working…</p>
