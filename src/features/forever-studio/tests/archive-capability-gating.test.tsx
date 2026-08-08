@@ -1,15 +1,20 @@
 /**
- * FOREVER-PR134-ORDINARY-R2-RECOVERY-SCOPE-CORRECTION-001 — gating the
- * resumable archive lane without touching anything else.
+ * The archive-lane capability boundary.
  *
- * THE DECISION THIS PINS
- * ----------------------
- * Worker-side R2 processing is corrected and the contained production job is
- * recoverable. The ONE thing that is not corrected is the resumable
- * large-archive lane: it needs an authoritative list of the parts storage
- * durably holds, and a Worker's R2 bindings cannot produce one. Rather than
- * hold the recovery hostage to that, the archive lane is declared unavailable
- * — explicitly, visibly, and before anything is allocated.
+ * Originally FOREVER-PR134-ORDINARY-R2-RECOVERY-SCOPE-CORRECTION-001, which
+ * CLOSED the resumable large-archive lane on a Worker because it needed an
+ * authoritative list of the parts storage durably holds and a Worker's R2
+ * bindings could not produce one.
+ *
+ * FOREVER-R2-BINDING-NATIVE-MULTIPART-ARCHIVE-001 removed that reason: the
+ * lane now stores parts as objects, so the resume authority is a bounded prefix
+ * listing that a binding performs natively, and the lane is OPEN on both hosts.
+ *
+ * THE BOUNDARY ITSELF IS KEPT, and that is what these tests now pin. It is what
+ * makes a storage plane that cannot drive the lane fail closed rather than half
+ * work, and it is the one lever that can re-close the lane without a rollback.
+ * `laneClosedWorld()` is how a closed lane is reached now that no shipped
+ * provider reports one.
  *
  * "Explicitly" is the whole point, and it is what these tests are for:
  *
@@ -121,6 +126,23 @@ function nodeR2World(): FakeWorld {
   const world = makeWorld();
   assertLocalR2Endpoint(world.r2.endpoint);
   world.flags.writeProvider = "r2";
+  return world;
+}
+
+/**
+ * A deployment whose provider resolves normally but whose resumable archive
+ * lane is closed.
+ *
+ * Since FOREVER-R2-BINDING-NATIVE-MULTIPART-ARCHIVE-001 both shipped lanes
+ * report `available`, so this is the only way to exercise the SERVER boundary
+ * at all — and that boundary is the whole point of the capability: a client
+ * that forges it, caches a stale one, or predates it must still be refused.
+ * The gate is retained precisely so a future storage plane that cannot drive
+ * the lane fails closed instead of silently half-working.
+ */
+function laneClosedWorld(): FakeWorld {
+  const world = workerR2World();
+  world.flags.archiveControlPlaneUnavailable = true;
   return world;
 }
 
@@ -325,7 +347,7 @@ describe("the archive window when the resumable lane is unavailable", () => {
     expect(windowInput(ARCHIVE_LABEL).disabled).toBe(false);
 
     // The SERVER refuses anyway, because it never asked the client.
-    const world = workerR2World();
+    const world = laneClosedWorld();
     const before = allocationCensus(world);
     await expect(
       withWorkerRuntime(world.workerR2.env, () =>
@@ -345,7 +367,7 @@ describe("the archive window when the resumable lane is unavailable", () => {
     // them would be taking the uploader's word for whether the uploader may
     // upload. The capability is re-derived from the provider instead, so these
     // are simply ignored — and the refusal is identical with or without them.
-    const world = workerR2World();
+    const world = laneClosedWorld();
     const started = await withWorkerRuntime(world.workerR2.env, () =>
       startUploadJob(world.deps, OWNER, {
         workflow: "new_development",
@@ -529,7 +551,7 @@ describe("a mixed submission on a deployment without the resumable lane", () => 
   });
 
   it("(12) refuses the whole request server-side before any job row exists", async () => {
-    const world = workerR2World();
+    const world = laneClosedWorld();
     const before = allocationCensus(world);
 
     await expect(
@@ -582,7 +604,7 @@ describe("the server refuses the archive lane before any allocation", () => {
   }
 
   it("(7, 9, 10, 11) planJobArchiveUpload refuses with nothing allocated", async () => {
-    const world = workerR2World();
+    const world = laneClosedWorld();
     const started = await jobWithOrdinaryFiles(world);
     await uploadAllViaTransport(world, started.uploads);
     const before = allocationCensus(world);
@@ -621,7 +643,7 @@ describe("the server refuses the archive lane before any allocation", () => {
   });
 
   it("(7) confirmJobArchiveUpload refuses on the same terms", async () => {
-    const world = workerR2World();
+    const world = laneClosedWorld();
     const started = await jobWithOrdinaryFiles(world);
     const before = allocationCensus(world);
 
@@ -639,7 +661,7 @@ describe("the server refuses the archive lane before any allocation", () => {
   });
 
   it("(5) the refusal carries no filename, path, key, bucket, URL or credential", async () => {
-    const world = workerR2World();
+    const world = laneClosedWorld();
     const started = await jobWithOrdinaryFiles(world);
 
     const error = await withWorkerRuntime(world.workerR2.env, () =>
@@ -674,7 +696,7 @@ describe("the server refuses the archive lane before any allocation", () => {
   });
 
   it("(8) refuses BEFORE the job row when the submission declares an archive", async () => {
-    const world = workerR2World();
+    const world = laneClosedWorld();
 
     await expect(
       withWorkerRuntime(world.workerR2.env, () =>
@@ -701,7 +723,7 @@ describe("the server refuses the archive lane before any allocation", () => {
     // deliberate and is recorded in
     // docs/FOREVER_R2_WORKER_BINDING_OBJECT_PLANE.md §3.3; this test pins the
     // server half so re-opening the window later needs no server change.
-    const world = workerR2World();
+    const world = laneClosedWorld();
 
     const started = await withWorkerRuntime(world.workerR2.env, () =>
       startUploadJob(world.deps, OWNER, {
@@ -717,8 +739,16 @@ describe("the server refuses the archive lane before any allocation", () => {
 });
 
 describe("the capability the server reports", () => {
-  it("is temporarily_unavailable on a Worker writing to R2", async () => {
+  it("is available on a Worker writing to R2 — production's own shape", async () => {
     const world = workerR2World();
+    const overview = await withWorkerRuntime(world.workerR2.env, () =>
+      getOverview(world.deps, OWNER),
+    );
+    expect(overview.capabilities.archiveUpload).toBe("available");
+  });
+
+  it("is temporarily_unavailable when the provider's lane is closed", async () => {
+    const world = laneClosedWorld();
     const overview = await withWorkerRuntime(world.workerR2.env, () =>
       getOverview(world.deps, OWNER),
     );
@@ -856,23 +886,24 @@ describe("the ordinary Coralina-equivalent path is untouched by the gate", () =>
     expect(facts.retry).toBeTruthy();
   });
 
-  it("(15, 16) the full archive lane still works off a Worker, end to end", async () => {
-    const world = nodeR2World();
-    const provider = world.deps.storageProviders.get("r2");
+  it("(15, 16) the full archive lane works on BOTH hosts, end to end", async () => {
+    for (const world of [nodeR2World(), workerR2World()]) {
+      const provider = world.deps.storageProviders.get("r2");
 
-    expect(provider.archiveControlPlane).toBe("available");
-    const geometry = {
-      jobId: "00000000-0000-4000-8000-000000000001",
-      archiveId: "00000000-0000-4000-8000-000000000002",
-      declaredSize: 16,
-      partSize: 8,
-      partCount: 2,
-    };
-    const state = await provider.beginArchiveUpload(geometry);
-    expect(state.multipartUploadId).toBeTruthy();
-    await expect(
-      provider.archivePartTargets({ geometry, state, indexes: [0, 1] }),
-    ).resolves.toHaveLength(2);
+      expect(provider.archiveControlPlane).toBe("available");
+      const geometry = {
+        jobId: "00000000-0000-4000-8000-000000000001",
+        archiveId: "00000000-0000-4000-8000-000000000002",
+        declaredSize: 16,
+        partSize: 8,
+        partCount: 2,
+      };
+      const state = await provider.beginArchiveUpload(geometry);
+      expect(state.layout).toBe("parts");
+      await expect(
+        provider.archivePartTargets({ geometry, state, indexes: [0, 1] }),
+      ).resolves.toHaveLength(2);
+    }
   });
 });
 

@@ -307,8 +307,12 @@ export function createLocalR2(): LocalR2 {
           commonPrefixes.add(`${prefix}${rest.slice(0, rest.indexOf(delimiter) + 1)}`);
           continue;
         }
+        // Real ListObjectsV2 reports an ETag per key, and the archive lane
+        // cross-checks the browser's claimed receipt against it, so the harness
+        // must report one too or it would not exercise that check at all.
         contents.push(
-          `<Contents><Key>${xmlEscape(relative)}</Key><Size>${object.body.length}</Size></Contents>`,
+          `<Contents><Key>${xmlEscape(relative)}</Key><Size>${object.body.length}</Size>` +
+            `<ETag>&quot;${xmlEscape(object.etag)}&quot;</ETag></Contents>`,
         );
       }
       const prefixXml = [...commonPrefixes]

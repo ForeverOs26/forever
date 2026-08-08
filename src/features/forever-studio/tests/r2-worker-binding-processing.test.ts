@@ -263,16 +263,19 @@ describe("the real provider registry resolves bindings from the Worker environme
       world.workerR2.reset();
       await provider.objects.statObject(PRIVATE_SOURCE_BUCKET, "jobs/x/staging/000/object");
       expect(world.workerR2.callsFor("private_source").map((call) => call.op)).toEqual(["head"]);
-      // And the multipart control plane refuses rather than attempting S3.
-      await expect(
-        provider.beginArchiveUpload({
-          jobId: "00000000-0000-4000-8000-000000000001",
-          archiveId: "00000000-0000-4000-8000-000000000002",
-          declaredSize: 8,
-          partSize: 8,
-          partCount: 1,
-        }),
-      ).rejects.toMatchObject({ code: "archive_control_plane_unavailable" });
+      // And the archive control plane is OPEN on that same binding plane,
+      // allocating its identity without one server-side S3 attempt.
+      world.workerR2.serverFetchAttempts.length = 0;
+      const state = await provider.beginArchiveUpload({
+        jobId: "00000000-0000-4000-8000-000000000001",
+        archiveId: "00000000-0000-4000-8000-000000000002",
+        declaredSize: 8,
+        partSize: 8,
+        partCount: 1,
+      });
+      expect(state.layout).toBe("parts");
+      expect(provider.archiveControlPlane).toBe("available");
+      expect(world.workerR2.serverFetchAttempts).toEqual([]);
     });
 
     expect(resolveStudioR2Runtime()).toBe("node");
@@ -838,8 +841,8 @@ describe("an existing failed R2 job recovers without re-upload", () => {
 // The archive control plane — refused loudly rather than silently broken
 // ---------------------------------------------------------------------------
 
-describe("the multipart archive control plane on a Worker", () => {
-  it("refuses with a specific stage-labelled code instead of a generic fetch failure", async () => {
+describe("the archive control plane on a Worker", () => {
+  it("runs the parts lane natively, with no server-side S3 request at all", async () => {
     const world = workerWorld();
     const provider = world.deps.storageProviders.get("r2");
     const geometry = {
@@ -850,22 +853,95 @@ describe("the multipart archive control plane on a Worker", () => {
       partCount: 2,
     };
 
-    await expect(provider.beginArchiveUpload(geometry)).rejects.toMatchObject({
-      code: "archive_control_plane_unavailable",
-      stage: "archive_control_plane",
-      retryable: false,
+    expect(provider.archiveControlPlane).toBe("available");
+
+    // Allocating creates nothing remote: the prefix IS the identity.
+    const state = await provider.beginArchiveUpload(geometry);
+    expect(state.layout).toBe("parts");
+    expect(state.multipartUploadId).toBeUndefined();
+    expect(state.objectKey).toBeUndefined();
+
+    // Presigning is local signing, so the browser still uploads direct to R2.
+    const targets = await provider.archivePartTargets({ geometry, state, indexes: [0, 1] });
+    expect(targets).toHaveLength(2);
+    expect(targets.map((target) => target.path)).toEqual([
+      `archives/${geometry.jobId}/${geometry.archiveId}/parts/00000`,
+      `archives/${geometry.jobId}/${geometry.archiveId}/parts/00001`,
+    ]);
+
+    // The resume authority is a binding listing — the operation that reopened
+    // this lane — and it is reached without one S3 request.
+    await expect(provider.listAcceptedArchiveParts({ geometry, state })).resolves.toBeInstanceOf(
+      Map,
+    );
+    expect(world.workerR2.callsFor("project_archives").some((c) => c.op === "list")).toBe(true);
+    expect(world.workerR2.serverFetchAttempts).toEqual([]);
+  });
+
+  it("reports the parts a Worker binding listing actually holds", async () => {
+    const world = workerWorld();
+    const provider = world.deps.storageProviders.get("r2");
+    const geometry = {
+      jobId: "00000000-0000-4000-8000-000000000001",
+      archiveId: "00000000-0000-4000-8000-000000000002",
+      declaredSize: 12,
+      partSize: 8,
+      partCount: 2,
+    };
+    const prefix = `${TEST_R2_BUCKETS.projectArchives}/studio/archives/${geometry.jobId}/${geometry.archiveId}/parts`;
+    // Only part 0 arrived. Part 9 is outside the plan and must be ignored.
+    world.r2.objects.set(`${prefix}/00000`, {
+      body: Buffer.from("12345678"),
+      contentType: "application/octet-stream",
+      etag: "e0",
     });
+    world.r2.objects.set(`${prefix}/00009`, {
+      body: Buffer.from("stray"),
+      contentType: "application/octet-stream",
+      etag: "e9",
+    });
+
+    const accepted = await provider.listAcceptedArchiveParts({
+      geometry,
+      state: { provider: "r2", layout: "parts" },
+    });
+
+    expect([...accepted.keys()]).toEqual([0]);
+    expect(accepted.get(0)!.size).toBe(8);
+    // The receipt travels with the listing, so a disagreeing client is caught.
+    expect(accepted.get(0)!.etag).toBeTruthy();
+    expect(world.workerR2.serverFetchAttempts).toEqual([]);
+  });
+
+  it("still refuses a LEGACY multipart archive, with a stage-labelled code", async () => {
+    const world = workerWorld();
+    const provider = world.deps.storageProviders.get("r2");
+    const geometry = {
+      jobId: "00000000-0000-4000-8000-000000000001",
+      archiveId: "00000000-0000-4000-8000-000000000002",
+      declaredSize: 1024,
+      partSize: 512,
+      partCount: 2,
+    };
+    // Only an archive created before the parts lane reaches this: no new one
+    // can, because `beginArchiveUpload` no longer writes either legacy marker.
+    const legacy = {
+      provider: "r2" as const,
+      objectKey: "archives/x/y/archive.zip",
+      multipartUploadId: "u",
+    };
+
     await expect(
-      provider.listAcceptedArchiveParts({
-        geometry,
-        state: { provider: "r2", objectKey: "archives/x/y/archive.zip", multipartUploadId: "u" },
-      }),
+      provider.listAcceptedArchiveParts({ geometry, state: legacy }),
+    ).rejects.toMatchObject({ stage: "archive_control_plane" });
+    await expect(
+      provider.archivePartTargets({ geometry, state: legacy, indexes: [0] }),
     ).rejects.toMatchObject({ stage: "archive_control_plane" });
     // It never even attempted the S3 request that cannot work.
     expect(world.workerR2.serverFetchAttempts).toEqual([]);
   });
 
-  it("still reads a COMPLETED archive through the archives binding", async () => {
+  it("still reads a COMPLETED LEGACY assembled archive through the archives binding", async () => {
     const world = workerWorld();
     const provider = world.deps.storageProviders.get("r2");
     const geometry = {
@@ -895,7 +971,7 @@ describe("the multipart archive control plane on a Worker", () => {
     expect(world.workerR2.serverFetchAttempts).toEqual([]);
   });
 
-  it("keeps the full multipart lifecycle working off a Worker", async () => {
+  it("uses the same parts lane off a Worker — one lane, both hosts", async () => {
     const world = nodeR2World();
     const provider = world.deps.storageProviders.get("r2");
     const geometry = {
@@ -908,12 +984,37 @@ describe("the multipart archive control plane on a Worker", () => {
 
     const state = await provider.beginArchiveUpload(geometry);
 
-    expect(state.multipartUploadId).toBeTruthy();
+    expect(provider.archiveControlPlane).toBe("available");
+    expect(state.layout).toBe("parts");
+    expect(state.multipartUploadId).toBeUndefined();
     const targets = await provider.archivePartTargets({ geometry, state, indexes: [0, 1] });
     expect(targets).toHaveLength(2);
-    // ListParts — the resume authority — is reachable off a Worker.
     await expect(provider.listAcceptedArchiveParts({ geometry, state })).resolves.toBeInstanceOf(
       Map,
     );
+  });
+
+  it("keeps a LEGACY multipart archive completable off a Worker", async () => {
+    const world = nodeR2World();
+    const provider = world.deps.storageProviders.get("r2");
+    const geometry = {
+      jobId: "00000000-0000-4000-8000-000000000001",
+      archiveId: "00000000-0000-4000-8000-000000000002",
+      declaredSize: 16,
+      partSize: 8,
+      partCount: 2,
+    };
+    // A row written before the parts lane still resolves to the multipart
+    // control plane, which remains reachable off a Worker.
+    const legacy = {
+      provider: "r2" as const,
+      objectKey: `archives/${geometry.jobId}/${geometry.archiveId}/archive.zip`,
+      multipartUploadId: "legacy-upload",
+    };
+
+    const targets = await provider.archivePartTargets({ geometry, state: legacy, indexes: [0] });
+    expect(targets).toHaveLength(1);
+    // It addressed the ASSEMBLED object key, not a part object.
+    expect(targets[0].path).toBe(legacy.objectKey);
   });
 });

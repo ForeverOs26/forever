@@ -38,9 +38,24 @@ const DOCUMENT_EXTENSIONS = new Set([
   ".url",
 ]);
 
+/**
+ * WHICH rule decided the category.
+ *
+ * `folder` and `keyword` are signals the material itself carries — someone
+ * named that folder or that file. `extension` is the weakest: it knows the file
+ * is a picture or a document and nothing more. `none` is `unknown`.
+ *
+ * Callers that let a weaker signal (a chat caption) re-route a file need this
+ * to tell "a document called contract.pdf" from "some PDF", which the category
+ * alone cannot express.
+ */
+export type ClassificationSource = "folder" | "keyword" | "extension" | "none";
+
 export interface Classification {
   category: IntakeCategory;
   extraction_support: IntakeExtractionSupport;
+  /** Which rule decided `category`. */
+  matched_by: ClassificationSource;
 }
 
 /** Ordered keyword → category rules; first match wins. Applied to folder path and filename. */
@@ -126,6 +141,17 @@ function categoryFromExtension(extension: string): IntakeCategory {
   if (IMAGE_EXTENSIONS.has(extension)) return "photo";
   if (VIDEO_EXTENSIONS.has(extension)) return "video";
   if (ARCHIVE_EXTENSIONS.has(extension)) return "archive";
+  // A document whose folder and filename say nothing is still, definitely, a
+  // document. Leaving it `unknown` was the reason official material — a
+  // facilities deck, a living-services brochure — disappeared into
+  // "unrecognized" with no category at all.
+  //
+  // `legal-document` is the CONSERVATIVE landing place, not a claim about
+  // content: it is the one document category with no public media type, so the
+  // file is inventoried and retained privately rather than published. A
+  // document that really is a brochure, price list or plan was already routed
+  // by the folder and keyword rules above, which run first.
+  if (DOCUMENT_EXTENSIONS.has(extension)) return "legal-document";
   return "unknown";
 }
 
@@ -141,12 +167,14 @@ export function classifyPath(logicalPath: string): Classification {
   const extension = extname(filename);
 
   let category: IntakeCategory | null = null;
+  let matchedBy: ClassificationSource = "none";
 
   // 1. Conventional source folder names (nearest folder first).
   for (const folder of [...folders].reverse()) {
     const match = FOLDER_RULES.find((rule) => rule.test(folder));
     if (match) {
       category = match.category;
+      matchedBy = "folder";
       break;
     }
   }
@@ -155,17 +183,24 @@ export function classifyPath(logicalPath: string): Classification {
   if (!category) {
     const folderHay = folders.join("/");
     category = KEYWORD_RULES.find((rule) => rule.test(folderHay))?.category ?? null;
+    if (category) matchedBy = "keyword";
   }
   if (!category) {
     category = KEYWORD_RULES.find((rule) => rule.test(filename))?.category ?? null;
+    if (category) matchedBy = "keyword";
   }
 
-  // 3. Extension fallback for unambiguous media/archive types.
+  // 3. Extension fallback for unambiguous media/archive/document types.
   if (!category) {
     category = categoryFromExtension(extension);
+    if (category !== "unknown") matchedBy = "extension";
   }
 
-  return { category, extraction_support: supportFor(category, extension) };
+  return {
+    category,
+    extraction_support: supportFor(category, extension),
+    matched_by: matchedBy,
+  };
 }
 
 /**

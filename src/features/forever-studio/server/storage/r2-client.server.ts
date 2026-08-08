@@ -94,9 +94,19 @@ function xmlUnescape(value: string): string {
     .replace(/&amp;/g, "&");
 }
 
-/** ETags come back quoted; the quotes are transport, not identity. */
+/**
+ * ETags come back quoted; the quotes and the weak-validator marker are
+ * transport, not identity.
+ *
+ * ORDER MATTERS. A weak validator is `W/"abc"` — the marker sits OUTSIDE the
+ * quotes, so it must come off first. Stripping quotes first leaves `"abc` on
+ * exactly those values, which would never equal the browser's own normalization
+ * and would mark a correctly-stored part as bad. On the archive parts lane that
+ * is not cosmetic: a bad part is really deleted and re-uploaded, so the upload
+ * would fail after the confirm rounds run out.
+ */
 export function normalizeEtag(value: string | null | undefined): string {
-  return (value ?? "").trim().replace(/^"|"$/g, "").replace(/^W\//, "");
+  return (value ?? "").trim().replace(/^W\//, "").replace(/^"|"$/g, "");
 }
 
 export interface R2ObjectHead {
@@ -241,8 +251,11 @@ export class R2Client {
     bucket: string,
     prefix: string,
     delimiter = "/",
-  ): Promise<{ objects: Array<{ key: string; size: number }>; prefixes: string[] }> {
-    const objects: Array<{ key: string; size: number }> = [];
+  ): Promise<{
+    objects: Array<{ key: string; size: number; etag?: string }>;
+    prefixes: string[];
+  }> {
+    const objects: Array<{ key: string; size: number; etag?: string }> = [];
     const prefixes: string[] = [];
     let token: string | undefined;
     for (let page = 0; page < 20; page += 1) {
@@ -262,7 +275,12 @@ export class R2Client {
       for (const block of xmlBlocks(xml, "Contents")) {
         const key = xmlUnescape(xmlValue(block, "Key") ?? "");
         if (!key) continue;
-        objects.push({ key, size: Number(xmlValue(block, "Size") ?? "0") });
+        const etag = normalizeEtag(xmlUnescape(xmlValue(block, "ETag") ?? ""));
+        objects.push({
+          key,
+          size: Number(xmlValue(block, "Size") ?? "0"),
+          ...(etag ? { etag } : {}),
+        });
       }
       for (const block of xmlBlocks(xml, "CommonPrefixes")) {
         const value = xmlUnescape(xmlValue(block, "Prefix") ?? "");

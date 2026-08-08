@@ -261,6 +261,65 @@ deployment component**, and it is the one this document recommends.
 
 ## 4. The follow-up: FOREVER-R2-BINDING-NATIVE-MULTIPART-ARCHIVE-001
 
+> **RESOLVED.** Design **A** shipped: the R2 archive lane stores parts as
+> objects, so the resume authority is `binding.list({ prefix })` and
+> `archiveControlPlane` reports `available` on `runtime = worker, provider = r2`.
+> The archive window is no longer disabled.
+>
+> What shipped, against the invariants below:
+>
+> - direct browser-to-R2 upload — **kept**: one short-lived presigned PUT per
+>   part object. Presigning is local signing, so it works unchanged on a Worker;
+> - authoritative server-verifiable resume — **kept and strengthened**: the
+>   server asks storage via a bounded prefix listing. The listing also carries
+>   each object's ETag, so the browser's claimed receipt is still cross-checked
+>   and a disagreeing part is refused, exactly as `ListParts` allowed;
+> - no Worker whole-file relay — **kept**: no archive byte enters the isolate on
+>   the upload path;
+> - bounded memory — **kept**: `PartedArchiveReader` holds ≈ one part, and it is
+>   now the SAME reader both parted lanes use;
+> - idempotent completion — **kept**: acceptance is completion, so a retried
+>   confirm returns the same state and performs no external effect;
+> - no credential expansion — **kept**: no new secret, token scope, binding or
+>   deployment component. No server-side S3 request is made at all.
+>
+> Two things deliberately did NOT happen. The gate was **not** deleted: it is
+> retained as the fail-closed boundary for any storage plane that cannot drive
+> the lane, and as the one lever that can re-close the lane without a rollback.
+> And `abortArchiveUpload` is a **no-op** on the parts lane rather than the
+> prefix sweep sketched in design A — those part objects are the privately
+> retained original archive, exactly as on the Supabase lane, so they must
+> survive an abandoned upload. A restart plans a fresh archive id, hence a fresh
+> prefix, so nothing can be resumed into or overwritten.
+>
+> Legacy archives are untouched and need no migration: a row carrying
+> `objectKey`/`multipartUploadId` still resolves to the multipart lane, which
+> still refuses on a Worker for the original reason.
+>
+> **Two costs this lane accepts, stated plainly.**
+>
+> 1. **Abandoned part objects are never reclaimed.** R2's own multipart expiry
+>    used to clear an abandoned upload; part objects do not expire, `abort` is a
+>    no-op and `discardArchiveParts` only removes wrong-sized parts during a
+>    confirm. So the parts of an archive that is never confirmed, or that is
+>    rejected for `archive_upload_incomplete` or `archive_part_integrity_failed`,
+>    stay in the archive bucket indefinitely — up to `LARGE_ARCHIVE_MAX_BYTES`
+>    each. This is the same behaviour the Supabase lane has always had, and it is
+>    the direct price of "the parts ARE the retained original". A retention sweep
+>    over `archives/{job}/{archive}/` for terminally-rejected archives is the
+>    obvious follow-up; it is deliberately not bundled here, because deleting
+>    retained source material needs its own decision.
+> 2. **A part's presigned PUT stays valid for its full TTL.** An `UploadPart`
+>    presign died at `CompleteMultipartUpload`; a plain object presign does not,
+>    so for up to `DEFAULT_PRESIGN_TTL_SECONDS` after acceptance the holder of
+>    that URL could overwrite that part of the retained archive. Nothing
+>    downstream trusts the bytes blindly — the per-part SHA-256 is verified
+>    before expansion, per-entry CRC-32 during it, and the parted reader
+>    re-checks each part's exact size on every read — and the Supabase lane has
+>    the same shape. It is recorded because it is newly true for R2.
+
+The original statement of the task follows, unchanged.
+
 Restoring full project-archive upload on the production Worker is tracked as a
 separate task. It is deliberately NOT part of the correction that gates the lane
 — gating is small and reversible, and the recovery of the contained production

@@ -175,7 +175,7 @@ function createBinding(
           delimitedPrefixes.add(`${prefix}${rest.slice(0, rest.indexOf(delimiter) + 1)}`);
           continue;
         }
-        objects.push({ key: relative, size: object.body.length });
+        objects.push({ key: relative, size: object.body.length, etag: etagOf(object.body) });
       }
       return { objects, delimitedPrefixes: [...delimitedPrefixes], truncated: false };
     },

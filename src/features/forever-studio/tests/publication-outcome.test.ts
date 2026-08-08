@@ -313,6 +313,18 @@ function emittedWarningCodes(): Set<string> {
   }
   // Emitted through a constant rather than a literal.
   codes.add("structured_purpose_mismatch");
+  // Emitted by `composeArchiveMaterials`, which aggregates one warning per
+  // OUTCOME FAMILY — `neutralWarning(code, …)` with the code in a variable, so
+  // the regex above cannot see it. These three reach `result.warnings` exactly
+  // like `entry_over_size_limit` does; that one is visible only because the
+  // inline small-ZIP lane also emits it as a literal, and these have no inline
+  // counterpart.
+  codes.add("manual_review_location_conflict");
+  codes.add("document_retained_private");
+  // Pushed as an `extraWarnings` literal in `finalizeProjectIngestion` rather
+  // than through a warning helper (it carries `entity: "price"`, which the
+  // document-shaped helpers do not).
+  codes.add("price_list_existing_project_ignored");
   return codes;
 }
 

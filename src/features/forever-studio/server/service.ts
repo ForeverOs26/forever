@@ -1100,6 +1100,7 @@ function mergeComposedIntoMaterials(
     }
     materials.priceList = composed.priceList;
     materials.priceListSource = composed.priceListSource;
+    materials.priceListFromArchive = true;
   }
   if (composed.factFields && !materials.factFields) materials.factFields = composed.factFields;
   if (composed.derivedName && !materials.derivedName) materials.derivedName = composed.derivedName;
@@ -1488,6 +1489,33 @@ async function finalizeProject(
 
   const existingState = mode === "enrich" ? await deps.fetchExisting(slug) : undefined;
   const existingValues = existingState?.project?.values ?? {};
+
+  // AN ARCHIVE PRICE LIST NEVER TOUCHES A PROJECT THAT ALREADY HAS PRICES.
+  //
+  // A price list found inside a Full Project Archive is an inference: the
+  // window means "unsorted, sort it for me", and Forever decided that this PDF
+  // looked like a price list. Feeding that inference into a project whose units
+  // and prices were already imported would let one re-upload of the developer's
+  // package silently rewrite real commercial data — the exact case where being
+  // wrong is most expensive and least visible.
+  //
+  // Refusing costs nothing recoverable: the document itself stays privately
+  // retained as source evidence, and an Owner who genuinely wants new prices
+  // files them through the price-list window or the Price / Availability
+  // Update workflow, neither of which is an inference and neither of which is
+  // affected here.
+  const existingPriceCount = Object.keys(existingState?.prices ?? {}).length;
+  if (materials.priceList && materials.priceListFromArchive && existingPriceCount > 0) {
+    materials.priceList = null;
+    materials.priceListSource = null;
+    extraWarnings.push({
+      entity: "price",
+      code: "price_list_existing_project_ignored",
+      severity: "warning",
+      message:
+        "This project already has its units and prices, so the price list found inside the uploaded archive was NOT applied — the existing pricing was preserved exactly. The document is retained privately. To change prices, upload the price list through the Price / Availability Update workflow.",
+    });
+  }
 
   // Blank-filling only: an uploaded photo/brochure never replaces an existing
   // cover image or brochure link.

@@ -249,6 +249,27 @@ export const WARNING_CLASSIFICATION: Readonly<Record<string, WarningClass>> = {
   // "A price list was already provided; <name> was retained but not applied."
   price_list_duplicate_ignored: "harmless_duplicate",
 
+  // "name a showroom in a different location from this project, so they were
+  // NOT added to it. They are retained privately and need your review."
+  //
+  // `retained_private` is exact and is the strongest claim the evidence
+  // supports: the entry settled `retained_private` with independently
+  // retrievable evidence, so the original IS stored and intact. It therefore
+  // renders in the visible retained block rather than a collapsed note — which
+  // is where the one archive outcome that asks the Owner a question belongs.
+  manual_review_location_conflict: "retained_private",
+  // "document(s) were recognized and retained privately as source evidence;
+  // Forever does not publish this document type yet."
+  document_retained_private: "retained_private",
+  // "This project already has its units and prices, so the price list found
+  // inside the uploaded archive was NOT applied — the existing pricing was
+  // preserved exactly."
+  //
+  // A deliberate no-op over data that already exists, exactly like a second
+  // price list in one upload. Nothing was lost and nothing was overwritten,
+  // which is what `harmless_duplicate` means.
+  price_list_existing_project_ignored: "harmless_duplicate",
+
   // "declared N bytes but M bytes were stored; the stored bytes are
   // authoritative." The file WAS ingested and used.
   file_declared_size_mismatch: "enrichment_note",

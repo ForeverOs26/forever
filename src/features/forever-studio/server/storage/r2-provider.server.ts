@@ -28,15 +28,27 @@
  *   - browser-presigned DELETE is never issued — deletion is server-side only,
  *     and only for job-scoped keys.
  *
- * KNOWN GAP — THE MULTIPART CONTROL PLANE. The large-archive lifecycle needs
- * `ListParts` as its resume authority, and the R2 binding API has no
- * equivalent (it can create, resume, complete and abort a multipart upload, but
- * it cannot enumerate the parts R2 durably holds). Substituting the browser's
- * claimed receipts would make the client the authority over its own upload,
- * which is exactly what the current design refuses to do. So on a Worker the
- * multipart control plane FAILS CLOSED with a stage-labelled refusal instead of
- * pretending, and the additional architecture needed to close it properly is
- * recorded in docs/FOREVER_R2_WORKER_BINDING_OBJECT_PLANE.md.
+ * THE ARCHIVE CONTROL PLANE — PARTS AS OBJECTS
+ * (FOREVER-R2-BINDING-NATIVE-MULTIPART-ARCHIVE-001).
+ *
+ * A large archive is stored as many fixed-size PART OBJECTS under one
+ * archive-scoped prefix, not as one multipart-assembled object. That single
+ * choice is what makes the lane work on a Worker, because it replaces the one
+ * operation a binding cannot perform — `ListParts` — with the one it performs
+ * natively: a bounded prefix listing.
+ *
+ * The resume authority is therefore STRONGER than it was, not weaker:
+ *   - the server still asks STORAGE what it holds; a browser's claimed receipts
+ *     are still only ever cross-checked against that answer, never trusted;
+ *   - part objects do not expire the way an abandoned multipart upload does, so
+ *     the `upload_expired` loss mode disappears for new archives;
+ *   - no server-side S3 request is made at all — presigning is pure local
+ *     signing, and every server-side operation is a binding call — so the lane
+ *     needs no new credential, no new binding and no new deployment component.
+ *
+ * LEGACY. An archive written before this carries `multipartUploadId` and keeps
+ * resuming, completing and reading through the multipart lane exactly as it
+ * did. Nothing migrates; the layout is inferred from the stored state.
  */
 
 import type { StudioArchivePartTarget } from "../../studio-types";
@@ -51,13 +63,14 @@ import {
 } from "./r2-client.server";
 import { createR2BindingArchiveReader, createR2BindingObjects } from "./r2-binding-objects.server";
 import type { StudioR2Bindings } from "./r2-bindings.server";
+import { archivePartIndexFromName, r2ArchivePartFolder, r2ArchivePartPath } from "./archive-paths";
+import { PartedArchiveReader, type PartedArchiveLayout } from "./parted-archive-reader";
+// `r2ArchiveObjectPath` is deliberately NOT imported: a legacy multipart
+// archive's object key is read from its stored state, never regenerated, and no
+// new archive assembles into one.
+import { bucketKindForLogicalBucket, LOGICAL_ARCHIVE_BUCKET, r2ObjectKey } from "./r2-layout";
 import {
-  bucketKindForLogicalBucket,
-  LOGICAL_ARCHIVE_BUCKET,
-  r2ArchiveObjectPath,
-  r2ObjectKey,
-} from "./r2-layout";
-import {
+  archiveLayoutOf,
   StudioArchiveUploadLostError,
   type StudioAcceptedPart,
   type StudioAllocatedUpload,
@@ -67,6 +80,17 @@ import {
   type StudioObjectLocator,
   type StudioStorageProvider,
 } from "./provider";
+
+/**
+ * Where the R2 parts lane keeps one archive's parts.
+ *
+ * The archive bucket, under the same archive-scoped prefix the assembled object
+ * used, so one prefix still bounds everything one archive ever wrote.
+ */
+const R2_ARCHIVE_PARTS_LAYOUT: PartedArchiveLayout = {
+  bucket: LOGICAL_ARCHIVE_BUCKET,
+  pathFor: (geometry, index) => r2ArchivePartPath(geometry.jobId, geometry.archiveId, index),
+};
 
 /** Public derivatives are immutable, content-addressed objects. */
 export const PUBLIC_MEDIA_CACHE_CONTROL = "public, max-age=31536000, immutable";
@@ -273,6 +297,7 @@ function createR2Objects(config: R2ProviderConfig): StudioStorage {
       return listed.objects.map((object) => ({
         name: object.key.slice(base.length),
         size: object.size,
+        ...(object.etag ? { etag: object.etag } : {}),
       }));
     },
 
@@ -391,16 +416,17 @@ function requireBindings(config: R2ProviderConfig): StudioR2Bindings {
 }
 
 /**
- * The large-archive multipart control plane needs server-side S3 requests
- * (`ListParts` above all, which is the resume authority). A Worker cannot make
- * them, and no binding provides them.
+ * A LEGACY multipart archive can only be driven from a host that can make
+ * server-side S3 requests, because `ListParts` is its resume authority and no
+ * binding provides it. New archives never reach this — they are parts-as-
+ * objects, which a binding lists natively — so this refusal now guards exactly
+ * one case: an archive created before the parts lane, resumed on a Worker.
  *
- * Refusing here is deliberate and LOUD: archive support is not silently
- * disabled — it raises a specific, sanitized, stage-labelled code that says
- * exactly which plane is unavailable, on the same deployment where ordinary
- * files now process natively. Off a Worker nothing changes.
+ * Refusing is deliberate and LOUD: it raises a specific, sanitized,
+ * stage-labelled code rather than pretending, and it never invents a part
+ * listing from what the browser claims.
  */
-function refuseArchiveControlPlane(): never {
+function refuseLegacyMultipartOnWorker(): never {
   throw new StudioStageError("archive_control_plane", { retryable: false });
 }
 
@@ -415,8 +441,7 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
   const ttl = config.presignTtlSeconds ?? DEFAULT_PRESIGN_TTL_SECONDS;
   const archiveBucket = () => bucketNameFor(config, LOGICAL_ARCHIVE_BUCKET);
 
-  const partTargets = async (
-    geometry: StudioArchiveGeometry,
+  const legacyMultipartTargets = async (
     state: StudioArchiveStorageState,
     indexes: number[],
   ): Promise<StudioArchivePartTarget[]> => {
@@ -446,14 +471,69 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
     return targets;
   };
 
+  /**
+   * One short-lived presigned PUT per PART OBJECT.
+   *
+   * Presigning is local signing, not a request, so this is the same work on
+   * every host — which is precisely why the parts lane runs on a Worker.
+   */
+  const partObjectTargets = async (
+    geometry: StudioArchiveGeometry,
+    indexes: number[],
+  ): Promise<StudioArchivePartTarget[]> => {
+    const targets: StudioArchivePartTarget[] = [];
+    for (const index of indexes) {
+      const path = r2ArchivePartPath(geometry.jobId, geometry.archiveId, index);
+      const url = await client.presignPut({
+        bucket: archiveBucket(),
+        key: keyFor(LOGICAL_ARCHIVE_BUCKET, path),
+        expiresInSeconds: ttl,
+        contentType: "application/octet-stream",
+      });
+      targets.push({
+        index,
+        bucket: LOGICAL_ARCHIVE_BUCKET,
+        path,
+        transport: {
+          kind: "r2_presigned_put",
+          url,
+          headers: { "content-type": "application/octet-stream" },
+        },
+      });
+    }
+    return targets;
+  };
+
+  /** The parts this archive's prefix durably holds, keyed by part index. */
+  const listPartObjects = async (
+    geometry: StudioArchiveGeometry,
+  ): Promise<Map<number, StudioAcceptedPart>> => {
+    const listed = await objects.listObjects(
+      LOGICAL_ARCHIVE_BUCKET,
+      r2ArchivePartFolder(geometry.jobId, geometry.archiveId),
+    );
+    const accepted = new Map<number, StudioAcceptedPart>();
+    for (const object of listed) {
+      const index = archivePartIndexFromName(object.name);
+      // A part index outside the plan is not addressable by any target this
+      // server issued; ignoring it keeps acceptance strictly plan-shaped.
+      if (index === null || index < 0 || index >= geometry.partCount) continue;
+      // The receipt travels with the listing, so a browser claiming a DIFFERENT
+      // receipt for a correctly-sized part is still caught — the parts lane is
+      // no weaker here than the multipart lane it replaces.
+      accepted.set(index, { size: object.size, ...(object.etag ? { etag: object.etag } : {}) });
+    }
+    return accepted;
+  };
+
   return {
     id: "r2",
     objects,
 
-    // On a Worker the resumable lane has no authoritative part listing, so it
-    // is declared unavailable HERE — at the one place that also refuses it —
-    // and callers read this to refuse before allocating anything at all.
-    archiveControlPlane: onWorker ? "temporarily_unavailable" : "available",
+    // Parts-as-objects: the resume authority is a bounded prefix listing, which
+    // every host performs — the binding natively on a Worker, the S3 object
+    // plane off one. The lane is therefore available on both.
+    archiveControlPlane: "available",
 
     async allocateOrdinaryUpload(input): Promise<StudioAllocatedUpload> {
       const contentType = input.contentType?.trim() || "application/octet-stream";
@@ -476,27 +556,27 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
       };
     },
 
-    async beginArchiveUpload(geometry): Promise<StudioArchiveStorageState> {
-      if (onWorker) refuseArchiveControlPlane();
-      const objectKey = r2ArchiveObjectPath(geometry.jobId, geometry.archiveId);
-      const uploadId = await client.createMultipartUpload(
-        archiveBucket(),
-        keyFor(LOGICAL_ARCHIVE_BUCKET, objectKey),
-        "application/zip",
-      );
+    async beginArchiveUpload(): Promise<StudioArchiveStorageState> {
+      // Parts are addressed deterministically from (job, archive, index), so
+      // there is nothing to remember and nothing to allocate: no multipart
+      // upload is created, and therefore none can expire. The prefix is the
+      // whole durable identity.
       return {
         provider: "r2",
+        layout: "parts",
         bucket: LOGICAL_ARCHIVE_BUCKET,
-        objectKey,
-        multipartUploadId: uploadId,
         completed: false,
       };
     },
 
     async archivePartTargets({ geometry, state, indexes }) {
       if (state.completed) return [];
+      if (archiveLayoutOf(state) === "parts") {
+        return partObjectTargets(geometry, indexes);
+      }
+      if (onWorker) refuseLegacyMultipartOnWorker();
       try {
-        return await partTargets(geometry, state, indexes);
+        return await legacyMultipartTargets(state, indexes);
       } catch (error) {
         if (isNoSuchUpload(error)) throw new StudioArchiveUploadLostError("upload_expired");
         throw error;
@@ -504,6 +584,12 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
     },
 
     async listAcceptedArchiveParts({ geometry, state }) {
+      if (archiveLayoutOf(state) === "parts") {
+        // The prefix listing is the authority, before AND after completion:
+        // it reports the sizes storage actually holds rather than the sizes the
+        // plan expected, so a short or missing part can never pass as accepted.
+        return listPartObjects(geometry);
+      }
       const accepted = new Map<number, StudioAcceptedPart>();
       if (state.completed && state.objectKey) {
         // Completed: the object is the truth. Every planned part is present by
@@ -516,9 +602,9 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
         }
         return accepted;
       }
-      // Everything below enumerates an IN-PROGRESS multipart upload. That is
-      // the resume authority, and it has no binding equivalent.
-      if (onWorker) refuseArchiveControlPlane();
+      // Everything below enumerates an IN-PROGRESS LEGACY multipart upload.
+      // That is its resume authority, and it has no binding equivalent.
+      if (onWorker) refuseLegacyMultipartOnWorker();
       const { objectKey, uploadId } = requireMultipart(state);
       let parts: R2MultipartPart[];
       try {
@@ -546,7 +632,16 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
 
     async completeArchiveUpload({ geometry, state, parts }) {
       if (state.completed) return state;
-      if (onWorker) refuseArchiveControlPlane();
+      if (archiveLayoutOf(state) === "parts") {
+        // Acceptance IS completion on this lane: the parts are already durable
+        // objects and the ranged reader assembles them on demand. Nothing is
+        // copied, so a 300 MiB archive costs no assembly pass at all.
+        //
+        // Idempotent by construction — the early return above already answers a
+        // retried confirm, and this branch performs no external effect.
+        return { ...state, completed: true };
+      }
+      if (onWorker) refuseLegacyMultipartOnWorker();
       const { objectKey, uploadId } = requireMultipart(state);
       const ordered: R2MultipartPart[] = [];
       for (let index = 0; index < geometry.partCount; index += 1) {
@@ -584,6 +679,18 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
     },
 
     async abortArchiveUpload({ state }) {
+      // NEVER destructive on the parts lane, for two independent reasons.
+      //
+      // There is nothing to release: the ONLY caller is `planArchiveUpload`'s
+      // `createArchive` failure path, which runs before any part target has
+      // been issued, so no part object can exist yet. The multipart lane had
+      // something to release there — an upload the platform would otherwise
+      // hold — and that is what this method was for.
+      //
+      // And if that ever changes, deleting would be wrong anyway: those part
+      // objects ARE the privately retained original archive, exactly as on the
+      // Supabase lane, whose abort is a no-op for the same reason.
+      if (archiveLayoutOf(state) === "parts") return;
       if (state.completed || !state.objectKey || !state.multipartUploadId) return;
       // Best-effort and never fatal, by contract. On a Worker there is nothing
       // to abort — no multipart upload can have been created there — so this
@@ -598,12 +705,27 @@ export function createR2StorageProvider(config: R2ProviderConfig): StudioStorage
         .catch(() => undefined);
     },
 
-    async discardArchiveParts() {
-      // A multipart part is not an object: re-uploading the same part number
-      // replaces it atomically, so there is nothing to delete first.
+    async discardArchiveParts({ geometry, state, indexes }) {
+      // A LEGACY multipart part is not an object: re-uploading the same part
+      // number replaces it atomically, so there is nothing to delete first.
+      if (archiveLayoutOf(state) !== "parts") return;
+      if (!indexes.length) return;
+      // A part object at the wrong size WOULD otherwise persist and be listed
+      // as accepted, so on this lane the discard is a real delete. Every path
+      // is job-scoped, which the object plane independently enforces.
+      await objects.remove(
+        LOGICAL_ARCHIVE_BUCKET,
+        indexes.map((index) => r2ArchivePartPath(geometry.jobId, geometry.archiveId, index)),
+      );
     },
 
     archiveReader({ geometry, state, totalSize }) {
+      if (archiveLayoutOf(state) === "parts") {
+        // Identical reader, identical bounded-memory profile, on both hosts:
+        // the object plane underneath is the binding on a Worker and the S3
+        // adapter off one.
+        return new PartedArchiveReader(objects, R2_ARCHIVE_PARTS_LAYOUT, geometry, totalSize);
+      }
       if (!state.objectKey) throw new StudioArchiveUploadLostError("upload_unknown");
       // Reading a COMPLETED archive is ranged object access, which the binding
       // does natively — so the scheduled processing lane reads archives the

@@ -64,7 +64,12 @@ export interface R2BindingObjectBody extends R2BindingObjectMetadata {
 }
 
 export interface R2BindingListing {
-  objects: Array<{ key: string; size: number }>;
+  /**
+   * `etag` is the receipt R2 gave the uploader for that object. It is optional
+   * because a listing is authoritative on SIZE alone; when R2 does report it,
+   * the archive lane cross-checks the browser's claimed receipt against it.
+   */
+  objects: Array<{ key: string; size: number; etag?: string }>;
   /** Cloudflare's name for what S3 calls `CommonPrefixes`. */
   delimitedPrefixes?: string[];
   truncated?: boolean;

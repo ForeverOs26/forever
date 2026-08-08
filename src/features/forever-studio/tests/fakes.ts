@@ -36,7 +36,7 @@ import {
   type StudioUploadTarget,
 } from "../studio-types";
 import { R2Client } from "../server/storage/r2-client.server";
-import type { StudioStorageProviderSet } from "../server/storage/provider";
+import type { StudioStorageProvider, StudioStorageProviderSet } from "../server/storage/provider";
 import {
   createR2StorageProvider,
   type StudioR2Runtime,
@@ -1706,6 +1706,8 @@ export interface FakeWorld {
     partnerDemo: boolean;
     writeProvider: StudioStorageProviderId;
     r2Unavailable: boolean;
+    /** The provider resolves, but its resumable archive lane is closed. */
+    archiveControlPlaneUnavailable: boolean;
     ownerBootstrapEmail: string | null;
     ownerBootstrapUserId: string | null;
     nowValue: string;
@@ -1795,6 +1797,7 @@ export function makeWorld(
     writeProvider: "supabase" as StudioStorageProviderId,
     /** Models R2 selected but not configured: resolution must fail closed. */
     r2Unavailable: false,
+    archiveControlPlaneUnavailable: false,
     ownerBootstrapEmail: null as string | null,
     ownerBootstrapUserId: null as string | null,
     nowValue: "2026-07-21T09:00:00.000Z",
@@ -1870,6 +1873,20 @@ export function makeWorld(
     buckets: TEST_R2_BUCKETS,
     publicOrigin: TEST_PUBLIC_MEDIA_ORIGIN,
   });
+  /**
+   * A provider that is otherwise healthy but cannot drive the resumable
+   * archive lane.
+   *
+   * Both lanes report `available` today, so without this there would be no way
+   * to exercise the server-side capability boundary at all — and that boundary
+   * is what refuses a forged or stale client claim. It models the general case
+   * the contract is written for: a storage plane whose control plane is closed,
+   * whatever the reason.
+   */
+  const archiveClosedProvider: StudioStorageProvider = {
+    ...r2Provider,
+    archiveControlPlane: "temporarily_unavailable",
+  };
   const storageProviders: StudioStorageProviderSet = {
     get writeProviderId() {
       return flags.writeProvider;
@@ -1881,6 +1898,7 @@ export function makeWorld(
         // refusal must be loud, never a quiet downgrade to Supabase.
         throw new StudioAccessError("storage_provider_unavailable");
       }
+      if (flags.archiveControlPlaneUnavailable) return archiveClosedProvider;
       return r2Provider;
     },
   };

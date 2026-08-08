@@ -753,6 +753,17 @@ export function projectFieldsFromFacts(
 export interface GatheredMaterials {
   priceList: ExtractedPriceList | null;
   priceListSource: string | null;
+  /**
+   * True when the price list was DISCOVERED inside a Full Project Archive
+   * rather than filed by the Owner under a price-list window.
+   *
+   * The difference matters at exactly one point: an archive is "unsorted, sort
+   * it for me", so a price list found inside one is an inference. Applying an
+   * inference over a project that already has its imported prices would
+   * silently rewrite real commercial data, so it is refused. A price list the
+   * Owner deliberately filed is not an inference and is never refused here.
+   */
+  priceListFromArchive: boolean;
   factFields: ExtractedFactFields | null;
   media: ProgressiveMediaItem[];
   firstPhotoUrl: string | null;
@@ -1478,6 +1489,10 @@ export async function gatherMaterials(
   return {
     priceList,
     priceListSource,
+    // Everything gathered HERE was filed by the Owner under a window. Only
+    // `mergeComposedIntoMaterials` can flip this, and only for a price list it
+    // found inside an archive.
+    priceListFromArchive: false,
     factFields,
     media,
     firstPhotoUrl,

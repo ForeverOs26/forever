@@ -16,12 +16,12 @@
  */
 
 import type { StudioArchivePartTarget } from "../../studio-types";
-import type { StudioObjectDigest, StudioStorage } from "../contracts";
-import { archivePartFolder, archivePartPath } from "./archive-paths";
+import type { StudioStorage } from "../contracts";
+import { archivePartFolder, archivePartIndexFromName, archivePartPath } from "./archive-paths";
+import { PartedArchiveReader, type PartedArchiveLayout } from "./parted-archive-reader";
 import type {
   StudioAcceptedPart,
   StudioAllocatedUpload,
-  StudioArchiveByteReader,
   StudioArchiveGeometry,
   StudioArchiveStorageState,
   StudioObjectLocator,
@@ -29,83 +29,14 @@ import type {
 } from "./provider";
 import { bucketKindForLogicalBucket, LOGICAL_PRIVATE_SOURCE_BUCKET } from "./r2-layout";
 
-/** Exact stored size of one part (the last one may be short). */
-function expectedPartSize(geometry: StudioArchiveGeometry, index: number): number {
-  if (index < geometry.partCount - 1) return geometry.partSize;
-  return geometry.declaredSize - geometry.partSize * (geometry.partCount - 1);
-}
-
 /**
- * Bounded random access across the stored part objects. At most one part is
- * cached, so sequential small reads inside a part hit storage once while peak
- * memory stays ≈ one part. Moved verbatim from large-archive.ts.
+ * Where the legacy Supabase lane keeps one archive's parts. Byte-identical to
+ * the paths production already wrote — this names them, it does not move them.
  */
-class SupabasePartedReader implements StudioArchiveByteReader {
-  private cache: { index: number; data: Buffer } | null = null;
-
-  constructor(
-    private readonly storage: StudioStorage,
-    private readonly geometry: StudioArchiveGeometry,
-    private readonly totalSize: number,
-  ) {}
-
-  size(): number {
-    return this.totalSize;
-  }
-
-  private async part(index: number): Promise<Buffer> {
-    if (this.cache?.index === index) return this.cache.data;
-    const data = await this.storage.downloadWithin(
-      LOGICAL_PRIVATE_SOURCE_BUCKET,
-      archivePartPath(this.geometry.jobId, this.geometry.archiveId, index),
-      this.geometry.partSize,
-    );
-    if (!data || data.length !== expectedPartSize(this.geometry, index)) {
-      throw new Error("studio_archive_part_unreadable");
-    }
-    this.cache = { index, data };
-    return data;
-  }
-
-  async read(start: number, endExclusive: number): Promise<Buffer> {
-    if (start < 0 || endExclusive > this.totalSize || endExclusive < start) {
-      throw new Error("studio_archive_range_invalid");
-    }
-    const firstPart = Math.floor(start / this.geometry.partSize);
-    const lastPart = Math.floor((endExclusive - 1) / this.geometry.partSize);
-    const chunks: Buffer[] = [];
-    for (let index = firstPart; index <= lastPart; index += 1) {
-      const data = await this.part(index);
-      const partStart = index * this.geometry.partSize;
-      const from = Math.max(0, start - partStart);
-      const to = Math.min(data.length, endExclusive - partStart);
-      chunks.push(data.subarray(from, to));
-    }
-    // A single-part read returns a READ-ONLY view of the cached part rather
-    // than an up-to-8-MiB copy; every consumer treats source bytes as
-    // immutable and a retained view pins at most one part-sized buffer.
-    return chunks.length === 1 ? chunks[0] : Buffer.concat(chunks);
-  }
-
-  hashPart(index: number, headBytes: number): Promise<StudioObjectDigest | null> {
-    return this.storage.hashObject(
-      LOGICAL_PRIVATE_SOURCE_BUCKET,
-      archivePartPath(this.geometry.jobId, this.geometry.archiveId, index),
-      headBytes,
-    );
-  }
-
-  streamPart(
-    index: number,
-    onChunk: (chunk: Buffer) => void | Promise<void>,
-  ): Promise<number | null> {
-    return this.storage.readObjectStream(
-      LOGICAL_PRIVATE_SOURCE_BUCKET,
-      archivePartPath(this.geometry.jobId, this.geometry.archiveId, index),
-      onChunk,
-    );
-  }
-}
+const SUPABASE_ARCHIVE_LAYOUT: PartedArchiveLayout = {
+  bucket: LOGICAL_PRIVATE_SOURCE_BUCKET,
+  pathFor: (geometry, index) => archivePartPath(geometry.jobId, geometry.archiveId, index),
+};
 
 export function createSupabaseStorageProvider(storage: StudioStorage): StudioStorageProvider {
   const partTarget = async (
@@ -165,8 +96,9 @@ export function createSupabaseStorageProvider(storage: StudioStorage): StudioSto
       );
       const accepted = new Map<number, StudioAcceptedPart>();
       for (const object of listed) {
-        if (!/^\d{5}$/.test(object.name)) continue;
-        accepted.set(Number(object.name), { size: object.size });
+        const index = archivePartIndexFromName(object.name);
+        if (index === null) continue;
+        accepted.set(index, { size: object.size });
       }
       return accepted;
     },
@@ -191,7 +123,7 @@ export function createSupabaseStorageProvider(storage: StudioStorage): StudioSto
     },
 
     archiveReader({ geometry, totalSize }) {
-      return new SupabasePartedReader(storage, geometry, totalSize);
+      return new PartedArchiveReader(storage, SUPABASE_ARCHIVE_LAYOUT, geometry, totalSize);
     },
 
     buildPublicUrl(bucket, path) {
