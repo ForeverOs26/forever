@@ -621,8 +621,19 @@ export interface StudioStorage {
   createSignedUpload(bucket: string, path: string): Promise<{ token: string }>;
   /** Object names directly under `prefix`. */
   listNames(bucket: string, prefix: string): Promise<Set<string>>;
-  /** Direct child objects under `prefix` with their stored sizes. */
-  listObjects(bucket: string, prefix: string): Promise<Array<{ name: string; size: number }>>;
+  /**
+   * Direct child objects under `prefix` with their stored sizes, and — where
+   * the storage system reports one — the receipt it gave the uploader.
+   *
+   * SIZE is the authority. `etag` is optional on purpose: Supabase Storage does
+   * not report one, so nothing may depend on its presence. When it IS present
+   * it lets the archive lane catch a client holding different bytes than the
+   * ones storage accepted, before any of them are read.
+   */
+  listObjects(
+    bucket: string,
+    prefix: string,
+  ): Promise<Array<{ name: string; size: number; etag?: string }>>;
   /** Actual stored byte size and metadata, or null when the object is absent. */
   statObject(bucket: string, path: string): Promise<StudioObjectStat | null>;
   /**

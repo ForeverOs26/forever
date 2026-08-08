@@ -261,6 +261,43 @@ deployment component**, and it is the one this document recommends.
 
 ## 4. The follow-up: FOREVER-R2-BINDING-NATIVE-MULTIPART-ARCHIVE-001
 
+> **RESOLVED.** Design **A** shipped: the R2 archive lane stores parts as
+> objects, so the resume authority is `binding.list({ prefix })` and
+> `archiveControlPlane` reports `available` on `runtime = worker, provider = r2`.
+> The archive window is no longer disabled.
+>
+> What shipped, against the invariants below:
+>
+> - direct browser-to-R2 upload — **kept**: one short-lived presigned PUT per
+>   part object. Presigning is local signing, so it works unchanged on a Worker;
+> - authoritative server-verifiable resume — **kept and strengthened**: the
+>   server asks storage via a bounded prefix listing. The listing also carries
+>   each object's ETag, so the browser's claimed receipt is still cross-checked
+>   and a disagreeing part is refused, exactly as `ListParts` allowed;
+> - no Worker whole-file relay — **kept**: no archive byte enters the isolate on
+>   the upload path;
+> - bounded memory — **kept**: `PartedArchiveReader` holds ≈ one part, and it is
+>   now the SAME reader both parted lanes use;
+> - idempotent completion — **kept**: acceptance is completion, so a retried
+>   confirm returns the same state and performs no external effect;
+> - no credential expansion — **kept**: no new secret, token scope, binding or
+>   deployment component. No server-side S3 request is made at all.
+>
+> Two things deliberately did NOT happen. The gate was **not** deleted: it is
+> retained as the fail-closed boundary for any storage plane that cannot drive
+> the lane, and as the one lever that can re-close the lane without a rollback.
+> And `abortArchiveUpload` is a **no-op** on the parts lane rather than the
+> prefix sweep sketched in design A — those part objects are the privately
+> retained original archive, exactly as on the Supabase lane, so they must
+> survive an abandoned upload. A restart plans a fresh archive id, hence a fresh
+> prefix, so nothing can be resumed into or overwritten.
+>
+> Legacy archives are untouched and need no migration: a row carrying
+> `objectKey`/`multipartUploadId` still resolves to the multipart lane, which
+> still refuses on a Worker for the original reason.
+
+The original statement of the task follows, unchanged.
+
 Restoring full project-archive upload on the production Worker is tracked as a
 separate task. It is deliberately NOT part of the correction that gates the lane
 — gating is small and reversible, and the recovery of the contained production

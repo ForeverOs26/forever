@@ -32,6 +32,16 @@ import type { StudioArchiveByteReader, StudioArchiveGeometry } from "./provider"
 import { bindingForKind, type R2BucketBinding, type StudioR2Bindings } from "./r2-bindings.server";
 import { bucketKindForLogicalBucket, r2ObjectKey } from "./r2-layout";
 
+/**
+ * Quotes and the weak-validator marker are transport, not identity.
+ *
+ * Deliberately local rather than imported from the S3 client: this module is
+ * the BINDING transport and must not acquire a dependency on the S3 one.
+ */
+function unquoteEtag(value: string): string {
+  return value.trim().replace(/^W\//, "").replace(/^"|"$/g, "");
+}
+
 /** Public derivatives are immutable, content-addressed objects. */
 export const PUBLIC_MEDIA_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
@@ -228,14 +238,18 @@ export function createR2BindingObjects(input: {
     async listObjects(bucket, prefix) {
       const binding = bindingFor(bindings, bucket);
       const base = `${r2ObjectKey(bucket, prefix)}/`;
-      const found: Array<{ name: string; size: number }> = [];
+      const found: Array<{ name: string; size: number; etag?: string }> = [];
       let cursor: string | undefined;
       for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
         const listed = await inStage("object_stat", () =>
           binding.list({ prefix: base, delimiter: "/", ...(cursor ? { cursor } : {}) }),
         );
         for (const object of listed.objects ?? []) {
-          found.push({ name: object.key.slice(base.length), size: object.size });
+          found.push({
+            name: object.key.slice(base.length),
+            size: object.size,
+            ...(object.etag ? { etag: unquoteEtag(object.etag) } : {}),
+          });
         }
         if (!listed.truncated || !listed.cursor) break;
         cursor = listed.cursor;

@@ -241,8 +241,11 @@ export class R2Client {
     bucket: string,
     prefix: string,
     delimiter = "/",
-  ): Promise<{ objects: Array<{ key: string; size: number }>; prefixes: string[] }> {
-    const objects: Array<{ key: string; size: number }> = [];
+  ): Promise<{
+    objects: Array<{ key: string; size: number; etag?: string }>;
+    prefixes: string[];
+  }> {
+    const objects: Array<{ key: string; size: number; etag?: string }> = [];
     const prefixes: string[] = [];
     let token: string | undefined;
     for (let page = 0; page < 20; page += 1) {
@@ -262,7 +265,12 @@ export class R2Client {
       for (const block of xmlBlocks(xml, "Contents")) {
         const key = xmlUnescape(xmlValue(block, "Key") ?? "");
         if (!key) continue;
-        objects.push({ key, size: Number(xmlValue(block, "Size") ?? "0") });
+        const etag = normalizeEtag(xmlUnescape(xmlValue(block, "ETag") ?? ""));
+        objects.push({
+          key,
+          size: Number(xmlValue(block, "Size") ?? "0"),
+          ...(etag ? { etag } : {}),
+        });
       }
       for (const block of xmlBlocks(xml, "CommonPrefixes")) {
         const value = xmlUnescape(xmlValue(block, "Prefix") ?? "");

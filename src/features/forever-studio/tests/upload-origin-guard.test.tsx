@@ -647,7 +647,9 @@ describe("production-origin uploads are completely unaffected", () => {
     expect(plan.partCount).toBeGreaterThan(0);
     expect(plan.parts).toHaveLength(plan.partCount);
     expect(world.data.archives.size).toBe(1);
-    expect(world.r2.uploads.size).toBe(1);
+    // Parts-as-objects: one signed target per part and NO multipart upload, so
+    // there is nothing for R2's platform expiry to take away mid-upload.
+    expect(world.r2.uploads.size).toBe(0);
 
     // And a replan of the identical manifest resumes the same archive.
     const replan = await guardedUpload(requestFrom(PRODUCTION_ORIGIN), () =>

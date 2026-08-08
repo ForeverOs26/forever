@@ -653,8 +653,9 @@ export async function confirmArchiveUpload(
   }
   if (badIndexes.length > 0) {
     // Absent or wrong-sized pieces are discarded where the provider needs it
-    // (a Supabase part object is deleted so a fresh signed target can rewrite
-    // it; an R2 multipart part is simply replaced by re-uploading its number).
+    // (a part OBJECT — Supabase, or R2 since the parts lane — is deleted so a
+    // fresh signed target can rewrite it; a legacy R2 multipart part is simply
+    // replaced by re-uploading its number).
     // The archive stays unaccepted until every part is right.
     await provider.discardArchiveParts({
       geometry: geometryOf(job, archive),

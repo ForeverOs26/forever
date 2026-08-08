@@ -66,27 +66,70 @@ export interface StudioAllocatedUpload {
 }
 
 /**
+ * How one archive's bytes are laid out in storage.
+ *
+ * `parts`     — many fixed-size part objects under one deterministic prefix.
+ *               "Which parts does storage hold" is then an ordinary bounded
+ *               listing, which every host can answer, and the reader assembles
+ *               ranges on demand. Both lanes write this today.
+ * `multipart` — ONE object assembled by an S3 multipart upload, whose resume
+ *               authority is `ListParts`. LEGACY: only archives written before
+ *               FOREVER-R2-BINDING-NATIVE-MULTIPART-ARCHIVE-001 carry it, and
+ *               they keep resuming and reading through the lane they were
+ *               created on.
+ */
+export type StudioArchiveLayout = "parts" | "multipart";
+
+/**
  * Durable identity of one archive's upload, stored on the archive row.
  *
  * SUPABASE: the archive is many fixed-size part objects under a deterministic
  * folder; there is no extra identity to keep, so only `provider` is set.
  *
- * R2: the archive is ONE object assembled by a multipart upload. The object key
- * and the multipart upload id are the durable identity that makes resume
- * possible after the browser, the tab, or the whole worker went away.
+ * R2: new archives are parts-as-objects under one archive-scoped prefix, so the
+ * prefix (derived from the geometry) is the whole identity. An archive written
+ * before that carries `multipartUploadId` and is read through the multipart
+ * lane forever — which is what makes this change migration-free.
  */
 export interface StudioArchiveStorageState {
   provider: StudioStorageProviderId;
-  /** R2: logical bucket holding the assembled archive. */
+  /**
+   * How these bytes are laid out, recorded so a row is self-describing.
+   *
+   * DIAGNOSTIC, never authoritative: it is absent on every row written before
+   * the parts lane existed, so `archiveLayoutOf` derives the answer from the
+   * legacy markers instead and a stored value can never override them.
+   */
+  layout?: StudioArchiveLayout;
+  /** R2: logical bucket holding the archive's objects. */
   bucket?: string;
-  /** R2: logical object path of the assembled archive. */
+  /** R2 (multipart, LEGACY): logical object path of the assembled archive. */
   objectKey?: string;
-  /** R2: the multipart upload id. NOT a credential; useless without keys. */
+  /** R2 (multipart, LEGACY): the upload id. NOT a credential; useless alone. */
   multipartUploadId?: string;
-  /** R2: part receipts observed at completion time (audit/resume evidence). */
+  /** R2 (multipart, LEGACY): part receipts observed at completion time. */
   parts?: StudioArchivePartReceipt[];
-  /** R2: true once CompleteMultipartUpload succeeded for this key. */
+  /** True once the archive's bytes are final and readable. */
   completed?: boolean;
+}
+
+/**
+ * The layout a stored state denotes.
+ *
+ * Total, and safe for a row written before `layout` existed. The rule is driven
+ * by the two fields ONLY the multipart lane ever wrote — the assembled object
+ * key and the upload id — because their presence is durable evidence of where
+ * the bytes actually are. The parts lane writes neither, so their joint absence
+ * is what makes a state a parts state.
+ *
+ * Deliberately NOT `state.layout`: trusting a stored label over that evidence
+ * would let one wrong or hand-edited field send an assembled archive down a
+ * prefix listing, which would read an empty archive as legitimately empty.
+ * Fail toward the layout the bytes are in.
+ */
+export function archiveLayoutOf(state: StudioArchiveStorageState): StudioArchiveLayout {
+  if (state.multipartUploadId || state.objectKey) return "multipart";
+  return "parts";
 }
 
 /** What the storage system actually holds for one archive part. */
